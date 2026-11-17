@@ -7,8 +7,8 @@
         "id": "n1",
         "type": "VStack",
         "props": {
-          "alignment": "leading",
           "spacing": 6,
+          "alignment": "leading",
           "padding": 16,
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
@@ -18,73 +18,82 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": 28, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 28, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 13, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 13, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n2", "children": ["n3", "n4"] },
-      { "op": "create", "id": "n5", "type": "ForEach", "props": {} },
-      { "op": "create", "id": "n6", "type": "Group", "props": {} },
-      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n6", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n5", "children": ["n6"] },
       { "op": "create", "id": "n7", "type": "Group", "props": {} },
       { "op": "children", "id": "n7", "children": [] },
       { "op": "create", "id": "n8", "type": "Group", "props": {} },
       { "op": "children", "id": "n8", "children": [] },
       { "op": "create", "id": "n9", "type": "Group", "props": {} },
       { "op": "children", "id": "n9", "children": [] },
-      { "op": "children", "id": "n1", "children": ["n2", "n5", "n6", "n7", "n8", "n9"] },
+      { "op": "create", "id": "n10", "type": "Group", "props": {} },
+      { "op": "children", "id": "n10", "children": [] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n7", "n8", "n9", "n10"] },
       { "op": "root", "id": "n1" },
       { "op": "update", "id": "n3", "props": { "text": "6" } },
-      { "op": "create", "id": "n10", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n11", "type": "Group", "props": {} },
-      { "op": "children", "id": "n11", "children": [] },
       {
         "op": "create",
-        "id": "n12",
+        "id": "n11",
         "type": "HStack",
         "props": {
-          "spacing": 6,
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
           "cursor": "pointer",
           "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n13", "type": "Group", "props": {} },
+      { "op": "create", "id": "n12", "type": "Group", "props": {} },
       {
         "op": "create",
-        "id": "n14",
+        "id": "n13",
         "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 15 }
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n13", "children": ["n14"] },
+      { "op": "children", "id": "n12", "children": ["n13"] },
+      { "op": "create", "id": "n14", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n15",
         "type": "Text",
-        "props": { "font": 12, "lineLimit": 1, "text": "Pick up dry cleaning", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n16", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n12", "children": ["n13", "n15", "n16"] },
-      { "op": "children", "id": "n10", "children": ["n11", "n12"] },
-      { "op": "create", "id": "n17", "type": "VStack", "props": { "spacing": 0 } },
+      { "op": "create", "id": "n16", "type": "Group", "props": {} },
+      { "op": "children", "id": "n16", "children": [] },
+      { "op": "children", "id": "n14", "children": ["n15", "n16"] },
+      { "op": "create", "id": "n17", "type": "Spacer", "props": {} },
       { "op": "create", "id": "n18", "type": "Group", "props": {} },
       { "op": "children", "id": "n18", "children": [] },
+      { "op": "children", "id": "n11", "children": ["n12", "n14", "n17", "n18"] },
       {
         "op": "create",
         "id": "n19",
         "type": "HStack",
         "props": {
-          "spacing": 6,
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
           "cursor": "pointer",
           "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
@@ -93,54 +102,77 @@
         "op": "create",
         "id": "n21",
         "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 15 }
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n20", "children": ["n21"] },
+      { "op": "create", "id": "n22", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n22",
+        "id": "n23",
         "type": "Text",
-        "props": { "font": 12, "lineLimit": 1, "text": "Book flights for the offsite", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n23", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n19", "children": ["n20", "n22", "n23"] },
-      { "op": "children", "id": "n17", "children": ["n18", "n19"] },
-      { "op": "create", "id": "n24", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n25", "type": "Group", "props": {} },
-      { "op": "children", "id": "n25", "children": [] },
+      { "op": "create", "id": "n24", "type": "Group", "props": {} },
+      { "op": "children", "id": "n24", "children": [] },
+      { "op": "children", "id": "n22", "children": ["n23", "n24"] },
+      { "op": "create", "id": "n25", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n26", "type": "Group", "props": {} },
+      { "op": "children", "id": "n26", "children": [] },
+      { "op": "children", "id": "n19", "children": ["n20", "n22", "n25", "n26"] },
       {
         "op": "create",
-        "id": "n26",
+        "id": "n27",
         "type": "HStack",
         "props": {
-          "spacing": 6,
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
           "cursor": "pointer",
           "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n27", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n28",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 15 }
-      },
-      { "op": "children", "id": "n27", "children": ["n28"] },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
       {
         "op": "create",
         "id": "n29",
-        "type": "Text",
-        "props": { "font": 12, "lineLimit": 1, "text": "Call the dentist", "color": "primary" }
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "create", "id": "n30", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n26", "children": ["n27", "n29", "n30"] },
-      { "op": "children", "id": "n24", "children": ["n25", "n26"] },
-      { "op": "children", "id": "n5", "children": ["n10", "n17", "n24"] },
-      { "op": "create", "id": "n31", "type": "Text", "props": { "font": 12, "color": "secondary", "text": "3 more" } },
-      { "op": "children", "id": "n6", "children": ["n31"] }
+      { "op": "children", "id": "n28", "children": ["n29"] },
+      { "op": "create", "id": "n30", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n31",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Call the dentist",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n32", "type": "Group", "props": {} },
+      { "op": "children", "id": "n32", "children": [] },
+      { "op": "children", "id": "n30", "children": ["n31", "n32"] },
+      { "op": "create", "id": "n33", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n34", "type": "Group", "props": {} },
+      { "op": "children", "id": "n34", "children": [] },
+      { "op": "children", "id": "n27", "children": ["n28", "n30", "n33", "n34"] },
+      { "op": "children", "id": "n6", "children": ["n11", "n19", "n27"] },
+      { "op": "create", "id": "n35", "type": "Text", "props": { "font": 12, "color": "secondary", "text": "3 more" } },
+      { "op": "children", "id": "n7", "children": ["n35"] }
     ]
   },
   "medium": {
@@ -150,7 +182,12 @@
         "op": "create",
         "id": "n1",
         "type": "HStack",
-        "props": { "spacing": 14, "padding": 16, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": {
+          "spacing": 14,
+          "alignment": "top",
+          "padding": 16,
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+        }
       },
       {
         "op": "create",
@@ -163,13 +200,13 @@
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n5",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n3", "children": ["n4", "n5"] },
       { "op": "create", "id": "n6", "type": "Group", "props": {} },
@@ -179,19 +216,19 @@
         "op": "create",
         "id": "n7",
         "type": "VStack",
-        "props": { "alignment": "leading", "spacing": 0, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": { "alignment": "leading", "spacing": 8, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
       },
       { "op": "create", "id": "n8", "type": "Group", "props": {} },
       { "op": "children", "id": "n8", "children": [] },
-      { "op": "create", "id": "n9", "type": "ForEach", "props": {} },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n9", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n10", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n9", "children": ["n10"] },
+      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 8 } },
       {
         "op": "create",
         "id": "n12",
         "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
       },
       {
         "op": "create",
@@ -209,117 +246,140 @@
       { "op": "children", "id": "n11", "children": ["n12", "n13"] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "children", "id": "n7", "children": ["n8", "n9", "n10", "n11", "n14"] },
+      { "op": "children", "id": "n7", "children": ["n8", "n9", "n11", "n14"] },
       { "op": "children", "id": "n1", "children": ["n2", "n7"] },
       { "op": "root", "id": "n1" },
       { "op": "update", "id": "n4", "props": { "text": "6" } },
-      { "op": "create", "id": "n15", "type": "VStack", "props": { "spacing": 0 } },
+      {
+        "op": "create",
+        "id": "n15",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
       { "op": "create", "id": "n16", "type": "Group", "props": {} },
-      { "op": "children", "id": "n16", "children": [] },
       {
         "op": "create",
         "id": "n17",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
-          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
-        }
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "create", "id": "n18", "type": "Group", "props": {} },
+      { "op": "children", "id": "n16", "children": ["n17"] },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "children", "id": "n18", "children": ["n19"] },
+      { "op": "create", "id": "n20", "type": "Group", "props": {} },
+      { "op": "children", "id": "n20", "children": [] },
+      { "op": "children", "id": "n18", "children": ["n19", "n20"] },
+      { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n22", "type": "Group", "props": {} },
+      { "op": "children", "id": "n22", "children": [] },
+      { "op": "children", "id": "n15", "children": ["n16", "n18", "n21", "n22"] },
       {
         "op": "create",
-        "id": "n20",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Pick up dry cleaning", "color": "primary" }
+        "id": "n23",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
       },
-      { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n17", "children": ["n18", "n20", "n21"] },
-      { "op": "children", "id": "n15", "children": ["n16", "n17"] },
-      { "op": "create", "id": "n22", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n23", "type": "Group", "props": {} },
-      { "op": "create", "id": "n24", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n23", "children": ["n24"] },
+      { "op": "create", "id": "n24", "type": "Group", "props": {} },
       {
         "op": "create",
         "id": "n25",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
-          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
-        }
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "create", "id": "n26", "type": "Group", "props": {} },
+      { "op": "children", "id": "n24", "children": ["n25"] },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n26", "children": ["n27"] },
-      {
-        "op": "create",
-        "id": "n28",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Book flights for the offsite", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
+      { "op": "children", "id": "n28", "children": [] },
+      { "op": "children", "id": "n26", "children": ["n27", "n28"] },
       { "op": "create", "id": "n29", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n25", "children": ["n26", "n28", "n29"] },
-      { "op": "children", "id": "n22", "children": ["n23", "n25"] },
-      { "op": "create", "id": "n30", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n31", "type": "Group", "props": {} },
-      { "op": "create", "id": "n32", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n31", "children": ["n32"] },
+      { "op": "create", "id": "n30", "type": "Group", "props": {} },
+      { "op": "children", "id": "n30", "children": [] },
+      { "op": "children", "id": "n23", "children": ["n24", "n26", "n29", "n30"] },
       {
         "op": "create",
-        "id": "n33",
+        "id": "n31",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n34", "type": "Group", "props": {} },
+      { "op": "create", "id": "n32", "type": "Group", "props": {} },
       {
         "op": "create",
-        "id": "n35",
+        "id": "n33",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n34", "children": ["n35"] },
+      { "op": "children", "id": "n32", "children": ["n33"] },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n36",
+        "id": "n35",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Call the dentist", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Call the dentist",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
+      { "op": "create", "id": "n36", "type": "Group", "props": {} },
+      { "op": "children", "id": "n36", "children": [] },
+      { "op": "children", "id": "n34", "children": ["n35", "n36"] },
       { "op": "create", "id": "n37", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n33", "children": ["n34", "n36", "n37"] },
-      { "op": "children", "id": "n30", "children": ["n31", "n33"] },
-      { "op": "children", "id": "n9", "children": ["n15", "n22", "n30"] },
-      { "op": "create", "id": "n38", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n10", "children": ["n38"] },
+      { "op": "create", "id": "n38", "type": "Group", "props": {} },
+      { "op": "children", "id": "n38", "children": [] },
+      { "op": "children", "id": "n31", "children": ["n32", "n34", "n37", "n38"] },
+      { "op": "children", "id": "n10", "children": ["n15", "n23", "n31"] },
       { "op": "create", "id": "n39", "type": "Text", "props": { "font": 12, "color": "secondary", "text": "3 more" } },
       { "op": "children", "id": "n6", "children": ["n39"] }
     ]
@@ -332,8 +392,8 @@
         "id": "n1",
         "type": "VStack",
         "props": {
+          "spacing": 10,
           "alignment": "leading",
-          "spacing": 8,
           "padding": 16,
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
@@ -343,34 +403,33 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n2", "children": ["n3", "n4"] },
-      { "op": "create", "id": "n5", "type": "Divider", "props": {} },
-      { "op": "create", "id": "n6", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
-      { "op": "create", "id": "n7", "type": "Group", "props": {} },
-      { "op": "children", "id": "n7", "children": [] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n6", "type": "Group", "props": {} },
+      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n7", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
       { "op": "create", "id": "n8", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n7", "children": ["n8"] },
       { "op": "create", "id": "n9", "type": "Group", "props": {} },
       { "op": "children", "id": "n9", "children": [] },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n10", "type": "HStack", "props": { "spacing": 8 } },
+      {
+        "op": "create",
+        "id": "n11",
+        "type": "Icon",
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
+      },
       {
         "op": "create",
         "id": "n12",
-        "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
-      },
-      {
-        "op": "create",
-        "id": "n13",
         "type": "TextField",
         "props": {
           "placeholder": "New item",
@@ -381,248 +440,297 @@
           "text": ""
         }
       },
-      { "op": "children", "id": "n11", "children": ["n12", "n13"] },
-      { "op": "children", "id": "n6", "children": ["n7", "n8", "n9", "n10", "n11"] },
+      { "op": "children", "id": "n10", "children": ["n11", "n12"] },
+      { "op": "children", "id": "n5", "children": ["n6", "n7", "n9", "n10"] },
+      { "op": "create", "id": "n13", "type": "Group", "props": {} },
+      { "op": "children", "id": "n13", "children": [] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "create", "id": "n15", "type": "Group", "props": {} },
-      { "op": "children", "id": "n15", "children": [] },
-      { "op": "children", "id": "n1", "children": ["n2", "n5", "n6", "n14", "n15"] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n13", "n14"] },
       { "op": "root", "id": "n1" },
       { "op": "update", "id": "n3", "props": { "text": "6" } },
-      { "op": "create", "id": "n16", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n17", "type": "Group", "props": {} },
-      { "op": "children", "id": "n17", "children": [] },
       {
         "op": "create",
-        "id": "n18",
+        "id": "n15",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n19", "type": "Group", "props": {} },
+      { "op": "create", "id": "n16", "type": "Group", "props": {} },
       {
         "op": "create",
-        "id": "n20",
+        "id": "n17",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n19", "children": ["n20"] },
+      { "op": "children", "id": "n16", "children": ["n17"] },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n21",
+        "id": "n19",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Pick up dry cleaning", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n22", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n18", "children": ["n19", "n21", "n22"] },
-      { "op": "children", "id": "n16", "children": ["n17", "n18"] },
-      { "op": "create", "id": "n23", "type": "VStack", "props": { "spacing": 0 } },
+      { "op": "create", "id": "n20", "type": "Group", "props": {} },
+      { "op": "children", "id": "n20", "children": [] },
+      { "op": "children", "id": "n18", "children": ["n19", "n20"] },
+      { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n22", "type": "Group", "props": {} },
+      { "op": "children", "id": "n22", "children": [] },
+      { "op": "children", "id": "n15", "children": ["n16", "n18", "n21", "n22"] },
+      {
+        "op": "create",
+        "id": "n23",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
       { "op": "create", "id": "n24", "type": "Group", "props": {} },
-      { "op": "create", "id": "n25", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n25",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n24", "children": ["n25"] },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n26",
+        "id": "n27",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
+      { "op": "children", "id": "n28", "children": [] },
+      { "op": "children", "id": "n26", "children": ["n27", "n28"] },
+      { "op": "create", "id": "n29", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n30", "type": "Group", "props": {} },
+      { "op": "children", "id": "n30", "children": [] },
+      { "op": "children", "id": "n23", "children": ["n24", "n26", "n29", "n30"] },
+      {
+        "op": "create",
+        "id": "n31",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n27", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n28",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n27", "children": ["n28"] },
-      {
-        "op": "create",
-        "id": "n29",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Book flights for the offsite", "color": "primary" }
-      },
-      { "op": "create", "id": "n30", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n26", "children": ["n27", "n29", "n30"] },
-      { "op": "children", "id": "n23", "children": ["n24", "n26"] },
-      { "op": "create", "id": "n31", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n32", "type": "Group", "props": {} },
-      { "op": "create", "id": "n33", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n33",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n32", "children": ["n33"] },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n34",
+        "id": "n35",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Call the dentist",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n36", "type": "Group", "props": {} },
+      { "op": "children", "id": "n36", "children": [] },
+      { "op": "children", "id": "n34", "children": ["n35", "n36"] },
+      { "op": "create", "id": "n37", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n38", "type": "Group", "props": {} },
+      { "op": "children", "id": "n38", "children": [] },
+      { "op": "children", "id": "n31", "children": ["n32", "n34", "n37", "n38"] },
+      {
+        "op": "create",
+        "id": "n39",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n35", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n36",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n35", "children": ["n36"] },
-      {
-        "op": "create",
-        "id": "n37",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Call the dentist", "color": "primary" }
-      },
-      { "op": "create", "id": "n38", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n34", "children": ["n35", "n37", "n38"] },
-      { "op": "children", "id": "n31", "children": ["n32", "n34"] },
-      { "op": "create", "id": "n39", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n40", "type": "Group", "props": {} },
-      { "op": "create", "id": "n41", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n41",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n40", "children": ["n41"] },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n42",
+        "id": "n43",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Renew passport",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n44", "type": "Group", "props": {} },
+      { "op": "children", "id": "n44", "children": [] },
+      { "op": "children", "id": "n42", "children": ["n43", "n44"] },
+      { "op": "create", "id": "n45", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n46", "type": "Group", "props": {} },
+      { "op": "children", "id": "n46", "children": [] },
+      { "op": "children", "id": "n39", "children": ["n40", "n42", "n45", "n46"] },
+      {
+        "op": "create",
+        "id": "n47",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n43", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n44",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n43", "children": ["n44"] },
-      {
-        "op": "create",
-        "id": "n45",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Renew passport", "color": "primary" }
-      },
-      { "op": "create", "id": "n46", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n42", "children": ["n43", "n45", "n46"] },
-      { "op": "children", "id": "n39", "children": ["n40", "n42"] },
-      { "op": "create", "id": "n47", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n48", "type": "Group", "props": {} },
-      { "op": "create", "id": "n49", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n49",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n48", "children": ["n49"] },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n50",
+        "id": "n51",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Order a birthday gift for Sam",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n52", "type": "Group", "props": {} },
+      { "op": "children", "id": "n52", "children": [] },
+      { "op": "children", "id": "n50", "children": ["n51", "n52"] },
+      { "op": "create", "id": "n53", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n54", "type": "Group", "props": {} },
+      { "op": "children", "id": "n54", "children": [] },
+      { "op": "children", "id": "n47", "children": ["n48", "n50", "n53", "n54"] },
+      {
+        "op": "create",
+        "id": "n55",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n51", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n52",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n51", "children": ["n52"] },
-      {
-        "op": "create",
-        "id": "n53",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Order a birthday gift for Sam", "color": "primary" }
-      },
-      { "op": "create", "id": "n54", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n50", "children": ["n51", "n53", "n54"] },
-      { "op": "children", "id": "n47", "children": ["n48", "n50"] },
-      { "op": "create", "id": "n55", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n56", "type": "Group", "props": {} },
-      { "op": "create", "id": "n57", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n56", "children": ["n57"] },
       {
         "op": "create",
-        "id": "n58",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
-          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
-        }
-      },
-      { "op": "create", "id": "n59", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n60",
+        "id": "n57",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n59", "children": ["n60"] },
+      { "op": "children", "id": "n56", "children": ["n57"] },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n61",
+        "id": "n59",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Back up the laptop", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Back up the laptop",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n62", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n58", "children": ["n59", "n61", "n62"] },
-      { "op": "children", "id": "n55", "children": ["n56", "n58"] },
-      { "op": "children", "id": "n8", "children": ["n16", "n23", "n31", "n39", "n47", "n55"] },
-      { "op": "create", "id": "n63", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n10", "children": ["n63"] },
-      { "op": "create", "id": "n64", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
-      { "op": "create", "id": "n65", "type": "HStack", "props": { "spacing": 6, "cursor": "pointer", "onTap": true } },
+      { "op": "create", "id": "n60", "type": "Group", "props": {} },
+      { "op": "children", "id": "n60", "children": [] },
+      { "op": "children", "id": "n58", "children": ["n59", "n60"] },
+      { "op": "create", "id": "n61", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n62", "type": "Group", "props": {} },
+      { "op": "children", "id": "n62", "children": [] },
+      { "op": "children", "id": "n55", "children": ["n56", "n58", "n61", "n62"] },
+      { "op": "children", "id": "n8", "children": ["n15", "n23", "n31", "n39", "n47", "n55"] },
+      { "op": "create", "id": "n63", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n64", "type": "HStack", "props": { "spacing": 6, "cursor": "pointer", "onTap": true } },
       {
         "op": "create",
-        "id": "n66",
+        "id": "n65",
         "type": "Icon",
         "props": { "size": 12, "color": "secondary", "symbol": "disclosure.collapsed" }
       },
       {
         "op": "create",
-        "id": "n67",
+        "id": "n66",
         "type": "Text",
         "props": { "font": 12, "color": "secondary", "text": "3 Completed" }
       },
-      { "op": "create", "id": "n68", "type": "Spacer", "props": {} },
-      { "op": "create", "id": "n69", "type": "Group", "props": {} },
-      { "op": "children", "id": "n69", "children": [] },
-      { "op": "children", "id": "n65", "children": ["n66", "n67", "n68", "n69"] },
+      { "op": "create", "id": "n67", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n68", "type": "Group", "props": {} },
+      { "op": "children", "id": "n68", "children": [] },
+      { "op": "children", "id": "n64", "children": ["n65", "n66", "n67", "n68"] },
+      { "op": "create", "id": "n69", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
       { "op": "create", "id": "n70", "type": "ForEach", "props": {} },
-      { "op": "children", "id": "n64", "children": ["n65", "n70"] },
-      { "op": "children", "id": "n14", "children": ["n64"] }
+      { "op": "children", "id": "n69", "children": ["n70"] },
+      { "op": "children", "id": "n63", "children": ["n64", "n69"] },
+      { "op": "children", "id": "n13", "children": ["n63"] }
     ]
   },
   "large-completed-open": {
@@ -633,8 +741,8 @@
         "id": "n1",
         "type": "VStack",
         "props": {
+          "spacing": 10,
           "alignment": "leading",
-          "spacing": 8,
           "padding": 16,
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
@@ -644,34 +752,33 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n2", "children": ["n3", "n4"] },
-      { "op": "create", "id": "n5", "type": "Divider", "props": {} },
-      { "op": "create", "id": "n6", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
-      { "op": "create", "id": "n7", "type": "Group", "props": {} },
-      { "op": "children", "id": "n7", "children": [] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n6", "type": "Group", "props": {} },
+      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n7", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
       { "op": "create", "id": "n8", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n7", "children": ["n8"] },
       { "op": "create", "id": "n9", "type": "Group", "props": {} },
       { "op": "children", "id": "n9", "children": [] },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n10", "type": "HStack", "props": { "spacing": 8 } },
+      {
+        "op": "create",
+        "id": "n11",
+        "type": "Icon",
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
+      },
       {
         "op": "create",
         "id": "n12",
-        "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
-      },
-      {
-        "op": "create",
-        "id": "n13",
         "type": "TextField",
         "props": {
           "placeholder": "New item",
@@ -682,370 +789,880 @@
           "text": ""
         }
       },
-      { "op": "children", "id": "n11", "children": ["n12", "n13"] },
-      { "op": "children", "id": "n6", "children": ["n7", "n8", "n9", "n10", "n11"] },
+      { "op": "children", "id": "n10", "children": ["n11", "n12"] },
+      { "op": "children", "id": "n5", "children": ["n6", "n7", "n9", "n10"] },
+      { "op": "create", "id": "n13", "type": "Group", "props": {} },
+      { "op": "children", "id": "n13", "children": [] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "create", "id": "n15", "type": "Group", "props": {} },
-      { "op": "children", "id": "n15", "children": [] },
-      { "op": "children", "id": "n1", "children": ["n2", "n5", "n6", "n14", "n15"] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n13", "n14"] },
       { "op": "root", "id": "n1" },
       { "op": "update", "id": "n3", "props": { "text": "6" } },
-      { "op": "create", "id": "n16", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n17", "type": "Group", "props": {} },
-      { "op": "children", "id": "n17", "children": [] },
       {
         "op": "create",
-        "id": "n18",
+        "id": "n15",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n19", "type": "Group", "props": {} },
+      { "op": "create", "id": "n16", "type": "Group", "props": {} },
       {
         "op": "create",
-        "id": "n20",
+        "id": "n17",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n19", "children": ["n20"] },
+      { "op": "children", "id": "n16", "children": ["n17"] },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n21",
+        "id": "n19",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Pick up dry cleaning", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n22", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n18", "children": ["n19", "n21", "n22"] },
-      { "op": "children", "id": "n16", "children": ["n17", "n18"] },
-      { "op": "create", "id": "n23", "type": "VStack", "props": { "spacing": 0 } },
+      { "op": "create", "id": "n20", "type": "Group", "props": {} },
+      { "op": "children", "id": "n20", "children": [] },
+      { "op": "children", "id": "n18", "children": ["n19", "n20"] },
+      { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n22", "type": "Group", "props": {} },
+      { "op": "children", "id": "n22", "children": [] },
+      { "op": "children", "id": "n15", "children": ["n16", "n18", "n21", "n22"] },
+      {
+        "op": "create",
+        "id": "n23",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
       { "op": "create", "id": "n24", "type": "Group", "props": {} },
-      { "op": "create", "id": "n25", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n25",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n24", "children": ["n25"] },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n26",
+        "id": "n27",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
+      { "op": "children", "id": "n28", "children": [] },
+      { "op": "children", "id": "n26", "children": ["n27", "n28"] },
+      { "op": "create", "id": "n29", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n30", "type": "Group", "props": {} },
+      { "op": "children", "id": "n30", "children": [] },
+      { "op": "children", "id": "n23", "children": ["n24", "n26", "n29", "n30"] },
+      {
+        "op": "create",
+        "id": "n31",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n27", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n28",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n27", "children": ["n28"] },
-      {
-        "op": "create",
-        "id": "n29",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Book flights for the offsite", "color": "primary" }
-      },
-      { "op": "create", "id": "n30", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n26", "children": ["n27", "n29", "n30"] },
-      { "op": "children", "id": "n23", "children": ["n24", "n26"] },
-      { "op": "create", "id": "n31", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n32", "type": "Group", "props": {} },
-      { "op": "create", "id": "n33", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n33",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n32", "children": ["n33"] },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n34",
+        "id": "n35",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Call the dentist",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n36", "type": "Group", "props": {} },
+      { "op": "children", "id": "n36", "children": [] },
+      { "op": "children", "id": "n34", "children": ["n35", "n36"] },
+      { "op": "create", "id": "n37", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n38", "type": "Group", "props": {} },
+      { "op": "children", "id": "n38", "children": [] },
+      { "op": "children", "id": "n31", "children": ["n32", "n34", "n37", "n38"] },
+      {
+        "op": "create",
+        "id": "n39",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n35", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n36",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n35", "children": ["n36"] },
-      {
-        "op": "create",
-        "id": "n37",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Call the dentist", "color": "primary" }
-      },
-      { "op": "create", "id": "n38", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n34", "children": ["n35", "n37", "n38"] },
-      { "op": "children", "id": "n31", "children": ["n32", "n34"] },
-      { "op": "create", "id": "n39", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n40", "type": "Group", "props": {} },
-      { "op": "create", "id": "n41", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n41",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n40", "children": ["n41"] },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n42",
+        "id": "n43",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Renew passport",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n44", "type": "Group", "props": {} },
+      { "op": "children", "id": "n44", "children": [] },
+      { "op": "children", "id": "n42", "children": ["n43", "n44"] },
+      { "op": "create", "id": "n45", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n46", "type": "Group", "props": {} },
+      { "op": "children", "id": "n46", "children": [] },
+      { "op": "children", "id": "n39", "children": ["n40", "n42", "n45", "n46"] },
+      {
+        "op": "create",
+        "id": "n47",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n43", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n44",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n43", "children": ["n44"] },
-      {
-        "op": "create",
-        "id": "n45",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Renew passport", "color": "primary" }
-      },
-      { "op": "create", "id": "n46", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n42", "children": ["n43", "n45", "n46"] },
-      { "op": "children", "id": "n39", "children": ["n40", "n42"] },
-      { "op": "create", "id": "n47", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n48", "type": "Group", "props": {} },
-      { "op": "create", "id": "n49", "type": "Divider", "props": { "padding": { "leading": 28 } } },
+      {
+        "op": "create",
+        "id": "n49",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
       { "op": "children", "id": "n48", "children": ["n49"] },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n50",
+        "id": "n51",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Order a birthday gift for Sam",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n52", "type": "Group", "props": {} },
+      { "op": "children", "id": "n52", "children": [] },
+      { "op": "children", "id": "n50", "children": ["n51", "n52"] },
+      { "op": "create", "id": "n53", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n54", "type": "Group", "props": {} },
+      { "op": "children", "id": "n54", "children": [] },
+      { "op": "children", "id": "n47", "children": ["n48", "n50", "n53", "n54"] },
+      {
+        "op": "create",
+        "id": "n55",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n51", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n52",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n51", "children": ["n52"] },
-      {
-        "op": "create",
-        "id": "n53",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Order a birthday gift for Sam", "color": "primary" }
-      },
-      { "op": "create", "id": "n54", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n50", "children": ["n51", "n53", "n54"] },
-      { "op": "children", "id": "n47", "children": ["n48", "n50"] },
-      { "op": "create", "id": "n55", "type": "VStack", "props": { "spacing": 0 } },
       { "op": "create", "id": "n56", "type": "Group", "props": {} },
-      { "op": "create", "id": "n57", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n56", "children": ["n57"] },
       {
         "op": "create",
-        "id": "n58",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
-          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
-        }
-      },
-      { "op": "create", "id": "n59", "type": "Group", "props": {} },
-      {
-        "op": "create",
-        "id": "n60",
+        "id": "n57",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n59", "children": ["n60"] },
+      { "op": "children", "id": "n56", "children": ["n57"] },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n61",
+        "id": "n59",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Back up the laptop", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Back up the laptop",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
-      { "op": "create", "id": "n62", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n58", "children": ["n59", "n61", "n62"] },
-      { "op": "children", "id": "n55", "children": ["n56", "n58"] },
-      { "op": "children", "id": "n8", "children": ["n16", "n23", "n31", "n39", "n47", "n55"] },
-      { "op": "create", "id": "n63", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n10", "children": ["n63"] },
-      { "op": "create", "id": "n64", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
-      { "op": "create", "id": "n65", "type": "HStack", "props": { "spacing": 6, "cursor": "pointer", "onTap": true } },
+      { "op": "create", "id": "n60", "type": "Group", "props": {} },
+      { "op": "children", "id": "n60", "children": [] },
+      { "op": "children", "id": "n58", "children": ["n59", "n60"] },
+      { "op": "create", "id": "n61", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n62", "type": "Group", "props": {} },
+      { "op": "children", "id": "n62", "children": [] },
+      { "op": "children", "id": "n55", "children": ["n56", "n58", "n61", "n62"] },
+      { "op": "children", "id": "n8", "children": ["n15", "n23", "n31", "n39", "n47", "n55"] },
+      { "op": "create", "id": "n63", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n64", "type": "HStack", "props": { "spacing": 6, "cursor": "pointer", "onTap": true } },
       {
         "op": "create",
-        "id": "n66",
+        "id": "n65",
         "type": "Icon",
         "props": { "size": 12, "color": "secondary", "symbol": "disclosure.collapsed" }
       },
       {
         "op": "create",
-        "id": "n67",
+        "id": "n66",
         "type": "Text",
         "props": { "font": 12, "color": "secondary", "text": "3 Completed" }
       },
-      { "op": "create", "id": "n68", "type": "Spacer", "props": {} },
-      { "op": "create", "id": "n69", "type": "Group", "props": {} },
-      { "op": "children", "id": "n69", "children": [] },
-      { "op": "children", "id": "n65", "children": ["n66", "n67", "n68", "n69"] },
+      { "op": "create", "id": "n67", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n68", "type": "Group", "props": {} },
+      { "op": "children", "id": "n68", "children": [] },
+      { "op": "children", "id": "n64", "children": ["n65", "n66", "n67", "n68"] },
+      { "op": "create", "id": "n69", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
       { "op": "create", "id": "n70", "type": "ForEach", "props": {} },
-      { "op": "children", "id": "n64", "children": ["n65", "n70"] },
-      { "op": "children", "id": "n14", "children": ["n64"] },
-      { "op": "update", "id": "n66", "props": { "symbol": "disclosure.expanded" } },
+      { "op": "children", "id": "n69", "children": ["n70"] },
+      { "op": "children", "id": "n63", "children": ["n64", "n69"] },
+      { "op": "children", "id": "n13", "children": ["n63"] },
+      { "op": "update", "id": "n65", "props": { "symbol": "disclosure.expanded" } },
       { "op": "create", "id": "n71", "type": "Button", "props": { "title": "Clear", "font": 12, "onTap": true } },
-      { "op": "children", "id": "n69", "children": ["n71"] },
+      { "op": "children", "id": "n68", "children": ["n71"] },
       { "op": "remove", "id": "n47" },
       { "op": "remove", "id": "n55" },
-      { "op": "children", "id": "n8", "children": ["n16", "n23", "n31", "n39"] },
-      { "op": "remove", "id": "n25" },
-      { "op": "create", "id": "n72", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n24", "children": ["n72"] },
-      { "op": "remove", "id": "n33" },
-      { "op": "create", "id": "n73", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n32", "children": ["n73"] },
-      { "op": "remove", "id": "n41" },
-      { "op": "create", "id": "n74", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n40", "children": ["n74"] },
-      { "op": "remove", "id": "n63" },
-      { "op": "create", "id": "n75", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n10", "children": ["n75"] },
+      { "op": "children", "id": "n8", "children": ["n15", "n23", "n31", "n39"] },
+      { "op": "create", "id": "n72", "type": "Text", "props": { "font": 12, "color": "secondary", "text": "2 more" } },
+      { "op": "children", "id": "n9", "children": ["n72"] },
       {
         "op": "create",
-        "id": "n76",
-        "type": "Text",
+        "id": "n73",
+        "type": "HStack",
         "props": {
-          "font": 12,
-          "color": "secondary",
-          "padding": { "leading": 28, "top": 4, "bottom": 4 },
-          "text": "2 more"
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as not done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as not done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "children", "id": "n9", "children": ["n76"] },
-      { "op": "create", "id": "n77", "type": "VStack", "props": { "spacing": 0 } },
+      { "op": "create", "id": "n74", "type": "Group", "props": {} },
+      { "op": "create", "id": "n75", "type": "Circle", "props": { "fill": "#007AFF", "size": 19 } },
+      { "op": "children", "id": "n74", "children": ["n75"] },
+      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n77",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Send the invoice",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
       { "op": "create", "id": "n78", "type": "Group", "props": {} },
       { "op": "children", "id": "n78", "children": [] },
-      {
-        "op": "create",
-        "id": "n79",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as not done",
-          "menu": [{ "title": "Mark as not done" }, { "title": "Delete", "destructive": true }]
-        }
-      },
+      { "op": "children", "id": "n76", "children": ["n77", "n78"] },
+      { "op": "create", "id": "n79", "type": "Spacer", "props": {} },
       { "op": "create", "id": "n80", "type": "Group", "props": {} },
-      { "op": "create", "id": "n81", "type": "Circle", "props": { "fill": "accent", "size": 19 } },
-      { "op": "children", "id": "n80", "children": ["n81"] },
+      { "op": "children", "id": "n80", "children": [] },
+      { "op": "children", "id": "n73", "children": ["n74", "n76", "n79", "n80"] },
       {
         "op": "create",
-        "id": "n82",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Send the invoice", "color": "secondary" }
-      },
-      { "op": "create", "id": "n83", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n79", "children": ["n80", "n82", "n83"] },
-      { "op": "children", "id": "n77", "children": ["n78", "n79"] },
-      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n85", "type": "Group", "props": {} },
-      { "op": "create", "id": "n86", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n85", "children": ["n86"] },
-      {
-        "op": "create",
-        "id": "n87",
+        "id": "n81",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as not done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as not done" }, { "title": "Delete", "destructive": true }]
         }
       },
+      { "op": "create", "id": "n82", "type": "Group", "props": {} },
+      { "op": "create", "id": "n83", "type": "Circle", "props": { "fill": "#007AFF", "size": 19 } },
+      { "op": "children", "id": "n82", "children": ["n83"] },
+      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n85",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Water the plants",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
+      { "op": "create", "id": "n86", "type": "Group", "props": {} },
+      { "op": "children", "id": "n86", "children": [] },
+      { "op": "children", "id": "n84", "children": ["n85", "n86"] },
+      { "op": "create", "id": "n87", "type": "Spacer", "props": {} },
       { "op": "create", "id": "n88", "type": "Group", "props": {} },
-      { "op": "create", "id": "n89", "type": "Circle", "props": { "fill": "accent", "size": 19 } },
-      { "op": "children", "id": "n88", "children": ["n89"] },
+      { "op": "children", "id": "n88", "children": [] },
+      { "op": "children", "id": "n81", "children": ["n82", "n84", "n87", "n88"] },
+      { "op": "children", "id": "n70", "children": ["n73", "n81"] },
+      { "op": "remove", "id": "n17" },
+      {
+        "op": "create",
+        "id": "n89",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n16", "children": ["n89"] },
+      { "op": "remove", "id": "n25" },
       {
         "op": "create",
         "id": "n90",
-        "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Water the plants", "color": "secondary" }
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "create", "id": "n91", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n87", "children": ["n88", "n90", "n91"] },
-      { "op": "children", "id": "n84", "children": ["n85", "n87"] },
-      { "op": "children", "id": "n70", "children": ["n77", "n84"] },
-      { "op": "remove", "id": "n20" },
+      { "op": "children", "id": "n24", "children": ["n90"] },
+      { "op": "remove", "id": "n33" },
+      {
+        "op": "create",
+        "id": "n91",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n32", "children": ["n91"] },
+      { "op": "remove", "id": "n41" },
       {
         "op": "create",
         "id": "n92",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n19", "children": ["n92"] },
-      { "op": "remove", "id": "n28" },
+      { "op": "children", "id": "n40", "children": ["n92"] }
+    ]
+  },
+  "large-orange": {
+    "size": "large",
+    "ops": [
       {
         "op": "create",
-        "id": "n93",
+        "id": "n1",
+        "type": "VStack",
+        "props": {
+          "spacing": 10,
+          "alignment": "leading",
+          "padding": 16,
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+        }
+      },
+      { "op": "create", "id": "n2", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
+      {
+        "op": "create",
+        "id": "n3",
+        "type": "Text",
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
+      },
+      {
+        "op": "create",
+        "id": "n4",
+        "type": "Text",
+        "props": { "font": 15, "weight": "semibold", "color": "#FF9500", "lineLimit": 1, "text": "Groceries" }
+      },
+      { "op": "children", "id": "n2", "children": ["n3", "n4"] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n6", "type": "Group", "props": {} },
+      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n7", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n8", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n7", "children": ["n8"] },
+      { "op": "create", "id": "n9", "type": "Group", "props": {} },
+      { "op": "children", "id": "n9", "children": [] },
+      { "op": "create", "id": "n10", "type": "HStack", "props": { "spacing": 8 } },
+      {
+        "op": "create",
+        "id": "n11",
+        "type": "Icon",
+        "props": { "symbol": "action.add", "size": 19, "color": "#FF9500" }
+      },
+      {
+        "op": "create",
+        "id": "n12",
+        "type": "TextField",
+        "props": {
+          "placeholder": "New item",
+          "autofocus": false,
+          "font": 13,
+          "onSubmit": true,
+          "onEdit": true,
+          "text": ""
+        }
+      },
+      { "op": "children", "id": "n10", "children": ["n11", "n12"] },
+      { "op": "children", "id": "n5", "children": ["n6", "n7", "n9", "n10"] },
+      { "op": "create", "id": "n13", "type": "Group", "props": {} },
+      { "op": "children", "id": "n13", "children": [] },
+      { "op": "create", "id": "n14", "type": "Group", "props": {} },
+      { "op": "children", "id": "n14", "children": [] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n13", "n14"] },
+      { "op": "root", "id": "n1" },
+      { "op": "update", "id": "n3", "props": { "text": "6" } },
+      {
+        "op": "create",
+        "id": "n15",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n16", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n17",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n27", "children": ["n93"] },
-      { "op": "remove", "id": "n36" },
+      { "op": "children", "id": "n16", "children": ["n17"] },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n94",
+        "id": "n19",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n20", "type": "Group", "props": {} },
+      { "op": "children", "id": "n20", "children": [] },
+      { "op": "children", "id": "n18", "children": ["n19", "n20"] },
+      { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n22", "type": "Group", "props": {} },
+      { "op": "children", "id": "n22", "children": [] },
+      { "op": "children", "id": "n15", "children": ["n16", "n18", "n21", "n22"] },
+      {
+        "op": "create",
+        "id": "n23",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n24", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n25",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n35", "children": ["n94"] },
-      { "op": "remove", "id": "n44" },
+      { "op": "children", "id": "n24", "children": ["n25"] },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n95",
+        "id": "n27",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
+      { "op": "children", "id": "n28", "children": [] },
+      { "op": "children", "id": "n26", "children": ["n27", "n28"] },
+      { "op": "create", "id": "n29", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n30", "type": "Group", "props": {} },
+      { "op": "children", "id": "n30", "children": [] },
+      { "op": "children", "id": "n23", "children": ["n24", "n26", "n29", "n30"] },
+      {
+        "op": "create",
+        "id": "n31",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n32", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n33",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n43", "children": ["n95"] }
+      { "op": "children", "id": "n32", "children": ["n33"] },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n35",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Call the dentist",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n36", "type": "Group", "props": {} },
+      { "op": "children", "id": "n36", "children": [] },
+      { "op": "children", "id": "n34", "children": ["n35", "n36"] },
+      { "op": "create", "id": "n37", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n38", "type": "Group", "props": {} },
+      { "op": "children", "id": "n38", "children": [] },
+      { "op": "children", "id": "n31", "children": ["n32", "n34", "n37", "n38"] },
+      {
+        "op": "create",
+        "id": "n39",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n40", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n41",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n40", "children": ["n41"] },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n43",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Renew passport",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n44", "type": "Group", "props": {} },
+      { "op": "children", "id": "n44", "children": [] },
+      { "op": "children", "id": "n42", "children": ["n43", "n44"] },
+      { "op": "create", "id": "n45", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n46", "type": "Group", "props": {} },
+      { "op": "children", "id": "n46", "children": [] },
+      { "op": "children", "id": "n39", "children": ["n40", "n42", "n45", "n46"] },
+      {
+        "op": "create",
+        "id": "n47",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n48", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n49",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n48", "children": ["n49"] },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n51",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Order a birthday gift for Sam",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n52", "type": "Group", "props": {} },
+      { "op": "children", "id": "n52", "children": [] },
+      { "op": "children", "id": "n50", "children": ["n51", "n52"] },
+      { "op": "create", "id": "n53", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n54", "type": "Group", "props": {} },
+      { "op": "children", "id": "n54", "children": [] },
+      { "op": "children", "id": "n47", "children": ["n48", "n50", "n53", "n54"] },
+      {
+        "op": "create",
+        "id": "n55",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n56", "type": "Group", "props": {} },
+      {
+        "op": "create",
+        "id": "n57",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n56", "children": ["n57"] },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n59",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Back up the laptop",
+          "strikethrough": false,
+          "color": "primary"
+        }
+      },
+      { "op": "create", "id": "n60", "type": "Group", "props": {} },
+      { "op": "children", "id": "n60", "children": [] },
+      { "op": "children", "id": "n58", "children": ["n59", "n60"] },
+      { "op": "create", "id": "n61", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n62", "type": "Group", "props": {} },
+      { "op": "children", "id": "n62", "children": [] },
+      { "op": "children", "id": "n55", "children": ["n56", "n58", "n61", "n62"] },
+      { "op": "children", "id": "n8", "children": ["n15", "n23", "n31", "n39", "n47", "n55"] },
+      { "op": "create", "id": "n63", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n64", "type": "HStack", "props": { "spacing": 6, "cursor": "pointer", "onTap": true } },
+      {
+        "op": "create",
+        "id": "n65",
+        "type": "Icon",
+        "props": { "size": 12, "color": "secondary", "symbol": "disclosure.collapsed" }
+      },
+      {
+        "op": "create",
+        "id": "n66",
+        "type": "Text",
+        "props": { "font": 12, "color": "secondary", "text": "3 Completed" }
+      },
+      { "op": "create", "id": "n67", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n68", "type": "Group", "props": {} },
+      { "op": "children", "id": "n68", "children": [] },
+      { "op": "children", "id": "n64", "children": ["n65", "n66", "n67", "n68"] },
+      { "op": "create", "id": "n69", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n70", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n69", "children": ["n70"] },
+      { "op": "children", "id": "n63", "children": ["n64", "n69"] },
+      { "op": "children", "id": "n13", "children": ["n63"] },
+      { "op": "update", "id": "n65", "props": { "symbol": "disclosure.expanded" } },
+      { "op": "create", "id": "n71", "type": "Button", "props": { "title": "Clear", "font": 12, "onTap": true } },
+      { "op": "children", "id": "n68", "children": ["n71"] },
+      { "op": "remove", "id": "n47" },
+      { "op": "remove", "id": "n55" },
+      { "op": "children", "id": "n8", "children": ["n15", "n23", "n31", "n39"] },
+      { "op": "create", "id": "n72", "type": "Text", "props": { "font": 12, "color": "secondary", "text": "2 more" } },
+      { "op": "children", "id": "n9", "children": ["n72"] },
+      {
+        "op": "create",
+        "id": "n73",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as not done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as not done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n74", "type": "Group", "props": {} },
+      { "op": "create", "id": "n75", "type": "Circle", "props": { "fill": "#FF9500", "size": 19 } },
+      { "op": "children", "id": "n74", "children": ["n75"] },
+      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n77",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Send the invoice",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
+      { "op": "create", "id": "n78", "type": "Group", "props": {} },
+      { "op": "children", "id": "n78", "children": [] },
+      { "op": "children", "id": "n76", "children": ["n77", "n78"] },
+      { "op": "create", "id": "n79", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n80", "type": "Group", "props": {} },
+      { "op": "children", "id": "n80", "children": [] },
+      { "op": "children", "id": "n73", "children": ["n74", "n76", "n79", "n80"] },
+      {
+        "op": "create",
+        "id": "n81",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as not done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as not done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
+      { "op": "create", "id": "n82", "type": "Group", "props": {} },
+      { "op": "create", "id": "n83", "type": "Circle", "props": { "fill": "#FF9500", "size": 19 } },
+      { "op": "children", "id": "n82", "children": ["n83"] },
+      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      {
+        "op": "create",
+        "id": "n85",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Water the plants",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
+      { "op": "create", "id": "n86", "type": "Group", "props": {} },
+      { "op": "children", "id": "n86", "children": [] },
+      { "op": "children", "id": "n84", "children": ["n85", "n86"] },
+      { "op": "create", "id": "n87", "type": "Spacer", "props": {} },
+      { "op": "create", "id": "n88", "type": "Group", "props": {} },
+      { "op": "children", "id": "n88", "children": [] },
+      { "op": "children", "id": "n81", "children": ["n82", "n84", "n87", "n88"] },
+      { "op": "children", "id": "n70", "children": ["n73", "n81"] },
+      { "op": "remove", "id": "n17" },
+      {
+        "op": "create",
+        "id": "n89",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n16", "children": ["n89"] },
+      { "op": "remove", "id": "n25" },
+      {
+        "op": "create",
+        "id": "n90",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n24", "children": ["n90"] },
+      { "op": "remove", "id": "n33" },
+      {
+        "op": "create",
+        "id": "n91",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n32", "children": ["n91"] },
+      { "op": "remove", "id": "n41" },
+      {
+        "op": "create",
+        "id": "n92",
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
+      },
+      { "op": "children", "id": "n40", "children": ["n92"] }
     ]
   },
   "medium-few": {
@@ -1055,7 +1672,12 @@
         "op": "create",
         "id": "n1",
         "type": "HStack",
-        "props": { "spacing": 14, "padding": 16, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": {
+          "spacing": 14,
+          "alignment": "top",
+          "padding": 16,
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+        }
       },
       {
         "op": "create",
@@ -1068,13 +1690,13 @@
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n5",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n3", "children": ["n4", "n5"] },
       { "op": "create", "id": "n6", "type": "Group", "props": {} },
@@ -1084,19 +1706,19 @@
         "op": "create",
         "id": "n7",
         "type": "VStack",
-        "props": { "alignment": "leading", "spacing": 0, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": { "alignment": "leading", "spacing": 8, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
       },
       { "op": "create", "id": "n8", "type": "Group", "props": {} },
       { "op": "children", "id": "n8", "children": [] },
-      { "op": "create", "id": "n9", "type": "ForEach", "props": {} },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n9", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n10", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n9", "children": ["n10"] },
+      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 8 } },
       {
         "op": "create",
         "id": "n12",
         "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
       },
       {
         "op": "create",
@@ -1114,82 +1736,97 @@
       { "op": "children", "id": "n11", "children": ["n12", "n13"] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "children", "id": "n7", "children": ["n8", "n9", "n10", "n11", "n14"] },
+      { "op": "children", "id": "n7", "children": ["n8", "n9", "n11", "n14"] },
       { "op": "children", "id": "n1", "children": ["n2", "n7"] },
       { "op": "root", "id": "n1" },
       { "op": "update", "id": "n4", "props": { "text": "2" } },
-      { "op": "create", "id": "n15", "type": "VStack", "props": { "spacing": 0 } },
+      {
+        "op": "create",
+        "id": "n15",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide",
+          "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
+          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
+        }
+      },
       { "op": "create", "id": "n16", "type": "Group", "props": {} },
-      { "op": "children", "id": "n16", "children": [] },
       {
         "op": "create",
         "id": "n17",
-        "type": "HStack",
-        "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
-          "help": "Mark as done",
-          "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
-        }
+        "type": "Circle",
+        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "create", "id": "n18", "type": "Group", "props": {} },
+      { "op": "children", "id": "n16", "children": ["n17"] },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
-        "type": "Circle",
-        "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
-      },
-      { "op": "children", "id": "n18", "children": ["n19"] },
-      {
-        "op": "create",
-        "id": "n20",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Pick up dry cleaning", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Pick up dry cleaning",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
+      { "op": "create", "id": "n20", "type": "Group", "props": {} },
+      { "op": "children", "id": "n20", "children": [] },
+      { "op": "children", "id": "n18", "children": ["n19", "n20"] },
       { "op": "create", "id": "n21", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n17", "children": ["n18", "n20", "n21"] },
-      { "op": "children", "id": "n15", "children": ["n16", "n17"] },
-      { "op": "create", "id": "n22", "type": "VStack", "props": { "spacing": 0 } },
-      { "op": "create", "id": "n23", "type": "Group", "props": {} },
-      { "op": "create", "id": "n24", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n23", "children": ["n24"] },
+      { "op": "create", "id": "n22", "type": "Group", "props": {} },
+      { "op": "children", "id": "n22", "children": [] },
+      { "op": "children", "id": "n15", "children": ["n16", "n18", "n21", "n22"] },
       {
         "op": "create",
-        "id": "n25",
+        "id": "n23",
         "type": "HStack",
         "props": {
-          "spacing": 9,
-          "cursor": "pointer",
-          "paddingVertical": 5,
-          "onTap": true,
-          "opacity": 1,
+          "spacing": 8,
+          "transition": "slide",
           "help": "Mark as done",
+          "cursor": "pointer",
+          "onTap": true,
           "menu": [{ "title": "Mark as done" }, { "title": "Delete", "destructive": true }]
         }
       },
-      { "op": "create", "id": "n26", "type": "Group", "props": {} },
+      { "op": "create", "id": "n24", "type": "Group", "props": {} },
       {
         "op": "create",
-        "id": "n27",
+        "id": "n25",
         "type": "Circle",
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
-      { "op": "children", "id": "n26", "children": ["n27"] },
+      { "op": "children", "id": "n24", "children": ["n25"] },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
       {
         "op": "create",
-        "id": "n28",
+        "id": "n27",
         "type": "Text",
-        "props": { "font": 13, "lineLimit": 1, "text": "Book flights for the offsite", "color": "primary" }
+        "props": {
+          "font": 13,
+          "weight": "regular",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Book flights for the offsite",
+          "strikethrough": false,
+          "color": "primary"
+        }
       },
+      { "op": "create", "id": "n28", "type": "Group", "props": {} },
+      { "op": "children", "id": "n28", "children": [] },
+      { "op": "children", "id": "n26", "children": ["n27", "n28"] },
       { "op": "create", "id": "n29", "type": "Spacer", "props": {} },
-      { "op": "children", "id": "n25", "children": ["n26", "n28", "n29"] },
-      { "op": "children", "id": "n22", "children": ["n23", "n25"] },
-      { "op": "children", "id": "n9", "children": ["n15", "n22"] },
-      { "op": "create", "id": "n30", "type": "Divider", "props": { "padding": { "leading": 28 } } },
-      { "op": "children", "id": "n10", "children": ["n30"] }
+      { "op": "create", "id": "n30", "type": "Group", "props": {} },
+      { "op": "children", "id": "n30", "children": [] },
+      { "op": "children", "id": "n23", "children": ["n24", "n26", "n29", "n30"] },
+      { "op": "children", "id": "n10", "children": ["n15", "n23"] }
     ]
   },
   "small-empty": {
@@ -1200,8 +1837,8 @@
         "id": "n1",
         "type": "VStack",
         "props": {
-          "alignment": "leading",
           "spacing": 6,
+          "alignment": "leading",
           "padding": 16,
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
@@ -1211,55 +1848,57 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": 28, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 28, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 13, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 13, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n2", "children": ["n3", "n4"] },
-      { "op": "create", "id": "n5", "type": "ForEach", "props": {} },
-      { "op": "create", "id": "n6", "type": "Group", "props": {} },
-      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n6", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n5", "children": ["n6"] },
       { "op": "create", "id": "n7", "type": "Group", "props": {} },
       { "op": "children", "id": "n7", "children": [] },
       { "op": "create", "id": "n8", "type": "Group", "props": {} },
       { "op": "children", "id": "n8", "children": [] },
       { "op": "create", "id": "n9", "type": "Group", "props": {} },
       { "op": "children", "id": "n9", "children": [] },
-      { "op": "children", "id": "n1", "children": ["n2", "n5", "n6", "n7", "n8", "n9"] },
+      { "op": "create", "id": "n10", "type": "Group", "props": {} },
+      { "op": "children", "id": "n10", "children": [] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n7", "n8", "n9", "n10"] },
       { "op": "root", "id": "n1" },
       {
         "op": "create",
-        "id": "n10",
+        "id": "n11",
         "type": "Text",
-        "props": { "text": "Nothing to do", "font": 12, "color": "secondary" }
+        "props": { "text": "Nothing to do", "font": 13, "color": "secondary" }
       },
-      { "op": "children", "id": "n7", "children": ["n10"] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 6 } },
-      {
-        "op": "create",
-        "id": "n12",
-        "type": "Icon",
-        "props": { "symbol": "action.add", "size": 15, "color": "accent" }
-      },
+      { "op": "children", "id": "n8", "children": ["n11"] },
+      { "op": "create", "id": "n12", "type": "HStack", "props": { "spacing": 8 } },
       {
         "op": "create",
         "id": "n13",
+        "type": "Icon",
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
+      },
+      {
+        "op": "create",
+        "id": "n14",
         "type": "TextField",
         "props": {
           "placeholder": "New item",
           "autofocus": false,
-          "font": 12,
+          "font": 13,
           "onSubmit": true,
           "onEdit": true,
           "text": ""
         }
       },
-      { "op": "children", "id": "n11", "children": ["n12", "n13"] },
-      { "op": "children", "id": "n8", "children": ["n11"] }
+      { "op": "children", "id": "n12", "children": ["n13", "n14"] },
+      { "op": "children", "id": "n9", "children": ["n12"] }
     ]
   },
   "medium-empty": {
@@ -1269,7 +1908,12 @@
         "op": "create",
         "id": "n1",
         "type": "HStack",
-        "props": { "spacing": 14, "padding": 16, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": {
+          "spacing": 14,
+          "alignment": "top",
+          "padding": 16,
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+        }
       },
       {
         "op": "create",
@@ -1282,13 +1926,13 @@
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n5",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n3", "children": ["n4", "n5"] },
       { "op": "create", "id": "n6", "type": "Group", "props": {} },
@@ -1298,19 +1942,19 @@
         "op": "create",
         "id": "n7",
         "type": "VStack",
-        "props": { "alignment": "leading", "spacing": 0, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
+        "props": { "alignment": "leading", "spacing": 8, "frame": { "maxWidth": "infinity", "maxHeight": "infinity" } }
       },
       { "op": "create", "id": "n8", "type": "Group", "props": {} },
       { "op": "children", "id": "n8", "children": [] },
-      { "op": "create", "id": "n9", "type": "ForEach", "props": {} },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n9", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
+      { "op": "create", "id": "n10", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n9", "children": ["n10"] },
+      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 8 } },
       {
         "op": "create",
         "id": "n12",
         "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
       },
       {
         "op": "create",
@@ -1328,7 +1972,7 @@
       { "op": "children", "id": "n11", "children": ["n12", "n13"] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "children", "id": "n7", "children": ["n8", "n9", "n10", "n11", "n14"] },
+      { "op": "children", "id": "n7", "children": ["n8", "n9", "n11", "n14"] },
       { "op": "children", "id": "n1", "children": ["n2", "n7"] },
       { "op": "root", "id": "n1" },
       {
@@ -1348,8 +1992,8 @@
         "id": "n1",
         "type": "VStack",
         "props": {
+          "spacing": 10,
           "alignment": "leading",
-          "spacing": 8,
           "padding": 16,
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
@@ -1359,34 +2003,33 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "text": "0" }
+        "props": { "font": 34, "weight": "semibold", "lineLimit": 1, "contentTransition": "numericText", "text": "0" }
       },
       {
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": 15, "weight": "semibold", "color": "accent", "lineLimit": 1, "text": "To Do" }
+        "props": { "font": 15, "weight": "semibold", "color": "#007AFF", "lineLimit": 1, "text": "To Do" }
       },
       { "op": "children", "id": "n2", "children": ["n3", "n4"] },
-      { "op": "create", "id": "n5", "type": "Divider", "props": {} },
-      { "op": "create", "id": "n6", "type": "VStack", "props": { "alignment": "leading", "spacing": 0 } },
-      { "op": "create", "id": "n7", "type": "Group", "props": {} },
-      { "op": "children", "id": "n7", "children": [] },
+      { "op": "create", "id": "n5", "type": "VStack", "props": { "alignment": "leading", "spacing": 8 } },
+      { "op": "create", "id": "n6", "type": "Group", "props": {} },
+      { "op": "children", "id": "n6", "children": [] },
+      { "op": "create", "id": "n7", "type": "VStack", "props": { "spacing": 8, "alignment": "leading" } },
       { "op": "create", "id": "n8", "type": "ForEach", "props": {} },
+      { "op": "children", "id": "n7", "children": ["n8"] },
       { "op": "create", "id": "n9", "type": "Group", "props": {} },
       { "op": "children", "id": "n9", "children": [] },
-      { "op": "create", "id": "n10", "type": "Group", "props": {} },
-      { "op": "children", "id": "n10", "children": [] },
-      { "op": "create", "id": "n11", "type": "HStack", "props": { "spacing": 9, "paddingVertical": 5 } },
+      { "op": "create", "id": "n10", "type": "HStack", "props": { "spacing": 8 } },
+      {
+        "op": "create",
+        "id": "n11",
+        "type": "Icon",
+        "props": { "symbol": "action.add", "size": 19, "color": "#007AFF" }
+      },
       {
         "op": "create",
         "id": "n12",
-        "type": "Icon",
-        "props": { "symbol": "action.add", "size": 19, "color": "accent" }
-      },
-      {
-        "op": "create",
-        "id": "n13",
         "type": "TextField",
         "props": {
           "placeholder": "New item",
@@ -1397,21 +2040,21 @@
           "text": ""
         }
       },
-      { "op": "children", "id": "n11", "children": ["n12", "n13"] },
-      { "op": "children", "id": "n6", "children": ["n7", "n8", "n9", "n10", "n11"] },
+      { "op": "children", "id": "n10", "children": ["n11", "n12"] },
+      { "op": "children", "id": "n5", "children": ["n6", "n7", "n9", "n10"] },
+      { "op": "create", "id": "n13", "type": "Group", "props": {} },
+      { "op": "children", "id": "n13", "children": [] },
       { "op": "create", "id": "n14", "type": "Group", "props": {} },
       { "op": "children", "id": "n14", "children": [] },
-      { "op": "create", "id": "n15", "type": "Group", "props": {} },
-      { "op": "children", "id": "n15", "children": [] },
-      { "op": "children", "id": "n1", "children": ["n2", "n5", "n6", "n14", "n15"] },
+      { "op": "children", "id": "n1", "children": ["n2", "n5", "n13", "n14"] },
       { "op": "root", "id": "n1" },
       {
         "op": "create",
-        "id": "n16",
+        "id": "n15",
         "type": "Text",
         "props": { "text": "Nothing to do", "font": 13, "color": "secondary" }
       },
-      { "op": "children", "id": "n7", "children": ["n16"] }
+      { "op": "children", "id": "n6", "children": ["n15"] }
     ]
   }
 }
