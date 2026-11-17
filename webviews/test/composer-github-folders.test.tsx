@@ -39,6 +39,7 @@ const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerCo
 const { createGitHubPicker, useGitHubPicker, githubFolderRepo } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder, newTabProjectPick } = await import("../src/agent-session/acpmux/cloudRun");
+const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
 const { useState } = await import("react");
 
 afterAll(async () => {
@@ -166,6 +167,39 @@ test("not connected: one row opens the install card, whose button opens GitHub a
     expect(gh.watching()).toBe(0);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("with the page's own key state, coming back to the window after Install on GitHub reads the status", async () => {
+  // The real pageKey.ts wiring, not a test seam: the window's blur (GitHub opened in the browser)
+  // and focus (the person is back) re-read github.status with the menu still open.
+  const uninstall = installPageKey(dom.window.document);
+  const answers: Record<string, unknown> = {
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  };
+  const calls: string[] = [];
+  const store = createGitHubPicker(async (method) => {
+    calls.push(method);
+    return answers[method];
+  });
+  const { root } = await renderTray({}, store);
+  try {
+    await openFolderMenu();
+    await press(option("Add repositories from GitHub")!);
+    await press(button("Install on GitHub")!);
+    expect(calls).toEqual(["github.status", "github.connect"]);
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
+    answers["github.status"] = { state: "ready", repos_scope: "all" };
+    answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("focus")));
+    await settle();
+    expect(calls).toEqual(["github.status", "github.connect", "github.status", "github.repos.list"]);
+    expect(card()).toBeNull();
+    expect(option("acme/api")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
   }
 });
 
