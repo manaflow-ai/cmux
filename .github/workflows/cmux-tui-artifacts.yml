@@ -4509,26 +4509,25 @@ jobs:
           permission-pull-requests: read
 
       - name: Start the cmux-next tree jobs a refused tree notify left
-        id: sweep
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
         run: |
           pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
           python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending --pending-file "$pending"
-          if [[ -f "$pending" ]]; then
-            echo "pending=true" >> "$GITHUB_OUTPUT"
-          fi
 
-      # The records this sweep claimed (deleted) and could not finish, written
-      # again for the next sweep.
+      # The records this sweep claimed (deleted) and has not finished, written
+      # before its first notify, so a sweep that dies keeps them. A name of its
+      # own: this run may have uploaded cmux-next-tree-notify-pending from
+      # publish-tree, which overwrite would replace.
       - name: Record again the tree notifies the sweep could not finish
-        if: always() && steps.sweep.outputs.pending == 'true'
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cmux-next-tree-notify-pending
+          name: cmux-next-tree-notify-pending-sweep
           path: ${{ runner.temp }}/tree-notify-pending/pending.json
+          if-no-files-found: ignore
           retention-days: 3
           overwrite: true
 
