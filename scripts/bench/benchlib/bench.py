@@ -230,7 +230,10 @@ class Context:
             cmd += ["--target-worker", target_worker]
         if timeout:
             cmd += ["--timeout", str(timeout)]
-        rev = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short=9", f"{ref}:{script}"],
+        if not os.environ.get("GITHUB_RUN_ID"):
+            # Outside Actions `cmux-ci run` refuses a step with no --key; one per run and harness.
+            cmd += ["--key", f"{self.run_id}-{Path(script).stem}"]
+        rev =subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short=9", f"{ref}:{script}"],
                              text=True, capture_output=True)
         if rev.returncode == 0:
             self.harness_version = f"{self.bench.name}@{self.bench.version}+{rev.stdout.strip()}"
