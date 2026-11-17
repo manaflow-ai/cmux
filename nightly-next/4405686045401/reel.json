@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4405686045401",
+  "notes": "notes/4405686045401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44802,
+      "title": "panes: a split, a close, a zoom and an unzoom show in one frame; the pane springs they replace go",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45328,
+      "title": "sidebar: seven comments of a new window's first frame say their rule without a date note",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45234,
+      "title": "measure: the held new tab tool can make one more hold take with the system's sampler",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
