@@ -30,7 +30,7 @@ impl Schema {
     pub fn with_build_defaults(mut self, defaults: &BTreeMap<String, Value>) -> Schema {
         for (key, value) in defaults {
             let Some(index) = self.by_key.get(key).copied() else { continue };
-            let row = &mut self.rows[index];
+            let Some(row) = self.rows.get_mut(index) else { continue };
             if super::accepts(row, value, &Domains::default()).is_err() {
                 continue;
             }
