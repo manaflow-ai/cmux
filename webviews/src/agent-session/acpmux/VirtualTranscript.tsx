@@ -564,21 +564,26 @@ const RowFrame = React.memo(function RowFrame({
   const [loadFading] = useState(loadFade);
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
+  const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
   const observerRef = useRef(observer);
-  observerRef.current = observer;
-  const skipHeightRef = useRef(offscreen ? `auto ${placedHeight}px` : undefined);
-  const skipHeight = skipHeightRef.current;
+  useLayoutEffect(() => {
+    observerRef.current = observer;
+  });
+  // A row mounted away from the view is marked in its mount's commit, before the page styles or lays
+  // it out, by the row's own DOM writes rather than its rendered class and style: a later render then
+  // never puts the mark back once it is dropped. (A render that changes the row's class list before
+  // then clears it early; the row is then laid out and measured like any other.)
   // Once the page renders it (still a window or more from the view), the row draws like any other:
   // the paint containment content-visibility brings snaps its contents to whole pixels, a pixel off
   // the subpixel place (`marginTop`) an unmarked row draws its text at. The drop is the row's own DOM
-  // write, no render; the ref keeps a later render from putting the class back. Observed afresh, the
-  // row reports its rendered height in the next frame even when its observer saw it render first,
-  // while it still counted as skipped (drawnHeightOf).
+  // write, no render. Observed afresh, the row reports its rendered height in the next frame even
+  // when its observer saw it render first, while it still counted as skipped (drawnHeightOf).
   useLayoutEffect(() => {
     const node = ref.current;
-    if (!skipHeightRef.current || !node) return undefined;
+    if (!skipHeight || !node) return undefined;
+    node.classList.add(OFFSCREEN_ROW_CLASS);
+    node.style.containIntrinsicHeight = skipHeight;
     return onceRendered(node, () => {
-      skipHeightRef.current = undefined;
       node.classList.remove(OFFSCREEN_ROW_CLASS);
       node.style.containIntrinsicHeight = "";
       const rows = observerRef.current;
@@ -708,7 +713,7 @@ const RowFrame = React.memo(function RowFrame({
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
       data-send-thinking={sendThinking ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}${skipHeight ? ` ${OFFSCREEN_ROW_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -721,11 +726,7 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={
-        skipHeight
-          ? { top: integralTop, marginTop: placedTop - integralTop, containIntrinsicHeight: skipHeight }
-          : { top: integralTop, marginTop: placedTop - integralTop }
-      }
+      style={{ top: integralTop, marginTop: placedTop - integralTop }}
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
