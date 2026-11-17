@@ -8,7 +8,7 @@
 use super::*;
 
 /// The workspaces of the tree JSON.
-fn workspaces(wire: &Wire) -> Vec<Value> {
+pub(super) fn workspaces(wire: &Wire) -> Vec<Value> {
     handle_command(
         &wire.mux,
         wire.mux.local_test_client(0),
@@ -27,7 +27,7 @@ fn screens_of(wire: &Wire, index: usize) -> Vec<Value> {
 }
 
 /// The screens of the first workspace.
-fn screens(wire: &Wire) -> Vec<Value> {
+pub(super) fn screens(wire: &Wire) -> Vec<Value> {
     screens_of(wire, 0)
 }
 
@@ -41,7 +41,7 @@ fn marks(screens: &[Value]) -> Vec<Value> {
 }
 
 /// The panes of `screen`, as the tree JSON lists them.
-fn panes_of(screen: &Value) -> Vec<PaneId> {
+pub(super) fn panes_of(screen: &Value) -> Vec<PaneId> {
     screen["panes"].as_array().into_iter().flatten().map(|entry| pane(&entry["id"])).collect()
 }
 
@@ -52,7 +52,7 @@ fn floating_of(screen: &Value) -> Vec<(PaneId, Value)> {
 }
 
 /// A new screen in the first workspace: its id and its pane.
-fn new_screen(wire: &mut Wire) -> (Value, PaneId) {
+pub(super) fn new_screen(wire: &mut Wire) -> (Value, PaneId) {
     let workspace = wire.mux.with_state(|state| state.workspaces[0].id);
     wire.ok(json!({"cmd": "new-screen", "workspace": workspace, "cols": 80, "rows": 22}));
     let screen = screens(wire).last().cloned().expect("the workspace has a screen");

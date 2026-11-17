@@ -825,3 +825,7 @@ fn the_quick_terminal_alone_becomes_the_tiled_pane_and_shows() {
 /// The count of the quick terminal: one for each workspace.
 #[path = "quick_terminal_workspace_tests.rs"]
 mod workspace;
+
+/// The quick terminal against the other acts of a screen: an undo, a move of a tab, 2 requests at once.
+#[path = "quick_terminal_edge_tests.rs"]
+mod edges;
