@@ -290,6 +290,8 @@ final class MacScreenHubBox {
     var configured = true
     /// The saved sign-in is still being restored (``MacScreenPages/hubRestoring``).
     var restoring = false
+    /// Signed in, and the hub for that account is still starting (``MacScreenPages/hubConnecting``).
+    var connecting = false
     var startupError: String?
     var startupMessage: String? {
         guard startupError != nil else { return nil }

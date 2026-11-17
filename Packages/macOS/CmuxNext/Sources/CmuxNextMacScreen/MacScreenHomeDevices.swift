@@ -130,7 +130,7 @@ struct MacScreenHomeSnapshot: Equatable {
                 }
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
-                                                                                               restoring: source.box.restoring)
+                                                                                               restoring: source.box.restoring || source.box.connecting)
             }
         }
         if let shortcuts = home.systemShortcuts {

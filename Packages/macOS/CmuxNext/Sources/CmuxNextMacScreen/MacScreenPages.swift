@@ -74,6 +74,12 @@ public final class MacScreenPages {
         get { hubBox.restoring }
         set { hubBox.restoring = newValue }
     }
+    /// Signed in, and the device hub for that account is still starting (its identity and first
+    /// connection): the pages say they are loading, not "sign in".
+    var hubConnecting: Bool {
+        get { hubBox.connecting }
+        set { hubBox.connecting = newValue }
+    }
     /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
     var hubStartupError: String? {
         get { hubBox.startupError }

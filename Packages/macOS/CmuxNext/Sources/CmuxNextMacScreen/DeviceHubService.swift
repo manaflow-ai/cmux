@@ -84,8 +84,11 @@ public final class DeviceHubService {
     private var captureCleanupActive = false
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
-    /// What `loading` is making a hub for.
-    private var loadingFor: (url: URL, user: String)?
+    /// What `loading` is making a hub for. While it is set the pages say they are loading: a signed-in account
+    /// whose hub is not up yet is never "sign in".
+    private var loadingFor: (url: URL, user: String)? {
+        didSet { pages.hubConnecting = loadingFor != nil }
+    }
     private var loadingID: UUID?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,

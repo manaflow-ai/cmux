@@ -237,8 +237,8 @@ public final class MacScreenDevicesSettings {
                 return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
                              error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
-            if box.restoring {
-                // The saved sign-in is still restoring: neither signed out nor a bad address yet.
+            if box.restoring || box.connecting {
+                // The saved sign-in is still restoring, or signed in with the hub still starting: not signed out.
                 return State(available: true, status: .init(text: L.t("macScreen.home.devicesLoading", "Loading your devices…"), tone: "neutral"),
                              signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
