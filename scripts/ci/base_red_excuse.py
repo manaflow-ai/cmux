@@ -1160,7 +1160,8 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                         matcher = _check_matcher(need, jobs[need], where)
                         under[need] = {kind_: [prefix + v for v in matcher[kind_]] for kind_ in ("exact", "prefixes")}
                         todo.extend(_needs(jobs, need, where))
-                out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items()))}
+                out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items())),
+                                    "reports": _needs_steps(jobs[job_id], where)}
                 continue
             triggers = doc.get(True, doc.get("on"))
             inputs = (triggers.get("workflow_call") or {}).get("inputs") if isinstance(triggers, dict) else None
@@ -1180,6 +1181,21 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 routes[need] = {"route": route, **_check_matcher(need, jobs[need], where)}
             out["routed"][name] = {"workflow": file, "job": job_id, "routes": routes}
     return out
+
+
+# A step reads its job's needs when an expression in it names `needs` (`${{ toJSON(needs) }}`, `needs.x.result`).
+NEEDS_EXPR = re.compile(r"\$\{\{[^}]*\bneeds\b")
+
+
+def _needs_steps(job: dict, where: str) -> list[str]:
+    """The names of rollup JOB's steps that read its needs (NEEDS_EXPR in anything but the step's name): the only steps
+    whose failure is the needs' (run_rollup_line). A step with no `name:` is left out, so its failure is the rollup's
+    own."""
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+        raise Refused(f"{where}: a rollup's steps are not a list of steps")
+    return sorted({step["name"] for step in steps if isinstance(step.get("name"), str) and step["name"].strip()
+                   and NEEDS_EXPR.search(json.dumps({k: v for k, v in step.items() if k != "name"}, default=str))})
 
 
 def _workflow(yaml, read, file: str) -> tuple[dict, dict]:
@@ -1241,7 +1257,9 @@ def rollups(repo: str = HOME_REPO) -> dict:
         run, routed = (data.get("run"), data.get("routed")) if isinstance(data, dict) else (None, None)
         ok = (isinstance(run, dict) and isinstance(routed, dict) and run and routed
               and all(isinstance(r, dict) and isinstance(r.get("under"), dict) and r["under"]
-                      and all(_matcher_ok(m) for m in r["under"].values()) for r in run.values())
+                      and all(_matcher_ok(m) for m in r["under"].values())
+                      and isinstance(r.get("reports"), list) and all(isinstance(n, str) and n for n in r["reports"])
+                      for r in run.values())
               and all(isinstance(r, dict) and isinstance(r.get("routes"), dict) and r["routes"]
                       and all(_matcher_ok(m) and (m.get("route") is None or isinstance(m.get("route"), str))
                               for m in r["routes"].values()) for r in routed.values()))
@@ -3258,6 +3276,46 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
         raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
 
 
+# A red run rollup was named by no line of its own: judge() judged the failed jobs under it, and merge_hold covered the
+# rollup's name only by deriving the repo's rollups again in a process of its own, which named nothing when that
+# derivation failed or ran past its bound. hq#12466 at ffe04af7 (2026-11-17) was refused "never named 'Skill
+# documentation tests' as excused" although its one failed child, 'Skill test scope', was excused as a base red. Its
+# line says so only when (a) every failed job under its needs is excused, at least one, and (b) every step of its own
+# that failed reads its needs (the contract's "reports", _needs_steps). Anything else is refused: a rollup whose own
+# step failed beside its needs (a step-time check, a lint) is a red no child stands behind.
+def run_rollup_line(repo: str, rollup: dict, audit: list[str], jobs: list[dict]) -> str:
+    """The audit line naming red run rollup job ROLLUP excused, once judge() judged the failed jobs under it (JOBS, its
+    AUDIT lines so far); refused unless every failed child is excused and its own failed steps only report them."""
+    name = rollup.get("name", "")
+    contract = rollups(repo)["run"][name]
+    reports = contract.get("reports")
+    if not isinstance(reports, list):
+        raise Refused(f"'{name}': its rollups contract names no step that reports its needs; not excused")
+    own = failed_step_keys(rollup)
+    if not own:
+        raise Refused(f"'{name}': job {rollup.get('id')} shows no failed step, so what turned it red is unread")
+    beside = sorted(f"{step} ({conclusion})" for step, conclusion in own
+                    if step not in reports or conclusion != "failure")
+    if beside:
+        raise Refused(f"'{name}': its own step {', '.join(beside)} failed, which does not report its needs "
+                      f"({', '.join(reports) or 'none'}); no failed child stands behind it")
+    under = contract["under"]
+    children = sorted({job.get("name", "") for job in jobs
+                       if job.get("run_id") == rollup.get("run_id") and job.get("conclusion") == "failure"
+                       and any(matches(m, job.get("name", "")) for m in under.values())})
+    if not children:
+        raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) was judged")
+    said = {child: next((line for line in audit if line.startswith(f"excused '{child}'")), None) for child in children}
+    if not all(said.values()):
+        raise Refused(f"'{name}': its failed job(s) {', '.join(c for c, line in said.items() if line is None)} are "
+                      "not excused, so neither is it")
+    fixed = all(line.startswith(f"excused '{child}': fixed on base (") for child, line in said.items())
+    what = (f"run {rollup.get('run_id')} job {rollup.get('id')}: a rollup of the failed jobs under its needs, each "
+            f"judged above: {', '.join(map(repr, children))}; its failed step(s) "
+            f"{', '.join(sorted(step for step, _ in own))} only report them")[:700]
+    return f"excused '{name}': " + (f"fixed on base ({what})" if fixed else f"its jobs are excused ({what})")
+
+
 # A status-only check (2026-11-02, cmux#30294): a same-tree run reports its verdict as a commit status on the
 # head it tested ('cmux-next daemon tests (same-tree)', cmux-next.yml's "Report the same-tree result on the tested
 # commit"), so the head has no check run of that name and every such red was refused as "has not run on exact
@@ -4289,9 +4347,11 @@ def exact_sha(repo: str, sha: str, github) -> str:
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None, suites: SuiteChecks | None = None,
               ignored: list[str] | None = None, seen: dict | None = None,
-              evidence: "Evidence | None" = None) -> list[dict]:
+              evidence: "Evidence | None" = None, rollup_jobs: list[dict] | None = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
-    job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
+    job a newer run of its workflow passed adds its line to IGNORED (superseding_check). Each red run rollup job
+    (ci-status, Skill documentation tests) whose failed children are returned is added to ROLLUP_JOBS
+    (run_rollup_line)."""
     sha = exact_sha(repo, sha, github)
     jobs: dict[int, dict] = {}
     contexts: dict[int, list[str]] = {}  # the status contexts each job was judged for (status_job)
@@ -4358,6 +4418,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
             validate_run_rollup(rollup["name"], children, repo)
+            if rollup_jobs is not None:
+                rollup_jobs.append(rollup)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_jobs = []
@@ -4389,6 +4451,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
                     aggregate_runs.append((name, job["run_id"]))
+                    if rollup_jobs is not None:
+                        rollup_jobs.append(job)
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -7608,8 +7672,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
         # run or check that was named and shows no failed job is still refused below.
         return audit or [f"no red run or check named on {sha}: no failure to excuse"]
+    rollup_jobs: list[dict] = []
     jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit,
-                     seen=run_reads, evidence=evidence)
+                     seen=run_reads, evidence=evidence, rollup_jobs=rollup_jobs)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
@@ -7896,6 +7961,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         raise Refused(f"{why}; per step: {step_why}") from None
                 read += 1
                 window.append(red(run, found))
+    # A red run rollup is named by its own line once every failed job under its needs is excused (run_rollup_line).
+    named_rollups: set = set()
+    for rollup in rollup_jobs:
+        if rollup.get("id") not in named_rollups:
+            named_rollups.add(rollup.get("id"))
+            audit.append(run_rollup_line(repo, rollup, audit, jobs))
     # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:

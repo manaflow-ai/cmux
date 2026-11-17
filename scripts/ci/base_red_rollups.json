@@ -45,6 +45,10 @@
   "run": {
     "ci-status": {
       "job": "ci-status",
+      "reports": [
+        "Check platform workflow routing",
+        "Check routed CI jobs"
+      ],
       "under": {
         "browser": {
           "exact": [],
@@ -123,6 +127,9 @@
     },
     "ios-e2e-status": {
       "job": "ios-e2e-status",
+      "reports": [
+        "Aggregate"
+      ],
       "under": {
         "backend": {
           "exact": [
@@ -147,6 +154,9 @@
     },
     "web / Web status": {
       "job": "web-status",
+      "reports": [
+        "Check routed web jobs"
+      ],
       "under": {
         "diff-sidecar-check": {
           "exact": [
