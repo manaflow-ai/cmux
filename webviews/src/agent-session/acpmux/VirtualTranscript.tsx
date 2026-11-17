@@ -6854,12 +6854,14 @@ function TranscriptView({
   /// 41 row renders (composer-typing.bench.ts, cmux#45237). A row that arrives must cost its own
   /// draw, not the mounted window's. A screen reader reads the attribute, and this is one string
   /// compare per mounted row before the frame paints. Written every commit, so a row that mounts
-  /// gets it in the commit that mounts it.
+  /// gets it in the commit that mounts it. `[data-row-id]` keeps it off a fold's ghost copies, which
+  /// hang in the thread with the row class and have that attribute and this one stripped on purpose
+  /// (conversation/turnFold.ts `ghostOf`): an inert copy must not read as a row of the list.
   const setSize = String(canLoadOlder ? -1 : rows.length);
   useLayoutEffect(() => {
     const threadNode = thread.current;
     if (!threadNode) return;
-    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row"))
+    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
       if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
   });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
