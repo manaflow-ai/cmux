@@ -28,8 +28,11 @@ The two waits hold only while one Mac signs (--signers 1). Since 2026-11-12 two 
 the nightly too, cmux15 stays ready as the standby signer"), and the loop builds one nightly at a time, so the
 build in flight holds one and the deltas usually take the other: with --signers 2 or more only the newer-build
 skip is left. A build can still wait for the deltas (about 10 min of the keyed job) when another signing job, such
-as the classic nightly, holds the second Mac at that moment; deltas, at 10x smaller updates, are worth that. The waits never ended in a busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next,
-and the next build publishes before the loop is quiet): run 44023631489 waited 33 min and skipped, and 6 of the
+as the classic nightly, holds the second Mac, or when the run's signer pick (pick-nightly-sign-runner, made at the
+run's start) pinned the deltas to the Mac the next build then takes; deltas, at 10x smaller updates, are worth
+that. One-mini mode (CI_NIGHTLY_MINI) has one signer, so the workflow passes 1 there. The waits never ended in a
+busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next, and the next build publishes
+before the loop is quiet): run 44023631489 waited 33 min and skipped, and 6 of the
 8 published builds before it (2026-11-16 21:14Z to 2026-11-17 05:22Z) skipped their deltas, so the feed served
 231 MB full DMGs where the delta from the build before was 15-24 MB. NIGHTLY_NEXT_SIGNERS=1 (a repository
 variable) puts the waits back while a signer is out.
@@ -118,7 +121,8 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
     parser.add_argument("--build", required=True, type=int)
     parser.add_argument("--feed", required=True)
     parser.add_argument("--signers", type=int, default=1,
-                        help="Macs that carry the nightly-next signing label; with 2 or more the deltas do not wait for the loop")
+                        help="Macs that carry the nightly-next signing label; with 2 or more the deltas "
+                             "do not wait for the loop")
     parser.add_argument("--quiet-minutes", type=float, default=QUIET_MINUTES)
     parser.add_argument("--max-minutes", type=float, default=MAX_MINUTES)
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS)
@@ -133,7 +137,9 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
             print(f"could not read {args.feed} ({error!r})")
             live, live_commit = None, ""
         try:
-            next_head, tip = ref(args.repo, "nightly-next"), ref(args.repo, "feat-cmux-next")
+            # Two signers decide on the feed alone.
+            next_head, tip = ("", "") if args.signers >= 2 else (ref(args.repo, "nightly-next"),
+                                                                  ref(args.repo, "feat-cmux-next"))
         except Exception as error:  # noqa: BLE001 - an unreadable ref reads as quiet
             print(f"could not read nightly-next or feat-cmux-next ({error!r})")
             next_head = tip = ""

@@ -116,12 +116,12 @@ class Main(unittest.TestCase):
     def test_two_signers_sign_at_once_in_a_busy_loop(self):
         """Run 44023631489's loop: nightly-next behind feat-cmux-next the whole time. With two signers the deltas
         go at the first look instead of waiting for the next build to publish and skipping."""
-        answer, waited = self.run_main([feed(OURS)] * 200, [NEXT, TIP] * 200, extra=("--signers", "2"))
+        answer, waited = self.run_main([feed(OURS)] * 200, [], extra=("--signers", "2"))
         self.assertEqual(answer, "skip=false")
         self.assertEqual(waited, dt.timedelta(0))
 
     def test_two_signers_still_skip_a_superseded_build(self):
-        answer, waited = self.run_main([feed(NEWER)], [NEXT, TIP], extra=("--signers", "2"))
+        answer, waited = self.run_main([feed(NEWER)], [], extra=("--signers", "2"))
         self.assertEqual(answer, "skip=true")
         self.assertEqual(waited, dt.timedelta(0))
 
@@ -157,7 +157,9 @@ class Wiring(unittest.TestCase):
         wait = [step for step in JOBS["build-nightly-deltas"]["steps"]
                 if "nightly_deltas_yield.py" in str(step.get("run", ""))][0]
         self.assertIn('--signers "$NIGHTLY_NEXT_SIGNERS"', wait["run"])
-        self.assertEqual(wait["env"]["NIGHTLY_NEXT_SIGNERS"], "${{ vars.NIGHTLY_NEXT_SIGNERS || '2' }}")
+        self.assertEqual(wait["env"]["NIGHTLY_NEXT_SIGNERS"],
+                         "${{ vars.NIGHTLY_NEXT_SIGNERS || vars.CI_NIGHTLY_MINI != '' && '1' || '2' }}",
+                         "one-mini mode has one signer")
 
 
 if __name__ == "__main__":
