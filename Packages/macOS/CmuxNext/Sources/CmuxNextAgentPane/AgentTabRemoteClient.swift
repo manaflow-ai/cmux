@@ -33,6 +33,22 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.prompt(id: id, content: content) }
     }
 
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, text: text, steer: steer) }
+    }
+
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, content: content, steer: steer) }
+    }
+
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data {
+        try await mapped { try await client.queueApprove(promptID: promptID, turnID: turnID, revision: revision) }
+    }
+
+    public func queueDecline(promptID: String) async throws -> Data {
+        try await mapped { try await client.queueDecline(promptID: promptID) }
+    }
+
     public func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
 
     public func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,

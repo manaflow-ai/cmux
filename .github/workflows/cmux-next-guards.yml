@@ -944,6 +944,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_sim_runtime.py
 
+      - name: Every simulator the iOS simulator step makes goes through sim_create (the fleet worker's slim helper, else simctl create)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_sim_create.py
+
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_ffi_cache.py
@@ -1021,6 +1025,17 @@ jobs:
       - name: Remote reads tell no answer from no ref
         if: ${{ !cancelled() }}
         run: bash scripts/cmux-next/tests/origin-net.test.sh
+
+      # A tab switch build step on a Mac without the CEF R2 read key fails in seconds, not after a 7 to 13 minute
+      # build under the host lock (cmux19, 2026-11-16).
+      - name: tab-switch.sh checks the CEF read credentials before it builds
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/tab-switch-cef-creds.test.sh
+
+      # A submodule pointer the fork lacks, or a stale host mirror, fails in seconds, not after the step took the host.
+      - name: tab-switch.sh checks the submodule commits are fetchable before it builds
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}

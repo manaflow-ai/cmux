@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCloud
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
@@ -134,13 +135,21 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
+    /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
+    /// false when the wait ended without one. nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
     @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
     /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value keeps no click.
     @ObservationIgnored var cloudSignInGeneration = 0
+    /// The empty chat of this pane a `cloud.startChat` named as the one it replaces (``AgentPaneCloudStart/replacesChat``):
+    /// its start's `cloud.signIn` and `cloud.setUp` are taken while this pane still shows that chat.
+    @ObservationIgnored var cloudStartReplaces: String?
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
+    /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
+    @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
     @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
@@ -172,6 +181,9 @@ public final class AgentPaneModel {
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
     /// there), never this Mac's (cx-k21v).
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
+    /// The new chat folder picker's GitHub section (`github.status`, `github.connect`, `github.repos.list`);
+    /// nil: the picker shows none.
+    @ObservationIgnored public var gitHub: AgentPaneGitHub?
     /// A chat on another machine (set by the host when it makes the page, and by a handshake that
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
@@ -371,8 +383,6 @@ public final class AgentPaneModel {
     /// The stages of uploads begun under a Send's ticket, by stage token, each with its hold on the
     /// ticket (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``).
     @ObservationIgnored var uploadHolds: [String: String] = [:]
-    /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
-    @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
@@ -514,7 +524,7 @@ public final class AgentPaneModel {
              .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
-        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects, .gitHub(.status), .gitHub(.repos): break
         // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
         // kept every subagent, side chat and sender open off the prewarmed page ("touched by
         // featureTips"), each one making a cold page instead.
@@ -631,6 +641,9 @@ public final class AgentPaneModel {
         case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
+        // A GitHub repository with no folder (`github:owner/name`): only a Cloud start clones one (``AgentPaneCloudStart/repository``).
+        case .useFolder(let cwd, _) where AgentPaneGitHubFolder.isGitHub(cwd):
+            return AgentPaneReply.failure(code: AgentPaneGitHubFolder.cloudOnlyReason, message: Self.gitHubFolderCloudOnlyMessage)
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
@@ -700,6 +713,7 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
+        case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
@@ -780,24 +794,6 @@ public final class AgentPaneModel {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onIMessage(action)
-        case .cloudCredentialTransfer(let request):
-            guard remoteChat, newTab == nil, sessionId == request.sessionID else {
-                return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
-            }
-            guard let onCloudCredentialTransfer else { return Self.unsupported(AgentPaneCloudCredentialTransferRequest.method) }
-            guard let connection = transport.connection,
-                  let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
-                    "promptId": request.retryPromptID, "sessionId": request.sessionID,
-                  ]]]), let ticket = transport.reserveGesture(intent, personOnly: true) else { return Self.transportFailure(.gestureRequired) }
-            var released = false
-            defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
-            guard await onCloudCredentialTransfer(request), !Task.isCancelled,
-                  transport.connection == connection, sessionId == request.sessionID else {
-                return AgentPaneReply.success(["transferred": false])
-            }
-            // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
-            released = true
-            return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .tryAnotherApproach(let request):
             guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
                 return Self.unsupported(AgentPaneTryAnotherApproach.method)
@@ -921,6 +917,7 @@ public final class AgentPaneModel {
             return await stageHeld(stage, stager)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)
+        case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

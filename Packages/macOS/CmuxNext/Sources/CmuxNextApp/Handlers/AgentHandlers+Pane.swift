@@ -159,14 +159,13 @@ extension AgentHandlers {
                 let account = services.cloud.account
                 await session.refreshIfMaybePaused() // the idle auto-pause may have parked it behind the app's record
                 if session.daemon.connection == nil { session.machine.status == .paused ? session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) : session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
-                let connected = await CloudWait.holds(within: CloudStartSession.connectWait) {
-                    session.resumeFailure != nil || (session.daemon.connection != nil && AgentTabStore.registryHost(of: session.daemon) != nil)
-                }
+                let connected = await session.linkUp(within: CloudStartSession.connectWait) // ends on a refused link, which says why below
                 guard connected, session.resumeFailure == nil, services.cloud.account == account,
                       services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
                       services.machines.session(machine) === session else {
                     return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
                 }
+                if session.linkRefusal.refused, let ended = session.linkEnded { return .failure(ActionWorkFailure(ended)) }
                 let anchor: (id: String, pane: PaneModel)
                 if let target = invocation.target {
                     guard let placement = AgentChatPlacement.resolve(target, services: services),

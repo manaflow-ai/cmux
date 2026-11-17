@@ -462,6 +462,10 @@ CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
 CRASH_SAFETY_CHECK = "Crash safety"
 APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
+# PKG_SCANNERS: every scanner handed {pkg} reads PKG's Package.swift or Sources, which main's tree does not have, so a
+# push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
+# "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
+# refused the push without a verdict).
 MAIN_REF = "origin/main"
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
@@ -1038,23 +1042,25 @@ def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) 
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
-    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds.
+    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds, scaled for this host's load
+    (loaded_timeout).
 
     A timed-out command is stopped with stop(), not subprocess.run's SIGKILL, so a `git` under it clears
     the lock it holds (see stop())."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")} | CI_ENV
     cwd = absolute(cwd)
+    limit = loaded_timeout(timeout)
     with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                           stdin=subprocess.DEVNULL) as process:
         try:
-            out, err = process.communicate(timeout=timeout)
+            out, err = process.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
             stop([process.pid, *_descendants(process.pid)])
             try:
                 process.communicate(timeout=GRACE_SECONDS + 5)
             except subprocess.TimeoutExpired:  # not even SIGKILL got it reaped (an unkillable disk wait)
                 process.kill()
-            return 124, f"timed out after {timeout}s"
+            return 124, f"timed out after {limit:.0f}s"
     return process.returncode, out + err
 
 
@@ -1302,7 +1308,7 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=60)
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=loaded_timeout(60))
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
@@ -2252,7 +2258,7 @@ def yaml_problem(text: str) -> tuple[bool, str | None]:
     if ruby is None:
         return False, None
     try:
-        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=loaded_timeout(30))
     except (OSError, subprocess.SubprocessError):
         return False, None
     if result.returncode == 0:
@@ -2268,7 +2274,7 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
     try:
         result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
-                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=loaded_timeout(60))
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode not in (0, 1):
@@ -2324,7 +2330,7 @@ PYYAML_PIN = "PyYAML==6.0.3"
 def has_pyyaml(python: str) -> bool:
     """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
     try:
-        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=loaded_timeout(60)).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -2337,7 +2343,7 @@ def interpreter_sys_path(python: str) -> list[str]:
     """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
     try:
         done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=loaded_timeout(30))
         listed = json.loads(done.stdout) if done.returncode == 0 else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
@@ -2367,7 +2373,7 @@ def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = N
         paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
     for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
         try:
-            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=loaded_timeout(30))
         except (OSError, subprocess.SubprocessError):
             continue
         if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
@@ -2909,16 +2915,19 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
+        has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
+            if not has_package and any("{pkg}" in c for c in cmd):
+                continue  # a main-based push: no CmuxNext package for a {pkg} scanner to judge (PKG_SCANNERS)
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
             if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
-        if (dropped or deleted) and DEPS_CHECK not in jobs:
+        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
@@ -3467,7 +3476,7 @@ def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding
     lock = repo / SCRIPTS / "lint-tools.lock"
     try:
         binary = ensure_tool(lock, "swiftformat")
-        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=30,
+        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=loaded_timeout(30),
                                stdin=subprocess.DEVNULL)
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
         return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
@@ -3908,6 +3917,17 @@ def loaded_limit(base: float, load: float, cpus: int) -> float:
     if cpus <= 0 or load <= cpus:
         return base
     return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
+
+
+def loaded_timeout(seconds: float) -> float:
+    """One check's SECONDS for this host's load (loaded_limit), so a check refuses a hang, not a busy host: on
+    2026-11-17 a 2-core lane VM at load 26 took 133 s of wall time for the single-host fallback checker's 30 s of
+    CPU, past run()'s fixed 120 s, and refused three pushes in a row with nothing wrong in them."""
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return seconds
+    return loaded_limit(seconds, load, os.cpu_count() or 1)
 
 
 def gate_limit() -> float:
