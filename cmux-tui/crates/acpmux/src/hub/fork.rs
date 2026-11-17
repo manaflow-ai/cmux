@@ -500,9 +500,10 @@ impl Hub {
         } else if let Some(copy) = working_copy {
             Made::Copy(copy)
         } else if working_uncopied && parent_meta.turn_count <= 1 {
-            // Its first turn runs (a turn counts from its start) and its agent has stored nothing to copy or fork yet (Codex
-            // writes a thread's rollout once the turn starts in it): acpmux's transcript is the
-            // whole chat, so the fork starts from it and loses nothing, and says nothing.
+            // Its first turn runs (a turn counts from its start) and its agent's transcript could not
+            // be copied, typically because nothing of it is stored yet (Codex writes a thread's
+            // rollout once the turn starts in it): acpmux's transcript holds the whole chat, so
+            // the fork starts from it without the mid-turn note.
             Made::Fresh
         } else if working_uncopied && is_claude {
             note = Some(fresh_note(&parent_meta.harness));

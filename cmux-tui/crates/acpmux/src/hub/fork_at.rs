@@ -217,8 +217,15 @@ pub(super) fn codex_rollout_through_checked(
         let line = match line {
             Ok(line) => line,
             // A compressed rollout Codex is still writing ends in an unfinished frame: the
-            // copy holds every whole line before it.
-            Err(_) if compressed && expected.is_none() => break,
+            // copy holds every whole line before it. Any other error (a corrupt frame, bytes
+            // that are not text) fails the copy rather than cut it short.
+            Err(e)
+                if compressed
+                    && expected.is_none()
+                    && e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
             Err(e) => return Err(e.into()),
         };
         let mut record: Value = match serde_json::from_str(&line) {

@@ -254,12 +254,13 @@ pub(crate) fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
 
 /// The rollout of Codex thread `id` under `root`, plain (`-<id>.jsonl`) or compressed by Codex's
 /// local thread store compression (`-<id>.jsonl.zst`, which Codex applies to a thread's rollout
-/// minutes after it is written): the one written last when both are there. A fork copies it
-/// (`hub/fork_at.rs`); with only plain rollouts found, a chat whose rollout Codex compressed
-/// could not fork mid-turn and fell back to acpmux's transcript (#44987).
+/// minutes after it is written). When both are there, the one written last that opens with the
+/// thread's `session_meta` (a whole rollout, not records appended after a compression). A fork
+/// copies it (`hub/fork_at.rs`); with only plain rollouts found, a chat whose rollout Codex
+/// compressed could not fork mid-turn and fell back to acpmux's transcript (cmux#44987).
 pub(crate) fn find_codex_rollout(root: &Path, id: &str) -> Option<PathBuf> {
     let (plain, compressed) = (format!("-{id}.jsonl"), format!("-{id}.jsonl.zst"));
-    let mut found: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     let mut dirs = vec![(root.join("sessions"), 0)];
     while let Some((dir, depth)) = dirs.pop() {
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
@@ -278,12 +279,34 @@ pub(crate) fn find_codex_rollout(root: &Path, id: &str) -> Option<PathBuf> {
             }
             let written =
                 entry.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
-            if found.as_ref().is_none_or(|(at, _)| written > *at) {
-                found = Some((written, path));
-            }
+            found.push((written, path));
         }
     }
-    found.map(|(_, path)| path)
+    if found.len() > 1 {
+        found.sort_by(|a, b| b.0.cmp(&a.0));
+        if let Some(i) = found.iter().position(|(_, path)| opens_codex_thread(path, id)) {
+            return Some(found.swap_remove(i).1);
+        }
+    }
+    found.into_iter().next().map(|(_, path)| path)
+}
+
+/// Whether the rollout at `path` (plain or `.zst`) opens with thread `id`'s `session_meta`.
+fn opens_codex_thread(path: &Path, id: &str) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let reader: Box<dyn std::io::Read> = if path.extension().is_some_and(|e| e == "zst") {
+        match zstd::stream::read::Decoder::new(file) {
+            Ok(decoder) => Box::new(decoder),
+            Err(_) => return false,
+        }
+    } else {
+        Box::new(file)
+    };
+    let Some(Ok(line)) = BufReader::new(reader).lines().next() else { return false };
+    serde_json::from_str::<Value>(&line).is_ok_and(|record| {
+        record.get("type").and_then(Value::as_str) == Some("session_meta")
+            && record.pointer("/payload/id").and_then(Value::as_str) == Some(id)
+    })
 }
 
 /// The cwd in the first records that carry one: a Claude line's `cwd`, or
