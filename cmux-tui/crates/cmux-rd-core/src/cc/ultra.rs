@@ -6,7 +6,7 @@ use crate::profile::ULTRA_MAX_KBPS;
 /// Limits for the explicitly selected ultra profile, in wire bits per second.
 #[derive(Debug, Clone, Copy)]
 pub struct UltraConfig {
-    /// Includes media, parity, repairs and probes, rather than just encoder bytes.
+    /// The strict pacer's total wire ceiling for an explicitly selected session.
     pub max_wire_bps: u64,
     /// A queue must exceed both this floor and twice the observed jitter.
     pub queue_floor_us: u64,
