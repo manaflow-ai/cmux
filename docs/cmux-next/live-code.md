@@ -182,9 +182,9 @@ a save while on, and a stop into the optimized build, counted in pixels.
 
 ## The iPhone app in the iOS Simulator
 
-Leo (2026-11-17): "can you just put the fucking projection of whatever I have on Cosmic Gray just
+Leo (2026-11-17): "can you just put the f***ing projection of whatever I have on Cosmic Gray just
 as like a constantly running thing, and then you guys can just keep testing that as you go, just
-like hot swapping or whatever, similar to like how you can do stuff with Expo."
+like hot swapping or whatever, similar to like how you can do stuff with [a JavaScript hot-reload tool]."
 
 The iPhone app (cmux-next-ios) takes the same patches in the iOS Simulator: a simulator app is a
 macOS process, so it loads an ad hoc signed dylib from a folder on the Mac's disk, and its engine
