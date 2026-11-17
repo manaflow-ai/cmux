@@ -132,7 +132,7 @@ class FakePage {
   /// The DOM changed: what a MutationObserver hears.
   mutate(change: () => void = () => undefined): void {
     change();
-    for (const run of Array.from(this.mutationCallbacks)) run();
+    for (const run of [...this.mutationCallbacks]) run();
   }
 
   dispatch(type: string): void {
