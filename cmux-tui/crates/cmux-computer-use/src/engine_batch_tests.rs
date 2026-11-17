@@ -444,6 +444,20 @@ fn a_wait_on_a_clipped_value_says_it_is_clipped() {
     assert!(message.contains("read cut short"), "{message}");
 }
 
+/// A met value condition shows the value short, not a whole document.
+#[test]
+fn a_met_value_is_shown_short() {
+    let mut tree = doc(false, "", "Save");
+    tree.children[0].value = format!("start {}", "x".repeat(3000));
+    let e = rig(desktop_with(tree));
+    let out = batch(
+        &e,
+        json!([{"action": "wait_for", "target": {"role": "text_area"}, "value_contains": "start"}]),
+    );
+    let met = step(&out, 0)["met"].as_str().unwrap();
+    assert!(met.chars().count() < 200, "{met}");
+}
+
 /// wait_for an element id: gone when the element is; an id the window never
 /// had is refused at once.
 #[test]

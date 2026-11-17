@@ -941,10 +941,10 @@ impl Engine {
                 Probe::Not("no element matched".into())
             }
             (Until::ValueEquals(v), Some(e)) if e.value == *v => {
-                Probe::Met(format!("{} = {}", element_line(e), outline::quote(&e.value)))
+                Probe::Met(format!("{} = {}", element_line(e), outline::quote(&outline::clip(&e.value, 120))))
             }
             (Until::ValueContains(v), Some(e)) if e.value.contains(v.as_str()) => {
-                Probe::Met(format!("{} = {}", element_line(e), outline::quote(&e.value)))
+                Probe::Met(format!("{} = {}", element_line(e), outline::quote(&outline::clip(&e.value, 120))))
             }
             (_, Some(e)) => Probe::Not(format!(
                 "{}'s value is {}{}",
