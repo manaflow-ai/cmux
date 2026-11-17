@@ -48,6 +48,13 @@ class DecideTests(unittest.TestCase):
     def test_future_apple_target_covered(self):
         self.assertEqual(guard.decide(["rd", "apple-rfb"], ["owner-laptop"], MACHINES, None)[0], "apple-rfb")
 
+    def test_headless_rfb_viewer_allowed_on_persons_mac(self):
+        self.assertEqual(guard.decide(["apple-rfb"], ["owner-laptop"], MACHINES, 0, viewer=True), (None, None))
+        # Only apple-rfb is headless: a GUI viewer is still refused there, and apple-rfb as host.
+        self.assertEqual(guard.decide(["apple-rfb", "apple-high"], ["owner-laptop"], MACHINES, 0, viewer=True)[0],
+                         "apple-high")
+        self.assertEqual(guard.decide(["apple-rfb"], ["owner-laptop"], MACHINES, 0)[0], "apple-rfb")
+
     def test_unknown_host_active_console_refused(self):
         target, reason = guard.decide(["apple-high"], ["stranger"], MACHINES, 30)
         self.assertEqual(target, "apple-high")
