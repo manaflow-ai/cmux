@@ -133,11 +133,6 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
-        // The rings and dims the model asked for while the change waited show with it.
-        if let chrome = frameInput.heldChrome {
-            frameInput.heldChrome = nil
-            chrome()
-        }
         // The snap waited for its content (bounded): each terminal it places shows at its new size in this commit, with
         // its program's redraw or the size only, never its old size in the new pane (RESIZE P0 21).
         for pane in paneFrames.keys {
@@ -168,18 +163,22 @@ extension ScreenContentView {
     }
 
     /// The pass that shows a layout change begins, before it places the panes: what the change took out goes
-    /// (``hideSnapDeparted()``), and the docks' backdrops and the stacking order become the new layout's
-    /// (`reconcileDock`, then a canvas's own order). They are part of what a frame shows, so they change with the
-    /// panes: a dock a zoom takes out keeps its backdrop under its panes until the frame that shows the zoom, and one
-    /// an unzoom brings back gets its backdrop in the frame that shows its panes. The pass is the change's own turn
-    /// when nothing waits (it resizes no pane, and the turn does not hold its presentations), else the presentation the
-    /// change waited for. A pass with no layout change before it does nothing here.
+    /// (``hideSnapDeparted()``), the docks' backdrops and the stacking order become the new layout's (`reconcileDock`,
+    /// then a canvas's own order), and the rings and dims asked for since the change show (`updateChrome`). They are
+    /// part of what a frame shows, so they change with the panes: a dock a zoom takes out keeps its backdrop under its
+    /// panes until the frame that shows the zoom, one an unzoom brings back gets its backdrop in the frame that shows
+    /// its panes, and the pane that gets the focus at a close keeps its dim while the closed pane shows. The pass is
+    /// the change's own turn when nothing waits (it resizes no pane, and the turn does not hold its presentations),
+    /// else the presentation the change waited for. A pass with no layout change before it does nothing here.
     func beginShowingChange() {
         hideSnapDeparted()
-        guard frameInput.dockIsStale else { return }
-        frameInput.dockIsStale = false
+        guard frameInput.changeIsUnshown else { return }
+        frameInput.changeIsUnshown = false
         reconcileDock()
         reconcileCanvasStacking()
+        guard let chrome = frameInput.heldChrome else { return }
+        frameInput.heldChrome = nil
+        chrome()
     }
 
     /// The panes and dividers a change took out go. A pane a later change took back stays (it is in the layout again).
