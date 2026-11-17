@@ -1071,6 +1071,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_spm_scratch.py
 
+      - name: Validate the content-addressed SwiftPM package cache
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_spm_action_cache.py
+
       - name: Validate the owned idle catch-up build
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_catch_up.py

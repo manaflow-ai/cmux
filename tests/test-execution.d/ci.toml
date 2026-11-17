@@ -655,6 +655,10 @@ path = "tests/test_ci_sparse_checkout_imports.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_spm_action_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
