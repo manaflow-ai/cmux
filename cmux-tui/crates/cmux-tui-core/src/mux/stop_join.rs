@@ -16,7 +16,7 @@
 //! writer): that thread keeps the session of that owner only. A join that
 //! has no owner at hand ([`Mux::join_within_stop`]) makes an entry with no
 //! owner, and such a thread keeps each owner of the process while it lives:
-//! the list cannot say whose files it writes (decision of 2026-11-17).
+//! the list cannot say whose files it writes.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};

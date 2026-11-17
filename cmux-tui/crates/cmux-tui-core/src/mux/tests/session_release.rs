@@ -366,7 +366,7 @@ fn an_owner_that_released_its_session_cannot_write_the_store() {
 /// The journal writer admitted a commit, and the owner's wait for the
 /// writer's end ran out. The owner then releases the session. The next owner
 /// is refused because the session still has an owner: an owner keeps its
-/// session while its writer lives (decision of 2026-11-16). An open that
+/// session while its writer lives. An open that
 /// passes then is a failure, also when that commit does not land in the
 /// store that the open got.
 #[test]
@@ -1176,7 +1176,7 @@ fn left_for(owner: &Mux) -> Vec<&'static str> {
 /// Two owners in one process, each with its own session folder. The stop of
 /// the first leaves its maintenance worker alive in a tick. That thread can
 /// write files of the first owner's session only, so it keeps that session
-/// only (decision of 2026-11-17): the second owner's release gives its
+/// only: the second owner's release gives its
 /// session up while the thread lives, and the first owner keeps its session
 /// with the worker's name. A thread that a stop left with no owner to its
 /// name keeps each owner of the process: the release of the first owner and

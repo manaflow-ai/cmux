@@ -196,8 +196,8 @@ mod tests {
         );
     }
 
-    /// An owner that released its session writes no store of it (decision
-    /// of 2026-11-17). The apps' storage is a database of the session
+    /// An owner that released its session writes no store of it. The apps'
+    /// storage is a database of the session
     /// folder: after the release the next owner has it, so a `set` of the
     /// owner before is refused and the database keeps its keys.
     ///

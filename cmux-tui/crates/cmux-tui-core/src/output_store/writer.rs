@@ -87,7 +87,7 @@ impl Writer {
     }
 
     /// Stop the writer and wait for its thread's end, with the bound that
-    /// each join of a stop has (`mux/stop_join.rs`; decision of 2026-11-17).
+    /// each join of a stop has (`mux/stop_join.rs`).
     /// A thread that does not end in that time (a pass that waits for a lock
     /// or for the disk) is left alive: it goes with its name and with
     /// `owner`, the session folder of the store's owner, into the list that

@@ -222,7 +222,7 @@ impl Mux {
     /// Tells the cleanup worker to stop and returns at once, with no wait
     /// for its end. The owner's release calls this before its first wait, so
     /// the worker has the whole of the release's one bound to end, and not
-    /// what another wait left of it (decision of 2026-11-17).
+    /// what another wait left of it.
     /// [`Self::output_cleanup_ended_by`] then says if it ended.
     pub(super) fn signal_output_cleanup_stop(&self) {
         if let Some(worker) =
@@ -235,7 +235,7 @@ impl Mux {
     /// True when no cleanup worker of this owner lives. A worker writes the
     /// staged registry in the session's folder on a connection of its own,
     /// and the next owner's start acts on that file, so the owner's release
-    /// keeps the session while one lives (decision of 2026-11-16). A worker
+    /// keeps the session while one lives. A worker
     /// that no stop reached yet is stopped here. The stop and the wait for a
     /// worker that lived past its stop end at `deadline` at the latest; a
     /// caller that waits for something else first signals the stop before

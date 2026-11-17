@@ -295,7 +295,7 @@ fn revision_and_tabs(registry: &crate::WorkspaceRegistry) -> (u64, usize) {
 /// the store, when the daemon stops and releases its session. The thread of
 /// the creation lives until the process ends, so the creation goes on after
 /// the release. The next owner has the store then: the creation writes
-/// nothing to it and its request gets an error (decision of 2026-11-17).
+/// nothing to it and its request gets an error.
 ///
 /// The order is the test's own, with no clock: the creation waits in its
 /// hook for the test's signal, and the test gives it after the release

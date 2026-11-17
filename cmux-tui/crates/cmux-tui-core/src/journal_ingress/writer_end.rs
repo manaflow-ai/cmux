@@ -1,5 +1,5 @@
 //! The end of the journal writer's thread, for the owner's release of its
-//! session (decision of 2026-11-16).
+//! session.
 //!
 //! A join of the writer waits for a bound and then goes on without the
 //! thread (`JournalWriter::join_until`): the thread's handle is dropped, and

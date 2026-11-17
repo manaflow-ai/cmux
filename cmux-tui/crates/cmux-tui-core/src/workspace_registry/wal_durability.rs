@@ -132,8 +132,8 @@ thread_local! {
     static SAID_REFUSED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Whether the owner of a session gave the session up (decision of
-/// 2026-11-16). One object for each owner: the registry connection owns it
+/// Whether the owner of a session gave the session up.
+/// One object for each owner: the registry connection owns it
 /// and sets it, under its lock, in the same step in which the owner drops
 /// its session locks. The commit hook of each store of the session folder
 /// holds a clone and reads it at each commit: once it is set the commit
@@ -171,7 +171,7 @@ impl OwnerRelease {
     /// stderr the first time on each thread.
     ///
     /// The answer is decided when the release is read, and nothing after
-    /// that changes it (decision of 2026-11-16). The SQLite binding reads a
+    /// that changes it. The SQLite binding reads a
     /// panic in a commit hook as "commit", so a panic of the line would let
     /// that commit land after the release. The line's write is not
     /// `eprintln!`, which panics when it fails; its result is dropped, and a
@@ -538,8 +538,8 @@ fn run(shared: &Shared) {
 /// stays above it while it holds a few frames. A file past the limit is
 /// one a reader pinned: a checkpoint lets the next commit cut it back.
 ///
-/// No checkpoint after the release of the database's owner (decision of
-/// 2026-11-16): the syncer's connection has no commit hook, and a checkpoint
+/// No checkpoint after the release of the database's owner:
+/// the syncer's connection has no commit hook, and a checkpoint
 /// writes the database file, which the next owner has from then on. A
 /// checkpoint that began before the release ends after it.
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {

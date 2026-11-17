@@ -1,5 +1,4 @@
-//! An owner that keeps its session until its process ends (decision of
-//! 2026-11-16).
+//! An owner that keeps its session until its process ends.
 //!
 //! The session's locks are the last thing an owner gives up. When a thread
 //! that can still write the session's stores does not end in the owner's
@@ -41,7 +40,7 @@ pub(crate) const KEPT_RELEASE: &str = "kept until the exit";
 /// The record's `release` of an owner that gave the session up.
 const FREE_RELEASE: &str = "released";
 /// How long an open waits for an owner that said that it keeps the session
-/// until its exit (decision of 2026-11-16). Such an owner ended its shutdown:
+/// until its exit. Such an owner ended its shutdown:
 /// its process ends next, so a start right after a stop gets the session and
 /// is not refused.
 const KEPT_OWNER_WAIT: Duration = Duration::from_secs(3);

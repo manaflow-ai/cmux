@@ -4,7 +4,7 @@ use super::*;
 use crate::workspace_registry::wal_durability::OwnerRelease;
 
 /// How long the owner's release waits for what can still write the session's
-/// stores (decision of 2026-11-16). A person's quit waits at most this much
+/// stores. A person's quit waits at most this much
 /// longer, and only when such a writer lives.
 const RELEASE_WAIT: Duration = Duration::from_secs(2);
 
@@ -229,14 +229,14 @@ impl Mux {
     ///
     /// The session's locks are the last thing this owner gives up, and from
     /// that step on no commit of it lands in the registry, the conversation
-    /// store or the Chief registry (decision of 2026-11-16). The other files
+    /// store or the Chief registry. The other files
     /// of the session's folder have no such guard. The release first waits, with one deadline of
     /// [`RELEASE_WAIT`], for the end of each thread that writes a store of
     /// the session and that `shutdown` can leave alive: the journal writer
     /// (its join gives up after a bound, with an admitted commit still the
     /// writer's own) and the output cleanup worker (it writes the staged
     /// registry on a connection of its own). It tells the worker to stop
-    /// before the first of these waits (decision of 2026-11-17): the 2
+    /// before the first of these waits: the 2
     /// threads end side by side in the one bound, and the wait for the
     /// first leaves the second no less of it. Then it takes the registry
     /// connection's lock, so no registry transaction is open on another
@@ -247,7 +247,7 @@ impl Mux {
     ///
     /// The same deadline holds for each thread that a bounded join of the
     /// stop left alive (`mux/stop_join.rs`), by its name, and for the take
-    /// of the registry's lock (decision of 2026-11-17): a thread of this
+    /// of the registry's lock: a thread of this
     /// owner that holds that lock and does not end cannot make the release
     /// wait with no bound.
     ///
@@ -336,7 +336,7 @@ impl Mux {
 
     /// The end of a release that did not get the registry's lock in its
     /// wait: a thread of this owner holds that lock and does not give it
-    /// back (decision of 2026-11-17). The session's locks are in the locked
+    /// back. The session's locks are in the locked
     /// value and stay there, so this owner keeps its session, and it says
     /// so as each owner that keeps its session does. The drop of this
     /// owner's value moves the locks to the list that nothing drops

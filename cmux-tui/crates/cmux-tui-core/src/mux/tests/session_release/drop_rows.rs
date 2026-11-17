@@ -1,4 +1,4 @@
-//! The drop of an owner after its release (decision of 2026-11-17): the last
+//! The drop of an owner after its release: the last
 //! write of its output store, and the files of the session's registry.
 //!
 //! The lease is the last thing that an owner gives up. So an owner whose
