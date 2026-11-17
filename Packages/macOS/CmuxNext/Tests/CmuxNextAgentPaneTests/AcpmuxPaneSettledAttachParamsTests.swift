@@ -28,6 +28,14 @@ struct AcpmuxPaneSettledAttachParamsTests {
         #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(Self.openParams), modeFields: nil))
     }
 
+    /// The hold rows/holdKinds.ts `holdAttach` sends for a chat on the row store, exactly. Without
+    /// `hold` in the params rule every one was refused, and a relaunched chat said its open failed.
+    @Test func aRowStoreHoldPassesTheParamsRule() {
+        let hold: [String: Any] = ["sessionId": "s", "hold": true, "eventStream": true,
+                                   "kinds": ["user_message", "agent_message"], "visible": true]
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(hold), modeFields: nil))
+    }
+
     @Test func anotherKeyOnAttachIsStillRefused() {
         var params = Self.openParams
         params["host"] = "peer"
