@@ -5720,7 +5720,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # cmux-next-guards.yml's "cmux-next CI guard group" runs every routed guard step of ci-guards.yml (the workflow guard
 # profile) on the change and again on its base, and fails only on a step red on the change and not on that base
 # (scripts/ci/guards_new_reds.py). Its log names each red step on one plain line, `guard red step (KIND): STEP`: `new`
-# (red on this change), `base` (red on the base too), `flaky`, or `tip` (a push judged at its tip). A pull request's
+# (red on this change), `base` (red on the base too), `flaky`, `unknown` (the replay had no result), or `tip` (a push judged at its tip). A pull request's
 # red in it is judged per step, the way the job itself reports "N red on the base too": every step the head calls
 # `new` must be red at the newest base run of the job, whatever that run's conclusion (a push judged against the
 # previous tip lists a red that persists as `base` and stays green). A whole verdict is one with the closing summary
@@ -5728,7 +5728,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # never excused, and the base's own reds in it stayed green on every push (18 steps, until #31366).
 GUARD_GROUP_JOB = "cmux-next CI guard group"
 GUARD_GROUP_STEP = "Run the ci guard group and the routed groups"
-GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|tip)\): (.+)$")
+GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|unknown|tip)\): (.+)$")
 GUARD_SUMMARY = re.compile(r"^\d+ guard steps red (?:on this change|at the tip)\b")
 # run_ci_guards.py's closing line. The red step lines are read only after the last one: a failing step's own output
 # (printed above it) may quote them.
@@ -5740,7 +5740,7 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     printed no closing summary (cut short)."""
     lines = test_reds.log_lines(log)
     skip = test_reds.echoed(lines)
-    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
+    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "unknown": set(), "tip": set()}
     done = whole = False
     for n, text in enumerate(lines):
         if n in skip:
@@ -5756,6 +5756,34 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     return found if whole else None
 
 
+def guard_group_truncated(truncated: list[str], head: "FailedView | Unplaced") -> list[str]:
+    """TRUNCATED (test_reds.read's cut-short reasons for a guard group job's log) less each that is only the job's
+    `##[error]STEP` annotation of a step its own closing verdict (guard_red_steps of HEAD, its failed_view) names red:
+    test_reds.TRUNCATED reads any `##[error]` line with "timeout" in it as a cut-short run, and "Validate short timeout
+    ratchet" is a guard step's name (feat-cmux-next job 133860622386, 2026-11-17: every PR with the base's red guard
+    group was refused "a failure no parser names is never a base red" before guard_group compared its steps;
+    cmux#45075, cmux#44814). Any other reason stays, and an unplaced head or one with no closing verdict keeps every
+    one: guard_group refuses those itself."""
+    steps = None if head is UNPLACED else guard_red_steps(view_text(head))
+    if steps is None:
+        return truncated
+    named = {step[:200] for kind in steps.values() for step in kind}
+    return [why for why in truncated if why not in named]
+
+
+# A guard step finding that names a file: "STEP :: path:rule: ...", "STEP :: path: rule" or "STEP :: path::test".
+GUARD_FINDING_FILE = re.compile(r" :: ([^\s:]+\.[A-Za-z0-9]+)(?=:|$)")
+
+
+def guard_finding_files(steps: set[str]) -> dict[str, str]:
+    """{path: the first finding naming it} over STEPS (guard_red_steps' lines)."""
+    found: dict[str, str] = {}
+    for step in sorted(steps):
+        if match := GUARD_FINDING_FILE.search(step):
+            found.setdefault(match.group(1), step)
+    return found
+
+
 def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]] | None:
     """guard_red_steps of a base guard group job's whole log. The one base read that is not a failed_view, on
     purpose: the job reports each red step of its base on its own, `guard red step (base): STEP`, whatever its
@@ -5766,7 +5794,7 @@ def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]]
 
 
 def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict,
-                base_job: dict, github) -> str:
+                base_job: dict, github, sha: str = "", seen: dict | None = None) -> str:
     """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
     (the rule above); raises Refused naming the first step that is not."""
     failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
@@ -5779,17 +5807,28 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
     head = guard_red_steps(view_text(head))
     if head is None:
         raise Refused(f"'{name}': its guard comparison printed no summary (a cut-short run is never a base red)")
-    charged = head["new"] | head["tip"]
+    # An unknown replay result is resolved against the base branch's own run below; it is never silently charged
+    # to the pull request merely because the constrained replay was cut short.
+    charged = head["new"] | head["unknown"] | head["tip"]
     if not charged:
         raise Refused(f"'{name}': red, but names no red step of its own; nothing to compare with the base")
     found = guard_group_report(repo, base_job, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     if found is None:
         raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
-    red_on_base = set().union(*found.values())
+    # The base run itself must have a concrete red verdict; an unknown line from another constrained replay is not
+    # evidence that the base branch fails this step.
+    red_on_base = found["new"] | found["base"] | found["flaky"] | found["tip"]
     if missing := sorted(charged - red_on_base):
         raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
                       f"{'; '.join(missing)[:600]}")
+    # A finding in a file the pull request changes is its own, even when the base prints the same line: the
+    # determinism gate's "path: rule" carries no count, so a second sleep-then-assert there reads the same.
+    if sha and (files := guard_finding_files(charged)):
+        number, paths = pr_paths_once(repo, base, sha, github, seen)
+        if mine := sorted(set(files) & set(paths)):
+            raise Refused(f"'{name}': #{number} changes {', '.join(mine)[:300]}, which its red guard steps name "
+                          f"({files[mine[0]][:300]}); a finding in a changed file is never a base red")
     at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
     return (f"excused '{name}': every red guard step is red on {base} run {base_run['id']}{at} "
             f"(the newest {base} verdict for it, {base_job.get('conclusion')}) ({url}): {'; '.join(sorted(charged))[:400]}")
@@ -5942,6 +5981,19 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
 
+# The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
+# not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
+TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
+TREE_HANDOFF_STEP = "Re-run the runs that deferred to this tree"
+TREE_HANDOFF_QUOTA = re.compile(
+    r"^##\[error\]\[quota-only\] deferred runs not re-run for the published tree; run (?P<run>\d+); "
+    r"no attempt before (?P<retry>\d{2}:\d{2}Z); the repo installation's API limit refused its API call\."
+    r"(?: Deferred markers remain for the next run\.)?$")
+
+
+class JobRateLimited(Refused):
+    """A failed CI job reported only its own GitHub API quota refusal."""
+
 
 def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
@@ -5953,6 +6005,19 @@ def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
         return None
     return sorted(errors)[0].strip()
+
+
+def tree_handoff_quota_only(job: dict, log: str) -> str | None:
+    """The published-tree hand-off's sole quota refusal, with its job id and retry boundary."""
+    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if failed != [TREE_HANDOFF_STEP]:
+        return None
+    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+              and not text.startswith("##[error]Process completed with exit code")]
+    if len(errors) != 1 or not (match := TREE_HANDOFF_QUOTA.fullmatch(errors[0].rstrip())):
+        return None
+    return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
 
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
@@ -7189,6 +7254,9 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
+                             "after that boundary")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
@@ -7229,6 +7297,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if not WEB_TEST_JOB.fullmatch(name):
         own = owned_unnamed(own, view, test_reds.unjudged(head_log) if view is UNPLACED else None)
+    if name == GUARD_GROUP_JOB:
+        own.truncated = guard_group_truncated(own.truncated, view)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")
@@ -7805,7 +7875,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
                           + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:
-            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github))
+            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
             continue
 
         def by_step() -> str:
@@ -8027,6 +8097,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                           flake_state=test_reds.load_flake_state(args.flake_state, fetch=True), purpose=args.purpose)
+    except JobRateLimited as error:
+        print(f"job-rate-limited: {error}", file=sys.stderr)
+        return 3
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3

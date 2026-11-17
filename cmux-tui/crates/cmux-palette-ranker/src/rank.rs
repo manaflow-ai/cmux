@@ -2,7 +2,7 @@
 
 use crate::shortcut::{self, Stroke};
 use crate::text::Query;
-use crate::text::{collapsed_lower, js_string_cmp, js_trim, js_trim_end};
+use crate::text::{collapsed_lower, is_lu, js_string_cmp, js_trim, js_trim_end};
 use crate::tier::{
     self, DEMOTION, Field, MAXIMUM_QUALITY, TIER_SCALE, entry_tier, highlights_for, match_quality,
     match_tier, title_is,
@@ -43,6 +43,28 @@ pub(crate) struct Prepared {
     pub action_rows: HashMap<String, Vec<usize>>,
     /// Some row has a query prefix or hides while typing.
     pub gated: bool,
+    /// The rows of each title's whole key, for the whole-title tier.
+    pub title_rows: HashMap<String, Vec<usize>>,
+    /// The scope rows of each keyword's whole key, for the scope-keyword tier.
+    pub scope_rows: HashMap<String, Vec<usize>>,
+    /// The rows of each handle, and of each handle's digits after its letters (`612`).
+    pub handle_rows: HashMap<String, Vec<usize>>,
+    pub handle_number_rows: HashMap<String, Vec<usize>>,
+    /// The rows with an action id, ordered by their folded id, then row.
+    pub id_order: Vec<usize>,
+    /// The rows with shortcut keycaps.
+    pub shortcut_rows: Vec<usize>,
+}
+
+/// Appends `index` to `key`'s rows in `map`, once.
+fn index_row(map: &mut HashMap<String, Vec<usize>>, key: &str, index: usize) {
+    if key.is_empty() {
+        return;
+    }
+    let rows = map.entry(key.to_owned()).or_default();
+    if rows.last() != Some(&index) {
+        rows.push(index);
+    }
 }
 
 impl Prepared {
@@ -90,7 +112,39 @@ impl Prepared {
             gated: entries
                 .iter()
                 .any(|entry| entry.query_prefix.is_some() || entry.hides_when_typing == Some(true)),
+            title_rows: HashMap::new(),
+            scope_rows: HashMap::new(),
+            handle_rows: HashMap::new(),
+            handle_number_rows: HashMap::new(),
+            id_order: Vec::new(),
+            shortcut_rows: Vec::new(),
         };
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(title) = prepared.fields.get(index).and_then(|fields| fields.first()) {
+                index_row(&mut prepared.title_rows, &title.whole, index);
+            }
+            if entry.enters_scope == Some(true) {
+                for keyword in &entry.keywords {
+                    index_row(&mut prepared.scope_rows, &crate::text::whole_key(keyword), index);
+                }
+            }
+            for handle in prepared.handles.get(index).into_iter().flatten() {
+                index_row(&mut prepared.handle_rows, handle, index);
+                let number = handle.trim_start_matches(char::is_alphabetic);
+                if number.len() < handle.len() {
+                    index_row(&mut prepared.handle_number_rows, number, index);
+                }
+            }
+            if prepared.ids.get(index).is_some_and(Option::is_some) {
+                prepared.id_order.push(index);
+            }
+            if prepared.shortcuts.get(index).is_some_and(Option::is_some) {
+                prepared.shortcut_rows.push(index);
+            }
+        }
+        let ids = &prepared.ids;
+        let id_of = |index: usize| ids.get(index).and_then(Option::as_deref).unwrap_or_default();
+        prepared.id_order.sort_by(|&a, &b| id_of(a).cmp(id_of(b)).then(a.cmp(&b)));
         for (index, aliases) in prepared.aliases.iter().enumerate() {
             for alias in aliases {
                 let rows = prepared.alias_rows.entry(alias.clone()).or_default();
@@ -105,6 +159,151 @@ impl Prepared {
             }
         }
         prepared
+    }
+
+    /// The rows a query may match through what it names rather than through text a shorter
+    /// query matched: a whole title or scope keyword, a handle, an action id. Sorted, once each.
+    fn named_rows(&self, query: &Query, handle_query: &str) -> Vec<usize> {
+        let mut rows: Vec<usize> = Vec::new();
+        let mut add = |map: &HashMap<String, Vec<usize>>, key: &str| {
+            rows.extend(map.get(key).into_iter().flatten());
+        };
+        if !query.whole.is_empty() {
+            add(&self.title_rows, &query.whole);
+            add(&self.scope_rows, &query.whole);
+        }
+        // `names_handle`'s queries: one word, the whole handle or a handle's digits.
+        if !handle_query.is_empty() && !handle_query.chars().any(char::is_whitespace) {
+            add(&self.handle_rows, handle_query);
+            if handle_query.chars().all(|c| c.is_ascii_digit()) {
+                add(&self.handle_number_rows, handle_query);
+            }
+        }
+        // `action_id_tier`'s queries: one word of 4+ letters that is an id, or starts one and
+        // is written like an id.
+        if query.tokens.len() == 1 && query.joined.len() >= 4 {
+            let raw = js_trim(&query.raw);
+            let starts_count = raw.contains('.') || raw.chars().any(is_lu);
+            let id_of =
+                |index: usize| self.ids.get(index).and_then(Option::as_deref).unwrap_or_default();
+            let first =
+                self.id_order.partition_point(|&index| id_of(index) < query.joined.as_slice());
+            // Ids that start with the query follow `first` in order, the query itself first.
+            for &index in self.id_order.get(first..).unwrap_or_default() {
+                let id = id_of(index);
+                if !id.starts_with(&query.joined)
+                    || (!starts_count && id.len() != query.joined.len())
+                {
+                    break;
+                }
+                rows.push(index);
+            }
+        }
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    }
+}
+
+/// How many narrowed queries a ranker keeps: a backspace returns to the one it extends.
+const STEPS_KEPT: usize = 32;
+
+/// The candidate rows of recent queries, newest last, each query extending the one before.
+#[derive(Default)]
+struct Steps(Vec<Step>);
+
+struct Step {
+    tokens: Vec<Vec<char>>,
+    /// Sorted rows, every row the query or one that extends it can match.
+    rows: Vec<usize>,
+}
+
+/// Whether `query` extends `shorter`: the same tokens but the last, which `query`'s token at
+/// that place starts with, and maybe more tokens after it. Typing on, pasting onto the end or a
+/// trailing space extend a query; a backspace or an edit before the end does not.
+fn extends(shorter: &[Vec<char>], query: &[Vec<char>]) -> bool {
+    let Some((last, before)) = shorter.split_last() else { return false };
+    query.get(..before.len()) == Some(before)
+        && query.get(before.len()).is_some_and(|token| token.starts_with(last))
+}
+
+impl Steps {
+    /// The rows of the newest kept query that `tokens` extends; the newer ones it does not
+    /// extend are dropped.
+    fn base(&mut self, tokens: &[Vec<char>]) -> Option<&[usize]> {
+        while self.0.last().is_some_and(|step| !extends(&step.tokens, tokens)) {
+            self.0.pop();
+        }
+        self.0.last().map(|step| step.rows.as_slice())
+    }
+
+    /// Keeps `rows` for `tokens`, which extend the newest kept query ([`Steps::base`] first).
+    fn push(&mut self, tokens: &[Vec<char>], rows: Vec<usize>) {
+        if self.0.last().is_some_and(|step| step.tokens == tokens) {
+            self.0.pop();
+        }
+        if self.0.len() >= STEPS_KEPT {
+            self.0.remove(0);
+        }
+        self.0.push(Step { tokens: tokens.to_vec(), rows });
+    }
+}
+
+/// What a ranker remembers between keystrokes so a keystroke that extends the query scores only
+/// the rows the shorter query could still lead to, not every row.
+///
+/// Why the narrowed rows are every row the longer query can match:
+/// - The strict pass keeps each row that matched (any tier) or may stem-match
+///   ([`tier::may_stem_match`]). Every tier but four implies each token is a title, keyword,
+///   subtitle or accessory match on its own (the substring tier's test), and a start of such a
+///   token still is, so a longer query matches by them only rows the shorter one matched. A
+///   stem match needs every token's head to start a title word, which holds for a start of the
+///   token too. The four others, a whole title or scope keyword, a handle and an action id, the
+///   query names: their rows come from prepared maps every keystroke ([`Prepared::named_rows`]).
+/// - The typo pass keeps each row that may typo-match ([`tier::may_typo_match`]), whose test a
+///   start of a token passes whenever the token does, and adds the strict rows and named rows.
+///   It is kept only when a keystroke runs the typo pass, and extends from the newest typo step
+///   the query extends.
+#[derive(Default)]
+pub(crate) struct Narrowing {
+    strict: Steps,
+    typo: Steps,
+}
+
+/// Merges two sorted lists of rows, each row once.
+fn merged(a: &[usize], b: &[usize]) -> Vec<usize> {
+    let mut rows = Vec::with_capacity(a.len() + b.len());
+    let (mut a, mut b) = (a.iter().copied().peekable(), b.iter().copied().peekable());
+    loop {
+        let next = match (a.peek().copied(), b.peek().copied()) {
+            (Some(x), Some(y)) if x == y => {
+                b.next();
+                a.next()
+            }
+            (Some(x), Some(y)) if x < y => a.next(),
+            (_, Some(_)) => b.next(),
+            (Some(_), None) => a.next(),
+            (None, None) => None,
+        };
+        let Some(next) = next else { break };
+        rows.push(next);
+    }
+    rows
+}
+
+/// The rows a pass scores, in catalog order: every row, or a narrowed list.
+enum Candidates {
+    All(usize),
+    Rows(Vec<usize>),
+}
+
+impl Candidates {
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        let (all, rows) = match self {
+            Candidates::All(count) => (0..*count, &[][..]),
+            Candidates::Rows(rows) => (0..0, rows.as_slice()),
+        };
+        all.chain(rows.iter().copied())
     }
 }
 
@@ -404,6 +603,8 @@ pub(crate) fn rank(
     entries: &[Entry],
     prepared: &Prepared,
     store: Option<&Frecency>,
+    mut narrowing: Option<&mut Narrowing>,
+    work: &mut usize,
 ) -> RankAnswer {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
@@ -433,10 +634,21 @@ pub(crate) fn rank(
         })
     };
     let mut scored: Vec<Scored> = Vec::new();
-    let rank_pass = |allows_typo: bool, scored: &mut Vec<Scored>| {
-        let mut strong = 0;
-        for (index, entry) in entries.iter().enumerate() {
+    // Scores `rows`; with `keep`, also collects the rows a query extending this one may match in
+    // this pass (see `Narrowing`).
+    let rank_pass = |allows_typo: bool,
+                     rows: &Candidates,
+                     scored: &mut Vec<Scored>,
+                     mut keep: Option<&mut Vec<usize>>| {
+        let (mut strong, mut visited) = (0, 0);
+        for index in rows.iter() {
+            let Some(entry) = entries.get(index) else { continue };
+            visited += 1;
             if !shown_while_typing(entry, gated, raw) {
+                // Hidden for this query, not by its text: a longer one may show it.
+                if let Some(keep) = keep.as_deref_mut() {
+                    keep.push(index);
+                }
                 continue;
             }
             let Some(fields) = prepared.fields.get(index) else { continue };
@@ -444,8 +656,18 @@ pub(crate) fn rank(
                 .handles
                 .get(index)
                 .is_some_and(|handles| names_handle(handles, &handle_query));
-            let found =
-                entry_tier(entry, prepared.ids[index].as_deref(), &query, fields, allows_typo);
+            let id = prepared.ids.get(index).and_then(Option::as_deref);
+            let found = entry_tier(entry, id, &query, fields, allows_typo);
+            if let Some(keep) = keep.as_deref_mut()
+                && (found.is_some()
+                    || if allows_typo {
+                        tier::may_typo_match(&query, fields)
+                    } else {
+                        tier::may_stem_match(&query, fields)
+                    })
+            {
+                keep.push(index);
+            }
             let (found, highlighted) = match found {
                 Some(found) => (found, true),
                 None if handle => (
@@ -502,12 +724,54 @@ pub(crate) fn rank(
                 highlight,
             });
         }
-        strong
+        (strong, visited)
     };
-    let strict_matches = rank_pass(false, &mut scored);
+    // The rows this query names, which no shorter query's matches need hold.
+    let named_rows =
+        if narrowing.is_some() { prepared.named_rows(&query, &handle_query) } else { Vec::new() };
+    let all = || Candidates::All(entries.len());
+    let strict_rows = match narrowing.as_deref_mut().and_then(|n| n.strict.base(&query.tokens)) {
+        Some(base) => Candidates::Rows(merged(base, &named_rows)),
+        None => all(),
+    };
+    let mut kept = narrowing.is_some().then(Vec::new);
+    let (strict_matches, visited) = rank_pass(false, &strict_rows, &mut scored, kept.as_mut());
+    *work += visited;
     if request.typo_pass.unwrap_or(strict_matches < TYPO_PASS_THRESHOLD) {
         scored.clear();
-        rank_pass(true, &mut scored);
+        match narrowing.as_deref_mut() {
+            Some(narrowing) => {
+                let may_typo = |index: &usize| {
+                    prepared
+                        .fields
+                        .get(*index)
+                        .is_some_and(|fields| tier::may_typo_match(&query, fields))
+                };
+                let typos = match narrowing.typo.base(&query.tokens) {
+                    // Only the shorter query's typo rows may typo-match, with this query's strict
+                    // and named rows.
+                    Some(base) => {
+                        *work += base.len();
+                        let typos: Vec<usize> = base.iter().copied().filter(may_typo).collect();
+                        let strict = kept.as_deref().unwrap_or_default();
+                        let rows = merged(&merged(strict, &typos), &named_rows);
+                        *work += rank_pass(true, &Candidates::Rows(rows), &mut scored, None).1;
+                        typos
+                    }
+                    // No typo pass to extend: every row, keeping the rows that may typo-match.
+                    None => {
+                        let mut typos = Vec::new();
+                        *work += rank_pass(true, &all(), &mut scored, Some(&mut typos)).1;
+                        typos
+                    }
+                };
+                narrowing.typo.push(&query.tokens, typos);
+            }
+            None => *work += rank_pass(true, &all(), &mut scored, None).1,
+        }
+    }
+    if let (Some(narrowing), Some(kept)) = (narrowing, kept) {
+        narrowing.strict.push(&query.tokens, kept);
     }
     // The strongest learned pick for this query that still matches it goes first.
     let candidates = lift_candidates(store, raw, now);
@@ -591,7 +855,9 @@ pub(crate) fn rank(
     // The row bound to the shortcut the query names, even when the query matches none of its text.
     if chord.is_some() {
         let present: HashSet<usize> = scored.iter().map(|item| item.index).collect();
-        for (index, entry) in entries.iter().enumerate() {
+        // Only rows with keycaps name a shortcut.
+        for &index in &prepared.shortcut_rows {
+            let Some(entry) = entries.get(index) else { continue };
             if present.contains(&index)
                 || !names_shortcut(index)
                 || !shown_while_typing(entry, gated, raw)
