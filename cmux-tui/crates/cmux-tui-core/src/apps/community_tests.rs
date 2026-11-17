@@ -27,10 +27,13 @@ pub(crate) fn listing(owner: &str, repo: &str, commit: &str) -> Value {
     })
 }
 
+/// One fixture URL and its body or error.
+pub(crate) type Page = (String, Result<Vec<u8>, String>);
+
 /// Answers URLs from a table; counts calls; unknown URLs fail.
 #[derive(Default)]
 pub(crate) struct FakeRegistry {
-    pub pages: Mutex<Vec<(String, Result<Vec<u8>, String>)>>,
+    pub pages: Mutex<Vec<Page>>,
     pub calls: Mutex<Vec<String>>,
 }
 
@@ -172,7 +175,7 @@ fn the_cache_is_served_offline_and_a_failure_keeps_it() {
     let dir = temp_dir();
     let ok = json!({ "items": [listing("Acme", "notes", SHA_A)] });
     let registry = FakeRegistry::with(vec![(ext_url(None).as_str(), Ok(ok))]);
-    let community = Community::new(Some(&dir), BASE, registry.clone());
+    let community = Community::new(Some(&dir), BASE, registry);
     let (status, start) = community.status(false, true);
     assert!(status.index.is_none() && status.stale && start);
     community.refresh().unwrap();
