@@ -1,0 +1,421 @@
+# checks, cmux-scheme-compile's steps from .github/workflows/cmux-next.yml at 656af9e3, each run: cut to its first line; cmux-scheme-compile's name, one expression, is kept as written.
+name: fixture
+'on': push
+jobs:
+  checks:
+    name: cmux-next checks (god files, concurrency, crash safety, l10n)
+    runs-on: fixture
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Drop stale submodule checkouts (self-hosted reused workspace)
+      run: scripts/ci/reset-stale-submodules.sh
+    - name: Prepare check Python (PyYAML) and timeout
+      run: set -euo pipefail
+    - name: Start the slow checks in the background
+      run: '# Why: docs/ci/cmux-next-workflow-notes.md#note-27c'
+    - name: God files and types (Swift)
+      id: godfiles-swift
+      continue-on-error: true
+      run: base=()
+    - name: God files (cmux-tui Rust)
+      id: godfiles-rust
+      continue-on-error: true
+      run: base=()
+    - name: CmuxNextApp size cap
+      id: app-size
+      continue-on-error: true
+      run: if [[ "$FULL_CI" != true ]]; then
+    - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+      id: no-swift-cli
+      continue-on-error: true
+      run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+    - name: No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+      id: no-swift-closed-history
+      continue-on-error: true
+      run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+    - name: One omnibar (popups, New Tab and tabs share AddressBarView)
+      id: single-omnibar
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+    - name: React pages are listed (native chrome and Home are Swift)
+      id: react-pages
+      continue-on-error: true
+      run: base=()
+    - name: No new SwiftUI (macOS UI is AppKit)
+      id: no-swiftui
+      continue-on-error: true
+      run: base=()
+    - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+      id: no-process-scan
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
+    - name: Default cursor (no pointing hand in app UI)
+      id: default-cursor
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+    - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
+      id: state-roots
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
+    - name: Dialog buttons show their keys (u2647)
+      id: dialog-key-hints
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+    - name: Main-thread concurrency
+      id: concurrency
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
+    - name: One web view factory
+      id: webview-factory
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+    - name: Crash safety
+      id: crash-safety
+      continue-on-error: true
+      run: if [[ "$FULL_CI" != true ]]; then
+    - name: Tests inject their notification center
+      id: test-notification-centers
+      continue-on-error: true
+      run: scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+    - name: String tables (21 languages)
+      id: l10n
+      continue-on-error: true
+      run: set -o pipefail
+    - name: Module resource bundles
+      id: module-resources
+      continue-on-error: true
+      run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+    - name: Scrollbars thin, one style
+      id: scrollbars
+      continue-on-error: true
+      run: set -o pipefail
+    - name: Buttons round as tabs
+      id: button-radius
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
+    - name: Containers concentric with their buttons
+      id: concentric-containers
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-concentric-containers.py "$GITHUB_WORKSPACE"
+    - name: Buttons change only their fill when pressed
+      id: pressed-state
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
+    - name: Motion tokens
+      id: motion
+      continue-on-error: true
+      run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+    - name: Overlays are glass, never solid
+      id: overlay-glass
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
+    - name: Type scale
+      id: type-scale
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-type-scale.py --check
+    - name: Layout grid
+      id: layout-grid
+      continue-on-error: true
+      run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+    - name: UI font (the system font)
+      id: ui-font
+      continue-on-error: true
+      run: if [[ "$EVENT_NAME" == pull_request ]]; then
+    - name: Motion scale
+      id: motion-scale
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
+    - name: Motion and colour tokens
+      id: motion-tokens
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+    - name: Surface roles
+      id: surface-roles
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-surface-roles.py
+    - name: Menu metrics
+      id: menu-metrics
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-menu-metrics.py --check
+    - name: Protected-folder copies
+      id: protected-folders
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
+    - name: Settings source copies
+      id: settings-sources
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
+    - name: Phone lane field allowlist
+      id: phone-lane-fields
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+    - name: Backdrop art export
+      id: backdrop-art
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/export-backdrop-art.py --check
+    - name: Stale scheme PCM cleanup
+      id: stale-pcm-cleanup
+      continue-on-error: true
+      run: bash tests/test_cmux_next_stale_pcm_cleanup.sh
+    - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+      id: script-tests
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
+    - name: Ghostty resources bundle
+      id: ghostty-resources-bundle
+      continue-on-error: true
+      run: git submodule update --init --depth 1 --filter=blob:none ghostty-next
+    - name: Bundled terminfo
+      id: bundled-terminfo
+      continue-on-error: true
+      run: bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+    - name: Package conventions lint
+      id: package-conventions
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
+    - name: Browser chrome icons
+      id: browser-chrome-icons
+      continue-on-error: true
+      run: python3 scripts/icons/chromium_icons.py --check
+    - name: App Store review rules (cmux-next-ios intents, Info.plist)
+      id: app-store-rules
+      continue-on-error: true
+      run: python3 tests/test_app_store_rules.py
+    - name: Perf source guard (no window capture or CATransaction.flush)
+      id: perf-source-guard
+      continue-on-error: true
+      run: python3 tests/test_cmux_next_perf_source_guard.py
+    - name: No fleet host names in gallery fixtures
+      id: fixture-host-names
+      continue-on-error: true
+      run: python3 tests/test_cmux_next_fixture_host_names.py
+    - name: Kill switches are declared, tied to a PR and unexpired
+      id: kill-switches
+      continue-on-error: true
+      run: python3 tests/test_cmux_next_kill_switches.py
+    - name: Checks job structure
+      id: checks-structure
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
+    - name: Tier routing
+      id: tier-routing
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
+    - name: Package dependency lists sorted
+      id: package-dependency-lists
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
+    - name: Web bundle key inputs
+      id: web-bundle-key-inputs
+      continue-on-error: true
+      run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
+    - name: Prebuilt web bundles install and stamp
+      id: web-bundles-from
+      continue-on-error: true
+      run: bash tests/test_build_web_bundles_from.sh
+    - name: Web update pointer
+      id: web-ota-pointer
+      continue-on-error: true
+      run: python3 tests/test_web_ota_publication_contract.py
+    - name: Companion workflows
+      id: companion-workflows
+      continue-on-error: true
+      run: python3 tests/test_cmux_next_generated_catch_up.py
+    - name: Base-red classifier (per test)
+      id: base-red-classifier
+      continue-on-error: true
+      run: python3 tests/test_test_reds.py
+    - name: DEV update and classic import scripts
+      id: dev-update-classic-import
+      continue-on-error: true
+      run: python3 tests/test_cmux_next_update_dev_daily.py
+    - name: Routing replay (router changes)
+      id: routing-replay
+      continue-on-error: true
+      run: if [[ "$EVENT_NAME" != pull_request ]]; then
+    - name: Check the app FFI pin
+      id: app-ffi-pin
+      continue-on-error: true
+      run: set -euo pipefail
+    - name: Daemon capabilities export is fresh
+      id: daemon-capabilities-fresh
+      continue-on-error: true
+      run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+    - name: App capability references are listed
+      id: app-capability-references
+      continue-on-error: true
+      run: python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+    - name: Capability texts never say update the app
+      id: capability-text
+      continue-on-error: true
+      run: bash scripts/cmux-next/tests/capability-text.test.sh
+    - name: Pushed commits add no violations
+      id: pushed-commits
+      continue-on-error: true
+      run: '# Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,'
+    - name: Fail on any red check
+      if: always()
+      run: failed=()
+  cmux-scheme-compile:
+    name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
+    runs-on: fixture
+    steps:
+    - name: Require the requested DEV daily commit
+      if: inputs.dev_daily == true
+      run: if [[ -n "$SAME_TREE_SHA" ]]; then
+    - name: Clear stale git locks (self-hosted reused workspace)
+      run: ws="${GITHUB_WORKSPACE:-$PWD}"
+    - name: Checkout
+      id: checkout
+      continue-on-error: true
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Discard the workspace repository after a failed checkout
+      if: steps.checkout.outcome == 'failure'
+      run: rm -rf "$GITHUB_WORKSPACE/.git"
+    - name: Retry checkout after transient network failure
+      if: steps.checkout.outcome == 'failure'
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Drop stale submodule checkouts (self-hosted reused workspace)
+      run: scripts/ci/reset-stale-submodules.sh
+    - name: Select Xcode
+      run: ./scripts/select-ci-xcode.sh
+    - name: Decide the fleet build's REF capture
+      id: hybrid-ref
+      if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}',
+        vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next'
+        && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha
+        && inputs.same_tree_state == 'ready'))))
+      continue-on-error: true
+      run: set -euo pipefail
+    - name: Look up the DEV Release app compiled on the same inputs
+      id: dev-product
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
+        github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' &&
+        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
+        == 'ready')))
+      continue-on-error: true
+      run: set -euo pipefail
+    - name: Fetch the same-tree cmux-tui
+      if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+      run: scripts/cmux-next/pin-cmux-tui.sh fetch
+    - name: Install Rust (diff sidecar)
+      if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+      run: ./scripts/install-rust-ci.sh
+    - name: Install Go for the embedded tailnet archive
+      if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+    - name: Build in-tree acpmux for the app bundle
+      if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+      run: set -euo pipefail
+    - name: Source key of the web bundles
+      id: web-bundle-key
+      if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+      continue-on-error: true
+      run: rm -rf web-bundles-out
+    - name: Restore the web bundles from R2
+      id: web-bundle-r2
+      if: ${{ steps.web-bundle-key.outputs.key != '' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-restore
+    - name: Restore the web bundles built for this source key
+      id: web-bundle-cache
+      if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-key.outputs.key != '' }}
+      continue-on-error: true
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+    - name: Install the restored web bundles
+      id: web-bundles-from
+      if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true') && steps.web-bundle-key.outputs.key != '' }}
+      continue-on-error: true
+      run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+    - name: Setup Bun
+      if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+    - name: Give this job its own bun
+      if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+      run: scripts/cmux-next/private-bun.sh
+    - name: Setup Node
+      if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+    - name: Build the web bundles
+      if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+      run: scripts/cmux-next/build-web-bundles.sh
+    - name: Compile the cmux scheme
+      if: inputs.dev_daily != true
+      run: set -euo pipefail
+    - name: Upload Debug scheme timing
+      if: ${{ always() && inputs.dev_daily != true }}
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Key the DEV compile cache (Blacksmith)
+      id: vm-cas
+      if: ${{ inputs.dev_daily == true && steps.dev-product.outputs.hit != 'true' && startsWith(env.CMUX_NEXT_RUNNER, 'blacksmith-') && format('{0}', vars.CMUX_NEXT_DEV_COMPILATION_CACHE) != '0' }}
+      continue-on-error: true
+      run: scripts/cmux-next/dev-vm-cas-key.sh >> "$GITHUB_OUTPUT"
+    - name: Restore the DEV compile cache (Blacksmith)
+      id: vm-cas-restore
+      if: steps.vm-cas.outputs.prefix != ''
+      continue-on-error: true
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+    - name: Compile the cmux NEXT DEV Release app
+      id: compile-cmux-next-dev-release
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
+        github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' &&
+        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
+        == 'ready')))
+      run: set -euo pipefail
+    - name: Save the DEV compile cache (Blacksmith)
+      if: steps.vm-cas-restore.outcome == 'success' && steps.compile-cmux-next-dev-release.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+    - name: Record this host's cache for the next landing's placement
+      id: dev-holder
+      if: steps.compile-cmux-next-dev-release.outcome == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha)
+      continue-on-error: true
+      run: scripts/cmux-next/dev-cas-holder.sh "$RUNNER_TEMP/cmux-next-dev-landing/report.txt" "$RUNNER_TEMP/cmux-next-dev-cas-holder" >> "$GITHUB_OUTPUT"
+    - name: Upload this host's cache record
+      if: steps.dev-holder.outputs.holder != ''
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Upload DEV daily compile timing
+      if: ${{ always() && steps.compile-cmux-next-dev-release.outcome != 'skipped' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Upload the cmux NEXT DEV Release app
+      if: steps.compile-cmux-next-dev-release.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Record the DEV Release app under its input key
+      id: dev-product-record
+      if: success() && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.dev-product.outputs.key != ''
+      continue-on-error: true
+      run: python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$SHA" --archive "$ARCHIVE" \
+    - name: Upload the DEV Release app record
+      if: steps.dev-product-record.outcome == 'success'
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Crash ends the app
+      id: crash-gate
+      if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
+      continue-on-error: true
+      run: set -euo pipefail
+    - name: Upload the crash gate samples
+      if: ${{ always() && steps.crash-gate.outcome == 'failure' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Package the trusted cmux-next dogfood artifact
+      id: dogfood-artifact
+      if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) }}
+      run: set -euo pipefail
+    - name: Upload the exact cmux-next app for the trusted publisher
+      if: ${{ always() && steps.dogfood-artifact.outputs.archive != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+    - name: Capture the fleet build's REF
+      id: hybrid-ref-capture
+      if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' &&
+        steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
+      continue-on-error: true
+      run: set -euo pipefail
+    - name: Upload the REF capture manifest
+      if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
