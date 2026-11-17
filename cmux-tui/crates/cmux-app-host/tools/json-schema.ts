@@ -110,7 +110,7 @@ export class SchemaValidator {
   private checkString(s: Record<string, unknown>, v: string, path: string, errors: SchemaError[]) {
     const length = [...v].length
     if (typeof s.minLength === "number" && length < s.minLength) errors.push({ path, code: "minLength", message: `must have at least ${s.minLength} characters` })
-    if (typeof s.maxLength === "number" && length > s.maxLength) errors.push({ path, code: "maxLength", message: `must have at most ${s.maxLength} characters (has ${length})` })
+    if (typeof s.maxLength === "number" && length > s.maxLength) errors.push({ path, code: "maxLength", message: `must have at most ${s.maxLength} characters` })
     if (typeof s.pattern === "string" && !this.regex(s.pattern).test(v)) errors.push({ path, code: "pattern", message: `must match ${s.pattern}` })
   }
 

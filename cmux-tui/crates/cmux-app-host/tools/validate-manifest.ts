@@ -44,10 +44,17 @@ export function v2LengthErrors(dir: string): SchemaError[] {
   } catch (e) {
     return [{ path: "cmux-app.v2.json", code: "json.invalid", message: String((e as Error).message) }]
   }
+  // The field's own text, at its JSON pointer, for its length.
+  const at = (pointer: string) =>
+    pointer.split("/").slice(1).reduce<unknown>((v, key) => (v as Record<string, unknown> | undefined)?.[key.replace(/~1/g, "/").replace(/~0/g, "~")], manifest)
   return v2Validator()
     .validate(manifest as never)
     .filter((e) => e.code === "maxLength")
-    .map((e) => ({ ...e, path: `cmux-app.v2.json${e.path}` }))
+    .map((e) => {
+      const text = at(e.path)
+      const length = typeof text === "string" ? ` (has ${[...text].length})` : ""
+      return { ...e, path: `cmux-app.v2.json${e.path}`, message: `${e.message}${length}` }
+    })
 }
 
 /** Scope names the host knows: every scope in generated/scopes.json plus the special scopes. */
