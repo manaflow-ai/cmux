@@ -96,7 +96,8 @@ panes make no pair. A pane that changes with no focus move of the person is not 
 end on, and while the window shows that workspace a Close Tab key is kept behind such a key that makes or closes a
 tab. A Close Tab key in a pane with no kept tab key of that pane is not kept: the hold ends, the kept
 keys run first, then the key closes its own pane's tab. A Close Tab key in a panel of the window is the panel's key
-and is never kept.
+and is never kept. Two paths take kept keys with no pair: a creation whose own view takes its keys before the hold's
+end runs them in the order of the presses, and the end of a closed window makes no tab and closes no tab for them.
 
 ### 2.5 World (live AppKit, after settle; monitor and fuzzer)
 
