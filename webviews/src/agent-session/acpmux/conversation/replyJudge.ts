@@ -9,6 +9,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { AcpmuxRow } from "../model";
 import { noteReplyUnpainted } from "../flickerLog";
+import { mountedRow } from "./mountedRow";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./replyPainted";
 
 export type EndedReplyCheck = {
@@ -52,8 +53,7 @@ export function useEndedReplyCheck({
       const thread = host.current;
       if (!view || !thread || document.visibilityState !== "visible" || !following(follow)) return;
       judged.current = id;
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-      const node = thread.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      const node = mountedRow(thread, id);
       const box = view.getBoundingClientRect();
       const why = replyUnpainted(node, thread, { top: box.top, bottom: box.bottom - dockSpace });
       if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));

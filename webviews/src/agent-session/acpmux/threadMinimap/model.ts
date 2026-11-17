@@ -5,6 +5,7 @@ import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
+import { keptPrefix } from "../conversation/prefixFlatMap";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
 
@@ -721,7 +722,7 @@ export function minimapTurns(
     : undefined;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
-  else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
+  else if (reuse) from = keptPrefix(reuse.rows, rows);
   // A kept turn's rows all come before `from`: the next turn's prompt is before it (a row
   // inserted at that prompt's index joins the turn before). The turns are in row order: the last
   // turn that starts before `from` is the first one read again.

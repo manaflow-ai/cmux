@@ -52,6 +52,7 @@ import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scal
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import type { PinCarry } from "./pinnedLiveLine";
+import { mountedRow } from "./mountedRow";
 import { LIVE_THINKING } from "./turns";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
@@ -141,8 +142,7 @@ function placedFromPage(thread: HTMLElement): PlacedRows {
 /// The mounted row `id` of `thread`, looked up only for a row that moves or lies across one that does.
 function rowOf(thread: HTMLElement, placed: PlacedRows, id: string): HTMLElement | null {
   if (placed.rowAt) return placed.rowAt(placed.indexOf(id)) ?? null;
-  const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-  return thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${name}"]`);
+  return mountedRow(thread, id);
 }
 
 /// One pass's placement, and how far the live line's words sit below its row's top: the live line

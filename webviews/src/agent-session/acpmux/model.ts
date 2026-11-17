@@ -3287,8 +3287,8 @@ export function layoutConversation(
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale) {
-    const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    // The rows its maker said it kept, else one walk shared with the pane's other passes (prefixFlatMap.ts).
+    start = keptPrefix(previous.rows, rows);
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;
@@ -3750,6 +3750,7 @@ import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

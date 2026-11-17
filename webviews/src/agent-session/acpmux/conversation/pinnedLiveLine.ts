@@ -25,6 +25,7 @@
 // offset stay exact. O(1) a frame: the live row and the row over it, kept from the pass. Reduce Motion
 // and motion off never move the chase (x stays 0), so this draws nothing.
 import { motionMode } from "../../../ui/motion/motionMode";
+import { mountedRow } from "./mountedRow";
 import { LIVE_THINKING } from "./turns";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
@@ -259,7 +260,7 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     was.held = true;
     return undefined;
   }
-  const found = pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null;
+  const found = pin ? mountedRow(thread, LIVE_THINKING) : null;
   // A line that plays a translate of its own (a send's rise, a carry home) finishes it first: taken
   // mid-way, the pin's translate would lose to it, or cancelling it would jump the line. The next pass
   // takes it.
@@ -310,7 +311,7 @@ export function finishCarry(
   step: (px: number) => { ms: number; easing: string },
 ): void {
   if (!thread || !carry || carry.used) return;
-  const row = thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${carry.id}"]`);
+  const row = mountedRow(thread, carry.id);
   if (!row || typeof row.animate !== "function") return;
   if (motionMode(thread.ownerDocument, row) !== "full") return;
   const { ms, easing } = step(carry.y);

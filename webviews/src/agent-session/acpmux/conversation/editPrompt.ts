@@ -3,6 +3,7 @@
 // (`hub/fork_at.rs`); Claude and Codex support editing through completed turns. A chat's
 // first prompt has no turn before it, and a failed or queued prompt was never answered.
 import type { AcpmuxRow } from "../model";
+import { keptPrefix } from "./prefixFlatMap";
 
 const canEditThrough = (family: string | undefined) => family === "claude" || family === "codex";
 
@@ -41,8 +42,7 @@ export function trackEditableTurns(
 ): EditableTurns {
   if (previous && previous.rows === rows && previous.family === family) return previous;
   let from = 0;
-  if (previous && previous.family === family)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  if (previous && previous.family === family) from = keptPrefix(previous.rows, rows);
   const before = <T extends { index: number }>(kept: readonly T[] | undefined) => {
     let keep = kept?.length ?? 0;
     while (keep > 0 && kept![keep - 1]!.index >= from) keep -= 1;
