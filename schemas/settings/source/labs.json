@@ -128,6 +128,28 @@
             "swift",
             "develop"
           ]
+        },
+        {
+          "key": "labs.bundledCodexAppServer",
+          "note": "Bundled Codex app-server (plans/next-ux/ux-harness-health.md, optional bundled Codex app-server): on, a Codex chat whose profile runs plain `codex app-server` starts the app-server in the app-owned bundle folder when its manifest's sha256, version and protocol check out (acpmux codex_bundle.rs), and falls back to the installed CLI otherwise, saying why on the harness health row. A profile naming its own program, CODEX_PATH or a non-stdio --listen keeps its own. Off by default; read at each new chat. The person turns it on: agents may not (it chooses which binary runs).",
+          "title": {
+            "key": "settings.labs.bundledCodexAppServer",
+            "text": "Use Bundled Codex App Server"
+          },
+          "help": {
+            "key": "settings.labs.bundledCodexAppServer.help",
+            "text": "New Codex chats use the Codex app server that comes with cmux instead of the one you installed. If it is missing or does not check out, cmux uses your installed Codex and shows why in Settings > Agents."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "codex",
+            "bundled",
+            "app-server",
+            "harness",
+            "runtime"
+          ]
         }
       ]
     }

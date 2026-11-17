@@ -17,6 +17,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `labs.bundledCodexAppServer`: Bundled Codex app-server (plans/next-ux/ux-harness-health.md, optional bundled Codex app-server): on, a Codex chat whose profile runs plain `codex app-server` starts the app-server in the app-owned bundle folder when its manifest's sha256, version and protocol check out (acpmux codex_bundle.rs), and falls back to the installed CLI otherwise, saying why on the harness health row. A profile naming its own program, CODEX_PATH or a non-stdio --listen keeps its own. Off by default; read at each new chat. The person turns it on: agents may not (it chooses which binary runs).
+    public nonisolated static let bundledCodexAppServerPath = ["labs", "bundledCodexAppServer"]
+    public nonisolated static let bundledCodexAppServerDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -74,6 +77,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.bundledCodexAppServerPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.bundledCodexAppServer", "Use Bundled Codex App Server"),
+                help: SettingsText.keyed("settings.labs.bundledCodexAppServer.help", "New Codex chats use the Codex app server that comes with cmux instead of the one you installed. If it is missing or does not check out, cmux uses your installed Codex and shows why in Settings > Agents."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.bundledCodexAppServerDefault),
+                keywords: ["labs", "codex", "bundled", "app-server", "harness", "runtime"]
             ),
         ]
     }

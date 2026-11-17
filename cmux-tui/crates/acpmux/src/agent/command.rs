@@ -55,6 +55,14 @@ pub(crate) async fn harness_command_ready(
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
     let family = crate::config::derive_family(name, profile);
+    // Labs `labs.bundledCodexAppServer` (off by default): plain `codex app-server` runs the
+    // bundle cmux ships when it is whole (`codex_bundle.rs`); a profile's CODEX_PATH still wins.
+    let command_line = match command_line {
+        None if crate::codex_app_server::is_profile_launch(&profile.argv) => {
+            crate::codex_bundle::launch_for(&profile.argv).await
+        }
+        line => line,
+    };
     let mut plan = crate::login_env::ChildEnv {
         family: &family,
         profile: Some(&profile.env),
