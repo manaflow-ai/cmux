@@ -32,9 +32,11 @@ struct TerminalHistoryGap: Equatable {
     /// window then took them away from the rows they scroll toward.
     func need(visibleTop: Int, visibleBottom: Int, movingDown: Bool) -> Need? {
         let screen = max(1, visibleBottom - visibleTop)
-        if visibleTop < row {
-            return movingDown && visibleBottom + screen >= row ? .newer : nil
+        if movingDown {
+            // From above: the window's rows on top, its end within a screen.
+            return visibleTop < row && visibleBottom + screen >= row ? .newer : nil
         }
-        return !movingDown && visibleTop - screen <= row ? .newest : nil
+        // From below: rows past the window on screen, its end within a screen.
+        return visibleBottom > row && visibleTop - screen <= row ? .newest : nil
     }
 }
