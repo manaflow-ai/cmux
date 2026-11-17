@@ -168,58 +168,44 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
     /// The copy of `source` to launch: the existing one when it matches, else
     /// a fresh verified copy. Nil when the copy cannot be made or verified.
     ///
-    /// Stages of one destination take turns in this process. Two roles stage the same Computer
-    /// Use helper copy (the daemon and the screen sharing host): without turns both could find it
-    /// stale and copy, and the second swap would move the first's copy, possibly already
-    /// launched, into its own staging folder and delete it. In turn, the second finds the first's
-    /// copy matching and reuses it. Another process has another scope, so another folder; the
-    /// EEXIST path below still covers a racing one.
+    /// Stages of one copy take turns, through an exclusive lock on a file beside the folder
+    /// (`.<folder name>.stage-lock` in its parent). Two roles stage the same Computer Use helper
+    /// copy (the daemon and the screen sharing host): without turns both could find it stale and
+    /// copy, and the second swap would move the first's copy, possibly already launched, into
+    /// its own staging folder and delete it. In turn, the second finds the first's copy matching
+    /// and reuses it. A file lock holds across processes too, and is released when its
+    /// descriptor closes, however the stage ends.
     @concurrent func stage(_ source: URL) async -> URL? {
-        let key = destination(for: source).standardizedFileURL.path
-        await Self.takeTurn(key)
-        defer { Self.endTurn(key) }
-        return await stageInTurn(source)
-    }
-
-    /// The stages waiting for each destination path; a key is present while one runs.
-    private static let turns = Mutex<[String: [CheckedContinuation<Void, Never>]]>([:])
-
-    /// Returns once no other stage of `key` runs in this process.
-    private static func takeTurn(_ key: String) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let now = turns.withLock { waiting -> Bool in
-                guard var queue = waiting[key] else {
-                    waiting[key] = []
-                    return true
-                }
-                queue.append(continuation)
-                waiting[key] = queue
-                return false
-            }
-            if now { continuation.resume() }
-        }
-    }
-
-    /// Hands `key` to the next waiting stage, or frees it.
-    private static func endTurn(_ key: String) {
-        let next = turns.withLock { waiting -> CheckedContinuation<Void, Never>? in
-            guard var queue = waiting[key], !queue.isEmpty else {
-                waiting[key] = nil
-                return nil
-            }
-            let next = queue.removeFirst()
-            waiting[key] = queue
-            return next
-        }
-        next?.resume()
-    }
-
-    @concurrent private func stageInTurn(_ source: URL) async -> URL? {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
         guard trustedFolder(create: true, logger: logger) else {
             logger.error("cmux Computer Use helper copy: \(folder.path, privacy: .public) is not a private directory of this user")
             return nil
         }
+        let path = folder.deletingLastPathComponent().appending(path: ".\(folder.lastPathComponent).stage-lock").path
+        let lock = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else {
+            logger.error("cmux Computer Use helper copy: cannot open the staging lock \(path, privacy: .public) (errno \(errno, privacy: .public))")
+            return nil
+        }
+        defer { close(lock) }
+        guard await Self.lockExclusively(lock) else { return nil }
+        return await stageInTurn(source, logger: logger)
+    }
+
+    /// Waits for the exclusive lock on `descriptor` on a dispatch worker, never on the Swift
+    /// concurrency pool: a waiting stage must not hold a pool thread the running stage needs.
+    private static func lockExclusively(_ descriptor: Int32) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                // concurrency-allow: a dispatch worker, never main or the pool; waits only while another stage of this one copy runs (a copy and a signature check)
+                var result = flock(descriptor, LOCK_EX)
+                while result != 0, errno == EINTR { result = flock(descriptor, LOCK_EX) }
+                continuation.resume(returning: result == 0)
+            }
+        }
+    }
+
+    @concurrent private func stageInTurn(_ source: URL, logger: Logger) async -> URL? {
         sweepStaleFolders()
         guard let wanted = operations.stamp(source) else {
             logger.error("cmux Computer Use helper copy: cannot read the signature of \(source.path, privacy: .public)")
