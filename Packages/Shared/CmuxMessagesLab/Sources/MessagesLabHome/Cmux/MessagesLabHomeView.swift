@@ -560,6 +560,28 @@ public final class MessagesLabHomeView: NSView {
         controller.dispatch(.setDraft(text))
     }
 
+    /// The field's placeholder ("Message"), for a stand-in drawn before this view exists (cmux's bare launch).
+    public static var composerPlaceholder: String { Strings.placeholder }
+
+    /// Selects `range` (UTF-16, clamped to the field's text) in the field: now, or once the field is
+    /// installed (a draft handed over from a stand-in box keeps its caret).
+    public func setComposerSelection(_ range: NSRange) {
+        guard let field = controller.demo?.compose.textView.view else {
+            controller.onInstalled.append { [weak self] controller in
+                guard let field = controller.demo?.compose.textView.view else { return }
+                self?.select(range, in: field)
+            }
+            return
+        }
+        select(range, in: field)
+    }
+
+    private func select(_ range: NSRange, in field: NSTextView) {
+        let length = (field.string as NSString).length
+        let location = min(max(0, range.location), length)
+        field.setSelectedRange(NSRange(location: location, length: min(max(0, range.length), length - location)))
+    }
+
     public var conversationSummary: ConversationSummary? { projection.shownSummary }
     public var isEmpty: Bool { projection.shown.isEmpty && !projection.hasOlder }
     public var onSummaryChange: (ConversationSummary?) -> Void {

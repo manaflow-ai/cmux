@@ -403,6 +403,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
     /// store's draft; an open view takes it here, a new one restores it from the store).
     public func showDraft(_ text: String) { transcript.setDraft(text) }
+    /// Selects `range` in the message box, now or once it is installed (a bare launch's handed-over caret).
+    public func setComposerSelection(_ range: NSRange) { transcript.setComposerSelection(range) }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the

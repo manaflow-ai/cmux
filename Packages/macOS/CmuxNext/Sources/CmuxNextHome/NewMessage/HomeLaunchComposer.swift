@@ -29,7 +29,9 @@ public final class HomeLaunchComposer {
     ///   - makeView: The app's Chief view over this page's ``store`` and its conversation (the
     ///     page is complete but for its view: the view may read ``hold``). Its Chief face waits for
     ///     the real Chief (an empty disc: `HomeNativeTranscriptView.holdsChiefFace`).
+    ///   - bare: Stage 0's stand-in box contents and swap signal (a bare launch): the page claims the contents (``take(_:)``) and fires the signal.
     public init(home: HomeStore, me: Participant, title: String, in column: NSView? = nil,
+                bare: HomeLaunchBareHandoff = HomeLaunchBareHandoff(),
                 makeView: (HomeLaunchComposer) -> NSView) {
         let hold = LaunchChiefHold()
         (self.home, self.hold) = (home, hold)
@@ -39,10 +41,47 @@ public final class HomeLaunchComposer {
         home.setDraft("", for: Self.conversation)
         view = makeView(self)
         HomeNativeTranscriptView.first(in: view)?.holdsChiefFace = true
-        guard let column else { return }
-        view.frame = column.bounds
-        view.autoresizingMask = [.width, .height]
-        column.addSubview(view)
+        if let column {
+            view.frame = column.bounds
+            view.autoresizingMask = [.width, .height]
+            column.addSubview(view)
+        }
+        bare.store.claim { [weak self] parked in self?.take(parked) ?? false }
+        bare.ready.fire()  // the page is up: stage 0 gives way to it
+    }
+
+    /// Takes stage 0's box contents (``HomeLaunchBareStore``): its sends go to ``hold`` after
+    /// the ones held already, in order and once each; its text goes after the page's draft with
+    /// its caret, into the box. After a hand-off they are the Chief's; after a park, the draft's.
+    @discardableResult
+    public func take(_ parked: HomeLaunchBareParked) -> Bool {
+        guard let selection = Self.take(parked, launch: store, hold: hold, home: home),
+              let box = HomeNativeTranscriptView.first(in: view) else { return true }
+        box.showDraft(store.draft(for: Self.conversation) ?? "")
+        box.setComposerSelection(selection)
+        box.takeKeyboardOnOpen()
+        return true
+    }
+
+    /// `parked` into the page over `launch` and `hold`: the sends kept by `hold` (to the Chief once
+    /// it is named), the text after `launch`'s draft. Returns the caret in the page's draft, or nil
+    /// when the text went elsewhere (the hold resolved: the Chief's draft in `home`; cancelled:
+    /// the launch conversation's draft in `home`, the sends' text first) or there was none.
+    static func take(_ parked: HomeLaunchBareParked, launch: HomeStore, hold: LaunchChiefHold, home: HomeStore) -> NSRange? {
+        let sends = parked.sends.map { [MessagePart.text($0)] }
+        guard sends.allSatisfy({ hold.keep($0, key: .make()) }) else {
+            appendDraft([LaunchChiefHold.text(of: sends), parked.text].filter { !$0.isEmpty }.joined(separator: "\n"), to: conversation, store: home)
+            return nil
+        }
+        if let chief = hold.chief {
+            appendDraft(parked.text, to: chief, store: home)
+            return nil
+        }
+        guard !parked.text.isEmpty else { return nil }
+        let own = launch.draft(for: conversation) ?? ""
+        appendDraft(parked.text, to: conversation, store: launch)
+        let shift = own.isEmpty ? 0 : (own as NSString).length + 1
+        return NSRange(location: parked.selection.location + shift, length: parked.selection.length)
     }
 
     // cx-t7hu: not an isolated deinit; the last reference can go on any thread. The parking and
@@ -123,8 +162,17 @@ public final class HomeLaunchComposer {
 
     /// What a page released or quit before its Chief answered kept in `home` goes after `chief`'s own
     /// draft (a launch that had its Chief at once mounts no page to take it).
-    public static func claimParked(to chief: ConversationID, in home: HomeStore) {
+    /// Stage 0's box contents (`bare`) go to `chief` too: the text after its draft, each send to it
+    /// in order, once, under a key of its own.
+    public static func claimParked(to chief: ConversationID, in home: HomeStore, bare: HomeLaunchBareHandoff = HomeLaunchBareHandoff()) {
         if appendDraft(home.draft(for: conversation) ?? "", to: chief, store: home) { home.setDraft("", for: conversation) }
+        bare.store.claim { parked in
+            appendDraft(parked.text, to: chief, store: home)
+            let hold = LaunchChiefHold()
+            for text in parked.sends { hold.keep([.text(text)], key: .make()) }
+            hold.resolve(chief) { chief, parts, key in _ = try? await home.perform(.sendMessage(conversation: chief, parts: parts), key: key) }
+            return true
+        }
     }
 
     /// Released before the Chief answered: the held sends are refused, and their text, then what was

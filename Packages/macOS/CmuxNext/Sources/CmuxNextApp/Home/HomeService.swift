@@ -201,6 +201,7 @@ final class HomeService {
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
     @ObservationIgnored weak var launchPage: HomeLaunchComposer?  // a bare launch's Chief page: quit's save step keeps its text
+    @ObservationIgnored var launchBare = HomeLaunchBareHandoff()  // stage 0's stand-in Home on a bare launch (the AppDelegate's): its box contents and swap signal
     /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)

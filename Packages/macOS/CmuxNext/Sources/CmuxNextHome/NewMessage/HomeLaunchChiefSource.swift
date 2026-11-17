@@ -115,6 +115,18 @@ public final class LaunchChiefHold {
         }
     }
 
+    /// Keeps `parts` under `key` with no one waiting for the answer (a send stage 0's box made
+    /// before this page existed: ``HomeLaunchComposer/take(_:)``), after the sends held already.
+    /// False when the hold was cancelled (the caller keeps the text).
+    @discardableResult
+    public func keep(_ parts: [MessagePart], key: IdempotencyKey) -> Bool {
+        guard !isCancelled else { return false }
+        guard delivered[key] == nil, !held.contains(where: { $0.key == key }) else { return true }
+        held.append(Held(key: key, parts: parts, waiters: []))
+        drain()
+        return true
+    }
+
     /// The real Chief is `chief`: each held send goes to it through `deliver`, in order. Once;
     /// a later call, or one after ``cancel()``, does nothing.
     public func resolve(_ chief: ConversationID, deliver: @escaping Deliver) {

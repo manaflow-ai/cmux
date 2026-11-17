@@ -9,6 +9,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextImportCards
 import CmuxNextKeepAwake
 import CmuxNextKeys
@@ -38,13 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
+    /// Stage 0's stand-in Home (a bare launch): its box contents and swap signal, shared with Home.
+    private let launchBare = LaunchBareHandoff()
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`; stage 0's window (LaunchShell), planned there.
     private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, shell: LaunchShell)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
-    private lazy var appCopyGuide = AppCopyGuide(open: { [weak self] urls in for url in urls { self?.routeOpenedURL(url) } },
-                                                 relaunching: { [weak self] in self?.services?.updater.willRelaunch?() })
+    private lazy var appCopyGuide = AppCopyGuide(open: { [weak self] urls in for url in urls { self?.routeOpenedURL(url) } }, relaunching: { [weak self] in self?.services?.updater.willRelaunch?() })
     /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
@@ -95,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); launchReads.shell.show(title: Strings.appName) // stage 0's window, one commit
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); launchReads.shell.content = .bareHome(launchBare) { DebugTimings.markLaunch($0) }; launchReads.shell.show(title: Strings.appName) // stage 0's window, one commit; a bare launch draws a stand-in Home (HomeLaunchBare)
         // task-owner: cloudBootstrap; awaits stage 0's frame, then the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }; await launchReads.shell.framed()
@@ -176,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services
+        self.services = services; services.home.launchBare = launchBare  // Home claims stage 0's stand-in box and fires its swap
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG || CMUX_BENCH_HOOKS
