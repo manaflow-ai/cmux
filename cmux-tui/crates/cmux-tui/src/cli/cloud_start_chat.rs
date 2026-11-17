@@ -662,6 +662,12 @@ pub(super) trait Runner {
     ) -> Result<Value, link_wait::Failure> {
         link_wait::observe(std::path::Path::new(socket), surface, after, wait)
     }
+    /// The copy of `folder` (a `--from-folder`), estimated and decided (whole, first pass or seed)
+    /// before any machine is made for it (link/sync_cli/estimate.rs): `null` when it could not be
+    /// read, and the start goes on either way.
+    fn estimate(&mut self, folder: &str) -> Value {
+        crate::link::sync_cli::estimate::answer(std::path::Path::new(folder))
+    }
 }
 
 pub(super) struct SelfRunner {
@@ -731,6 +737,20 @@ impl Runner for SelfRunner {
 
     fn until(&mut self) -> Option<Instant> {
         self.until
+    }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        let Ok(estimate) = crate::link::sync_cli::estimate::of_folder(std::path::Path::new(folder))
+        else {
+            return Value::Null;
+        };
+        // Said before the machine is asked for: a wait that follows is the machine's or the copy's,
+        // never a silent one (stderr; the answer carries it too).
+        match self.global.output {
+            OutputMode::Human => eprintln!("{}", estimate.words()),
+            _ => eprintln!("{}", json!({"estimate": estimate.json()})),
+        }
+        estimate.json()
     }
 
     fn fresh_name(&mut self) -> String {
@@ -1387,6 +1407,10 @@ fn steps(
     if let Err(outcome) = on_account(request, &listed, None) {
         return outcome;
     }
+    // The folder's copy is estimated and decided (whole, first pass or seed) before any machine
+    // exists: `--environment` makes one next, and `cloud start-session` may (Leo's 2026-11-10 start
+    // at ~/Projects began a 20 GB copy after a machine was already leased).
+    let estimate = request.from_folder.as_deref().map(|folder| runner.estimate(folder));
     // 2. The chat's machine: one made in --environment first, else the one asked for.
     // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
     // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
@@ -1524,6 +1548,9 @@ fn steps(
     }
     if let Some(model) = &request.model {
         answer.set("model", json!(model));
+    }
+    if let Some(estimate) = estimate {
+        answer.set("estimate", estimate);
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
