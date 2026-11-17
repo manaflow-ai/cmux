@@ -267,9 +267,21 @@ pub(super) fn pane_json(
             }
             let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);
+            shown_title_fields(&mut tab);
             tab
         }).collect::<Vec<_>>(),
     })
+}
+
+/// What a tab shows of its `title` (D2): `title_text` and `title_activity`.
+/// A terminal's (a local or a remote terminal tab's) loses its leading status
+/// glyphs; a page's or a chat's stays as is. Clients show these and never
+/// parse the raw `title`.
+fn shown_title_fields(tab: &mut Value) {
+    let raw = tab.field("title").as_str().unwrap_or_default();
+    let shown = crate::TabTitle::of_kind(tab.field("kind").as_str(), raw);
+    tab.insert("title_text", Value::from(shown.text.as_ref()));
+    tab.insert("title_activity", shown.activity.map(crate::TitleActivity::as_str).into());
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {

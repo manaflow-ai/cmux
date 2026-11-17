@@ -26,6 +26,7 @@ public final class AgentLaneStore {
         set {
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
+            if waitingSessions != waiting { waitingSessions = waiting }
             working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
@@ -39,6 +40,9 @@ public final class AgentLaneStore {
     /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
     /// it when it is used.
     @ObservationIgnored public private(set) var waiting: Set<String> = []
+    /// ``waiting``, observed: written only when a session starts or stops waiting, so a reader of the waiting sessions
+    /// (the Needs You tray's approvals) is not told of every agent step (main-thread-scheduling.md section 3, O7).
+    public private(set) var waitingSessions: Set<String> = []
     /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
     /// Running list reads these few lanes, never every one.
     @ObservationIgnored public private(set) var working: Set<String> = []
@@ -54,7 +58,9 @@ public final class AgentLaneStore {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
         withMutation(keyPath: \.lanes) { storage[session] = lane }
+        let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        if waiting.contains(session) != wasWaiting { waitingSessions = waiting }
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
         if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.

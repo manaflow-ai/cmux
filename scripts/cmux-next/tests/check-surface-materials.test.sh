@@ -107,4 +107,40 @@ reset; manifest '' ''
 printf 'const popupClassName = "ui-popup ui-glass";\nreturn <div className={cx({ active: isActive }, popupClassName)} />;\n' > "$web/ObjectArg.tsx"
 expect_fail const-after-an-object-argument web-floating
 
+reset; manifest '' ''
+printf '<div className={cx(/* } */ "ui-popup ui-glass")} />\n' > "$web/Comment.tsx"
+expect_fail brace-in-a-comment web-floating
+
+reset; manifest '' ''
+printf '<div className = "ui-popup ui-glass" />\n' > "$web/Spaced.tsx"
+expect_fail spaces-around-the-equals web-floating
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className="popup" />;\n' > "$web/Literal.tsx"
+expect_pass a-const-name-in-a-string-is-not-a-reference
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className={cx(/* don'"'"'t */ "a", popup, /* it'"'"'s */)} />;\n' > "$web/Apostrophe.tsx"
+expect_fail an-apostrophe-in-a-comment-hides-no-const web-floating
+
+reset; manifest '' ''
+printf '<div className={cx(/* ui-popup ui-glass */ "a")} />\n' > "$web/CommentClass.tsx"
+expect_pass classes-in-a-comment-are-not-classes
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className={`popup x`} />;\n' > "$web/Template.tsx"
+expect_pass a-const-name-in-a-template-is-not-a-reference
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className={`x ${popup}`} />;\n' > "$web/Interpolated.tsx"
+expect_fail a-const-in-a-template-interpolation web-floating
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className = {popup} />;\n' > "$web/SpacedBrace.tsx"
+expect_fail spaces-around-a-braced-equals web-floating
+
+reset; manifest '' ''
+printf '<div className={cx("https://x//y", "ui-popup ui-glass")} />\n' > "$web/Url.tsx"
+expect_fail slashes-in-a-string-are-not-a-comment web-floating
+
 echo "check-surface-materials.test: ok"

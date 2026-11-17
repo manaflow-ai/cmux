@@ -1,28 +1,12 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 extension CloudAppLinks {
-    /// Runs Cloud app ops on `local`'s current connection. A refusal is a
-    /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon
-    /// allows it (the verified app connection), never upgraded here.
-    static func ops(local: DaemonService) -> CloudAppOp {
-        let timeout: Duration = .seconds(120) // a start waits for a paused machine
-        return { op, args, key, origin in
-            guard let connection = await local.connection else {
-                throw CloudAppOpFailure(code: "cmux.cloud.relay_unavailable", message: DaemonError.notConnected.description)
-            }
-            let allowed = await connection.userOriginAllowed
-            let request = AppsRunRequest(app: CloudLinkKey.app, op: op, args: args, idempotencyKey: key,
-                                         origin: origin == .user && allowed ? .user : .script)
-            do {
-                return try await connection.request(request, timeout: timeout).value
-            } catch DaemonError.command(_, let message, let code, let details, _) {
-                throw CloudAppOpFailure(code: code ?? "", message: message, details: details)
-            }
-        }
-    }
+    /// Runs Cloud app ops on `local`'s current connection (``CloudAppOpRunner``).
+    static func ops(local: DaemonService) -> CloudAppOp { CloudAppOpRunner { await local.connection }.op }
 }
 
 /// The child chat opener the transcript fork leaves for the last step: the child machine's pane and
@@ -36,28 +20,54 @@ private func cloudTryAnotherApproachFailure(_ message: String) -> NSError {
     NSError(domain: "cloud.tryAnotherApproach", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }
 
+/// Signed-in Cloud chat `chat` showing `session`: its workspace (the platform's workspace id) and the
+/// Cloud machine it runs on, or nil.
+@MainActor
+private func cloudChatPlace(chat: String, session expected: String, services: AppServices)
+    -> (workspace: String, workspaceName: String, machine: String, harness: String?)? {
+    guard services.cloud.auth.isSignedIn,
+          let (tab, pane) = services.locateTab(chat),
+          let record = tab.agentSession, record.session == expected else { return nil }
+    let daemon = services.machines.daemon(forTab: tab)
+    guard let cloud = services.machines.session(daemon.machineID),
+          let workspace = services.machines.allWorkspaces.first(where: { workspace, owner in
+              owner === daemon && workspace.screens.flatMap(\.panes).contains { $0 === pane }
+          })?.0 else { return nil }
+    return (workspace.id, workspace.displayName, cloud.machineID, record.harness)
+}
+
+extension AppServices {
+    /// A Cloud chat's turn checkpoints with this app's setting, chats and Cloud token (the token is
+    /// in the app's Keychain, so the app hands it in; the sequence is cmux-cloud-api's).
+    var cloudTurnRewindHost: AgentPaneCloudTurnRewindHost {
+        AgentPaneCloudTurnRewindHost(
+            isOn: { [weak self] in
+                self.map { $0.cloud.auth.isSignedIn && CloudNewWorkspaceSetting().turnCheckpoints(in: $0.settings?.snapshot.root ?? .object([:])) } ?? false
+            },
+            place: { [weak self] chat, session in self.flatMap { cloudChatPlace(chat: chat, session: session, services: $0) }.map { ($0.workspace, $0.machine) } },
+            connection: { [weak self] in self?.machines.local.connection },
+            credential: { [weak self] in
+                guard let cloud = self?.cloud else { throw CancellationError() }
+                let team = (try? await cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
+                return .init(api: FeedService.apiBaseURL(auth: cloud.auth).absoluteString, accessToken: try await cloud.auth.tokens().access, team: team)
+            })
+    }
+}
+
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.
 @MainActor
 func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
     let opener = CloudTryAnotherApproachChildOpener()
     let fork = CloudTryAnotherApproach(
         prepare: { chat, seq in
-            guard seq > 0, services.cloud.auth.isSignedIn,
-                  let (sourceTab, sourcePane) = services.locateTab(chat),
-                  let sourceRecord = sourceTab.agentSession,
-                  let sourceSession = sourceRecord.session, sourceSession == expected,
-                  let harness = sourceRecord.harness else {
+            guard seq > 0, let place = cloudChatPlace(chat: chat, session: expected, services: services),
+                  let harness = place.harness else {
                 throw cloudTryAnotherApproachFailure("Cloud chat is unavailable")
             }
-            let sourceDaemon = services.machines.daemon(forTab: sourceTab)
-            guard let sourceCloud = services.machines.session(sourceDaemon.machineID),
-                  let workspace = services.machines.allWorkspaces.first(where: { workspace, daemon in
-                      daemon === sourceDaemon && workspace.screens.flatMap(\.panes).contains { $0 === sourcePane }
-                  })?.0 else { throw cloudTryAnotherApproachFailure("Cloud chat is unavailable") }
-            return .init(workspace: workspace.id, sourceMachine: sourceCloud.machineID, session: sourceSession,
+            return .init(workspace: place.workspace, sourceMachine: place.machine, session: expected,
                          harness: harness, throughSeq: seq,
-                         clientKey: "cmux-next-try-another-approach-\(chat)-\(sourceSession)-\(seq)",
-                         parentLabel: "Try another approach · \(workspace.displayName)")
+                         clientKey: "cmux-next-try-another-approach-\(chat)-\(expected)-\(seq)",
+                         parentLabel: "Try another approach · \(place.workspaceName)")
         },
         forkMachine: { plan in
             let owner = CloudOwnerAPIClient(

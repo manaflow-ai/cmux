@@ -237,7 +237,7 @@ pub fn decide(task: &str, requested: Requested, rules: &Rules) -> Choice {
 }
 
 /// `task` without its `Title:`, `Group:` and `Sidebar:` lines.
-fn body(task: &str) -> String {
+pub(crate) fn body(task: &str) -> String {
     task.lines()
         .filter(|l| !crate::workspaces::is_header(l.trim()))
         .collect::<Vec<_>>()
@@ -246,7 +246,7 @@ fn body(task: &str) -> String {
 
 /// Whether lowercase `text` contains `term` as whole words (no letter or
 /// digit right before or after it), so "ui" never matches "build".
-fn mentions(text: &str, term: &str) -> bool {
+pub(crate) fn mentions(text: &str, term: &str) -> bool {
     if term.is_empty() {
         return false;
     }

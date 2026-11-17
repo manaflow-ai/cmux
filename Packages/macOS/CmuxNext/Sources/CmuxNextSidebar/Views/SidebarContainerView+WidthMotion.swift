@@ -24,7 +24,7 @@ extension SidebarContainerView {
         widthLeg = WidthLeg(width: (fromWidth, width), reach: (fromReach, target), edge: edge)
         // The leg starts on screen: this frame's layout pass shows the turn, not the old slide's step.
         (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
-        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token) : 0
+        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token, in: window) : 0
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
     }
 
@@ -51,6 +51,14 @@ extension SidebarContainerView {
         if progress >= 1 { widthLeg = nil }
     }
 
+    /// The panel's leading x in window coordinates, from this view's frame and the pins that place
+    /// the panel: inside this view's `layout()` the panel's own frame is not set yet (its clip lays it out
+    /// after), so reading it would carry the last frame's position.
+    var panelOriginInWindow: CGFloat {
+        let x = side == .left ? bounds.width + clipTrailing.constant - panelWidth.constant : clipLeading.constant
+        return convert(CGPoint(x: x, y: 0), to: nil).x
+    }
+
     func refreshHover() {
         hoverRefresh.cancel()
         PointerHover.refresh(in: window)
@@ -61,7 +69,7 @@ extension SidebarContainerView {
     /// as the completion, `snap()` or a drag ends the motion the usual way, so
     /// in the normal case this never fires.
     func armWidthMotionWatchdog(_ token: MotionSpring) {
-        let due = Duration.seconds(Motion.sidebar.duration(token)) + Self.widthMotionSlack
+        let due = Duration.seconds(Motion.sidebar.duration(token, in: window)) + Self.widthMotionSlack
         widthMotionWatchdog.schedule(after: due) { @MainActor [weak self] in
             guard let self, self.isWidthAnimating else { return }
             self.isWidthAnimating = false

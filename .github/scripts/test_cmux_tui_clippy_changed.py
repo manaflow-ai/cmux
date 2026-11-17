@@ -35,6 +35,7 @@ printf '%s\\n' "$*" >> "$CARGO_LOG"
 for arg in "$@"; do
   if [[ "$arg" == "${FAIL_PACKAGE:-none}" ]]; then
     echo "error: this call to clone can be replaced with std::slice::from_ref"
+    [[ -n "${FAIL_FILE:-}" ]] && echo "   --> ${FAIL_FILE}:12:5" >&2
     exit 101
   fi
   if [[ "$arg" == --message-format=json ]]; then
@@ -169,6 +170,24 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("::error title=cmux-tui clippy::", result.stdout)
         self.assertIn("pkg-a", result.stdout)
+
+    def test_a_red_file_the_change_does_not_touch_is_named_a_base_red(self) -> None:
+        # #40242's shape: the base already fails clippy in pkg-a's src/lib.rs; this change edits only a test.
+        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={"FAIL_FILE": "crates/a/src/lib.rs"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("   --> crates/a/src/lib.rs:12:5", result.stderr)
+        self.assertIn("::error title=cmux-tui clippy (base red)::cmux-tui/crates/a/src/lib.rs is red and this change "
+                      "does not touch it", result.stdout)
+        self.assertIn(f"last changed on the base by {self.base[:7]}", result.stdout)
+        self.assertIn("likely a base red", result.stdout)
+
+    def test_a_red_file_the_change_touches_is_not_called_a_base_red(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs", "pub fn a2() {}\n")
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={"FAIL_FILE": "crates/a/src/lib.rs"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy::", result.stdout)
+        self.assertNotIn("base red", result.stdout)
 
     def test_every_touched_member_is_linted_in_one_keep_going_run(self) -> None:
         self.write("cmux-tui/crates/b/src/lib.rs", "pub fn b2() {}\n")

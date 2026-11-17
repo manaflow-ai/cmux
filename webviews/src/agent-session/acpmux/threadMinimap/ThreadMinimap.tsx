@@ -81,6 +81,7 @@ import {
 } from "./model";
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
+import { focusCameFromKey } from "../../../ui/focusModality";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -93,10 +94,11 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
-/// Whether `node` holds focus the keyboard gave it (`:focus-visible`), not a click's.
+/// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
+/// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
   try {
-    return node.matches(":focus-visible");
+    return focusCameFromKey(node);
   } catch {
     return false;
   }

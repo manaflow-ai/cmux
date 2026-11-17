@@ -32,6 +32,7 @@ mod cloud_port;
 mod cloud_session;
 mod cmux_remote;
 mod density;
+mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
@@ -149,6 +150,7 @@ pub static GROUPS: &[&[Action]] = &[
     chrome_style::ACTIONS,
     backdrop::ACTIONS,
     pane_background::ACTIONS,
+    divider::ACTIONS,
     hibernation::ACTIONS,
     auto_archive::ACTIONS,
     workspace_bulk_archive::ACTIONS,

@@ -25,7 +25,16 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
     /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
     /// its row's top, touching the row's fill (`HoverCardPlacement.besideRow`).
-    var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
+    /// Leo 2026-11-07: "this is one of the more important hover previews because it's how we navigate into the thing
+    /// and navigate to different tabs. So I don't want it to disappear as quickly as other ones would." By default it
+    /// lingers for the leave grace and a pointer heading into it keeps it; Debug Settings
+    /// `sidebar.hoverCards.workspaceLeave` brings back hiding at once.
+    var leave: HoverCardLeave {
+        switch SidebarTunables.workspaceHoverCardLeave.value {
+        case .lingers: .lingers
+        case .hidesAtOnce: .hides(reshow: HoverCardTiming.reshowWindow)
+        }
+    }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
@@ -255,7 +264,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
             resources.close()
         }
         updateTicker()
-        coordinator.refit(id)
+        // Show and Hide details grow and fold the card on the hover cards' motion, not in one jump.
+        coordinator.refit(id, animated: true)
     }
 
     /// The custom card for `ws`, mounted once per shown card; nil without a customization.
@@ -355,6 +365,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
+    /// The name, its icon, the host and the age (`sidebar.hoverCards.workspaceTitle` hides it when it repeats).
+    private let titleRow = NSStackView()
+    /// The workspace's tabs' titles, for ``WorkspaceHoverCardTitle/showsTitle(_:tabTitles:expanded:)``.
+    private var tabTitles: [String] = []
     /// The kind icon, leading the name on the card's icon column; a Cloud or remote card has none
     /// (its machine reads once, in `hostLabel`).
     private let kindIcon = HoverCardIconView()
@@ -453,7 +467,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
-        let titleRow = NSStackView()
         titleRow.setViews([kindIcon, titleLabel, hostDot, hostLabel], in: .leading)
         titleRow.setViews([ageLabel], in: .trailing)
         titleRow.orientation = .horizontal
@@ -567,6 +580,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
     var drawnTitleFont: NSFont? { titleLabel.font }
+    /// The name row is hidden (`sidebar.hoverCards.workspaceTitle`; tests read it).
+    var drawnTitleHidden: Bool { titleLabel.isHidden }
     var drawnCaptionFont: NSFont? { ageLabel.font }
     var kindIconFrame: CGRect { kindIcon.convert(kindIcon.bounds, to: self) }
 
@@ -672,6 +687,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
         tabList.configure(title: title, tabs: tabs, now: now, machine: machine)
+        tabTitles = tabs.map(\.title)
+        updateTitleVisibility()
         summaryRow.isHidden = style.header != .summary || tabs.isEmpty
         let running = tabs.filter { $0.state.isWorking || $0.state.isLoading }.count
         let unread = tabs.filter(\.isUnread).count
@@ -731,9 +748,20 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             customError.isHidden = customError.stringValue.isEmpty
         }
         ageLabel.isHidden = !detailsExpanded || content?.age == nil
+        updateTitleVisibility()
         let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
             || content?.facts.contains(where: { $0.kind != "machine" }) == true || content?.timeline.isEmpty == false || resourceShown
         detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
+    }
+
+    /// The name row shows unless the tab rows already say it (`sidebar.hoverCards.workspaceTitle`): a host shown
+    /// beside the name keeps the row, since the tabs do not say where the workspace runs.
+    private func updateTitleVisibility() {
+        guard let content else { return }
+        let shows = SidebarTunables.workspaceHoverCardTitle.value.showsTitle(content.title, tabTitles: tabTitles, expanded: detailsExpanded)
+        titleRow.isHidden = !shows && hostLabel.isHidden
+        titleLabel.isHidden = !shows
+        kindIcon.isHidden = !shows || !hostLabel.isHidden
     }
 
     /// Shows the user's card when it rendered, else the built-in card with the error (if any).

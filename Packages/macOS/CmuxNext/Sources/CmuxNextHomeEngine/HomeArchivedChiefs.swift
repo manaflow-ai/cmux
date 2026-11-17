@@ -23,6 +23,14 @@ public struct HomeArchivedChiefs {
         }
     }
 
+    /// The conversations of `rows` the list hides for an archived Chief (the Messages page's list
+    /// filters them, as the native list did).
+    public func hiddenConversations(_ rows: [InboxRow]) -> [ConversationID] {
+        guard !ids.isEmpty else { return [] }
+        let shown = Set(visible(rows).map(\.id))
+        return rows.map(\.id).filter { !shown.contains($0) }
+    }
+
     /// `chief` (the preferred Chief's conversation), unless Archive Chief hid it from `listed`: the
     /// page never opens an archived Chief by itself, on any path (its default, the Chief
     /// observation's follow, a gone conversation's replacement). One `listed` does not have stays.

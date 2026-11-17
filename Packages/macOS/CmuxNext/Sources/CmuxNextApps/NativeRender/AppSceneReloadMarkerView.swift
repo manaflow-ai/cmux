@@ -37,7 +37,7 @@ final class AppSceneReloadMarkerView: NSView {
         location.isHidden = copy.place == nil
         let said = copy.location ?? copy.title
         let spoken = [AppsStrings.reloadFailed, copy.place, said].compactMap { $0 }.joined(separator: ", ")
-        toolTip = said
+        themedToolTip = said
         setAccessibilityLabel(spoken)
         needsLayout = true
         needsDisplay = true

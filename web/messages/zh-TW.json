@@ -576,17 +576,17 @@
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
-            "最多 5 台 Cloud VM，共用 20 個 vCPU 和 40 GB RAM. 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
+            "Cloud VM 數量不設上限，超出包含用量的部分按用量計量。單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
             "cmux iOS App"
           ],
           "max": [
-            "最多 5 台 Cloud VM，共用 80 個 vCPU 和 160 GB RAM. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。",
+            "Cloud VM 數量不設上限，超出包含用量的部分按用量計量。Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。",
             "更大的機器規格",
             "Pro 的所有功能"
           ],
           "team": [
             "每位成員都享有 Pro 的所有功能",
-            "每個付費席位最多 5 台 Cloud VM，每個付費席位的 20 個 vCPU 和 40 GB RAM 由整個團隊共用",
+            "整個團隊的 Cloud VM 數量不設上限，超出包含用量的部分按用量計量，團隊的支出上限即為停止點",
             "整個團隊一張發票",
             "優先支援"
           ]
@@ -2969,13 +2969,13 @@
       "planMax": "Max",
       "sizesDefault": "如果不選擇規格，新機器會使用 8 GB 記憶體。執行 cmux vm ls --json 可查看你的方案允許的規格。",
       "limitsTitle": "方案限制",
-      "limitsDesc": "你的使用中機器共用同一個 vCPU 和記憶體資源池。你可以執行一台大機器，也可以執行幾台小機器。已暫停的機器不會占用資源池。磁碟按每台機器個別設定，不計入資源池。",
+      "limitsDesc": "Pro、Team 和 Max 不限制你擁有的機器數量；Plus 保留一台機器。超出包含用量的部分，執行中的機器按 vCPU 小時和 GB 小時計量，已儲存和已暫停的機器按磁碟 GB 月計量。團隊的支出上限是唯一的停止點：達到上限後，新的啟動會被拒絕，執行中的機器會在警告後暫停，不會遺失任何內容。",
       "limitsFree": "免費帳號無法建立機器。",
-      "limitsPaid": "Pro 帳號最多可擁有 5 台機器（包含已暫停的機器），共用 20 個 vCPU 和 40 GB 記憶體。",
-      "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台機器（包含已暫停的機器）。每個付費席位會為團隊資源池增加 20 個 vCPU 和 40 GB 記憶體。",
-      "limitsMax": "Max 帳號最多可擁有 5 台機器（包含已暫停的機器），共用 80 個 vCPU 和 160 GB 記憶體。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包含 24 GB / 12 vCPU 與 32 GB / 16 vCPU 規格；Pro 和 Team 的上限為 16 GB 和 8 個 vCPU。",
-      "limitsPoolFull": "如果新建、恢復、擴充或分叉的機器會超出資源池，cmux 會拒絕該請求，並顯示資源池的已用量。暫停或刪除一台機器以釋出資源，或升級到 Max。",
-      "limitsPricing": "目前的價格請參閱定價頁面。不依用量計費，也沒有超額費用。",
+      "limitsPaid": "Pro 帳號可擁有任意數量的機器，每台最多 16 GB 和 8 個 vCPU。",
+      "limitsTeam": "Team 是選用的：它讓所有人共用一張帳單和一個支出上限。席位數不會改變任何人可擁有的機器數量。",
+      "limitsMax": "Max 帳號可擁有任意數量的機器。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包括 24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格；Pro 和 Team 最高為 16 GB 和 8 個 vCPU。",
+      "limitsPoolFull": "達到支出上限時，cmux 會拒絕新建或恢復的機器，並說明團隊已達到上限。提高上限即可再次啟動機器；不會刪除任何內容。",
+      "limitsPricing": "目前的價格請參閱定價頁面。超出包含用量的部分會被計量。",
       "agentUpdatesTitle": "讓程式碼代理保持最新",
       "agentUpdatesDesc": "開啟此設定後，機器會更新 Claude Code、Codex、OpenCode、pi 和 agent-browser。機器建立後以及每次連線時都會檢查，每 24 小時最多一次。更新在背景獨立執行，因此不會阻擋連線。",
       "agentUpdatesSource": "每個工具都來自其官方 GitHub 版本，並以發布資產的 sha256 摘要進行驗證。不使用 npm。版本發布滿 3 天後才會安裝，更新絕不會安裝較舊的版本。執行中的代理會繼續使用啟動時的檔案，更新失敗時目前版本保持不變。",
@@ -5416,7 +5416,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",
     "title": "歡迎加入 cmux Pro",
-    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
+    "body": "Pro 包含數量不設上限的 Cloud VM（超出包含用量的部分按用量計量），以及 cmux iOS TestFlight 存取權。單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
     "done": "前往控制面板",
     "steps": {
       "iosApp": {

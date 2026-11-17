@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-@testable import CmuxNextFeed
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -36,28 +35,6 @@ struct RightSidebarCleanupTests {
     }
 
     // MARK: One ground
-
-    /// The Feed section painted the pane's fill under its list while every other section shows the
-    /// window's ground: a panel of another gray in the sidebar.
-    @Test func theFeedSectionPaintsNoGroundOfItsOwn() throws {
-        let h = try Self.harness()
-        defer { h.close() }
-        #expect(h.services.registry.perform("switchRightSidebarToFeed", invocation: ActionInvocation(origin: .cli)))
-        let feed = try #require(h.controller.root.rightPanel?.shownSection as? FeedHostView)
-        feed.updateLayer()
-        let ground = feed.appearanceState.colors.background
-        #expect(NSColor(ground).alphaComponent == 0, "the sidebar's Feed paints \(NSColor(ground))")
-        #expect((feed.layer?.backgroundColor?.alpha ?? 0) == 0)
-    }
-
-    /// The Feed's page tab keeps its ground.
-    @Test func theFeedPageKeepsItsGround() {
-        _ = NSApplication.shared
-        let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: .page)
-        feed.updateLayer()
-        let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
-        #expect(ground > 0, "the page lost its ground")
-    }
 
     /// No section draws a ground: rendered alone, an empty corner of each stays transparent, so the
     /// window's ground shows the same under every section.

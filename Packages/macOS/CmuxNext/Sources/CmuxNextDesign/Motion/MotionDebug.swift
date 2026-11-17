@@ -10,9 +10,9 @@ public import CmuxNextDesignTokens
 /// load restores the file's value. `reduce` with `value` true or false overrides Reduce
 /// Motion in memory (null follows the system setting again), so a bench records reduced
 /// motion without the system setting. `work` is each timed animation's main-thread work per
-/// frame (`MotionTrace.measure`). `bounce` with `value` ("none", "subtle") and `kind` with
-/// `name` ("paneAnimations", "newTab", "newWorkspace") and `value` true or false set
-/// `ui.animations.bounce`, `ui.paneAnimations` and `ui.animations.*` in memory the same way.
+/// frame (`MotionTrace.measure`). `kind` with `name` ("paneAnimations", "newTab",
+/// "newWorkspace") and `value` true or false sets `ui.paneAnimations` and `ui.animations.*`
+/// in memory the same way.
 /// The report lists the display links running (`display_links`: 0 once every spring rests, so
 /// the window idles). Spans carry `at_ms` (from `start`); `samples` lists per-frame values
 /// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the points an
@@ -52,10 +52,6 @@ public struct MotionDebug {
             }
         case "reduce":
             Motion.reduceMotionOverride = params["value"] as? Bool
-        case "bounce":
-            if let value = params["value"] as? String, let bounce = MotionBounce(rawValue: value) {
-                DesignSettings.shared.animationBounce = bounce
-            }
         case "kind":
             if let name = params["name"] as? String, let on = params["value"] as? Bool {
                 if name == "paneAnimations" {
@@ -81,7 +77,6 @@ public struct MotionDebug {
             "recording": MotionTrace.isEnabled,
             "speed": policy.speed.rawValue,
             "reduce_motion": policy.reduceMotion,
-            "bounce": policy.bounce.rawValue,
             "enabled_kinds": policy.enabledKinds.map(\.rawValue).sorted(),
             "animations_enabled": policy.animationsEnabled,
             "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),

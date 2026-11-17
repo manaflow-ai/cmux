@@ -74,6 +74,8 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
+    var dividerMenu: ((SplitID) -> NSMenu?)?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -127,12 +129,16 @@ final class LayoutViewContext {
     /// test that runs while an async test is suspended.
     var reduceMotionOverride: Bool?
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
-    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement }
+    /// The window that shows this layout (its root view's): a live resize or a full screen
+    /// transition of it snaps the layout's movement; another window's does not.
+    var window: () -> NSWindow? = { nil }
+
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the layout's window (`Motion`).
+    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement(in: window()) }
 
     /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
-    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
+    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

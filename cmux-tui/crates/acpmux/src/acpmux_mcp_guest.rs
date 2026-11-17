@@ -47,6 +47,7 @@ pub(super) const NEW: &str = "new";
 pub(super) const MACHINES: &str = "machines";
 /// How long a CLI call may take: under Codex's 60 s MCP tool timeout.
 const CLI_WAIT: Duration = Duration::from_secs(50);
+// timeout: a read-only `machines` listing for the agent's tool call; past it the tool says so and nothing is lost
 const MACHINES_WAIT: Duration = Duration::from_secs(20);
 
 /// What a guest chat is told.

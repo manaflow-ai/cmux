@@ -786,9 +786,29 @@ pub fn place_in_personal_group_from(
         return Ok(());
     }
     let here = || json!({"machine": "current", "session": "current"});
-    let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let Some(group) = agents_group(name, &groups_of(&listed)) else {
-        return Ok(());
+    let group = if name == crate::action_lifetime::TUCK_GROUP {
+        // A tucked Chief workspace (action_lifetime.rs, Leo 2026-11-10): the sidebar's "Chief"
+        // group, made collapsed when it has none; one the person opened stays open.
+        let mut params = here();
+        params["name"] = json!(name);
+        params["collapsed"] = json!(true);
+        params["reuse"] = json!(true);
+        let made = resource_call(
+            daemon,
+            "workspace_group.create",
+            params,
+            Some(&format!("optchat-chief-tuck-group-{key}")),
+        )?;
+        made["value"]["id"]
+            .as_str()
+            .ok_or("workspace_group.create named no group")?
+            .to_owned()
+    } else {
+        let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
+        let Some(group) = agents_group(name, &groups_of(&listed)) else {
+            return Ok(());
+        };
+        group
     };
     let workspace = locate_by_key(daemon, key)
         .ok_or("the session does not list the new workspace")?

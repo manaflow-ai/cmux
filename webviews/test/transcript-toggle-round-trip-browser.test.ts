@@ -1,4 +1,7 @@
 // l10n-allow-file: test fixture prompts, answers and tool titles, not shipped UI.
+// cmux-web-test-timeout: 480
+// 480: ten clicks per kind in both engines took 238 s alone on the Linux pool (fleet run 42785525927);
+// the default 120 s killed it on every feat-cmux-next push (67 of 67), so it checked nothing.
 // Every toggle in the transcript is a round trip: open then close puts the view back where it was,
 // however often the reader does it (Leo, 2026-11-08: "the more I click this, the more the thing
 // gradually goes down ... it's not an— what is it? idempotent action ... there's the drift, right?

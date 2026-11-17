@@ -627,6 +627,29 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// A line with a control at its right end keeps its grip in its right inset: the grip's box stays
+    /// inside the line and clear of the control, and still holds every dot (CMUX-298: an icon box centred
+    /// on the dots ran from width - 12 to width + 4).
+    @Test func aGripPastATrailingControlStaysInsideTheLine() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        let line = SessionInfoLineView(line: SessionInfoLine(
+            id: "remote", kind: .row, symbol: "cursorarrow.rays", title: "Remote Control", toggle: true,
+            reorderable: true, action: "remote"), ink: ink)
+        let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for width in [200, 320] as [CGFloat] {
+            line.frame = CGRect(x: 0, y: 0, width: width, height: 28)
+            line.mouseEntered(with: enter)
+            line.layoutSubtreeIfNeeded()
+            let toggle = try #require(line.subviews.first { $0 is NSSwitch })
+            let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+            let hit = try #require(line.gripHitRect)
+            #expect(hit.maxX <= line.bounds.maxX + 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
+            #expect(hit.minX >= toggle.frame.maxX - 0.5, "the grip's box covers the switch: \(hit), switch \(toggle.frame)")
+            #expect(hit.minX <= grip.frame.minX + 0.5 && grip.frame.maxX <= hit.maxX + 0.5)
+        }
+    }
+
     /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
     /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
     /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
@@ -796,6 +819,25 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
+
+        // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
+        // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
+        sent.removeAll()
+        let title = NSPoint(x: changes.bounds.minX + 24, y: start.y)
+        #expect(!hit.contains(title))
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))
+        #expect(changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: title.x, y: drop.y), in: changes))
+        #expect(sent == ["move:changes:context"])
+
+        // A click on the title, under the drag threshold, still folds the section and moves nothing.
+        sent.removeAll()
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x + 2, y: title.y + 1), in: changes))
+        #expect(!changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, title, in: changes))
+        #expect(sent == ["fold:changes:1"])
     }
 
     /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's

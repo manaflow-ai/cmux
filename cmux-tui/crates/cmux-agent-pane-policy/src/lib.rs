@@ -52,6 +52,7 @@
 pub mod act_as_me;
 pub mod answers;
 pub mod build_identity;
+pub mod canonical;
 pub mod check;
 pub mod connection;
 pub mod data;

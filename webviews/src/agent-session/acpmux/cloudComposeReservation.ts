@@ -14,14 +14,37 @@ type Attempt = {
   transferred: boolean;
   abandoned: boolean;
   released: boolean;
+  /// When the last `cloud.reserve` for this key went out (the first, a renewal or a retry).
+  reservedAt: number;
+  /// The last intent (Cloud picked, a character typed) this compose saw.
+  intentAt: number;
+  /// Reserves for this key that failed in a row (none: the last one answered, or is out).
+  failures: number;
 };
 
-/// One speculative machine per compose. The platform owns its expiry; the page has no refresh
-/// loop. Leaving Cloud or clearing the prompt gives an unused machine back sooner. Send takes
+/// While the person still means to send (Cloud picked, typing), the same compose key is reserved
+/// again at most this often: the platform renews the hold (cmux-platform RESERVATION_HOLD_MS), so a
+/// prompt written over several minutes still finds its machine resumed and its login copied at Send
+/// (Leo, 2026-11-09: "pre-setting up stuff as a user selected cloud and was starting to type ... at
+/// least frontload the stuff that we can check earlier").
+export const RESERVATION_RENEW_MS = 60_000;
+/// A reserve that failed (a Cloud pick the page made itself, with no gesture, such as a remembered
+/// Cloud target on load; the platform unavailable) is tried again on the next intent, with the
+/// same key, after this gap, doubled for each failure in a row up to RESERVATION_RENEW_MS.
+export const RESERVATION_RETRY_MS = 2_000;
+/// No intent for this long and nothing sent: the compose gives its machine back. The platform's
+/// hold ends at the same bound after its last renewal (RESERVATION_HOLD_MS), so a page that went
+/// away without releasing costs no more.
+export const RESERVATION_IDLE_RELEASE_MS = 10 * 60_000;
+
+/// One speculative machine per compose. The platform owns its expiry; the page renews its hold
+/// only on the person's intent and releases it after RESERVATION_IDLE_RELEASE_MS without one.
+/// Leaving Cloud or clearing the prompt gives an unused machine back sooner. Send takes
 /// ownership before the host can close this page, and retries keep the same reservation key.
 export class CloudComposeReservation {
   private attempt?: Attempt;
   private cancelRelease?: () => void;
+  private cancelIdle?: () => void;
 
   constructor(
     private readonly call: Native,
@@ -31,7 +54,17 @@ export class CloudComposeReservation {
 
   selected(): void {
     this.stopRelease();
-    if (this.attempt && !this.attempt.abandoned && !this.attempt.released) return;
+    const now = this.clock.now();
+    const live = this.attempt;
+    if (live && !live.abandoned && !live.released) {
+      live.intentAt = now;
+      // Renew (or retry) with the same key: idempotent at the platform, never a second machine.
+      const gap = live.failures
+        ? Math.min(RESERVATION_RENEW_MS, RESERVATION_RETRY_MS * 2 ** (live.failures - 1))
+        : RESERVATION_RENEW_MS;
+      if (!live.transferred && now - live.reservedAt >= gap) this.reserve(live, live.ready);
+      return;
+    }
     this.attempt = undefined;
     const attempt: Attempt = {
       key: this.newKey(),
@@ -39,20 +72,46 @@ export class CloudComposeReservation {
       transferred: false,
       abandoned: false,
       released: false,
+      reservedAt: now,
+      intentAt: now,
+      failures: 0,
     };
     this.attempt = attempt;
-    attempt.ready = Promise.resolve()
+    this.reserve(attempt, Promise.resolve());
+    this.watchIdle(attempt, RESERVATION_IDLE_RELEASE_MS);
+  }
+
+  /// One `cloud.reserve` for `attempt`'s key, after `after` (the call before it for the same key)
+  /// settled, so the native pane sees one at a time. `ready` is this call's answer: a renewal that
+  /// failed leaves the native pane no longer owning the key, so the Send must not name it.
+  private reserve(attempt: Attempt, after: Promise<unknown>): void {
+    attempt.reservedAt = this.clock.now();
+    attempt.ready = after
       .then(() => this.call("cloud.reserve", { composeKey: attempt.key }))
       .then(
         () => true,
         () => false,
       )
       .then((ready) => {
+        attempt.failures = ready ? 0 : attempt.failures + 1;
         // A close/switch can race the allocation. Release after it settles so a late successful
         // create cannot arrive after the page's DELETE and leak until expiry.
         if (attempt.abandoned && !attempt.transferred) this.release(attempt);
         return ready;
       });
+  }
+
+  /// Releases `attempt` once RESERVATION_IDLE_RELEASE_MS passed since its last intent with no Send.
+  /// One timer per compose, moved on only when it fires, so a keystroke schedules nothing.
+  private watchIdle(attempt: Attempt, ms: number): void {
+    this.stopIdle();
+    this.cancelIdle = this.clock.schedule(() => {
+      this.cancelIdle = undefined;
+      if (this.attempt !== attempt || attempt.transferred || attempt.abandoned) return;
+      const left = attempt.intentAt + RESERVATION_IDLE_RELEASE_MS - this.clock.now();
+      if (left > 0) this.watchIdle(attempt, left);
+      else this.abandon();
+    }, ms);
   }
 
   typed(text: string): void {
@@ -70,6 +129,7 @@ export class CloudComposeReservation {
   /// bind, so an immediate Return cannot race an allocation that is still in flight.
   handoff(environment?: string): string | undefined {
     this.stopRelease();
+    this.stopIdle();
     // This compose warmed the default image. A later environment pick takes its ordinary,
     // configured create path rather than binding a machine from a different image.
     if (environment) {
@@ -108,6 +168,7 @@ export class CloudComposeReservation {
 
   abandon(): void {
     this.stopRelease();
+    this.stopIdle();
     const attempt = this.attempt;
     if (!attempt || attempt.transferred || attempt.abandoned) return;
     attempt.abandoned = true;
@@ -122,6 +183,11 @@ export class CloudComposeReservation {
   private stopRelease(): void {
     this.cancelRelease?.();
     this.cancelRelease = undefined;
+  }
+
+  private stopIdle(): void {
+    this.cancelIdle?.();
+    this.cancelIdle = undefined;
   }
 
   private release(attempt: Attempt): void {

@@ -52,9 +52,11 @@ const park =
     if (computerUse) ctx.document.querySelector(".acpmux-main")?.setAttribute("data-cu-preview", "");
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
     if (anchor)
-      ctx.document.querySelector<HTMLElement>(".acpmux-jump-latest")?.style.setProperty("left", ANCHORS[anchor]);
+      ctx.document
+        .querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")
+        ?.style.setProperty("left", ANCHORS[anchor]);
   };
 
 export default agentPaneEntry({

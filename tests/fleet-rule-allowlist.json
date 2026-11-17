@@ -24,6 +24,7 @@
   },
   "pkill": {
     "docs/cmux-next/uninstall.md": {"count": 2, "reason": "safe: the uninstall page tells the reader not to use pkill or killall, since they would also end every other build's daemons; it runs nothing"},
+    "cmux-tui/crates/acpmux/src/run_elsewhere.rs": {"count": 2, "reason": "safe: pkill and killall are names in the list of commands a run elsewhere refuses to send and keeps on this machine; nothing is signalled"},
     "cmux-tui/vendor/smoltcp/README.md": {"count": 1, "reason": "safe: vendored upstream smoltcp README; its TAP setup example for a person's own machine runs nowhere here"},
     ".github/workflows/cmux-next-frame-pacing.yml": {"count": 1, "reason": "safe: the pattern is this job's own RUNNER_TEMP/frame-pacing path"},
     ".github/workflows/ios-e2e.yml": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},

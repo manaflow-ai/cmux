@@ -23,6 +23,9 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
+//! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
+//!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
 //! (`message`), `no_backend`, `http` (`status`, `code`, `message`, `action`, `trace_id`),
@@ -48,6 +51,7 @@ mod owner;
 mod previews;
 mod runs;
 pub mod session;
+mod turns;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -117,6 +121,9 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "runs.cancel" => runs::cancel(&http, args).await,
         "runs.sandbox" => runs::sandbox(&http, args).await,
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
+            turns::run(&http, request.call.as_str(), args).await
+        }
         call if call.starts_with("owner.") => owner::run(&http, call, args).await,
         call if call.starts_with("previews.") => previews::run(request, call, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
@@ -155,7 +162,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 34] = [
+pub const CALLS: [&str; 37] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -186,6 +193,9 @@ pub const CALLS: [&str; 34] = [
     "owner.handoff_begin_turn",
     "owner.harness_login_copy",
     "owner.github_app",
+    "owner.turn_checkpoint",
+    "owner.turn_rewind",
+    "owner.turns",
     "previews.refresh",
     "previews.create_link",
     "previews.revoke_link",

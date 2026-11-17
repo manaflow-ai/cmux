@@ -40,7 +40,7 @@ final class ConnectionHeartbeat: Sendable {
     /// can probe it then (``DaemonRecovery`` runs one `server ensure` per call); nil stops. The value is a hint
     /// of the moment: read ``answering`` for the current one.
     func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
-        self.observer.withLock { $0 = observer }
+        self.observer.store(observer)
     }
 
     /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed, and at
@@ -52,7 +52,7 @@ final class ConnectionHeartbeat: Sendable {
             state.answering = answering
             return changed || !answering
         }
-        if tell, let observer = observer.withLock({ $0 }) { observer(answering) }
+        if tell, let observer = observer.load() { observer(answering) }
     }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`

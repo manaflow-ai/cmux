@@ -433,6 +433,11 @@ pub(in crate::cli) fn new(
             format!("acpmux answered no session: {created}"),
         ));
     }
+    // The chat `cmux chat send TEXT` and `chat wait|read last` mean next (last_chat.rs); an
+    // agent's own MCP calls are not the person's last chat.
+    if origin != "mcp" {
+        super::super::last_chat::remember(&session, None);
+    }
     let mut result = json!({
         "chat": session,
         "name": created.pointer("/_meta/acpmux/name").cloned().unwrap_or(Value::Null),

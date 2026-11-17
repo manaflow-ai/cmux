@@ -119,7 +119,7 @@ fn disk_fixture() -> (Arc<Hub>, Arc<Peer>, cmux_unix_socket::TestDir) {
 }
 
 fn saved_rows(dir: &cmux_unix_socket::TestDir) -> String {
-    std::fs::read_to_string(dir.path().join("peers/remote.json")).unwrap()
+    super::peer_cache_disk::saved_json(&dir.path().join("peers"), "remote").to_string()
 }
 
 #[tokio::test(start_paused = true)]

@@ -8,7 +8,7 @@
 // tailGlide.ts): `arrive`, shipped, everything on the arrival step (the quick step, 80 ms, longer only
 // as a long move's frames need), the follow chase on it too, so the move is over by the time the row
 // has faded in; `quick`, on the entry step (120 ms) with the chase on its spring; `glide`, on the
-// house settle (265 ms) with the spring; `jump`, at once. The arrival turns (ARRIVAL_TURNS: a thought,
+// house settle (180 ms) with the spring; `jump`, at once. The arrival turns (ARRIVAL_TURNS: a thought,
 // a tool call, a call joining a group, a subagent; Leo, 2026-11-09: "thinking, tool calls, etc...
 // cannot lag nor can they take long") compare `arrive` with the earlier looks;
 // test/row-arrival-settle.test.ts measures each one's event to rest (CMUX_ROW_ARRIVAL_LOOKS).
@@ -112,7 +112,7 @@ const NOTE: Record<TailGlideLook, string> = {
   arrive:
     "Shipped: everything that moves (the rows above, the rows under, the new row's fade) runs on one 80 ms step and rests together.",
   quick: "Before: the rows under the change glide on the entry step (120 ms); the rows above come home on the spring.",
-  glide: "The rows under the change glide on the house settle (265 ms); the rows above on the spring.",
+  glide: "The rows under the change glide on the house settle (180 ms); the rows above on the spring.",
   jump: "The rows under the change move at once.",
 };
 

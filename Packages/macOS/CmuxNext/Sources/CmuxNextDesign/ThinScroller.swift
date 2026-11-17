@@ -313,7 +313,7 @@ final class ThinScrollerKnobView: NSView {
             self.bar.backgroundColor = color
         }
         if animated {
-            Motion.feedback.transaction(spring: .move, changes)
+            Motion.feedback.transaction(spring: .move, in: window, changes)
         } else {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

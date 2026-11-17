@@ -93,12 +93,7 @@ extension PageWebView {
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
     /// prove what the host does when the page crashes. False when WebKit has no such call. DEBUG
     /// verb only.
-    public func debugKillWebContent() -> Bool {
-        let selector = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: selector) else { return false }
-        webView.perform(selector)
-        return true
-    }
+    public func debugKillWebContent() -> Bool { killWebContentProcess() }
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.

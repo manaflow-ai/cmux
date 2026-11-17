@@ -18,6 +18,9 @@ name: Cloud capture account provision
 # With `target: production-team`, the same for a second production account (cmux-cloud-capture-prod-team@manaflow.dev),
 # sealed to cmuxterm-hq cloud-capture as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the probe's shared-team
 # row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team the probe account must stay out of.
+# The run also makes that account a member of the company team "cmux" with the production server key and reads the
+# membership back (no hand invitation, and no person's account standing in). `team_only: true` with that target does
+# only the membership step: no rotation, nothing sealed or uploaded, and the account must already exist.
 #
 # With `target: journey-production`, the same for the production Cloud journey's own account
 # (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
@@ -47,6 +50,11 @@ on:
         type: choice
         options: [capture, production, production-team, journey-production, journey-guest, platform-staging, platform-production]
         default: capture
+      team_only:
+        description: "With target production-team: only make the existing account a member of the company team (no rotation, no bundle)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -74,7 +82,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -91,8 +99,17 @@ jobs:
           GRANT_EMAIL: ${{ inputs.grant_email }}
         run: python3 scripts/ci/cloud_capture_provision.py --grant-only "$GRANT_EMAIL"
 
+      - name: Join the company team only
+        if: inputs.grant_email == '' && inputs.team_only
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          TARGET: ${{ inputs.target || 'capture' }}
+        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --team-only
+
       - name: Provision and seal
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -101,7 +118,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets

@@ -34,7 +34,9 @@ struct SplitMotion {
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
-        // A fling faster than the spring could start (10 travels a second) is capped there.
+        // A fling faster than 10 travels a second is capped there. That is under the limit of every pane token (omega,
+        // 20 a second or more at speed normal), so no edge starts faster than it can stop on its place; the frames
+        // apply that limit at each step whatever a caller wrote (`SpringParameters.admitted`).
         let rate = min(fraction, 10)
         if let edges {
             for (key, frame) in panes where moved?.contains(key) ?? true {

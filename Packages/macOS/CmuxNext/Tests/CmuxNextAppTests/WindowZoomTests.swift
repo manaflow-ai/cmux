@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
@@ -69,5 +69,26 @@ import Testing
         runUntil("zoom back", window, seconds: 30) { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
         #expect(abs(window.frame.width - start.width) <= 1 && abs(window.frame.minY - start.minY) <= 1,
                 "the second zoom went back to \(start), the window is at \(window.frame)")
+    }
+
+    /// With the window's display asleep (or the window out of sight) the panes' Motion gate snaps and
+    /// runs the zoom's completion inside the zoom call. That completion ends the zoom on the window's
+    /// `WindowZoom` while `zoom(_:)` still changes it: as a struct that was a second write to it inside the
+    /// first, and Swift's exclusivity check stopped the app ("Simultaneous accesses ... ShellWindow.zoom(_:)",
+    /// TitlebarDoubleClickTests on an idle Mac, 2026-11-10). Each zoom lands at once.
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aSnappedZoomLandsAtOnce() throws {
+        let savedSleep = DisplaySleep.asleepOverride
+        DisplaySleep.asleepOverride = true
+        defer { DisplaySleep.asleepOverride = savedSleep }
+        let (window, start) = try shownWindow()
+        defer { window.close(); WindowOverlayHost.windowIsClosing(window) }
+        try #require(!window.isZoomed)
+        try #require(!Motion.panes.canAnimate(in: window.contentView), "the zoom must snap here")
+        window.zoom(nil)
+        #expect(window.frame.width > start.width, "the snapped zoom reached the standard frame inside its call: \(window.frame)")
+        #expect(window.isZoomed)
+        window.zoom(nil)
+        #expect(abs(window.frame.width - start.width) <= 1 && abs(window.frame.minY - start.minY) <= 1,
+                "the second snapped zoom went back to \(start), the window is at \(window.frame)")
     }
 }

@@ -14,6 +14,8 @@
 // once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
 // block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
 // it sent is its poster and length among them, playing on a click (SentVideoTile.tsx), frames or not.
+// A Cloud chat's prompt whose turn has a machine checkpoint taken before it ran adds Back to before
+// this turn after Fork (MessageActions.tsx RewindButton): one click puts the machine back there.
 import {
   Fragment,
   memo,
@@ -46,7 +48,15 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageTime,
+  PinButton,
+  PromptRetry,
+  RewindButton,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
@@ -358,6 +368,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>

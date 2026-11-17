@@ -53,7 +53,7 @@
   outline: none;
 }
 
-.apps-search:focus {
+.apps-search:focus-visible {
   border-color: var(--page-text-3);
 }
 

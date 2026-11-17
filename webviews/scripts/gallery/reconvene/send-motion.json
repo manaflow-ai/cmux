@@ -1,0 +1,40 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "send-motion-now",
+      "entry": "agent-pane.reconvene-send-motion",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "send-motion-instant",
+      "entry": "agent-pane.reconvene-send-motion",
+      "variant": "instant",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "send-motion-bubble-fade",
+      "entry": "agent-pane.reconvene-send-motion",
+      "variant": "bubble-fade",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "send-motion-adaptive",
+      "entry": "agent-pane.reconvene-send-motion",
+      "variant": "adaptive",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

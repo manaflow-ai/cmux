@@ -252,6 +252,70 @@ pub fn allowed_team_id(
     }
 }
 
+/// The name cmux's backend gives a person's own Cloud team (`team-vm-api-personal-stack.ts`
+/// creates it as "Personal"). The sign-in service lists it beside shared teams with no other mark a
+/// signed-in client can read (its provenance is server-only metadata), so this name is what tells
+/// the person's own team apart on screen. It only labels a row; nothing is allowed or refused by it.
+pub const PERSONAL_TEAM_NAME: &str = "Personal";
+
+/// What the app read about one of the account's teams.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFacts {
+    pub id: String,
+    pub name: String,
+    /// The team's plan id (`client_read_only_metadata.cmuxPlan`, web billing's mirror), when set.
+    #[serde(default)]
+    pub plan: Option<String>,
+}
+
+/// Whose a team is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TeamKind {
+    /// The person's own team.
+    Personal,
+    /// A team shared with other people.
+    Team,
+}
+
+/// One team as every team list shows it (the account menu, Switch Active Team, the menu bar).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRow {
+    pub id: String,
+    /// The team's name; its id when the name is blank.
+    pub title: String,
+    pub kind: TeamKind,
+    /// The team cmux works in now: the one row a list checks.
+    pub active: bool,
+    /// The plan id, lowercased, when the team has one; the app names it.
+    pub plan: Option<String>,
+}
+
+/// The account's teams as rows, in the order given, with `active` checked: at most one row is,
+/// and none when `active` names no listed team.
+pub fn team_rows(teams: &[TeamFacts], active: Option<&str>) -> Vec<TeamRow> {
+    teams
+        .iter()
+        .map(|team| {
+            let name = team.name.trim();
+            let plan = team
+                .plan
+                .as_deref()
+                .map(|plan| plan.trim().to_lowercase())
+                .filter(|plan| !plan.is_empty() && plan.len() <= 64);
+            TeamRow {
+                id: team.id.clone(),
+                title: if name.is_empty() { team.id.clone() } else { name.to_owned() },
+                kind: if name == PERSONAL_TEAM_NAME { TeamKind::Personal } else { TeamKind::Team },
+                active: active == Some(team.id.as_str()),
+                plan,
+            }
+        })
+        .collect()
+}
+
 /// The build facts [`launch_sign_in`] reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

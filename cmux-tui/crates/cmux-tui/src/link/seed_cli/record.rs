@@ -101,3 +101,14 @@ pub(super) fn save(local: &Path, remote_root: &str, record: &Record) -> anyhow::
     file.sync_all()?;
     std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
 }
+
+/// Drops the record of `local` pushed to `remote_root`; nothing when there is none.
+pub(super) fn forget(local: &Path, remote_root: &str) -> anyhow::Result<()> {
+    let path = path_of(local, remote_root)?;
+    match std::fs::remove_file(&path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("cannot remove {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}

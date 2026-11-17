@@ -847,6 +847,7 @@ fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
     second.tabs[0].surface = 12;
     screen.panes.push(second);
     screen.layout = Node::Split {
+        divider_hidden: false,
         id: 9,
         dir: SplitDir::Right,
         ratio: 0.5,

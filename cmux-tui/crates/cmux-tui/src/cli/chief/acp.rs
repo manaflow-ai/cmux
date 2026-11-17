@@ -71,10 +71,7 @@ fn parse(args: &[String]) -> Result<Options, String> {
             "--chief-home" => options.chief_home = Some(value()?.into()),
             "--chief" => options.chief = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                options.timeout_secs = (secs > 0).then_some(secs);
+                options.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--wait-agents" => options.wait_agents = true,
             other => return Err(format!("unknown argument {other}")),

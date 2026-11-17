@@ -191,7 +191,7 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
 
 /// The test accounts `scripts/ci/cloud_capture_provision.py` provisions
 /// (its `TARGETS`: capture, journey, journey-guest, production,
-/// journey-production, platform-staging, platform-production). Every one is a
+/// production-team, journey-production, platform-staging, platform-production). Every one is a
 /// team-made test account on the manaflow.dev mailbox, never a person's, so
 /// any of them may drive a drill; the production probe (cmuxterm-hq
 /// synthetic-probes.yml app-chat-production) signs in as
@@ -202,6 +202,7 @@ pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
     "cmux-cloud-capture-journey@manaflow.dev",
     "cmux-cloud-capture-guest@manaflow.dev",
     "cmux-cloud-capture-prod@manaflow.dev",
+    "cmux-cloud-capture-prod-team@manaflow.dev",
     "cmux-cloud-capture-journey-prod@manaflow.dev",
     "cmux-cloud-capture-platform@manaflow.dev",
     "cmux-cloud-capture-platform-prod@manaflow.dev",
@@ -319,4 +320,4 @@ impl FaultPlan {
 
 #[cfg(test)]
 #[path = "fault_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -125,7 +125,8 @@ extension SidebarListViewComponents {
     /// switch with 500 workspaces). Nil when the list shows nothing for it.
     func selectionReveal(in layout: SidebarLayout, height: CGFloat) -> ListViewport<SidebarRowKey>.Item? {
         guard let id = selectionRevealKey else { return nil }
-        if let extent = listedReveal(id, in: layout, height: height) { return extent }
+        // Room above it for the header that sticks over its group (`SidebarListView+StickyHeader`).
+        if let extent = listedReveal(id, in: layout, height: height) { return revealClearOfStuckHeader(extent, in: layout) }
         // A top item the band above the list draws: the list shows its top (#22253).
         if case .topItem? = model.selectedItem { return .init(id: id, start: 0, length: 0) }
         return nil

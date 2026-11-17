@@ -576,17 +576,17 @@
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
-            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
+            "Cloud VMs uten grense for antall, målt utover den inkluderte bruken; én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
             "cmux-appen for iOS"
           ],
           "max": [
-            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU.",
+            "Cloud VMs uten grense for antall, målt utover den inkluderte bruken; Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
           "team": [
             "Alt i Pro for hvert medlem",
-            "Opptil 5 Cloud VMs per betalt plass, som deler 20 vCPU-er og 40 GB RAM per betalt plass på tvers av teamet",
+            "Cloud VMs uten grense for antall for alle i teamet, målt utover den inkluderte bruken; teamets forbruksgrense er stoppen",
             "Én faktura for hele teamet",
             "Prioritert støtte"
           ]
@@ -2967,13 +2967,13 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruker 8 GB minne når du ikke velger en størrelse. Kjør cmux vm ls --json for å se hvilke størrelser abonnementet ditt tillater.",
       "limitsTitle": "Abonnementsgrenser",
-      "limitsDesc": "De aktive maskinene dine deler én pott med vCPU-er og minne. Kjør én stor maskin eller flere små. Maskiner på pause bruker ikke av potten. Disken settes per maskin og er ikke en del av potten.",
+      "limitsDesc": "Pro, Team og Max har ingen grense for hvor mange maskiner du har; Plus har én maskin. Utover den inkluderte bruken måles kjørende maskiner per vCPU-time og GB-time, og lagrede maskiner og maskiner på pause per GB-måned disk. Teamets forbruksgrense er det eneste stoppet: når grensen nås, avvises nye starter, og kjørende maskiner settes på pause etter en advarsel, uten at noe går tapt.",
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
-      "limitsPaid": "Pro-kontoer kan ha opptil 5 maskiner, inkludert maskiner på pause som deler 20 vCPU-er og 40 GB minne.",
-      "limitsTeam": "Teamkontoer kan ha opptil 5 maskiner, inkludert maskiner på pause per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
-      "limitsMax": "Max-kontoer kan ha opptil 5 maskiner, inkludert maskiner på pause som deler 80 vCPU-er og 160 GB minne. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
-      "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
-      "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
+      "limitsPaid": "Pro-kontoer kan ha et hvilket som helst antall maskiner, hver med opptil 16 GB og 8 vCPU-er.",
+      "limitsTeam": "Team er valgfritt: det samler alle på én felles regning og én forbruksgrense. Plasser endrer ikke hvor mange maskiner noen kan ha.",
+      "limitsMax": "Max-kontoer kan ha et hvilket som helst antall maskiner. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
+      "limitsPoolFull": "Ved forbruksgrensen avviser cmux en ny eller gjenopptatt maskin og sier at teamet har nådd grensen. Hev grensen for å starte maskiner igjen; ingenting slettes.",
+      "limitsPricing": "Se prissiden for gjeldende priser. Bruk utover det inkluderte beløpet måles.",
       "agentUpdatesTitle": "Hold kodeagenter oppdatert",
       "agentUpdatesDesc": "Når denne innstillingen er på, oppdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den sjekker etter at maskinen er opprettet og hver gang du kobler til, høyst én gang hver 24. time. Oppdateringen kjører frakoblet, så den blokkerer aldri tilkoblingen.",
       "agentUpdatesSource": "Hvert verktøy kommer fra sin offisielle GitHub-release og verifiseres mot sha256-digesten til release-filen. npm brukes ikke. En release installeres først når den har vært offentlig i 3 dager, og en oppdatering installerer aldri en eldre versjon. En agent som kjører, beholder filene den startet med, og en mislykket oppdatering lar gjeldende versjon bli værende.",
@@ -5414,7 +5414,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer opptil 5 Cloud VM-er som deler 20 vCPU-er og 40 GB RAM, samt tilgang til cmux iOS via TestFlight. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
+    "body": "Pro inkluderer Cloud VM-er uten grense for antall, målt utover den inkluderte bruken, samt tilgang til cmux iOS via TestFlight. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
     "done": "Gå til kontrollpanelet",
     "steps": {
       "iosApp": {

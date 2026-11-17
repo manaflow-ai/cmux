@@ -96,6 +96,9 @@ if grep -n '^@import ' "$WORK/styles.css" >&2; then
 fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
+# FOCUS-RING: every `:focus-visible` asks whether the keyboard earned the ring, as in the Vite build
+# (postcss.config.mjs, which this joined sheet never reads).
+bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web

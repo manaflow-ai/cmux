@@ -82,6 +82,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `ack-tab-notifications` reports `refused` items, and the
     /// `feed-local-*` commands let the app hand items to the cloud owner.
     case feedLocalOwner = "feed-local-owner-v1"
+    /// The daemon's feed client (plans/cmux-next/feed-page.md 2): the routed `feed.*` ops the
+    /// Feed page and the app read and act through, and the `feed-view-changed` and
+    /// `feed-reports-changed` events.
+    case feedClient = "feed-client-v1"
     case tabGroups = "tab-groups-v1"
     case savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -131,6 +135,12 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case splitClientKeys = "split-client-keys-v1"
     /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
     case splitClientSplitID = "split-client-split-id-v1"
+    /// `split {around}` and a conversation or browser tab's `split {around}`: the new pane wraps that whole
+    /// split, whose last pane is `pane` (Insert New at a divider).
+    case splitAround = "split-around-v1"
+    /// `set-divider-visible {split, visible}`, and a screen's `hidden_dividers`: a split's divider
+    /// drawn or not, kept with the layout.
+    case splitDividerVisibility = "split-divider-visibility-v1"
     /// `split {before: true}`: the new pane opens before its target on the split axis in the one split (Split Left,
     /// Split Up), so the app shows it there in the key's turn and sends no `swap-pane`.
     case splitBefore = "split-before-v1"
@@ -281,6 +291,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// The daemon history module (react-pages.md H3): page visits, the merged read model,
     /// removal with restore ids, and `history-changed`.
     case history = "history-v1"
+    /// `history.clear` takes `until_ms`, the end of a clear that waited in the app's write queue
+    /// (react-pages.md H3); without it the daemon clears until its own now.
+    case historyClearUntil = "history-clear-until-v1"
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     case localConversations = "local-conversations-v1"
@@ -566,10 +579,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
             return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
-             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
+             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
+             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
@@ -577,7 +590,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

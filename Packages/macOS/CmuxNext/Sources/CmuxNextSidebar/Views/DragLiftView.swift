@@ -193,9 +193,9 @@ final class DragLiftView: NSView {
             CATransaction.setDisableActions(true)
             cap.mask.position = capStart
             CATransaction.commit()
-            cap.place(height: frame.height, width: frame.width, animated: Motion.sidebar.policy.animatesMovement)
+            cap.place(height: frame.height, width: frame.width, animated: Motion.sidebar.animatesMovement(in: window))
         }
-        guard Motion.sidebar.policy.animatesMovement else {
+        guard Motion.sidebar.animatesMovement(in: window) else {
             if let layer { Motion.sidebar.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
             return
         }

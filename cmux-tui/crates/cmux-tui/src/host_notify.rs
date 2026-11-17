@@ -163,13 +163,41 @@ const MAX_BODY_CHARS: usize = 240;
 #[derive(Debug)]
 pub(crate) struct HostNotifyGate {
     host: HostTerminalInfo,
+    /// Writes with a desktop banner.
+    banners: RateLimit,
+    /// Every write that rings the host bell, banner or not. A bare bell
+    /// counts only here, so a bell just before a notification does not
+    /// hold back that notification's banner.
+    bells: RateLimit,
+}
+
+/// One per second overall, one per tab every five seconds.
+#[derive(Debug, Default)]
+struct RateLimit {
     last_any: Option<Instant>,
     last_by_surface: HashMap<SurfaceId, Instant>,
 }
 
+impl RateLimit {
+    fn allows(&self, surface: SurfaceId, now: Instant) -> bool {
+        !(self.last_any.is_some_and(|last| now.saturating_duration_since(last) < GLOBAL_INTERVAL)
+            || self
+                .last_by_surface
+                .get(&surface)
+                .is_some_and(|last| now.saturating_duration_since(*last) < SURFACE_INTERVAL))
+    }
+
+    fn record(&mut self, surface: SurfaceId, now: Instant) {
+        self.last_any = Some(now);
+        self.last_by_surface
+            .retain(|_, last| now.saturating_duration_since(*last) < SURFACE_INTERVAL);
+        self.last_by_surface.insert(surface, now);
+    }
+}
+
 impl HostNotifyGate {
     pub(crate) fn new(host: HostTerminalInfo) -> Self {
-        Self { host, last_any: None, last_by_surface: HashMap::new() }
+        Self { host, banners: RateLimit::default(), bells: RateLimit::default() }
     }
 
     pub(crate) fn host(&self) -> &HostTerminalInfo {
@@ -196,25 +224,19 @@ impl HostNotifyGate {
         if dialect.is_none() && !config.bell {
             return None;
         }
-        if self.last_any.is_some_and(|last| now.saturating_duration_since(last) < GLOBAL_INTERVAL)
-            || self
-                .last_by_surface
-                .get(&request.surface)
-                .is_some_and(|last| now.saturating_duration_since(*last) < SURFACE_INTERVAL)
-        {
+        let limit = if dialect.is_some() { &self.banners } else { &self.bells };
+        if !limit.allows(request.surface, now) {
             return None;
         }
         let mut bytes = Vec::new();
         if let Some(dialect) = dialect {
             bytes.extend(osc_bytes(dialect, request.title, request.body));
+            self.banners.record(request.surface, now);
         }
         if config.bell {
             bytes.push(0x07);
+            self.bells.record(request.surface, now);
         }
-        self.last_any = Some(now);
-        self.last_by_surface
-            .retain(|_, last| now.saturating_duration_since(*last) < SURFACE_INTERVAL);
-        self.last_by_surface.insert(request.surface, now);
         Some(bytes)
     }
 }
@@ -445,5 +467,24 @@ mod attention_passthrough_tests {
             String::from_utf8(ghostty.decide(&semicolon, away(), now).unwrap()).unwrap(),
             "\x1b]777;notify;a,b;bench done\x07"
         );
+    }
+    /// A bare bell (`notifications.bell`) right before a tab's notification
+    /// does not use up that notification's banner.
+    #[test]
+    fn host_notify_a_bell_before_a_notification_keeps_its_banner() {
+        let mut gate = gate(DesktopNotifyMode::Auto, true, HostTerminal::Ghostty);
+        let now = Instant::now();
+        let bell = HostNotifyRequest { surface: 1, title: "Bell", body: "", desktop: false };
+        assert_eq!(text(gate.decide(&bell, away(), now)).as_deref(), Some("\x07"));
+        let soon = now + Duration::from_millis(200);
+        assert_eq!(
+            text(gate.decide(&request(1), away(), soon)).as_deref(),
+            Some("\x1b]777;notify;Claude finished;bench done\x07\x07")
+        );
+        // The banner and its bell count: another bell or banner for tab 1
+        // waits out the five seconds.
+        let later = now + Duration::from_secs(2);
+        assert_eq!(gate.decide(&bell, away(), later), None);
+        assert_eq!(gate.decide(&request(1), away(), later), None);
     }
 }

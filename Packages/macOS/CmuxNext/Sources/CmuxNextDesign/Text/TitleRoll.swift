@@ -22,7 +22,8 @@ extension MotionGate {
     public func rollTitle(_ text: ChromeTextLayer, from old: String, flipped: Bool, in view: NSView?) -> Bool {
         // A hidden title (a pinned or narrow tab's) stays hidden: its old words never flash.
         guard let host = text.superlayer, !text.isHidden, text.opacity > 0, !old.isEmpty, !text.string.isEmpty, old != text.string,
-              animatesMovement, canAnimate(in: view), duration(.fadeIn) > 0 else { return false }
+              animatesMovement(in: view?.window ?? Motion.window(showing: text)), canAnimate(in: view),
+              duration(.fadeIn) > 0 else { return false }
         host.sublayers?.filter { $0.name == Self.rollOutName }.forEach { $0.removeFromSuperlayer() }
         let out = ChromeTextLayer()
         out.name = Self.rollOutName

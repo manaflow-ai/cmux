@@ -39,7 +39,14 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     var showsActiveLine = true {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
+    /// Hide Divider: no line at rest, whatever the style or a theme's divider color says; hover and
+    /// drag still light it, so a hidden divider still shows where it is while it is grabbed.
+    var isLineHidden = false {
+        didSet { if isLineHidden != oldValue { applyColors() } }
+    }
     var onDrag: ((DragEvent) -> Void)?
+    /// The right-click menu of a split's divider (Insert New, Hide or Show Divider); nil: none.
+    var contextMenu: (() -> NSMenu?)?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -247,6 +254,12 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
         onDrag?(.ended(event.locationInWindow, event.modifierFlags))
     }
 
+    /// A right-click anywhere in the handle's grab band opens its divider's menu, a hidden divider's too.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !isDragging, let contextMenu else { return super.menu(for: event) }
+        return contextMenu()
+    }
+
     override func flagsChanged(with event: NSEvent) {
         guard isDragging else { return super.flagsChanged(with: event) }
         onDrag?(.modifiersChanged(event.modifierFlags))
@@ -306,7 +319,8 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
                     color = .clear
                 }
             } else {
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
+                let idle = !isLineHidden && (showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil)
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (idle ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
             Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor

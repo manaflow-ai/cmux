@@ -559,7 +559,11 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    // acpmux's `agent_login::Agent`s; it answers which way each signs in (`unsupported`).
+    let agent = || {
+        text(&params.agent)
+            .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
+    };
     let (body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {

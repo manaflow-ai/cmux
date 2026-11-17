@@ -110,6 +110,8 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
         "Attach Files…",
         "Insert Mention",
         "✓Scroll to bottom when I send",
+        "✓Attachments Inline",
+        "Attachments at Top",
       ],
       selected: "Rename the retry helper",
       undone: true,
@@ -129,6 +131,22 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
     await pick(page, "Scroll to bottom when I send");
     expect(await openMenu(page)).toContain("✓Scroll to bottom when I send");
     expect(await toggle.getAttribute("aria-checked")).toBe("true");
+    await page.close();
+  });
+
+  // Leo, 2026-11-09 (ask-bdaa08fba5): "In the right-click menu for the composer ... all attachments
+  // in line, or all attachments at the top like normal." The two items set agentPane.attachmentView,
+  // which the composer box draws at once.
+  test("the composer menu picks Attachments at Top and back to Attachments Inline", async () => {
+    const page = await stage();
+    const view = () => page.locator(".acpmux-composer-box").first().getAttribute("data-attachment-view");
+    expect(await view()).toBe("inline");
+    expect(await openMenu(page)).toEqual(expect.arrayContaining(["✓Attachments Inline", "Attachments at Top"]));
+    await pick(page, "Attachments at Top");
+    expect(await view()).toBe("strip");
+    expect(await openMenu(page)).toEqual(expect.arrayContaining(["Attachments Inline", "✓Attachments at Top"]));
+    await pick(page, "Attachments Inline");
+    expect(await view()).toBe("inline");
     await page.close();
   });
 });

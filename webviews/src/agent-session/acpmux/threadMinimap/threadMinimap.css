@@ -19,8 +19,9 @@
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
-  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+  /* The Codex rail's spring curve up to its end, run over the scale's micro step (120 ms): it reaches
+     full length at 58.75% and stays there, never past it (Lawrence: no bounce in any motion). */
+  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1 58.75%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
 :root[data-borders="none"] .acpmux-minimap,

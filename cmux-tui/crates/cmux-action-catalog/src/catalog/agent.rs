@@ -258,12 +258,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.togglePointerInspector",
         group: GROUP,
-        title: Text::raw("Inspect UI Element"),
-        keywords: &["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+        title: Text::raw("Point at Element"),
+        keywords: &["agent", "ui", "pointer", "point", "point at element", "inspect", "inspect element", "inspect ui element", "pick", "element", "debug"],
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Inspect Element"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -635,7 +635,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "fork", "branch"],
         default_shortcut: Some(Shortcut { key: "y", modifiers: OPT | CMD }),
         category: "agents",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "create", 199), Placement::at("agentChat", "create", 199)], ..SurfacePlan::DEFAULT },
         cli_name: "agent fork-conversation",
@@ -887,6 +887,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "brain",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action chief-toggle-memory-inspector",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chief.toggleComputer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chief.toggleComputer", "Chief: Toggle Computer"),
+        keywords: &["chief", "computer", "screen", "cloud", "profile", "panel", "show", "hide"],
+        category: "agents",
+        symbol: "desktopcomputer",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action chief-toggle-computer",
         ..Action::DEFAULT
     },
     Action {

@@ -267,7 +267,7 @@ fn tab_split_again(neighbor: PaneId, split: &Value) -> Option<TabSplit> {
         _ => return None,
     };
     let ratio = split["ratio"].as_f64().map(|ratio| (ratio as f32).clamp(0.05, 0.95));
-    Some(TabSplit { pane: neighbor, direction, pane_id: None, split_id: None, ratio })
+    Some(TabSplit { pane: neighbor, direction, pane_id: None, split_id: None, ratio, around: None })
 }
 
 impl Mux {

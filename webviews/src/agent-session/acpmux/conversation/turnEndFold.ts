@@ -19,7 +19,10 @@
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
+import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
+import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
@@ -130,6 +133,32 @@ function settle(thread: HTMLElement): { ms: number; easing: string } {
   return { ms, easing };
 }
 
+/// One 120 Hz frame (ms), the frame turn-transition-jumps.test.ts reads each move in.
+const FRAME_MS = 1000 / 120;
+
+/// The fold's length for a move of `px`: the settle's (`ms`), longer only as a long move needs to keep
+/// its first frame, the settle's fastest, under ARRIVAL_FRAME_LINES of a line, as the arrival step
+/// does (followChase.ts `arrivalStepMs`). The settle runs 180 ms since #39380 ("the animations end to
+/// end need to just resolve faster"); on its curve a 69 px fold then moved 19.9 px in its first frame,
+/// past the two thirds of a line no transition's frame may move (turn-transition-jumps.test.ts
+/// `tool-group`). A fold under about 45 px keeps the settle's 180 ms. Curves that are not a
+/// cubic-bezier() keep `ms`. At most four times `ms`.
+export function turnEndFoldMs(px: number, ms: number, easing: string): number {
+  const curve = parseBezier(easing);
+  const most = ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
+  const move = Math.abs(px);
+  if (!curve || ms <= 0 || move <= most) return ms;
+  let length = ms;
+  while (length < 4 * ms && move * bezierAt(curve, FRAME_MS / length) > most) length += FRAME_MS;
+  return Math.round(length);
+}
+
+/// How long after its first painted frame a fold's clock may still grow: three 120 Hz frames (two at
+/// 60 Hz), the frames in which the virtualizer mounts the rows above the swap. A pass later in the
+/// fold (a row unmounted far above, the pinned bottom's scroll) keeps the clock: a retarget then
+/// moved the rows 35 px in one frame (turn-transition-jumps `text-tool`, end step, 208 ms in).
+const GROW_WINDOW_MS = 3 * FRAME_MS;
+
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
 export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
   if (!fold) return;
@@ -175,7 +204,15 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  const { ms, easing } = settle(thread);
+  const { ms: settleMs, easing } = settle(thread);
+  // The fold's one clock: the settle, lengthened as a pass finds a longer move (turnEndFoldMs). Rows
+  // the virtualizer mounts above after the swap move the rows under them again, so the first pass's
+  // moves are not the longest (turn-transition-jumps `tool-group`: 2 px at the first pass, 77 px at
+  // the next). When the clock grows it starts again from that pass, and every row and copy goes on
+  // from where it was drawn in the last painted frame (its place and ink then), never from the swap's:
+  // nothing is drawn back and no fading copy comes back up.
+  let ms = settleMs;
+  let grew = false;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
@@ -199,6 +236,11 @@ export function playTurnEnd(
   const gone = capture.rows.filter((row) => row.copy);
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
+  /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
+  /// and its ink then: the swap's for the first clock, the drawn ones when the clock grows.
+  const starts = new Map<HTMLElement, { top?: number; opacity?: number }>();
+  /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
+  const laid = new Map<HTMLElement, number>();
   const pass = () => {
     const nodes = [...mounted(thread)];
     if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0) {
@@ -215,6 +257,44 @@ export function playTurnEnd(
     const copyTops = layoutTops(copies);
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
     const line = tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    const startTop = (node: HTMLElement, fallback: number) => starts.get(node)?.top ?? fallback;
+    const longestMove = () => {
+      let longest = 0;
+      nodes.forEach((node, index) => {
+        const before = was.get(node.dataset.rowId!);
+        if (before) longest = Math.max(longest, Math.abs(startTop(node, before.top) - tops[index]!));
+      });
+      if (look === "tuck" && line !== undefined)
+        copies.forEach((copy) => {
+          const row = gone.find((entry) => entry.copy === copy)!;
+          longest = Math.max(longest, Math.abs(line - startTop(copy, row.top)));
+        });
+      return longest;
+    };
+    // From where each row now starts: a move that needs more time than the clock has grows it, in
+    // the fold's first frames only.
+    const early = startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
+    grew = early && turnEndFoldMs(longestMove(), settleMs, easing) > ms;
+    if (grew) {
+      if (startedAt !== undefined) {
+        // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
+        const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
+          const top = laid.get(node);
+          if (top === undefined) return [];
+          const style = (View ?? window).getComputedStyle(node);
+          const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
+          return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity) }];
+        });
+        for (const { node, top, opacity } of drawn)
+          starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined });
+        startedAt = now();
+      }
+      ms = Math.max(settleMs, turnEndFoldMs(longestMove(), settleMs, easing));
+      if (fold.timer !== undefined) {
+        clearTimeout(fold.timer);
+        fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+      }
+    }
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
@@ -222,7 +302,7 @@ export function playTurnEnd(
       keyframes: () => Keyframe[][],
     ) => {
       const last = store.get(node);
-      if (last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
+      if (!grew && last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
@@ -235,10 +315,11 @@ export function playTurnEnd(
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
-        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]]);
+        const from = starts.get(node)?.opacity ?? 0;
+        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]]);
         return;
       }
-      const delta = before.top - tops[index]!;
+      const delta = startTop(node, before.top) - tops[index]!;
       if (Math.abs(delta) < 0.5 && !moving.has(node)) return;
       restart(node, moving, { delta, fades: false, animations: [] }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
@@ -246,15 +327,17 @@ export function playTurnEnd(
     });
     copies.forEach((copy, order) => {
       const row = gone.find((entry) => entry.copy === copy)!;
-      const at = row.top - copyTops[order]!;
-      const end = look === "tuck" && line !== undefined ? at + (line - row.top) : at;
+      const at = startTop(copy, row.top) - copyTops[order]!;
+      const end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
+      const ink = starts.get(copy)?.opacity ?? 1;
       const last = copyMoves.get(copy);
-      if (last && Math.abs(last.delta - at) < 0.5) return;
+      if (!grew && last && Math.abs(last.delta - at) < 0.5) return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
       }
-      const timing: KeyframeAnimationOptions = { fill: "forwards" };
+      // Held at its start through a stagger's delay too, so a copy that has faded never shows full again.
+      const timing: KeyframeAnimationOptions = { fill: "both" };
       if (look === "stagger") {
         // The last row first, each a step after the one under it, inside the fold's own length.
         const step = Math.min(40, ms / Math.max(2, copies.length * 2)); // motion-allow: a share of the settle
@@ -264,13 +347,15 @@ export function playTurnEnd(
       const motion = play(
         copy,
         [
-          { translate: `0 ${at}px`, opacity: 1 },
+          { translate: `0 ${at}px`, opacity: ink },
           { translate: `0 ${end}px`, opacity: 0 },
         ],
         timing,
       );
       copyMoves.set(copy, { delta: at, fades: true, animations: [motion] });
     });
+    nodes.forEach((node, index) => laid.set(node, tops[index]!));
+    copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
   pass();
   if (fold.animations.size === 0) {

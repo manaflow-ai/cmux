@@ -36,11 +36,8 @@ import AppKit
 
     /// The members' lines of the open groups among `rows` (list coordinates).
     static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
-        let background = list.model.groupHeaderDetails.background
-        let lines = SidebarGroupLine.lines(rows, colors: list.lineColors) { frame?($0) ?? list.frame(for: $0) }
-            .map { line in var line = line; line.background = background; return line }
-        // `sidebar.showColors` off: no group color on the lifted card either.
-        return list.model.showsColors ? lines : lines.map { var line = $0; line.color = .none; return line }
+        // The list's own look (`styled`): `sidebar.showColors` off, no group color on the lifted card either.
+        list.styled(SidebarGroupLine.lines(rows, colors: list.lineColors) { frame?($0) ?? list.frame(for: $0) })
     }
 
     /// The lifted card's content: one live row view, or for several rows (a

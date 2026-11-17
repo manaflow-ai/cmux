@@ -2086,7 +2086,7 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames",
-    "note": "Structural (motion.structural): critically damped unless motion.bounce is subtle. Response 0.15 s ends visibly (within 0.5%) at 0.177 s, under the 0.2 s budget (hq-1d D1)."
+    "note": "Critically damped. Response 0.15 s ends visibly (within 0.5%) at 0.177 s, under the 0.2 s budget (hq-1d D1)."
    },
    "appear": {
     "value": {
@@ -2109,69 +2109,62 @@
    "settle": {
     "value": {
      "response": 0.22,
-     "dampingFraction": 0.85
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:14 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Release after a drag"
+    "use": "Release after a drag",
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.85 (visible end 235 ms); at 1 it ends visibly at 260 ms, over the 240 ms ceiling (the response is a Motion Lab choice)."
    },
    "scroll": {
     "value": {
      "response": 0.2,
-     "dampingFraction": 0.9
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:15 (MotionTunables.springDefaults)",
     "unit": "s",
     "use": "Strip reveal, column reveal, fling snap",
-    "note": "Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
-   },
-   "screen": {
-    "value": {
-     "response": 0.2,
-     "dampingFraction": 0.9
-    },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:16 (MotionTunables.springDefaults)",
-    "unit": "s",
-    "use": "Screen switch slide",
-    "note": "Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.9; at 1, response 0.2 ends visibly at 236 ms. Before: Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "track": {
     "value": {
      "response": 0.12,
-     "dampingFraction": 0.9
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:17 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Drop-zone overlay and drag ghost between targets"
+    "use": "Drop-zone overlay and drag ghost between targets",
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.9."
    },
    "selection": {
     "value": {
      "response": 0.15,
-     "dampingFraction": 0.9
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:18 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Page info toggle (the sidebar selection does not animate)"
+    "use": "Page info toggle (the sidebar selection does not animate)",
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.9."
    },
    "panel": {
     "value": {
      "response": 0.165,
-     "dampingFraction": 0.85
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:19 (MotionTunables.springDefaults)",
     "unit": "s",
     "use": "Hover card slide",
-    "note": "Response 0.18 until 2026-10-20 (visible end 194 ms); 0.165 ends visibly at 177 ms, inside the standard step (Leo 2026-10-20 motion scale)."
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.85; at 1, response 0.165 ends visibly at 195 ms. Before: Response 0.18 until 2026-10-20 (visible end 194 ms); 0.165 ends visibly at 177 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "pinDrag": {
     "value": {
      "response": 0.215,
-     "dampingFraction": 0.8385254915624211
+     "dampingFraction": 1
     },
     "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
     "unit": "s",
     "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing",
-    "note": "MessagesLab response 0.351 ended visibly at 390 ms. Leo 2026-10-20 motion scale (schemas/motion-scale/motion-scale.json): ends visibly by the 240 ms ceiling: response 0.215 with the same damping fraction (the same give, about 1.6 pt overshoot on 200 pt) ends at 238 ms."
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.8385 (CASpringAnimation stiffness 320, damping 30); at 1, response 0.215 ends visibly at 254 ms, over the 240 ms ceiling (the response is a Motion Lab choice). Before: MessagesLab response 0.351 ended visibly at 390 ms. Leo 2026-10-20 motion scale (schemas/motion-scale/motion-scale.json): ends visibly by the 240 ms ceiling: response 0.215 with the same damping fraction (the same give, about 1.6 pt overshoot on 200 pt) ends at 238 ms."
    },
    "zoom": {
     "value": {
@@ -2205,11 +2198,12 @@
    "split": {
     "value": {
      "response": 0.085,
-     "dampingFraction": 0.95
+     "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Response 0.085 since 2026-11-09 (instant-splits: done in 120 ms; 0.11 still moved its last pixel at 133-146 ms in the split-scale bench, 0.23 ended visibly at 235 ms): 90% of the travel at 50 ms, last pixel of a 1000 pt move by about 108 ms at 2x, overshoot under 0.1 pt. Not structural. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list)."
+    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Response 0.085 since 2026-11-09 (instant-splits: done in 120 ms; 0.11 still moved its last pixel at 133-146 ms in the split-scale bench, 0.23 ended visibly at 235 ms): 90% of the travel at 50 ms, last pixel of a 1000 pt move by about 108 ms at 2x, overshoot under 0.1 pt. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list).",
+    "note": "Damping fraction 1 since 2026-11-10 (no bounce in any motion: no spring passes its target; cmux-motion's build.rs refuses a value under 1). It was 0.95; at 1, response 0.085 ends visibly at 101 ms."
    }
   },
   "tweens": {
@@ -2296,25 +2290,6 @@
    "unit": "pt (geometry), fraction (unit)",
    "use": "Rest rule: 0.25 pt is invisible after pixel snapping at 2x; 0..1 values (opacity) use 0.001"
   },
-  "structural": {
-   "value": [
-    "move",
-    "appear",
-    "disappear",
-    "tabOpen"
-   ],
-   "source": "cmux-tui/crates/cmux-motion (MotionSpring::is_structural); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionKinds.swift (MotionSpring.isStructural)",
-   "use": "Springs that take or give up room. They follow motion.bounce; release, scroll and overlay springs keep their own damping."
-  },
-  "bounce": {
-   "value": {
-    "none": 0,
-    "subtle": 0.15,
-    "default": "none"
-   },
-   "source": "ui.animations.bounce (cmux.json); cmux-tui/crates/cmux-motion (MotionBounce); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.subtleBounce)",
-   "use": "SwiftUI bounce of the structural springs: none = critically damped (never passes the target), subtle = damping fraction 1 - 0.15 (overshoots about 1%)."
-  },
   "kinds": {
    "value": {
     "paneAnimations": false,
@@ -2322,7 +2297,7 @@
     "newWorkspace": false
    },
    "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
-   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
+   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, divider release (a screen switch never animates, Lawrence 2026-11-10). newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {

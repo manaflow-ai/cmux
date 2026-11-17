@@ -910,7 +910,9 @@ final class MeasureCache: @unchecked Sendable {
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
-    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false, scale: CGFloat = Fixture.renderScale) -> Value {
+    /// cmux: `indent`: how far the part's frame sits right of the leading edge (a group's avatar column): a full
+    /// width custom row is measured for the column that is left (`HomeChatColumn`).
+    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false, scale: CGFloat = Fixture.renderScale, indent: CGFloat = 0) -> Value {
         // a part index from another version of the message measures nothing (no trap).
         guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
@@ -919,7 +921,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
         if case let .custom(c) = part {
-            let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width)
+            let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width, indent: indent) // cmux: group indent
             return Value(size: s, text: tl, width: width, estimated: est)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
@@ -1248,7 +1250,9 @@ enum RowBuilder {
                 }
                 for (pi, part) in m.parts.enumerated() {
                     // A streaming bubble (past the loaded messages) is always measured: it draws now.
-                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
+                    // cmux: every incoming frame of a group starts right of the avatar column, a custom row too (HomeChatColumn).
+                    let indent: CGFloat = inGroup ? SenderAvatar.bubbleInset : 0
+                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale, indent: indent)
                     let (size, tl) = (measured.size, measured.text)
                     let reactions = m.reactions.filter { $0.partIndex == pi }
                     var g = pi == 0 ? gap : 3
@@ -1273,9 +1277,9 @@ enum RowBuilder {
                                       myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
                                       markdownFormat: m.isMarkdown,
-                                      cmuxAvatar: inGroup && lastOfGroup && !aside && pi == m.parts.count - 1 && !isCustom(part)
+                                      cmuxAvatar: inGroup && lastOfGroup && !aside && pi == m.parts.count - 1
                                           ? SenderAvatar(sender?.avatar) : nil,
-                                      cmuxIndent: inGroup && !isCustom(part) ? SenderAvatar.bubbleInset : 0)
+                                      cmuxIndent: indent)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
@@ -1385,7 +1389,7 @@ enum RowBuilder {
             while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
             guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
             let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
-                                                    estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
+                                                    estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale, indent: p.cmuxIndent) // cmux: group indent
             p.size = measured.size
             p.text = measured.text
             p.markdown = measured.markdown
@@ -1417,8 +1421,6 @@ enum RowBuilder {
     }
 
     private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
-    /// cmux: a custom part keeps its own layout (a full-width row spans the transcript): no group avatar column.
-    private static func isCustom(_ p: Part) -> Bool { if case .custom = p { return true } else { return false } }
 
     /// "Read <time>" under my latest read message; "Delivered" under my
     /// latest delivered message when it is newer.

@@ -116,11 +116,10 @@
       "id": "chrome-styles",
       "generator": "scripts/cmux-next/gen-chrome-styles.py",
       "outputs": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift"
       ],
-      "inputs": ["schemas/settings/chrome-styles.json"],
+      "inputs": ["schemas/settings/chrome-styles.json", "plans/cmux-next/action-catalog.json"],
       "check": ["--check"],
       "status": "committed"
     },

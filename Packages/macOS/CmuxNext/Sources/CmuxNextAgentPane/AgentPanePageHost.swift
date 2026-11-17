@@ -12,6 +12,11 @@ enum AgentPanePageHost {
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider)]
         if let panelProvider { routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider)) }
+        // The app sections' bundle images (`__appbundle/`), for this page's own mounts.
+        if let resources, let panels = panelProvider as? AppsPanelsPageProvider {
+            resources.appBundles = panels
+            panels.servesBundleImages = true
+        }
         let page = PageWebView(descriptor: .agent, root: root, testRoot: testRoot,
                                routes: routes,
                                documentAttributes: AgentPaneTunables.documentAttributes,

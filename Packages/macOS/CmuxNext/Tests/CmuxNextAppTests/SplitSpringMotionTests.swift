@@ -159,7 +159,7 @@ struct SplitSpringMotionTests {
 
     // MARK: The spring
 
-    /// The split's spring (`split`, response 0.085 s, damping 0.95): its last pixel by about 108 ms (about
+    /// The split's spring (`split`, response 0.085 s, damping 1): its last pixel by about 108 ms (about
     /// nine tenths of the way at 50 ms, Leo 2026-11-08 instant-splits), no visible overshoot, and
     /// at rest at exactly its target within 0.75 s.
     @Test(arguments: [SplitAxis.horizontal, .vertical])

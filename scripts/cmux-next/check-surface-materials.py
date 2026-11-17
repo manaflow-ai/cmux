@@ -106,6 +106,8 @@ def opening_tags(text: str):
 
 # A class held in a const: a string or a cx(...) of strings, never a component or a function.
 CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
+# `className=`, with the whitespace JSX allows around the `=`.
+CLASS_NAME = re.compile(r"className\s*=\s*")
 
 
 def class_attribute(tag: str) -> str:
@@ -131,8 +133,8 @@ def class_attribute(tag: str) -> str:
             depth += 1
         elif char == "}":
             depth -= 1
-        elif depth == 0 and tag.startswith("className=", index) and tag[index - 1 : index].isspace():
-            return balanced_value(tag, index + len("className="))
+        elif depth == 0 and tag[index - 1 : index].isspace() and (attribute := CLASS_NAME.match(tag, index)):
+            return balanced_value(tag, attribute.end())
         index += 1
     return ""
 
@@ -147,10 +149,18 @@ def balanced_value(tag: str, start: int) -> str:
         return ""
     depth = 0
     quote = ""
-    for index in range(start, len(tag)):
+    index = start
+    while index < len(tag):
         char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
         if quote:
-            if char == quote and tag[index - 1] != "\\":
+            if char == "\\":
+                index += 1
+            elif char == quote:
                 quote = ""
         elif char in "\"'`":
             quote = char
@@ -160,7 +170,46 @@ def balanced_value(tag: str, start: int) -> str:
             depth -= 1
             if depth == 0:
                 return tag[start : index + 1]
+        index += 1
     return tag[start:]
+
+
+def strings_and_code(value: str) -> tuple[str, str]:
+    """A className value split into the text of its string literals (the classes) and the code around them (where a
+    const is named), with comments in neither. A template literal's text is a string; its `${...}` is code."""
+    strings: list[str] = []
+    code: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if value.startswith(("//", "/*"), index):
+            block = value.startswith("/*", index)
+            end = value.find("*/" if block else "\n", index + 2)
+            index = len(value) if end < 0 else end + (2 if block else 0)
+            code.append(" ")
+            continue
+        if char in "\"'`":
+            index += 1
+            while index < len(value) and value[index] != char:
+                if value[index] == "\\":
+                    index += 1
+                elif char == "`" and value.startswith("${", index):
+                    inner = balanced_value(value, index + 1)
+                    inner_strings, inner_code = strings_and_code(inner[1:-1])
+                    strings.append(" " + inner_strings + " ")
+                    code.append(" " + inner_code + " ")
+                    index += 1 + len(inner)
+                    continue
+                else:
+                    strings.append(value[index])
+                index += 1
+            strings.append(" ")
+            code.append(' "" ')
+            index += 1
+            continue
+        code.append(char)
+        index += 1
+    return "".join(strings), "".join(code)
 
 
 def unmarked_surfaces(text: str) -> list[int]:
@@ -176,8 +225,11 @@ def unmarked_surfaces(text: str) -> list[int]:
     for offset, tag, own, notes in opening_tags(text):
         # The element's own className, whole: a string, or a braced expression to its balancing brace.
         classes = class_attribute(tag)
-        named = any(re.search(r"\b" + name + r"\b", classes) for name in floating_names)
-        floating = (POPUP.search(classes) and GLASS.search(classes)) or named
+        # Its classes are the text of its string literals; a const is named only in its code, a braced expression.
+        strings, code = strings_and_code(classes)
+        code = code if classes.startswith("{") else ""
+        named = any(re.search(r"\b" + name + r"\b", code) for name in floating_names)
+        floating = (POPUP.search(strings) and GLASS.search(strings)) or named
         if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
             lines.append(text.count("\n", 0, offset) + 1)
     return lines

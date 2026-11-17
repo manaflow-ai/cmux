@@ -133,6 +133,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("HOMEBREW_NO_AUTO_UPDATE=1 \"$brew\" install gh", script)
         self.assertIn("https://cli.github.com/packages", script)
         self.assertIn("::error", script)
+        # The pinned, sha256-checked release comes before Homebrew and apt (docs/ci/nightly-decouple.md).
+        self.assertLess(script.index("pinned_gh && exit 0"), script.index("install gh"))
 
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}

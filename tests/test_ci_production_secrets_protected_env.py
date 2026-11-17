@@ -98,7 +98,10 @@ def main():
         document = yaml.load(text, Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
+            environment = definition.get("environment")
+            # A mapping keeps the environment and only sets whether it records a deployment.
+            _check((environment.get("name") if isinstance(environment, dict) else environment) == "artifacts",
+                   f"{name} {job} runs in the artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:

@@ -95,7 +95,7 @@ final class HomeChiefCardCloseButton: HomeChiefCardButton {
     }
 }
 
-/// The Chief profile panel's tabs: quiet labels, the selected one on a small-radius rect (not a
+/// The Chief profile's tabs: quiet labels, the selected one on a small-radius rect (not a
 /// capsule; Lawrence 2026-11-04). Rest: secondary ink, no fill. Hover: primary ink. Press: the hover
 /// fill. Selected: primary ink on the rect. Keyboard focus: the system ring around the rect.
 @MainActor

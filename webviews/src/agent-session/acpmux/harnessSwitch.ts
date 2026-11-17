@@ -127,7 +127,11 @@ export type SwitchView = {
     cwd?: string;
   };
   /// A model picked in a live session, drawn until the session reports a model change.
-  model?: { sessionId: string; from?: string; model: string };
+  /// `answered`: the agent answered the pick. Until then the pick draws over any model the session
+  /// reports, an earlier pick's included (two picks in a row: the first one's report must not draw
+  /// as if the second were dropped). Once answered it draws only while the session still reports
+  /// `from`, so a model the agent reports under another id never stays masked.
+  model?: { sessionId: string; from?: string; model: string; answered?: boolean };
   /// A config option picked in a live session, drawn until the session reports the value.
   config?: { sessionId: string; configId: string; from?: string; value: string };
 };
@@ -432,12 +436,18 @@ export class HarnessSwitch {
     }
     const port = this.port;
     if (!port || !live) return Promise.resolve(false);
-    const pick = { sessionId: live.sessionId, from: live.model, model };
+    const pick: NonNullable<SwitchView["model"]> = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
     this.configPick = undefined;
     this.changed();
     return port.setModel(model).then(
-      () => true,
+      () => {
+        if (this.modelPick === pick) {
+          this.modelPick = { ...pick, answered: true };
+          this.changed();
+        }
+        return true;
+      },
       (error) => {
         if (this.modelPick !== pick) return false;
         this.modelPick = undefined;
@@ -854,7 +864,13 @@ export function applySwitch(
   if (!intent) {
     const pick = view.model;
     const summary = raw.summary;
-    if (pick && summary && summary.sessionId === pick.sessionId && summary.model === pick.from)
+    if (
+      pick &&
+      summary &&
+      summary.sessionId === pick.sessionId &&
+      summary.model !== pick.model &&
+      (summary.model === pick.from || !pick.answered)
+    )
       return { ...raw, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
     const config = view.config;
     if (!config || !summary || summary.sessionId !== config.sessionId) return raw;

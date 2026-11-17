@@ -609,6 +609,7 @@ impl Hub {
             turn_cap_ms: None,
             turn_cap_noticed: None,
             delegator: None,
+            cold: None,
         };
         if empty && !meta.remote_origin {
             let cfg = self.config.read().await;

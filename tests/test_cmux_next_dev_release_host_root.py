@@ -42,6 +42,7 @@ REAL = {
     "scripts/ci/apfs_clone.py": ROOT / "scripts/ci/apfs_clone.py",
     "scripts/cmux-next/dev_cas_seed.py": ROOT / "scripts/cmux-next/dev_cas_seed.py",
     "scripts/ci/dev_release_product_reuse.py": ROOT / "scripts/ci/dev_release_product_reuse.py",
+    "scripts/ci/deadline_http.py": ROOT / "scripts/ci/deadline_http.py",
 }
 # A real one on macOS, where /usr/bin/git and /usr/bin/python3 resolve through it; only hashed here.
 DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR") or (

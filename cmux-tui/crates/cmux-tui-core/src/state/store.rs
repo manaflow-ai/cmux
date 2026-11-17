@@ -162,11 +162,23 @@ pub(crate) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> a
 pub(crate) struct StateChanges {
     pub(crate) result: Value,
     pub(crate) changes: Vec<Value>,
+    /// The mutation found the stored state equal to what it asks for and
+    /// wrote nothing ([`StateChanges::unchanged`]).
+    pub(crate) unchanged: bool,
 }
 
 impl StateChanges {
     pub(crate) fn new(result: Value, changes: Vec<Value>) -> Self {
-        Self { result, changes }
+        Self { result, changes, unchanged: false }
+    }
+
+    /// The answer of a mutation that changes nothing: the stored state is
+    /// already what it asks for, and `apply` wrote no row. The registry then
+    /// commits nothing: no revision, no ledger row, no journal record, no
+    /// WAL frame. A retry under the same key applies again and gets the same
+    /// answer, so no ledger row is needed to replay it.
+    pub(crate) fn unchanged(result: Value) -> Self {
+        Self { result, changes: Vec::new(), unchanged: true }
     }
 }
 
@@ -266,7 +278,18 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
         let personal_before = personal_revision(&tx)?;
-        let StateChanges { result, changes } = apply(&tx)?;
+        let StateChanges { result, changes, unchanged } = apply(&tx)?;
+        if unchanged {
+            // `apply` wrote nothing: the transaction ends with no write, and
+            // the answer names the revision that already holds this state.
+            drop(tx);
+            return Ok(StateCommit {
+                revision: previous_revision,
+                result,
+                replayed: false,
+                personal_revision: None,
+            });
+        }
         let changes = Value::Array(finish_changes(changes));
         // Personal mutations advance `personal_revision` and append their own
         // `personal.*` fact; the raw `personal-changed` event follows it.

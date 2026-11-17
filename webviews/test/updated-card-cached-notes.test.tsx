@@ -87,8 +87,10 @@ test("the Updated card reports its span's notes from the cached build list witho
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
     await act(async () => mountUpdateSurface(host, "updated", client));
+    // The page reports at once with its title and a loading change line (Leo 2026-11-09: no blank
+    // glass card); the cached list's notes then take the line's place at the same height.
     await act(async () => {
-      await until(() => sizes.length > 0);
+      await until(() => sizes.length > 0 && host.querySelector(".wn-card-note-loading") === null);
     });
     expect(lists[0]).toEqual({ cached: true });
     expect(sizes.length).toBe(1);

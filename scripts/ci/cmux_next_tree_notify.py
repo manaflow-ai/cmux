@@ -70,7 +70,11 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 from typing import Callable, Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - every call's transport: nothing is sent past its bound
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ISO_TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -104,12 +108,27 @@ class Api(Protocol):
     def delete(self, path: str) -> int: ...
 
 
+# One call's longest wait for GitHub, from its start to the last byte of its answer. A caller that must
+# finish before a deadline budgets this much for each call it makes there, a write included.
+REQUEST_TIMEOUT_S = 30
+
+
+# A call that did not finish within its bound (deadline_http.RequestTimeout). It ran on the caller's
+# thread and stopped at its bound, so nothing was sent after it; a write sent before it (a dispatch, a
+# cancel) may have reached GitHub, so the caller treats it as unknown, never as done and never as refused.
+RequestTimeout = deadline_http.RequestTimeout
+
+
 class GitHub:
+    # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
+    timeout: float = REQUEST_TIMEOUT_S
+
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
         self.token = token
         self.api_url = api_url.rstrip("/")
 
-    def _request(self, method: str, url: str, body: dict | None = None):
+    def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
+        """One call, with its response headers. RequestTimeout past self.timeout."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(url, data=data, method=method, headers={
             "Accept": "application/vnd.github+json",
@@ -118,11 +137,11 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
+        return deadline_http.request(request, self.timeout)
+
+    def _request(self, method: str, url: str, body: dict | None = None):
+        status, payload, _ = self._send(method, url, body)
+        return status, payload
 
     def get(self, path: str):
         status, payload = self._request("GET", f"{self.api_url}/{path}")
@@ -148,8 +167,8 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
-            return json.loads(response.read())
+        status, payload, _ = deadline_http.request(url, REQUEST_TIMEOUT_S)
+        return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
 
@@ -406,7 +425,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
-    artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
+    artifacts = [artifact for artifact in listing.get("artifacts", [])
+                 if isinstance(artifact, dict) and not artifact.get("expired")]
+    # A fork's marker starts and cancels nothing (from_same_repository), so it is dropped before the MAX_MARKERS
+    # cut: newer fork markers (GitHub lists the newest first) must not hide a same-repository one.
+    foreign = [artifact for artifact in artifacts if not from_same_repository(artifact)]
+    if foreign:
+        log(f"{len(foreign)} marker(s) were uploaded by a fork pull request's run or have no run "
+            f"({', '.join(str(artifact.get('id')) for artifact in foreign[:10])}"
+            f"{', ...' if len(foreign) > 10 else ''}); a fork's marker starts and cancels nothing; ignored")
+        artifacts = [artifact for artifact in artifacts if from_same_repository(artifact)]
     dispatched = 0
     # Head branches a superseded marker already swept in this notify.
     swept: set[str] = set()
@@ -442,14 +470,17 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
     for artifact in artifacts[:MAX_MARKERS]:
-        run_id = artifact.get("workflow_run", {}).get("id")
-        if not from_same_repository(artifact):
-            log(f"marker {artifact.get('id')} (run {run_id}) was uploaded by a fork pull request's run (or its "
-                f"run is unknown); a fork's marker starts and cancels nothing; ignored")
-            continue
+        # from_same_repository (above) kept only artifacts whose workflow_run is an object.
+        run_id = artifact["workflow_run"].get("id")
         marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
+            continue
+        if marker["origin"] == "pull_request" and marker.get("head_ref") != artifact["workflow_run"].get("head_branch"):
+            # dispatch_refs reads the marker's head_ref; GitHub records the run's branch. A mismatch is a marker
+            # this run did not write for its own pull request: it starts nothing.
+            log(f"marker {artifact.get('id')} (run {run_id}) names head branch {marker.get('head_ref')!r}, but its "
+                f"run is on {artifact['workflow_run'].get('head_branch')!r}; ignored")
             continue
         pull = None
         try:

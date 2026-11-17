@@ -400,3 +400,28 @@ test("a selection past one apply's bound is said, not sent", async () => {
   await store.deleteSelection(ids.slice(0, MAX_APPLY_OPS));
   expect(applies(provider)).toHaveLength(1);
 });
+
+test("a relay resync re-lists (events may have been lost)", async () => {
+  const listeners: Array<(data: unknown) => void> = [];
+  let lists = 0;
+  const client: PageClient = {
+    call: async <R>(op: string) => {
+      if (op === HostOps.state) {
+        return { browser_profile_id: "p1", bar_title: "Bar", other_title: "Other", can_set_folder_icons: false } as R;
+      }
+      lists += 1;
+      return { bookmarks_revision: 5, bookmarks: [] } as R;
+    },
+    subscribe: async <E>(stream: string, onEvent: (data: E, seq: number) => void) => {
+      if (stream === BookmarkOps.changed) listeners.push(onEvent as (data: unknown) => void);
+      return () => undefined;
+    },
+    handle: () => () => undefined,
+  };
+  const store = new BookmarksStore(client);
+  await store.start();
+  expect(lists).toBe(1);
+  for (const listener of listeners) listener({ resync: true });
+  await tick();
+  expect(lists).toBe(2);
+});

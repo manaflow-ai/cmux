@@ -6,13 +6,17 @@ import Foundation
 /// owner machine too: on a team guest every member's terminal runs as the same Unix user and could
 /// read it. The image's launchers stay authoritative; shared and old images fail closed.
 nonisolated enum CloudCredentialInstaller {
+    /// The guest check: an owner guest with the image's launchers, and the staging folder made as `cmux`'s own 0700
+    /// folder, no symlink, owned by `cmux`. A transfer writes the login there right after this check passes, with no
+    /// exec of its own in between (``CloudCredentialTransfer/stage(_:at:on:machineID:)``).
     static let preflight = #"""
         set -eu
         [ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]
         [ -f /etc/cmux/agent-auth.sh ]
         if [ "$(id -u)" = 0 ]; then install -d -m 700 -o cmux -g cmux /home/cmux/.cmux/credential-transfer; else
-          [ "$(id -un)" = cmux ]; mkdir -p /home/cmux/.cmux/credential-transfer; chmod 700 /home/cmux/.cmux/credential-transfer
+          [ "$(id -un)" = cmux ]; (umask 077 && mkdir -p /home/cmux/.cmux/credential-transfer); chmod 700 /home/cmux/.cmux/credential-transfer
         fi
+        [ ! -L /home/cmux/.cmux/credential-transfer ] && [ "$(stat -c %U /home/cmux/.cmux/credential-transfer)" = cmux ]
         """#
 
     /// The DEV and dogfood creator allowance (``CloudCredentialTransfer/allowsCreatorTeamGuest``): an
@@ -23,8 +27,9 @@ nonisolated enum CloudCredentialInstaller {
         case "$(cat /etc/cmux/vm-kind 2>/dev/null)" in owner|team) ;; *) exit 1 ;; esac
         [ -f /etc/cmux/agent-auth.sh ]
         if [ "$(id -u)" = 0 ]; then install -d -m 700 -o cmux -g cmux /home/cmux/.cmux/credential-transfer; else
-          [ "$(id -un)" = cmux ]; mkdir -p /home/cmux/.cmux/credential-transfer; chmod 700 /home/cmux/.cmux/credential-transfer
+          [ "$(id -un)" = cmux ]; (umask 077 && mkdir -p /home/cmux/.cmux/credential-transfer); chmod 700 /home/cmux/.cmux/credential-transfer
         fi
+        [ ! -L /home/cmux/.cmux/credential-transfer ] && [ "$(stat -c %U /home/cmux/.cmux/credential-transfer)" = cmux ]
         """#
 
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }

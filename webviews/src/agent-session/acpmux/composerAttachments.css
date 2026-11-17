@@ -368,7 +368,7 @@
 .acpmux-attachment-progress-arc {
   stroke: var(--agent-text);
   stroke-linecap: round;
-  transition: stroke-dashoffset 120ms linear;
+  transition: stroke-dashoffset var(--agent-motion-in, 120ms) linear;
 }
 /* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
    corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
@@ -1150,7 +1150,7 @@ button.acpmux-attachment-pasted-open:hover {
   pointer-events: none;
   filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent))
     drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16));
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-source-badge > img,
 .acpmux-attachment-image .acpmux-source-badge > img {

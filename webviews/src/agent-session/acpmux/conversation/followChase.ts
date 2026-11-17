@@ -131,6 +131,10 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
+  /// A held chase hands `px` of what it draws to the scroll offset (VirtualTranscript's quiet fold): the
+  /// thread is drawn `px` nearer its layout, at once and with no frame loop; what is left stays held.
+  /// False, and nothing changes, while its frame loop runs (it is not held).
+  release(px: number): boolean;
   /// The turn ended: the chase lands at once when that frame, with what it already moved, stays within
   /// CHASE_LAND_LINES; else within BURST_S at no more than a line a frame (a snap of the whole trail
   /// moved the rows up to two lines in a frame, and a snap on top of a frame that had moved, 26-40 px).
@@ -354,6 +358,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       });
     },
     resume,
+    release(px) {
+      if (frame !== undefined || recheck !== undefined) return false;
+      x -= px;
+      // The `chunk` arm's curve goes on from what is left, not from what was handed over.
+      chunk = { from: x, at: 0, duration: CHUNK_S };
+      if (Math.abs(x) < REST_PX) stop();
+      else draw();
+      return true;
+    },
     land() {
       const line = currentChatMetrics().lineHeight;
       // At once only when that frame, with what it already moved (`spent`, `stepped`), stays within

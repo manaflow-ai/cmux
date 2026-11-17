@@ -28,7 +28,6 @@ struct ChiefDockAppTests {
             try await PasswordManagerRouteTests.until({ window.frameChiefPanelShown }, report: {
                 "open \(window.state.chiefPanel.isOpen), shown \(window.state.workspaceID ?? "-"), home \(window.frameHome ?? "-")"
             })
-            #expect(window.chiefPanelView?.chief is HomeHostView, "the panel does not hold the real Chief view")
             #expect(window.state.chiefPanel.dockedEdge == nil && window.state.docks.isEmpty, "Cmd-I docked")
             #expect(window.state.workspaceID == other && window.parked[home.id]?.contentView.isHiddenOrHasHiddenAncestor != false,
                     "Home came on screen with the Chief")

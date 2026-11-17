@@ -35,10 +35,25 @@ fn connect(
 }
 
 fn connect_with(label: &str, phone: bool, floor: PhoneFloor) -> Phone {
+    connect_fixture(label, phone, floor, None)
+}
+
+/// [`connect_with`], with acpmux answering its catalog `catalog_after` the ask.
+fn connect_fixture(
+    label: &str,
+    phone: bool,
+    floor: PhoneFloor,
+    catalog_after: Option<Duration>,
+) -> Phone {
     let (family, mode) = (floor.family, floor.mode.clone());
     let fake = FakeAcpmux::start_with(
         label,
-        Fixture { start_folder_trusted: Some(true), phone: Some(floor), ..Default::default() },
+        Fixture {
+            start_folder_trusted: Some(true),
+            phone: Some(floor),
+            catalog_after,
+            ..Default::default()
+        },
     );
     let mux = mux_with(&fake, label);
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
@@ -201,4 +216,24 @@ fn a_phone_may_close_the_tab_of_a_chat_it_started_and_no_other() {
     assert_code(&refused, "remote_denied");
     let closed = phone.client.request(json!({"cmd":"close-surface","surface":phone.surface}));
     assert_eq!(closed["ok"], json!(true), "{closed}");
+}
+
+/// cmuxterm-hq run 42837396397 (cloud-chat-replies-production, 2026-11-10): the app restarted the
+/// machine's acpmux with a person key (remote approvals) 0.3 s before the start, and the start's
+/// catalog read waited on that fresh acpmux's login shell read past the 5 s every other call gets.
+/// The start was refused `agent_session.timeout` ("did not start the agent in time") with no agent
+/// spawned. A start waits for a starting acpmux's catalog, as acpmux itself holds it.
+#[test]
+fn the_owners_start_waits_for_a_starting_acpmuxs_catalog() {
+    let mode = Arc::new(Mutex::new("default".to_owned()));
+    let floor = PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
+    let mut owner = connect_fixture("catalog-wait", false, floor, Some(Duration::from_secs(7)));
+    let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
+        "harness":"claude","vm_kind":"owner"});
+    let id = owner.client.send(start);
+    let started = owner.client.answer_within(id, Duration::from_secs(30));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(started["data"]["session"], json!(SESSION));
+    let methods = owner.methods();
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
 }

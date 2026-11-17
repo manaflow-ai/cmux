@@ -97,6 +97,7 @@ extension PageWebView {
         controller.addUserScript(WKUserScript(source: PagePaintProbe.script, injectionTime: .atDocumentEnd,
                                                forMainFrameOnly: true, in: .page))
         controller.addUserScript(PageTitleRowPress.userScript)
+        controller.addUserScript(PageAccessibilityPress.userScript)
         // The handler stays installed; only the script was removed with the others.
         controller.addUserScript(WKUserScript(source: ConsoleErrorCapture.script, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: true, in: .page))

@@ -136,5 +136,5 @@ final class CollapsedBandReveal {
         hold?.release()
     }
 
-    private var animates: Bool { Motion.sidebar.policy.animatesMovement && Motion.canAnimate(in: driver) }
+    private var animates: Bool { Motion.sidebar.animatesMovement(in: driver.window) && Motion.canAnimate(in: driver) }
 }

@@ -73,6 +73,14 @@ public enum CloudStrings {
     public static func noSuchTeam(_ team: String) -> String {
         String(format: String(localized: "cloud.failed.noSuchTeam", defaultValue: "No team named “%@” in this account.", table: "Cloud", bundle: .module), team)
     }
+    /// A team list's second line for the person's own team, when no email is known.
+    public static var teamKindPersonal: String { String(localized: "cloud.team.kind.personal", defaultValue: "Personal", table: "Cloud", bundle: .module) }
+    /// A team list's second line for a team shared with other people.
+    public static var teamKindTeam: String { String(localized: "cloud.team.kind.team", defaultValue: "Team", table: "Cloud", bundle: .module) }
+    /// A team's plan on a team list's second line ("Pro plan"); `plan` is the plan's name.
+    public static func teamPlan(_ plan: String) -> String {
+        String(format: String(localized: "cloud.team.plan", defaultValue: "%@ plan", table: "Cloud", bundle: .module), plan)
+    }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
     public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine --target machine:<id>` first.", table: "Cloud", bundle: .module) }

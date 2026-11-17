@@ -454,10 +454,9 @@ const Line = memo(function Line({
     turns: formatCount(totals.turns, locale),
     tokens: formatCount(tokensIn(totals) + totals.outputTokens, locale),
   });
-  const meta =
-    cacheShare(totals) === undefined
-      ? counts
-      : `${counts} · ${t("ledger.row.fromCache", { share: fromCacheText(totals, locale) })}`;
+  // A row with no input still says so ("— from cache"), as the table's column does.
+  const fromCache = t("ledger.row.fromCache", { share: fromCacheText(totals, locale) });
+  const meta = `${counts} · ${fromCache}`;
   const bar = (
     <span className="cst-bar" style={{ "--cst-share": line.share } as React.CSSProperties} aria-hidden="true" />
   );
@@ -470,7 +469,7 @@ const Line = memo(function Line({
           title={`${label}\n${t("ledger.row.cache", {
             read: formatCount(totals.cacheReadTokens, locale),
             write: formatCount(totals.cacheWriteTokens, locale),
-          })}${cacheShare(totals) === undefined ? "" : ` · ${t("ledger.row.fromCache", { share: fromCacheText(totals, locale) })}`}`}
+          })} · ${fromCache}`}
         >
           {label}
         </span>

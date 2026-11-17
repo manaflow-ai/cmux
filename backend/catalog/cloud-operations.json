@@ -875,6 +875,15 @@
         ]
       }
     },
+    "CloudDeleteReason": {
+      "kind": "enum",
+      "values": [
+        "failed_create",
+        "never_used",
+        "unused",
+        "requested"
+      ]
+    },
     "CloudEnvironment": {
       "kind": "object",
       "fields": {
@@ -1464,6 +1473,29 @@
             }
           }
         },
+        "paused_hourly_rate_usd": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
         "running_since": {
           "required": false,
           "type": {
@@ -1479,6 +1511,59 @@
           "type": {
             "kind": "primitive",
             "name": "boolean"
+          }
+        },
+        "evict_at": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "delete_reason": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudDeleteReason"
+            }
+          }
+        },
+        "keep": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "notice": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudRetentionNotice"
+            }
+          }
+        },
+        "paused_by": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "spend_cap"
+            ]
+          }
+        },
+        "spend_cap_pause_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
           }
         },
         "revision": {
@@ -1690,6 +1775,311 @@
               }
             }
           }
+        },
+        "retention": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudRetention"
+            }
+          }
+        },
+        "spend_cap": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "state": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "enum",
+                    "values": [
+                      "under",
+                      "near",
+                      "at_cap"
+                    ]
+                  }
+                }
+              },
+              "spent_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "cap_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "period_end": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "checked_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "pause_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "paused_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "CloudRetention": {
+      "kind": "object",
+      "fields": {
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "off",
+              "warn",
+              "on"
+            ]
+          }
+        },
+        "settings": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudRetentionSettings"
+            }
+          }
+        },
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudRetentionOverrides"
+          }
+        },
+        "email_heads_up": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      }
+    },
+    "CloudRetentionNotice": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "heads_up",
+              "last_note"
+            ]
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "delete_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "CloudRetentionOverrides": {
+      "kind": "object",
+      "fields": {
+        "failed_create_hours": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "never_used_hours": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "idle_pause_minutes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "worked_in_days": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "heads_up_days": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "last_note_days": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "archive_days": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "CloudRetentionSettings": {
+      "kind": "object",
+      "fields": {
+        "tier": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "failed_create_hours": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "never_used_hours": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "idle_pause_minutes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "worked_in_days": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "heads_up_days": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "last_note_days": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "archive_days": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
         }
       }
     },
@@ -1746,6 +2136,43 @@
           "type": {
             "kind": "primitive",
             "name": "int64"
+          }
+        },
+        "archive_of": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "machine": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "MachineId"
+                  }
+                },
+                "name": {
+                  "required": true,
+                  "type": {
+                    "kind": "nullable",
+                    "inner": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1,
+                      "max_length": 80
+                    }
+                  }
+                },
+                "until": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
           }
         },
         "revision": {
@@ -24737,6 +25164,7 @@
         "client.too_old",
         "cloud.environment.not_found",
         "cloud.environment.secrets_unavailable",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -24744,6 +25172,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -24898,6 +25327,43 @@
             "type": "string",
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
+          },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
           },
           "Revision": {
             "type": "string",
@@ -25066,6 +25532,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -25080,6 +25564,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -25171,10 +25701,12 @@
         "cloud.environment.busy",
         "cloud.environment.not_found",
         "cloud.environment.secrets_unavailable",
+        "cloud.member_budget.reached",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
         "cloud.rate_limited",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -26503,6 +27035,482 @@
         }
       }
     },
+    "cloud.machine.archive_delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudMachine"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.machine.not_found",
+        "cloud.machine.not_paused",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud machine archive-delete",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Archive a paused machine's disk, then delete the machine. The archive is a snapshot (archive_of names the machine) kept for the plan's archive days; cloud.snapshot.restore makes a new machine from it. The machine's creator or a team admin only. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/CloudMachine"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          },
+          "CloudMachineStatus": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "deleting",
+              "failed"
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size": {
+                "$ref": "#/$defs/CloudMachineSize"
+              },
+              "status": {
+                "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "image": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "daemon_version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "daemon_version"
+                ],
+                "additionalProperties": true
+              },
+              "host": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_active_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "idle_policy": {
+                "type": "object",
+                "properties": {
+                  "idle_seconds": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "idle_seconds"
+                ],
+                "additionalProperties": true
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "desktop": {
+                "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "team",
+              "creator",
+              "name",
+              "size",
+              "status",
+              "image",
+              "host",
+              "classic",
+              "created_at",
+              "last_active_at",
+              "idle_policy",
+              "error",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "cloud.machine.connect_info": {
       "class": "read",
       "idempotency": "forbidden",
@@ -26903,6 +27911,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -26910,6 +27919,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -26939,7 +27949,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -27060,6 +28070,43 @@
             "type": "string",
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
+          },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
           },
           "Revision": {
             "type": "string",
@@ -27228,6 +28275,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -27242,6 +28307,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -27530,6 +28641,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -27697,6 +28845,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -27711,6 +28877,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -27917,6 +29129,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -28084,6 +29333,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -28098,6 +29365,538 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "team",
+              "creator",
+              "name",
+              "size",
+              "status",
+              "image",
+              "host",
+              "classic",
+              "created_at",
+              "last_active_at",
+              "idle_policy",
+              "error",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.machine.keep": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "keep": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudMachine"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.machine.not_found",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud machine keep",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "keep": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "machine",
+          "keep"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/CloudMachine"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          },
+          "CloudMachineStatus": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "deleting",
+              "failed"
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size": {
+                "$ref": "#/$defs/CloudMachineSize"
+              },
+              "status": {
+                "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "image": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "daemon_version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "daemon_version"
+                ],
+                "additionalProperties": true
+              },
+              "host": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_active_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "idle_policy": {
+                "type": "object",
+                "properties": {
+                  "idle_seconds": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "idle_seconds"
+                ],
+                "additionalProperties": true
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "desktop": {
+                "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -28581,6 +30380,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -28748,6 +30584,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -28762,6 +30616,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -28959,6 +30859,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -29126,6 +31063,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29140,6 +31095,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29348,6 +31349,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -29515,6 +31553,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29529,6 +31585,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29767,6 +31869,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -29934,6 +32073,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29948,6 +32105,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -30028,10 +32231,12 @@
         "cloud.machine.not_bound",
         "cloud.machine.not_found",
         "cloud.machine.not_paused",
+        "cloud.member_budget.reached",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
         "cloud.rate_limited",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -30148,6 +32353,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30315,6 +32557,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -30329,6 +32589,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -30526,6 +32832,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30693,6 +33036,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -30707,6 +33068,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -31019,6 +33426,144 @@
       "output_json_schema": {
         "$ref": "#/$defs/CloudPlan",
         "$defs": {
+          "CloudRetentionSettings": {
+            "type": "object",
+            "properties": {
+              "tier": {
+                "type": "string"
+              },
+              "failed_create_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "never_used_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "idle_pause_minutes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "worked_in_days": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "heads_up_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_note_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archive_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "tier",
+              "failed_create_hours",
+              "never_used_hours",
+              "idle_pause_minutes",
+              "worked_in_days",
+              "heads_up_days",
+              "last_note_days",
+              "archive_days"
+            ],
+            "additionalProperties": true
+          },
+          "CloudRetentionOverrides": {
+            "type": "object",
+            "properties": {
+              "failed_create_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "never_used_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "idle_pause_minutes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "worked_in_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "heads_up_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_note_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archive_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": true
+          },
+          "CloudRetention": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "on"
+                ]
+              },
+              "settings": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionSettings"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "team": {
+                "$ref": "#/$defs/CloudRetentionOverrides"
+              },
+              "email_heads_up": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "mode",
+              "settings",
+              "team",
+              "email_heads_up"
+            ],
+            "additionalProperties": true
+          },
           "CloudPlan": {
             "type": "object",
             "properties": {
@@ -31156,6 +33701,130 @@
                   "period_end"
                 ],
                 "additionalProperties": true
+              },
+              "retention": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetention"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "spend_cap": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "under",
+                          "near",
+                          "at_cap"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "spent_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cap_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "period_end": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "checked_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pause_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "paused_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "spent_usd",
+                  "cap_usd",
+                  "period_end",
+                  "checked_at",
+                  "pause_at",
+                  "paused_at"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -31167,6 +33836,173 @@
             "additionalProperties": true
           }
         }
+      }
+    },
+    "cloud.retention.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "settings": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "ref",
+                "name": "CloudRetentionOverrides"
+              }
+            }
+          },
+          "email_heads_up": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "changed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud retention set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CloudRetentionOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email_heads_up": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "CloudRetentionOverrides": {
+            "type": "object",
+            "properties": {
+              "failed_create_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "never_used_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "idle_pause_minutes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "worked_in_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "heads_up_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_note_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archive_days": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "cloud.shell.open": {
@@ -31505,6 +34341,44 @@
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
               },
+              "archive_of": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "machine": {
+                        "$ref": "#/$defs/MachineId"
+                      },
+                      "name": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "until": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "machine",
+                      "name",
+                      "until"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -31807,6 +34681,44 @@
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
               },
+              "archive_of": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "machine": {
+                        "$ref": "#/$defs/MachineId"
+                      },
+                      "name": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "until": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "machine",
+                      "name",
+                      "until"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -31889,6 +34801,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -31896,6 +34809,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -32016,6 +34930,43 @@
             "type": "string",
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
+          },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
           },
           "Revision": {
             "type": "string",
@@ -32184,6 +35135,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -32198,6 +35167,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -33244,6 +36259,43 @@
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
+          "CloudDeleteReason": {
+            "type": "string",
+            "enum": [
+              "failed_create",
+              "never_used",
+              "unused",
+              "requested"
+            ]
+          },
+          "CloudRetentionNotice": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heads_up",
+                  "last_note"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "delete_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "at",
+              "delete_at"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -33411,6 +36463,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -33425,6 +36495,52 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "evict_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "delete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudDeleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "keep": {
+                "type": "boolean"
+              },
+              "notice": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudRetentionNotice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -55932,8 +59048,162 @@
         "name": "MutationResult",
         "arguments": [
           {
-            "kind": "ref",
-            "name": "Connection"
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConnectionId"
+                }
+              },
+              "owner": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamId"
+                }
+              },
+              "created_by": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "provider": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "IntegrationProvider"
+                }
+              },
+              "account": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "object",
+                    "fields": {
+                      "key": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      },
+                      "name": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      },
+                      "url": {
+                        "required": false,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "scopes_requested": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "scopes_granted": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "status": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConnectionStatus"
+                }
+              },
+              "status_detail": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "sharing": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "private",
+                    "team"
+                  ]
+                }
+              },
+              "resources": {
+                "required": false,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "repos": {
+                      "required": true,
+                      "type": {
+                        "kind": "nullable",
+                        "inner": {
+                          "kind": "array",
+                          "items": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "created_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "updated_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "return_to": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "configure_url": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
           }
         ]
       },
@@ -56000,7 +59270,124 @@
         "$defs": {}
       },
       "output_json_schema": {
-        "$ref": "#/$defs/Connection",
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "owner": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "created_by": {
+            "$ref": "#/$defs/UserId"
+          },
+          "provider": {
+            "$ref": "#/$defs/IntegrationProvider"
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "name"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes_granted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/$defs/ConnectionStatus"
+          },
+          "status_detail": {
+            "type": "string"
+          },
+          "sharing": {
+            "type": "string",
+            "enum": [
+              "private",
+              "team"
+            ]
+          },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "repos": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "repos"
+            ],
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updated_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "return_to": {
+            "type": "string"
+          },
+          "configure_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner",
+          "created_by",
+          "provider",
+          "account",
+          "scopes_requested",
+          "scopes_granted",
+          "status",
+          "sharing",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": true,
         "$defs": {
           "ConnectionId": {
             "type": "string",
@@ -56037,120 +59424,6 @@
               "revoked",
               "expired"
             ]
-          },
-          "Connection": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/ConnectionId"
-              },
-              "owner": {
-                "$ref": "#/$defs/TeamId"
-              },
-              "created_by": {
-                "$ref": "#/$defs/UserId"
-              },
-              "provider": {
-                "$ref": "#/$defs/IntegrationProvider"
-              },
-              "account": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "key": {
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "key",
-                      "name"
-                    ],
-                    "additionalProperties": true
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "scopes_requested": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "scopes_granted": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "status": {
-                "$ref": "#/$defs/ConnectionStatus"
-              },
-              "status_detail": {
-                "type": "string"
-              },
-              "sharing": {
-                "type": "string",
-                "enum": [
-                  "private",
-                  "team"
-                ]
-              },
-              "resources": {
-                "type": "object",
-                "properties": {
-                  "repos": {
-                    "anyOf": [
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "repos"
-                ],
-                "additionalProperties": true
-              },
-              "created_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              }
-            },
-            "required": [
-              "id",
-              "owner",
-              "created_by",
-              "provider",
-              "account",
-              "scopes_requested",
-              "scopes_granted",
-              "status",
-              "sharing",
-              "created_at",
-              "updated_at"
-            ],
-            "additionalProperties": true
           }
         }
       }
@@ -56194,6 +59467,23 @@
               ]
             }
           },
+          "repo": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+            }
+          },
+          "return_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512,
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -56220,10 +59510,19 @@
                 }
               },
               "authorize_url": {
-                "required": true,
+                "required": false,
                 "type": {
                   "kind": "primitive",
                   "name": "string"
+                }
+              },
+              "connected": {
+                "required": false,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    true
+                  ]
                 }
               }
             }
@@ -56262,7 +59561,7 @@
         "expose": "never",
         "group": "integration"
       },
-      "docs": "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+      "docs": "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -56285,6 +59584,15 @@
               "private",
               "team"
             ]
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+          },
+          "return_to": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
           }
         },
         "required": [
@@ -56312,11 +59620,16 @@
           },
           "authorize_url": {
             "type": "string"
+          },
+          "connected": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
           }
         },
         "required": [
-          "connection",
-          "authorize_url"
+          "connection"
         ],
         "additionalProperties": true,
         "$defs": {

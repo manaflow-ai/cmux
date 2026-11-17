@@ -2,7 +2,7 @@ public import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
 
-/// The palette's git worktree and checkpoint actions (GitActionCatalog): each sends the session
+/// The palette's git worktree and checkpoint actions (cmux-action-catalog, catalog/git.rs): each sends the session
 /// host the operation its `cmux git` verb sends, in the folder of the invocation's tab, on that
 /// machine's ``AgentPaneGitLink``. The session host does the work and says why it refuses; this
 /// only names the folder, mints the idempotency key and reports the outcome. Worktree writes run

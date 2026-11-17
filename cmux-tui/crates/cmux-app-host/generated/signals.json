@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "signals": {
+    "agent.list": {
+      "docs": "The agents of the current session and their state (agent.list). The daemon pushes agent.changed when an agent's state changes, so the runtime never polls it.",
+      "scopes": [
+        "agent:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "$ref": "cmux:types/AgentSnapshot"
+        }
+      },
+      "read": {
+        "op": "agent.list"
+      },
+      "push": [
+        "agent.changed"
+      ],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 60
+    },
+    "github.pulls": {
+      "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
+      "scopes": [
+        "integration:github:read",
+        "net:api.github.com"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "author",
+                "review-requested",
+                "assignee"
+              ]
+            },
+            "description": "Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested."
+          },
+          "include": {
+            "enum": [
+              "open",
+              "open-and-merged"
+            ],
+            "description": "open (default) or open-and-merged (closed unmerged ones are left out)."
+          },
+          "updatedWithinHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "description": "Only pull requests created or updated in this many hours."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "At most this many per role (default 30)."
+          },
+          "login": {
+            "type": "string",
+            "maxLength": 39,
+            "description": "The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com)."
+          }
+        }
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "number",
+            "title",
+            "url",
+            "repo",
+            "draft",
+            "state",
+            "roles",
+            "author",
+            "updatedAt"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "number": {
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "repo": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "draft": {
+              "type": "boolean"
+            },
+            "state": {
+              "enum": [
+                "open",
+                "merged",
+                "closed"
+              ]
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "author",
+                  "review-requested",
+                  "assignee"
+                ]
+              },
+              "description": "Why it is in the list: review-requested means it waits for the person's review."
+            },
+            "author": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "read": {
+        "reader": "github.pulls",
+        "ops": [
+          {
+            "op": "integration.request",
+            "scope": "integration:github:read",
+            "docs": "GET /search/issues through the connected GitHub account, one search per role."
+          },
+          {
+            "op": "net.fetch",
+            "scope": "net:api.github.com",
+            "docs": "The public search API for params.login, when the integration refuses and a login is set."
+          }
+        ]
+      },
+      "push": [],
+      "pollFloorSeconds": 60,
+      "staleAfterSeconds": 300
+    },
+    "workspace.list": {
+      "docs": "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
+      "scopes": [
+        "workspace:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "enum": [
+              "session",
+              "personal"
+            ]
+          }
+        }
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "$ref": "cmux:types/WorkspaceSnapshot"
+        }
+      },
+      "read": {
+        "op": "workspace.list"
+      },
+      "push": [
+        "workspace.changed"
+      ],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 60
+    }
+  }
+}

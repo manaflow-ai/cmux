@@ -47,11 +47,13 @@
 }
 
 .ve-title {
+  /* An empty state's title is the page heading step (design-tokens.md section 2: title 20/22 for
+     onboarding and empty states), not the 15 px card title. */
   margin: 0 0 var(--ds-space-1);
-  font-size: var(--text-title);
+  font-size: var(--text-heading);
   font-weight: var(--weight-emphasis);
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+  line-height: var(--text-heading--line-height);
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .ve-subtitle {
@@ -68,55 +70,63 @@
 }
 
 .ve-button {
+  /* The shared button (ui/controls.css, .ui-btn): the control scale's heights (28, and 32 for the
+     large one), the radius steps, the quiet fill at rest, one step on hover and one more while
+     held, 0.4 when disabled, and the page's one focus ring (desktop.css). It was a third button
+     system here: 26 and 30 px, an outlined opaque fill, its own 2 px ring and 0.5 disabled. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
+  height: var(--ds-control-row);
   padding: 0 var(--ds-space-3);
-  border: 1px solid var(--ve-line);
-  border-radius: var(--ds-radius-control);
-  background: var(--ve-surface);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-hover);
   color: var(--ve-fg);
   font: inherit;
-  font-size: var(--text-detail);
+  font-size: var(--text-control);
   font-weight: var(--weight-regular);
   white-space: nowrap;
   cursor: default;
 }
 
 .ve-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ve-fg) 6%, var(--ve-surface));
+  background: var(--ds-color-pressed);
 }
 
-.ve-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ve-fg) 32%, transparent);
-  outline-offset: 1px;
+.ve-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ve-fg) 6%, var(--ds-color-pressed));
 }
 
 .ve-button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .ve-button-primary {
-  border-color: transparent;
   background: var(--ve-fg);
   color: var(--ve-surface);
+  font-weight: var(--weight-emphasis);
 }
 
-.ve-button-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ve-fg) 86%, var(--ve-surface));
+.ve-button-primary:hover:not(:disabled),
+.ve-button-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ve-fg) 88%, var(--ve-surface));
 }
 
 .ve-button-large {
-  height: 30px;
+  height: var(--ds-control-primary);
   padding: 0 var(--ds-space-4);
-  font-size: var(--text-body);
+  border-radius: var(--ds-radius-lg);
 }
 
 .ve-button-quiet {
-  border-color: transparent;
   background: transparent;
   color: var(--ve-fg-2);
+}
+
+.ve-button-quiet:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+  color: var(--ve-fg);
 }
 
 .ve-section-title {
@@ -411,7 +421,7 @@
   -webkit-user-select: text;
 }
 
-.ve-picker-field:focus {
+.ve-picker-field:focus-visible {
   border-color: color-mix(in srgb, var(--ve-fg) 30%, transparent);
 }
 

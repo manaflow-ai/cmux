@@ -13,7 +13,7 @@ struct ScreenDividers {
     /// catcher panel's event, every presentation pass including strip and
     /// row scrolls, key-window changes). The topmost visible handle under the
     /// pointer is hovered; every other one is not.
-    /// The same handle shows the resize cursor (`ScreenDividerPointer`): a screen that hid, faded out or slid away from
+    /// The same handle shows the resize cursor (`ScreenDividerPointer`): a screen that hid under
     /// the pointer gives the cursor back here too. `event` is the pointer event that asked.
     func refreshHover(event: NSEvent? = nil) {
         let pointer = screen.window.flatMap { screen.context.hoverPointer($0) }
@@ -25,7 +25,7 @@ struct ScreenDividers {
     private func hoveredHandle(pointer: NSPoint?) -> DividerHandleView? {
         // During a drag only the dragged handle shows (its line is the drag's).
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
-        guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor, screen.alphaValue > 0.01,
+        guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
               let pointer, case let point = screen.convert(pointer, from: nil),
               screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {

@@ -220,3 +220,11 @@
 /* `banner`: the title and the buttons on one line, the body under it. */
 .acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }
+/* "This team has no Cloud plan" (CloudStartView PlanTeamRefusal): the title, the team picked in the
+   team menu, and the way on. A final state: no spinner, no Retry. */
+.acpmux-cloud-plan-team { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.acpmux-cloud-plan-team__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--agent-danger, currentColor); }
+.acpmux-cloud-plan-team__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acpmux-cloud-plan-team__team { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acpmux-cloud-plan-team[data-look="banner"] .acpmux-cloud-plan-team__actions { margin-top: 0; margin-left: auto; }
+.acpmux-cloud-plan-team[data-look="card"] { margin-top: 8px; }

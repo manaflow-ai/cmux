@@ -32,6 +32,51 @@ extension SidebarListViewComponents {
         return (layout, .workspace(ws.id), o)
     }
 
+    /// The layout with the model's last set's one closed row taken out (a move's row put back at its new place), the
+    /// row's key, whether it moved, and the options it was laid out with; the list's row caches take the change. Nil
+    /// (nothing changed) on the same terms as `spliceInsertion`: any other change, or any doubt, lays out in full.
+    func spliceRemoval() -> (layout: SidebarLayout, row: SidebarRowKey, moved: Bool, options: SidebarLayoutOptions)? {
+        guard let removal = model.rowRemoval, removal.to == model.sectionsRevision, removal.content == model.contentRevision,
+              let base = spliceBase, base.revision == removal.from, drag == nil, settling == nil, landing == nil, external == nil,
+              rowHold.isEmpty, leaving.isEmpty else { return nil }
+        let id = removal.workspace.id
+        // The section the list drew is the removal's with the row at its node (one compare per node, no layout).
+        guard workspaces[id] != nil, let shown = sections[removal.section.id], removal.node < shown.nodes.count,
+              case let .workspace(listed) = shown.nodes[removal.node], listed.id == id else { return nil }
+        var after = shown
+        after.nodes.remove(at: removal.node)
+        guard after == removal.section else { return nil }
+        // A move's target section, as the list would draw it before the row comes back.
+        var target: SidebarSection?
+        if let insertion = removal.insertion {
+            guard insertion.workspace?.id == id,
+                  let drawn = insertion.section.id == removal.section.id ? Optional(removal.section) : sections[insertion.section.id] else { return nil }
+            var before = insertion.section
+            before.nodes.remove(at: insertion.node)
+            guard before == drawn else { return nil }
+            target = insertion.section
+        }
+        let o = options(includeGap: true)
+        // The selection leaves a closed row for another (`dropClosed`): it must move no row, both ways.
+        var (now, then) = (o, base.options)
+        (now.activeWorkspaceID, then.activeWorkspaceID) = (nil, nil)
+        guard now == then, keepsRows(selecting: base.options.activeWorkspaceID, inserted: id, o),
+              keepsRows(selecting: o.activeWorkspaceID, inserted: id, o) else { return nil }
+        var layout = displayed
+        guard layout.removeLoose(removal, metrics: metrics, options: o) else { return nil }
+        if let insertion = removal.insertion {
+            guard layout.insertLoose(insertion, metrics: metrics, options: o) else { return nil }
+        }
+        sections[removal.section.id] = removal.section
+        if let target, let insertion = removal.insertion {
+            sections[target.id] = target
+            workspaces[id] = insertion.workspace
+        } else {
+            workspaces[id] = nil
+        }
+        return (layout, .workspace(id), removal.insertion != nil, o)
+    }
+
     /// Whether selecting workspace `id` (or leaving it) moves no row: it is the inserted row, not listed here, or a
     /// drawn row that no fold, no collapsed group and no Archive keeps for the selection.
     private func keepsRows(selecting id: WorkspaceID?, inserted: WorkspaceID, _ o: SidebarLayoutOptions) -> Bool {

@@ -68,6 +68,16 @@ enum Command {
         #[serde(default)]
         args: Value,
     },
+    /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
+    /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
+    /// launch ops from the verified app connection only).
+    #[serde(rename = "apps-safe-mode")]
+    SafeMode {
+        op: String,
+        #[serde(default)]
+        args: Value,
+    },
     #[serde(rename = "apps-mount")]
     Mount {
         app: String,
@@ -343,6 +353,21 @@ pub(super) fn try_handle(
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
+    // Only the app itself reports its launches: an agent cannot fake a
+    // crash loop, nor settle one away.
+    if let Command::SafeMode { op, .. } = &request.command
+        && op.contains("launch_")
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection reports its launches",
+            )),
+        ));
+    }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
     if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
@@ -402,6 +427,7 @@ pub(super) fn try_handle(
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
+        Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
             supervisor.mount(client, &mount_id, &app, &interface, context)
         }
@@ -534,6 +560,31 @@ mod tests {
         verify(&mux, agent_app);
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
+        }
+    }
+
+    /// Safe mode on the wire: leaving needs origin user, which only the
+    /// verified app may claim; launches come from the verified app only.
+    #[test]
+    fn safe_mode_leaving_and_launch_reports_need_the_verified_app() {
+        let mux = Mux::new_for_test("apps-safe-mode-gate", SurfaceOptions::default());
+        let leave = || json!({"id": 1, "cmd": "apps-safe-mode", "origin": "user", "op": "safe_mode.set", "args": {"on": false}});
+        let began = |origin: &str| json!({"id": 2, "cmd": "apps-safe-mode", "origin": origin, "op": "safe_mode.launch_began"});
+        let settled = || json!({"id": 3, "cmd": "apps-safe-mode", "op": "safe_mode.launch_settled", "args": {"reason": "quit"}});
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        assert_eq!(error_code(&mux, cli, &cli_out, leave()).as_deref(), NOT_VERIFIED);
+        assert_eq!(error_code(&mux, cli, &cli_out, began("cli")).as_deref(), FORBIDDEN);
+        assert_eq!(error_code(&mux, cli, &cli_out, settled()).as_deref(), FORBIDDEN);
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert_eq!(error_code(&mux, agent_app, &agent_out, began("cli")).as_deref(), FORBIDDEN);
+        // The verified app passes the gates (then the supervisor, or
+        // apps.unavailable in a daemon without an app host).
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        for request in [leave(), began("user"), settled()] {
+            let code = error_code(&mux, app, &app_out, request);
+            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
         }
     }
 

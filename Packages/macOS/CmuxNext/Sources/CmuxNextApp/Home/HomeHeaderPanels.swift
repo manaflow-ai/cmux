@@ -1,7 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextHome
-import CmuxNextHomeEngine
 import CmuxNextHomeModel
 
 /// The panels the Home transcript header's top-right toggles open and close beside Home, like
@@ -45,8 +44,6 @@ struct HomeHeaderPanelContext {
     /// The Chief's routing (``ChiefInspectorHandlers/route(_:)``): a named local Chief, or a paired server's.
     let chief: String?
     let server: String?
-    /// The conversation this Home shows.
-    var conversation: String?
 }
 
 @MainActor

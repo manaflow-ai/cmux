@@ -216,3 +216,8 @@ test("a subagent view's reply resolves from the view's rows, without Fork or a p
   expect(target?.rowId).toBeUndefined();
   expect(target?.sessionId).toBe("chat-a");
 });
+
+test("a subagent view's prompt keeps its Markdown source for Copy and Edit and Resend", () => {
+  const sent: AcpmuxRow = { id: "helper:prompt", version: 1, at: 5, kind: "user", text: "Check **every** item" };
+  expect(messageMenuTarget(snapshot, sent.id, false, [sent])?.text).toBe("Check **every** item");
+});

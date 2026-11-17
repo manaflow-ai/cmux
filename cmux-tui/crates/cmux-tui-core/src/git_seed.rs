@@ -55,11 +55,44 @@ pub const GIT_SEED_EXPORT_COMMANDS: [&str; 1] = ["git.seed.export"];
 /// The capability that carries the `git.seed.hold*` ops ([`hold`]): the machine holds a folder's
 /// sync barrier for a copy this Mac streams in, so its chat may open at the copy's head. Its own
 /// capability for the same reason as [`GIT_SEED_EXPORT_CAPABILITY`]: a Mac asks for it first.
-pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v1";
+/// v2: an `fs.*` op that names its hold (`"hold": JOB`) lands only while the hold runs
+/// ([`GitSeedService::under_hold`]); a v1 machine applied a copy's write after its lease ran out.
+/// A store fetch (`blob.fetch.start`) names no hold: the Mac checks its hold before it starts
+/// one, and the next push's store fence cancels one still writing.
+pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v2";
 
-/// The ops of `git-seed-hold-v1`, exactly (its jobs are read with `git.seed.status`).
+/// The ops of `git-seed-hold-v2`, exactly (its jobs are read with `git.seed.status`).
 pub const GIT_SEED_HOLD_COMMANDS: [&str; 3] =
     ["git.seed.hold", "git.seed.hold.head", "git.seed.hold.end"];
+
+/// Whether a chat's `subpath` can name a head literally (`params::HeadFirst`): a hold or a
+/// head-first seed with another subpath is refused, so the Mac copies such a folder plainly.
+pub fn head_subpath_is_literal(subpath: &str) -> bool {
+    params::HeadFirst::of(Some(subpath)).is_some()
+}
+
+/// An `fs.*` request's answer, `call` run on it: a held copy's op (`"hold": JOB`,
+/// `git-seed-hold-v2`) runs only while its hold does ([`GitSeedService::under_hold`]), so one
+/// sent before the hold's lease ran out and read after lands nowhere and answers
+/// `seed.unknown_job`. Any other op runs as it is.
+pub fn held_op(
+    seeds: Option<&GitSeedService>,
+    id: &Value,
+    mut request: serde_json::Map<String, Value>,
+    call: impl FnOnce(serde_json::Map<String, Value>) -> Result<Value, crate::fs_ops::FsError>,
+) -> Value {
+    use crate::fs_ops::{FsError, stream};
+    let Some(hold) = request.remove("hold") else { return stream::answer(id, call(request)) };
+    let (Some(job), Some(seeds)) = (hold.as_str(), seeds) else {
+        return stream::answer(id, Err(FsError::ParamsInvalid("no such hold".into())));
+    };
+    match seeds.under_hold(job, || call(request)) {
+        Ok(answer) => stream::answer(id, answer),
+        Err(refused) => json!({
+            "id": id, "ok": false, "error": refused.message, "error_code": refused.code,
+        }),
+    }
+}
 
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 

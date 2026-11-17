@@ -301,7 +301,7 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             secrets.insert(account.clone(), json!(mark));
             write_index(&path, secrets)
                 .map_err(|e| fail(format!("stored, but the index was not written: {e}")))?;
-            json!({"stored": account, "next": "cmux cloud deliver-secrets --target machine:<id>"})
+            json!({"stored": account, "next": "cmux vm deliver-secrets --target vm:<id>"})
         }
         Command::Rm { account } => {
             let (path, _lock, mut secrets) = load_index()?;

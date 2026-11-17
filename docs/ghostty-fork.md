@@ -12,6 +12,43 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### The embedder hears each frame the layer shows (ghostty-next)
+
+- Release branch `release/cmux-gi-present-cb-1` at `a0e665d4f` (red tests `3e874ce8c` and `6ef7ba722`), on
+  `b3a5ebfdf`. The pin is `c370b103a` on `release/cmux-gi-land-1`: the merge of `a0e665d4f` and `a0975fd8c` (the
+  section below), with no conflict. ghostty-integration step 3 (P23).
+- What: `ghostty_surface_set_present_callback(surface, cb, userdata)`. Each time a frame becomes the IOSurface layer's
+  contents (off main after the GPU thread's own transaction commits; on main for a new size, the first frame, a display
+  pass or an embedder present), `cb` gets `ghostty_surface_present_s`: the frame's pixel size, the reason
+  (`GHOSTTY_PRESENT_CONTENT` at the shown size, `GHOSTTY_PRESENT_RESIZE` for another size or the first frame), the
+  renderer's present sequence and `mach_absolute_time()`. Dropped and superseded frames are not reported. The layer
+  reads the callback under the CA lock and calls it after the unlock, so the callback may take its own locks.
+  `setSurfaceSync` now always takes the CA lock. The renderer's `prepareDeinit` removes the callback, so no frame is
+  reported after `ghostty_surface_free` returns (the embedder may free the userdata then). cmux's
+  `setContents:` swizzle (`TypingFrameProbe`) is deleted.
+- Conflict notes: `include/ghostty.h` (after `ghostty_surface_host_frame_committed`), `src/apprt/structs.zig`
+  (`PresentReason`, `Present`, `PresentCallback`), `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig` (every contents setter, `presentReportLocked`).
+
+### Upstream scroll and resize fixes picked onto the pin (ghostty-next, GI PIN SYNC)
+
+- Release branch `release/cmux-gi-pin-sync-2` at `a0975fd8c`, on `b3a5ebfdf`: first `9ae6954e2`, the upstream tests of
+  the three resize fixes without their fixes (red), then `cherry-pick -x` of upstream ghostty-org/ghostty `5ce2325ec`,
+  `1b8b3f55b`, `321a32a42`, `96d379822` and `15a443234`. All five picked with no conflict. The test parts of the three
+  resize fixes fold into `9ae6954e2` (same bytes as upstream). The `endUpdate` fixes are byte-equal to upstream.
+- What: `src/terminal/render.zig` `RenderState.endUpdate` looks up a row's styles once per segment and walks the
+  pending runs as a shrinking slice (less work per row on every scroll frame). `src/terminal/PageList.zig` and
+  `Screen.zig`: a resize that grows rows and shrinks columns keeps the scrollback it pulled down; a shrink with no
+  scrollback clears the cursor pin's garbage flag (a Kitty image at the cursor drew nothing); the no-reflow column
+  backfill remaps tracked pins when it stops early (a viewport pin was left on a freed page). No C API change.
+- Why: plans/cmux-next/ghostty-integration.md step 2 (Lawrence m91).
+- Not done here, on purpose: the full merge of upstream main. Upstream's libghostty-vt ABI freeze after the base
+  (`657e82d1a`, `796f09a6f`, `12206bfb8`, `0b7f9c156`) replaces the formatter options struct with
+  `ghostty_formatter_set/get` and renames 28 symbols that `cmux-tui/crates/ghostty-vt` calls (formatter, cursor
+  style, Kitty image data, scroll viewport, encoder setopt). A merge with its conflicts resolved (not compiled) is
+  `17b8ed38b` on `release/cmux-gi-pin-sync-1`; it needs the cmux-tui binding migration in the same pin PR.
+- Conflict notes: the next upstream merge brings all five commits; they fold away (equal content).
+
 ### One pin for the RESIZE hold and the upstream picks (ghostty-next)
 
 - Release branch `release/cmux-538a3e2e-resize-p0-22` at `b3a5ebfdf`: a `--no-ff` merge of

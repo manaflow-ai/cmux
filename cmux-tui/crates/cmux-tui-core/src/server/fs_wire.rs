@@ -157,7 +157,9 @@ pub(super) fn answer_line(
             Err(FsError::ParamsInvalid("a byte stream needs a link dial of its own".into())),
         );
     }
-    stream::answer(&id, service.call(owner, cmd, Value::Object(request)))
+    crate::git_seed::held_op(crate::git_seed::installed(), &id, request, |request| {
+        service.call(owner, cmd, Value::Object(request))
+    })
 }
 
 /// How long a remote dial may take to send its whole first line.

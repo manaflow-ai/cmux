@@ -349,7 +349,7 @@ pub(super) fn restore_layout_node(
         RegistryLayoutNode::Leaf { pane } => Node::Leaf(
             *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
         ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, divider_hidden } => {
             anyhow::ensure!(!splits.contains_key(split), "split {split} appears more than once");
             let id = allocate()?;
             splits.insert(split.clone(), id);
@@ -364,6 +364,7 @@ pub(super) fn restore_layout_node(
                 ratio: *ratio,
                 a: Box::new(restore_layout_node(first, panes, splits, allocate)?),
                 b: Box::new(restore_layout_node(second, panes, splits, allocate)?),
+                divider_hidden: *divider_hidden,
             }
         }
         RegistryLayoutNode::Stack { panes: members, expanded } => {
@@ -394,7 +395,7 @@ pub(super) fn restore_layout_node_from_known_splits(
         RegistryLayoutNode::Leaf { pane } => Node::Leaf(
             *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
         ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, divider_hidden } => {
             let id = *splits
                 .get(split)
                 .ok_or_else(|| anyhow::anyhow!("layout has unknown split {split}"))?;
@@ -409,6 +410,7 @@ pub(super) fn restore_layout_node_from_known_splits(
                 ratio: *ratio,
                 a: Box::new(restore_layout_node_from_known_splits(first, panes, splits)?),
                 b: Box::new(restore_layout_node_from_known_splits(second, panes, splits)?),
+                divider_hidden: *divider_hidden,
             }
         }
         RegistryLayoutNode::Stack { panes: members, expanded } => {

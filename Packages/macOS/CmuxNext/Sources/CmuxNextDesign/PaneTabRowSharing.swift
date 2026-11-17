@@ -116,7 +116,15 @@ extension NSView {
     public func setTabRowCover(_ points: CGFloat) {
         let guide = tabRowCover
         let height = constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }
-        if height?.constant != max(0, points) { height?.constant = max(0, points) }
+        guard let height, height.constant != max(0, points) else { return }
+        height.constant = max(0, points)
+        needsLayout = true // what lies under the row follows it (a chat's ground, AgentPaneGround)
+    }
+
+    /// ``tabRowCover``'s height now, in points: 0 while the view does not share its pane's row (no guide is made).
+    public var tabRowCoverHeight: CGFloat {
+        guard let guide = layoutGuides.first(where: { $0.identifier == Self.tabRowCoverID }) else { return 0 }
+        return constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }?.constant ?? 0
     }
 
     private static let tabRowCoverID = NSUserInterfaceItemIdentifier("cmux.tabRowCover")

@@ -184,7 +184,61 @@ fn each_verb_carries_its_arguments() {
             "42"
         ]
     );
-    assert_eq!(agent_move_flags(None, false, None, None), ["--interrupt"]);
+    assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
+    let relay =
+        call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
+        "sync": {"pull": true, "socket": "/old", "local": "/l", "remote": "/r1"},
+        "thenSync": {"pull": false, "socket": "/new", "local": "/l", "remote": "/r2"}}));
+    assert_eq!(
+        relay.args[11..],
+        [
+            "--interrupt",
+            "--sync",
+            "pull",
+            "--sync-socket",
+            "/old",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r1",
+            "--sync",
+            "seed",
+            "--sync-socket",
+            "/new",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r2",
+        ]
+    );
+    // Move to another Cloud machine: the frozen copy is a relay between the two machines.
+    let relayed = call(
+        json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
+        "cwd": "/home/cmux/work/app",
+        "sync": {"pull": false, "socket": "/two.sock", "local": "/home/cmux/work/app", "remote": "/home/cmux/work/app",
+                 "fromSocket": "/one.sock", "seedLocal": "/Users/me/app"}, "vmKind": "owner"}),
+    );
+    assert_eq!(
+        relayed.args[11..],
+        [
+            "--interrupt",
+            "--sync",
+            "relay",
+            "--sync-from-socket",
+            "/one.sock",
+            "--sync-socket",
+            "/two.sock",
+            "--sync-local",
+            "/home/cmux/work/app",
+            "--sync-remote",
+            "/home/cmux/work/app",
+            "--sync-seed-local",
+            "/Users/me/app",
+            "--vm-kind",
+            "owner"
+        ]
+    );
     let update =
         call(json!({"verb": "machine-update", "socket": "/s", "toBundled": true, "ifOlder": true}));
     assert_eq!(
@@ -231,6 +285,23 @@ fn each_verb_carries_its_arguments() {
         pin.args,
         ["link", "start-chat", "pin", "--key", "k", "--account", "a", "--machine", "m"]
     );
+    // The ledger verbs are a locked file change on this Mac: a minute, never the 30 of a copy.
+    assert_eq!(pin.timeout_seconds, Some(START_CHAT_LEDGER_TIMEOUT_SECONDS));
+    for ledger in [
+        json!({"verb": "start-chat-create-begin", "key": "k", "account": "a", "name": "n", "createKey": "c"}),
+        json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"}),
+        json!({"verb": "start-chat-create-refused", "key": "k", "account": "a", "createKey": "c"}),
+        json!({"verb": "start-chat-target-pane", "key": "k", "account": "a", "machine": "m", "pane": "p"}),
+        json!({"verb": "start-chat-import", "entries": "[]"}),
+    ] {
+        assert_eq!(
+            call(ledger.clone()).timeout_seconds,
+            Some(START_CHAT_LEDGER_TIMEOUT_SECONDS),
+            "{ledger}"
+        );
+    }
+    // A plan reaches the platform and a copy moves the folder: they keep the default.
+    assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(
         call(json!({"verb": "bring-back-pull", "socket": "/s", "local": "/l", "remote": "/r"}))
             .args

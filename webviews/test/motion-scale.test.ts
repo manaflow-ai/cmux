@@ -41,7 +41,12 @@ describe("motion scale", () => {
     const points = SCALE.spring.points;
     expect(points[0]).toEqual([0, 0]);
     expect(points.at(-1)).toEqual([1, 100]);
-    // Visibly settled (within 1% of rest) from 58% of its run on: about 140 ms of the 240 ms step.
+    // It only rises, and never past its end (Lawrence: no bounce in any motion).
+    for (const [index, [value]] of points.entries()) {
+      expect(value).toBeLessThanOrEqual(1);
+      expect(value).toBeGreaterThanOrEqual(points[Math.max(0, index - 1)]![0]);
+    }
+    // Within 1% of its end from 55% of its run on: about 130 ms of the 240 ms step.
     const settled = points.filter(([value]) => Math.abs(value - 1) > 0.01).at(-1)![1];
     expect((settled / 100) * MOTION_MS[MOTION_SPRING_STEP]).toBeLessThanOrEqual(MOTION_MS.large);
     expect(MOTION_SPRING).toMatch(/^linear\(0, .* 1\)$/);

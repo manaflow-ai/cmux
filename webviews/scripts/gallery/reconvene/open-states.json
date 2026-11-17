@@ -1,0 +1,72 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "open-states-now",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-now-cold",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "now-cold",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-hold-frame",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "hold-frame",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-hold-frame-cold",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "hold-frame-cold",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-edge-progress",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "edge-progress",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-edge-progress-cold",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "edge-progress-cold",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-delayed-note",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "delayed-note",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "open-states-delayed-note-cold",
+      "entry": "agent-pane.reconvene-open-states",
+      "variant": "delayed-note-cold",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

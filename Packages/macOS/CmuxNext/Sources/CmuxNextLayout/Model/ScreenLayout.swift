@@ -192,12 +192,15 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var layout: ScreenLayout
     /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
     public var zoomed: Bool
+    /// Splits whose divider draws no line (Hide Divider); they still drag and still have their menu.
+    public var hiddenDividers: Set<SplitID>
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false) {
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false, hiddenDividers: Set<SplitID> = []) {
         self.id = id
         self.name = name
         self.layout = layout
         self.zoomed = zoomed
+        self.hiddenDividers = hiddenDividers
     }
 
     /// Every screen is a column strip: a screen stored as one split tree is

@@ -14,8 +14,9 @@
 //   the placeholder out of the text (into the strip at the top), and the read picture then went in
 //   at the caret, between the words typed meanwhile;
 // - a screenshot dropped between words: it loads in its node, the words around it whole;
-// - a screenshot pasted where no attachment can go (a code block): it loads where it shows, in the
-//   strip, and is never put in at the caret the person moved on to.
+// - a screenshot pasted where no attachment can go (a code block): it loads at the start of the
+//   prompt's first line that can hold it, never in the strip and never at the caret the person moved
+//   on to.
 //
 // The page is the pane's dev entry with the in-page mock daemon. Real Chromium from Playwright; CI
 // fails the file when it cannot launch (requireBrowserLane).
@@ -358,10 +359,12 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await page.close();
   });
 
-  test("a screenshot that loads in the strip stays there, never put in at the caret the person moved to", async () => {
+  test("a screenshot pasted in a code block loads at the prompt's first line, never in the strip or at the caret the person moved to", async () => {
     const page = await openPane();
     await select(page, "mock-session");
-    // A code block takes no attachment: the paste's placeholder shows in the strip.
+    // A code block takes no attachment: the paste's placeholder goes at the start of the prompt's
+    // first line that can hold it (Leo, 2026-11-09: "we have inline stuff, so why is this not
+    // inline?"), the strip above the text never.
     await page.evaluate((prompt) => {
       const field = document
         .querySelector(prompt)!
@@ -373,7 +376,7 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await page.evaluate(() => ((window as ProbeWindow).__holdReads = true));
     await startFrames(page);
     await attachShot(page, "paste");
-    // The person moves on to the line after the block and types while it loads.
+    // The person moves on to the end of the line after the block and types while it loads.
     await page.locator(`${PROMPT} p`).last().click();
     await page.keyboard.press("End");
     await page.keyboard.type(" hello world", { delay: 20 });
@@ -381,15 +384,8 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await page.keyboard.type(" end", { delay: 20 });
     await page.evaluate(() => window.cmuxPaintFrame());
     const frames = await stopFrames(page);
-    expect(await promptText(page)).toBe("npm testafter hello world end");
-    const drawn = frames.filter((frame) => frame.nodes.length || frame.strip.length);
-    expect(drawn.length).toBeGreaterThan(0);
-    for (const frame of drawn) {
-      expect(frame.nodes).toEqual([]);
-      expect(frame.strip.length).toBe(1);
-      expect(frame.strip[0]!.x).toBeCloseTo(drawn[0]!.strip[0]!.x, 0);
-      expect(frame.strip[0]!.y).toBeCloseTo(drawn[0]!.strip[0]!.y, 0);
-    }
+    expect(await promptText(page)).toBe("npm test[ATT]after hello world end");
+    expectInPlace(frames);
     await page.close();
   });
 });

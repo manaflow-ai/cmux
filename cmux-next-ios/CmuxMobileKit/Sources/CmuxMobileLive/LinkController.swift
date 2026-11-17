@@ -143,7 +143,7 @@ public final class LinkController {
             log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
             ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
             guard let self, !Task.isCancelled else { return }
-            if case .waiting = self.phase { self.send(.foreground) }
+            self.send(.networkChanged)
         }
     }
 
@@ -235,7 +235,14 @@ public final class LinkController {
                     self.adopt(link, generation: generation)
                 } catch {
                     log.error("dial failed: \(String(describing: error), privacy: .public)")
-                    if "\(error)".contains("401") { self?.refreshTokenNextDial = true }
+                    if Self.sessionRevoked(error, afterRefresh: forceRefresh) {
+                        // A fresh token was refused too: the account's session is
+                        // gone, and no redial can fix that (matrix cell
+                        // pairing_revoked_token).
+                        self?.send(.signedOut(generation: generation))
+                        return
+                    }
+                    if Self.authRefused(error) { self?.refreshTokenNextDial = true }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -363,6 +370,22 @@ public final class LinkController {
         }
     }
 
+    /// Whether `error` says the account's session was revoked: the cmux
+    /// service answered 401 to a token minted fresh for this dial (an expired
+    /// token is refused once, then refreshed; only a refused refresh is final).
+    nonisolated static func sessionRevoked(_ error: any Error, afterRefresh: Bool) -> Bool {
+        afterRefresh && authRefused(error)
+    }
+
+    /// Whether the cmux service refused the access token (a 401): minting it
+    /// (`LiveAPI.Failure`), or the dial's signaling upgrade, which the Rust
+    /// link reports as code `unauthorized`.
+    nonisolated static func authRefused(_ error: any Error) -> Bool {
+        if let failure = error as? LiveAPI.Failure { return failure.status == 401 }
+        if let error = error as? LinkError { return error.code == LinkError.unauthorized }
+        return false
+    }
+
     /// A short, display-safe reason for a dial or link error.
     nonisolated static func reason(_ error: any Error) -> String {
         if let error = error as? LinkError {
@@ -370,6 +393,7 @@ public final class LinkController {
             case "timeout": return "the Mac didn't answer in time"
             case "not_admitted": return "the Mac refused this phone"
             case "offline": return "the Mac is offline"
+            case LinkError.unauthorized: return "the cmux service refused the request"
             default:
                 let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
                 return message.isEmpty ? error.code : String(message.prefix(80))

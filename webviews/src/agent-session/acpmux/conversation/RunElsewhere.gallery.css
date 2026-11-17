@@ -1,0 +1,7 @@
+/* The chip's alternative looks (RunElsewhere.gallery.tsx); `text` is conversation.css's own. */
+.cv-run-elsewhere-looks[data-look="icon"] .cv-run-elsewhere-chip__label {
+  display: none;
+}
+.cv-run-elsewhere-looks[data-look="accent"] .cv-run-elsewhere-chip {
+  color: var(--agent-accent);
+}

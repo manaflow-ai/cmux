@@ -281,7 +281,13 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// desktop (`cloud_computer`, refused while the person has taken over). Like
 /// the `acpmux_*` tools they are not in `approval::turn_allowed_tools`, so an
 /// ask turn refuses them.
-pub const CHIEF_CMUX_TOOLS: [&str; 29] = [
+///
+/// The `workspace_*` and `workspace_group_*` tools are the Direct lifetime
+/// (action_lifetime.rs, Leo 2026-11-10: "when I tell it to organize my
+/// workspace versus groups, you don't need to make a workspace for that"):
+/// the Chief lists, renames, moves and groups the person's workspaces in its
+/// own turn instead of spawning a helper.
+pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -311,6 +317,13 @@ pub const CHIEF_CMUX_TOOLS: [&str; 29] = [
     "cloud_chat_status",
     "cloud_computer",
     "cloud_computer_control",
+    "workspace_list",
+    "workspace_rename",
+    "workspace_move",
+    "workspace_place",
+    "workspace_group_list",
+    "workspace_group_create",
+    "workspace_group_update",
 ];
 
 /// The turn presets' env that keeps `cmux` and its folded `acpmux` server

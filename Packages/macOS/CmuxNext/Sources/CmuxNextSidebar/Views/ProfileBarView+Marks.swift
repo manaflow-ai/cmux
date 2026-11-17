@@ -40,7 +40,7 @@ extension ProfileBarView {
             return
         }
         if let icon = profile.icon,
-           let image = NSImage(systemSymbolName: icon, accessibilityDescription: profile.name)?.withSymbolConfiguration(
+           let image = NSImage.systemSymbol(icon, fallback: nil, accessibilityDescription: profile.name)?.withSymbolConfiguration(
             // One weight for every state: a selection change never resizes a mark.
             NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular)
            ) {

@@ -181,6 +181,7 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(() => {
       const sideChats: unknown[] = [];
+      const gestures: unknown[] = [];
       const handlers: Record<string, unknown> = {};
       let host: { postMessage(message: unknown): Promise<unknown> } | undefined;
       Object.defineProperty(handlers, "cmuxPage", {
@@ -191,6 +192,11 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
             postMessage(message: { t?: string; id?: number; op?: string; params?: unknown }) {
               if (message?.t === "call" && message.op === "cmux.agent.pane.tabState")
                 return Promise.resolve({ t: "ok", id: message.id, value: { version: 1 } });
+              // The person's Enter, as the app reserves it for one prompt (AgentPaneUserGestures).
+              if (message?.t === "call" && message.op === "cmux.agent.transport.gesture") {
+                gestures.push(message.params);
+                return Promise.resolve({ t: "ok", id: message.id, value: { ticket: `ticket-${gestures.length}` } });
+              }
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
                 return Promise.resolve({ t: "ok", id: message.id, value: null });
@@ -202,7 +208,7 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
           host = value;
         },
       });
-      Object.assign(window, { sideChats, webkit: { messageHandlers: handlers } });
+      Object.assign(window, { sideChats, gestures, webkit: { messageHandlers: handlers } });
     });
     await page.goto(url(session));
     await page.locator(".acpmux-composer-prompt").waitFor();
@@ -278,6 +284,97 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       } finally {
         refuseFork = false;
       }
+    });
+
+    // https://github.com/manaflow-ai/cmux/issues/40066: a screenshot pasted with `/side <prompt>`
+    // goes to the side chat with the prompt; the composer used to refuse the send without a word.
+    test("/side <prompt> with a pasted image sends the image to the side chat", async () => {
+      const page = await openChat(MAIN);
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type(`/side ${PROMPT} `);
+      await page.evaluate(async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64;
+        canvas.height = 48;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#e33";
+        context.fillRect(0, 0, 64, 48);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+      const chip = page.locator(".acpmux-composer img[alt*='Screenshot']");
+      await chip.first().waitFor();
+      await page.keyboard.press("Enter");
+      // Before the fix the composer refused the send without a word: no prompt ever came.
+      await firstPrompt();
+      expect(prompts.map((prompt) => prompt.sessionId)).toEqual([FORK]);
+      const blocks = prompts[0]?.prompt as { type: string; text?: string; mimeType?: string; data?: string }[];
+      expect(blocks.some((block) => block.type === "text" && block.text?.includes(PROMPT))).toBe(true);
+      const image = blocks.find((block) => block.type === "image");
+      expect(image?.mimeType).toBe("image/png");
+      expect((image?.data ?? "").length).toBeGreaterThan(0);
+      expect(cancels).toEqual([]);
+      // The image went with the prompt: the composer is empty, the chip gone.
+      expect(await composerText(page)).toBe("");
+      await page.waitForFunction(() => !document.querySelector(".acpmux-composer img[alt*='Screenshot']"));
+      await page.close();
+    });
+
+    // Return pressed while the pasted screenshot is still being read: the composer holds `/side`
+    // and binds the Enter now, to no chat (the side chat does not exist yet), so the side chat's
+    // prompt redeems it. One bound to the chat open now was refused as `gesture_required` and the
+    // image was lost (review of #40066).
+    test("/side held for a screenshot still being read sends it under the Enter it bound", async () => {
+      const page = await openChat(MAIN);
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type(`/side ${PROMPT} `);
+      // A big screenshot: its read outlasts the Return pressed once its tile shows loading.
+      await page.evaluate(async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 5120;
+        canvas.height = 2880;
+        const context = canvas.getContext("2d")!;
+        const noise = context.createImageData(canvas.width, canvas.height);
+        for (let i = 0; i < noise.data.length; i++) noise.data[i] = (i * 2654435761) >>> 24;
+        context.putImageData(noise, 0, 0);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Big screenshot.png", { type: "image/png" }));
+        const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
+        const loading = new Promise<void>((resolve) => {
+          const seen = () =>
+            document.querySelector(".acpmux-attachment[aria-busy='true'], .acpmux-md-inline-chip[aria-busy='true']");
+          const observer = new MutationObserver(() => {
+            if (seen()) {
+              observer.disconnect();
+              resolve();
+            }
+          });
+          observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+        });
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        await loading;
+      });
+      await page.keyboard.press("Enter");
+      await firstPrompt();
+      const gestures = await page.evaluate(
+        () => (window as unknown as { gestures: { intent: { params: Record<string, unknown> } }[] }).gestures,
+      );
+      // One reservation, for a prompt bound to no chat.
+      expect(gestures).toHaveLength(1);
+      expect(gestures[0]?.intent.params.sessionId).toBeUndefined();
+      expect(prompts.map((prompt) => prompt.sessionId)).toEqual([FORK]);
+      expect(prompts[0]?._meta?.cmuxGesture).toBe("ticket-1");
+      expect(prompts[0]?._meta?.acpmux?.promptId).toBe(gestures[0]?.intent.params.promptId);
+      const blocks = prompts[0]?.prompt as { type: string; text?: string }[];
+      expect(blocks.some((block) => block.type === "text" && block.text?.includes(PROMPT))).toBe(true);
+      // The image went, inline or as its saved original's link.
+      expect(blocks.some((block) => block.type === "image" || block.type === "resource_link")).toBe(true);
+      await page.waitForFunction(() => !document.querySelector(".acpmux-composer img[alt*='Big screenshot']"));
+      await page.close();
     });
 
     test("an idle chat's /side forks through its latest turn", async () => {

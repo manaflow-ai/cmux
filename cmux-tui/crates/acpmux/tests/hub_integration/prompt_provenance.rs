@@ -351,6 +351,57 @@ async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
     assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
 }
 
+/// A send the daemon delivers whose target already holds that prompt id in its queue (the first
+/// attempt's acceptance never reached the sender: a cut link, an attempt that timed out) is
+/// delivered: the resend hears the turn the queued prompt was given. A notice that named no turn
+/// read as "may yet be refused" (`server/outbox.rs` `attempt_once`), so every attempt waited out
+/// its two minutes until the queued prompt's own turn ended, and the delivery failed after a day.
+#[tokio::test]
+async fn a_queued_send_of_a_prompt_its_target_already_queued_is_delivered() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let receiver = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&receiver).await;
+    let first = prompt(&receiver, "p-again", "ship it", None);
+    c.send("session/prompt", first.clone()).await;
+    let queued = c
+        .until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "p-again")
+        .await;
+    assert_eq!(queued["params"]["queued"], true, "{queued}");
+
+    let ack = c.call("_acpmux/send_queue", json!({"request": first})).await;
+    let delivery = ack["deliveryId"].as_str().expect("a delivery id").to_owned();
+    let status =
+        c.call("_acpmux/send_status", json!({"deliveryId": delivery, "waitMs": 10000})).await;
+    let queue = hub.session_summary(&hub.resolve(&receiver).unwrap())["queue"].clone();
+    c.cancel(&receiver).await;
+    assert_eq!(status["status"], "delivered", "{status}");
+    assert_eq!(queue.as_array().map(Vec::len), Some(1), "the resend queued a second copy: {queue}");
+}
+
+/// The same for the turn that runs: a resend of the running turn's own prompt id names that turn.
+#[tokio::test]
+async fn a_resend_of_the_running_turns_prompt_names_its_turn() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let receiver = c.new_session(json!({"harness": "fake"})).await;
+    let running = prompt(&receiver, "p-run", "until-cancel", None);
+    c.send("session/prompt", running.clone()).await;
+    let first = c
+        .until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "p-run")
+        .await;
+    c.until(|v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
+    let mut again = Client::open(&hub);
+    again.send("session/prompt", running).await;
+    let dup = again
+        .until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "p-run")
+        .await;
+    c.cancel(&receiver).await;
+    assert_eq!(dup["params"]["duplicate"], true, "{dup}");
+    assert!(first["params"]["turnId"].is_string(), "{first}");
+    assert_eq!(dup["params"]["turnId"], first["params"]["turnId"], "{dup}");
+}
+
 /// A Web connection is the person's only by a paired device's proof (`pairing.rs` `origin_of`:
 /// the phone's `client` credential): the listener token a dashboard or browser socket holds
 /// proves no person (`hub/person.rs`), so its unnamed prompt is unverified.

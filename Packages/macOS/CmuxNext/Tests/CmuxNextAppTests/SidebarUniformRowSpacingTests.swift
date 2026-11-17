@@ -274,6 +274,7 @@ struct SidebarUniformRowSpacingTests {
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
+        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061).
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)
         let pinnedFrame = h.inList(pinned)

@@ -18,6 +18,12 @@ pub mod codes {
     pub const QUOTA_EXCEEDED: &str = "cmux.cloud.quota_exceeded";
     /// `cloud.size.locked`: the size needs another plan.
     pub const SIZE_LOCKED: &str = "cmux.cloud.size_locked";
+    /// `cloud.spend_cap.reached`: the team reached its spending cap; `details`
+    /// carries `{spent_usd, cap_usd, period_end, pause_at}`. An admin raises it.
+    pub const SPEND_CAP_REACHED: &str = "cmux.cloud.spend_cap_reached";
+    /// `cloud.member_budget.reached`: the member spent their monthly budget;
+    /// `details` carries `{spent_usd, limit_usd}`. An admin raises it.
+    pub const MEMBER_BUDGET_REACHED: &str = "cmux.cloud.member_budget_reached";
     /// `cloud.provider.unavailable` (retryable).
     pub const PROVIDER_UNAVAILABLE: &str = "cmux.cloud.provider_unavailable";
     /// `cloud.machine.not_bound`: still provisioning, no host yet.
@@ -107,6 +113,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.plan.required", codes::PLAN_REQUIRED),
     ("cloud.quota.exceeded", codes::QUOTA_EXCEEDED),
     ("cloud.size.locked", codes::SIZE_LOCKED),
+    ("cloud.spend_cap.reached", codes::SPEND_CAP_REACHED),
+    ("cloud.member_budget.reached", codes::MEMBER_BUDGET_REACHED),
     ("cloud.provider.unavailable", codes::PROVIDER_UNAVAILABLE),
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
@@ -204,3 +212,48 @@ impl std::fmt::Display for CloudError {
 }
 
 impl std::error::Error for CloudError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The team's spending cap refuses a member's start (cmux-platform
+    /// SpendCap.ts): each op that starts a machine declares both codes, which
+    /// map to their own server codes with the backend's details kept.
+    #[test]
+    fn spend_refusals_keep_their_code_and_details() {
+        let details =
+            json!({ "spent_usd": 503.1, "cap_usd": 500.0, "period_end": 1, "pause_at": null });
+        for op in [
+            "cloud.machine.create",
+            "cloud.machine.start",
+            "cloud.snapshot.restore",
+            "cloud.environment.build",
+            "cloud.environment.boot",
+        ] {
+            let cap = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.spend_cap.reached".into(),
+                    message: "this team has reached its spending cap; an admin can raise it".into(),
+                    details: Some(details.clone()),
+                    retryable: false,
+                },
+            );
+            assert_eq!(cap.code, codes::SPEND_CAP_REACHED, "{op}");
+            assert_eq!(cap.details.as_ref(), Some(&details), "{op}");
+            assert!(!cap.retryable, "{op}");
+            let budget = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.member_budget.reached".into(),
+                    message: "you have spent your monthly budget".into(),
+                    details: None,
+                    retryable: false,
+                },
+            );
+            assert_eq!(budget.code, codes::MEMBER_BUDGET_REACHED, "{op}");
+        }
+    }
+}

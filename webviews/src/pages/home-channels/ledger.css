@@ -763,7 +763,7 @@
   background: var(--lg-fill);
   box-shadow: none;
 }
-.lg-page .hc-composer:focus-within {
+.lg-page .hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--page-text-3);
 }
 .lg-page .hc-composer-bar .hc-tool {
@@ -2219,4 +2219,82 @@
 .lg-run-transcript {
   margin: var(--ds-space-2) 0;
   min-height: var(--ds-control-compact);
+}
+/* The composer hat's background tasks (ChiefTaskHat.tsx): quiet rows over the composer, the goal
+   strip's surface, one row per task. A row that expires leaves with no transform, so the composer
+   below moves once, with the rows above it. */
+.lg-task-hat {
+  display: grid;
+  gap: 0;
+  /* A 24-task spawn never pushes the composer out of view: about four rows show, the rest
+     scroll inside the hat. */
+  flex: none;
+  max-height: calc(var(--ds-control-row) * 4.5 + var(--ds-space-2));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 var(--lg-pad) var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+  list-style: none;
+  border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+}
+.lg-task-hat.chips {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1);
+  border: none;
+  background: none;
+}
+.lg-task-hat.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-3);
+  width: fit-content;
+}
+.lg-task-hat__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
+  font-size: var(--text-detail);
+}
+.lg-task-hat.chips .lg-task-hat__row {
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 10%, transparent);
+}
+.lg-task-hat__title {
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--page-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__result {
+  overflow: hidden;
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--page-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__meta {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.lg-task-hat__row[data-state="done"] .lg-task-hat__title,
+.lg-task-hat__row[data-state="stopped"] .lg-task-hat__title {
+  color: var(--page-text-2);
 }

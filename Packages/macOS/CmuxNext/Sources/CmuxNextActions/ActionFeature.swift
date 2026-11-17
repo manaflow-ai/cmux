@@ -29,8 +29,8 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
 }
 
 extension ActionFeature {
-    /// The actions of the Apps feature: every action `AppStoreActionCatalog` declares.
-    nonisolated static let appsActionIDs: Set<ActionID> = Set(AppStoreActionCatalog.descriptors().map(\.id))
+    /// The actions of the Apps feature: every action of the catalog's `AppStoreActionCatalog` group.
+    nonisolated static let appsActionIDs: Set<ActionID> = Set(ActionCatalog.descriptors(inGroup: "AppStoreActionCatalog").map(\.id))
 
     /// The feature in `disabled` that `descriptor` belongs to, or nil.
     public static func turnedOff(_ descriptor: ActionDescriptor, in disabled: Set<ActionFeature>) -> ActionFeature? {

@@ -176,9 +176,15 @@ impl Hub {
                 meta.id
             )));
         }
+        // A chat that comes back (`replace_durable`: `transfer_in.rs` replaces its moved-away
+        // copy here) is that copy: its name is the chat's own, not another's to step around.
+        // Another chat with the name still holds it.
+        let holds = |s: &Arc<Session>, n: &str| {
+            s.meta().name == n && !(replace_durable && s.id == meta.id && self.moved_away(s))
+        };
         if let Some(n) = &name {
             crate::session_name::validate(n).map_err(RpcError::invalid_params)?;
-            if self.sessions.lock().unwrap().values().any(|s| s.meta().name == *n) {
+            if self.sessions.lock().unwrap().values().any(|s| holds(s, n)) {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
@@ -203,7 +209,7 @@ impl Hub {
         if let Some(n) = name {
             meta.name = n;
             meta.name_given = true;
-        } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
+        } else if self.sessions.lock().unwrap().values().any(|s| holds(s, &meta.name)) {
             meta.name = self.unique_name(&meta.name);
         }
         if !self.config.read().await.harnesses.contains_key(&meta.harness) {

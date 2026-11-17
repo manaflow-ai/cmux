@@ -227,6 +227,8 @@ export function UpdatedCard({
   anchor = "bottom",
   drag,
   dragFeel = SHIPPED_DRAG_FEEL,
+  notesLoading = false,
+  loadingLook = SHIPPED_NOTE_LOADING,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -269,6 +271,12 @@ export function UpdatedCard({
   /** Moves the card while the person drags it (updatedCardDrag.ts); absent: the card does not drag. */
   drag?: CardDragHost;
   dragFeel?: CardDragFeel;
+  /** The notes of the update's span are still loading: the title is final, and the change line holds
+      its one line with a quiet indicator until the words come (or the load gives up and the host's
+      items stand in), so the card never draws blank and the line never jumps. */
+  notesLoading?: boolean;
+  /** How the loading change line looks (gallery variants); `dots` ships. */
+  loadingLook?: NoteLoadingLook;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
@@ -361,6 +369,8 @@ export function UpdatedCard({
           <span aria-hidden="true"> ↗</span>
         </button>
       </p>
+    ) : notesLoading ? (
+      <NoteLoading look={loadingLook} label={strings.t("updates.card.loadingNotes")} />
     ) : (
       <p className="wn-card-note">
         {top ? (
@@ -438,6 +448,45 @@ export function UpdatedCard({
         {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
       </div>
     </section>
+  );
+}
+
+/** The loading change line's looks (gallery variants, Leo 2026-11-09: "for the, you know, fixed or
+    whatever subtitle text individually, we can have it be, like, should have a loading indicator, like
+    an ellipsis-type thing"): three still dots (`dots`, shipped; no breathing loop, test/no-breathing-dots),
+    the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
+    (`words`). */
+export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
+export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
+export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
+
+/** The change line while the update's notes load: the note's own box (its font, line height and
+    margin), so the words that replace it take exactly its room. VoiceOver reads "Loading what's new"
+    (a clipped label); the marks are hidden from it. */
+function NoteLoading({ look, label }: { look: NoteLoadingLook; label: string }) {
+  return (
+    <p className="wn-card-note wn-card-note-loading" data-loading={look}>
+      {look === "words" ? (
+        `${label}\u2026`
+      ) : (
+        <>
+          <span className="wn-note-label">{label}</span>
+          <span aria-hidden="true">
+            {look === "bar" ? (
+              <span className="wn-note-bar" />
+            ) : look === "glyph" ? (
+              "\u2026"
+            ) : (
+              <span className="wn-note-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+            )}
+          </span>
+        </>
+      )}
+    </p>
   );
 }
 

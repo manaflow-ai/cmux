@@ -347,8 +347,8 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= innerWidth - 2 * EDGE));
+        (fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;

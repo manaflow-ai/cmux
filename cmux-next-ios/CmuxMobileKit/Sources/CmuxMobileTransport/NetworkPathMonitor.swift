@@ -14,8 +14,9 @@ public enum NetworkPathEvent: Equatable, Sendable {
     case lost
 }
 
-/// Turns raw path updates into ``NetworkPathEvent``s. The first update is
-/// the starting point, not a change; repeats of the same path are dropped.
+/// Turns raw path updates into ``NetworkPathEvent``s. A usable first update
+/// is the starting point, not a change; an unusable one is `.lost` (a launch
+/// with no network says so, CMUX-49). Repeats of the same path are dropped.
 public struct NetworkPathFilter: Sendable {
     private var last: String?
     private var started = false
@@ -30,7 +31,7 @@ public struct NetworkPathFilter: Sendable {
         guard satisfied else {
             if down { return nil }
             down = true
-            return started ? .lost : nil
+            return .lost
         }
         let wasDown = down
         let previous = last

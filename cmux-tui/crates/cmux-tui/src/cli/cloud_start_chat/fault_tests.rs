@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 
 use super::super::{Outcome, Parsed, Ran, Request, Runner, parse};
 use super::{start, take};
+use crate::carrier::drill::EventRoutes;
+use crate::carrier::fault::tests::{Carrier as FakeCarrier, routes_of, turn};
 use crate::carrier::fault::{Absent, Carrier, FaultSpec, Route, this_build};
 
 const PROBE: &str = "cmux-cloud-capture-prod@manaflow.dev";
@@ -99,7 +101,7 @@ fn a_person_without_the_probe_switch_is_refused_before_any_step() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     let asked = request(&["--prompt", "count", "--wait"]);
     for env in [None, Some("0"), Some("yes")] {
-        let outcome = start(&mut fake, &asked, relay_after(3), env, relay_only);
+        let outcome = start(&mut fake, &asked, relay_after(3), env, relay_only, |_| None);
         let (error, exit) = error_of(&outcome);
         assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.not_probe"), 2));
     }
@@ -116,6 +118,7 @@ fn an_account_that_is_not_a_probe_account_is_refused_with_the_same_words() {
             relay_after(3),
             Some("1"),
             relay_only,
+            |_| None,
         );
         let (error, exit) = error_of(&outcome);
         assert_eq!(
@@ -133,7 +136,8 @@ fn an_account_that_is_not_a_probe_account_is_refused_with_the_same_words() {
 fn the_drill_needs_a_prompt_and_wait() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     for words in [&["--wait"][..], &["--prompt", "count"]] {
-        let outcome = start(&mut fake, &request(words), relay_after(3), Some("1"), relay_only);
+        let outcome =
+            start(&mut fake, &request(words), relay_after(3), Some("1"), relay_only, |_| None);
         assert_eq!(error_of(&outcome).0["code"], "usage.invalid", "{words:?}");
     }
 }
@@ -147,6 +151,7 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
         relay_after(3),
         Some("1"),
         relay_only,
+        |_| None,
     );
     let (error, exit) = error_of(&outcome);
     assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_other_route"), 2));
@@ -164,12 +169,46 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
 fn with_ssh_on_the_device_the_fault_plan_passes_and_the_record_lists_ssh() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     let request = request(&["--prompt", "count", "--wait"]);
-    let outcome = start(&mut fake, &request, relay_after(3), Some("1"), || this_build(Ok(())));
+    let outcome =
+        start(&mut fake, &request, relay_after(3), Some("1"), || this_build(Ok(())), |_| None);
     let (error, exit) = error_of(&outcome);
     assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_event_source"), 2));
     let caps = &error["details"]["capabilities"];
     assert_eq!(caps, &json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]}));
     assert_eq!(fake.asked.len(), 1, "no machine was made: {:?}", fake.asked);
+}
+
+/// A drill that reaches the turn's last event answers its record under `drill` (exit 0), the
+/// shape a refusal carries in `error.details`, duplicates and the server's from_seq included.
+#[test]
+fn a_drill_that_finishes_answers_its_record_under_drill() {
+    let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
+    let request = request(&["--prompt", "count", "--wait"]);
+    let relay = FakeCarrier { events: turn(6), ..FakeCarrier::default() };
+    let ssh = FakeCarrier { events: turn(6), overlap: 1, ..FakeCarrier::default() };
+    let (routes, _) = routes_of(vec![relay, ssh]);
+    let outcome = start(
+        &mut fake,
+        &request,
+        relay_after(3),
+        Some("1"),
+        || this_build(Ok(())),
+        |_| Some(Box::new(routes) as Box<dyn EventRoutes>),
+    );
+    let Outcome::Done(answer) = &outcome else { panic!("not an answer: {outcome:?}") };
+    let drill = &answer["drill"];
+    assert_eq!(
+        drill["capabilities"],
+        json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]})
+    );
+    assert_eq!(drill["fault"], json!({"kill_route": "relay", "after_events": 3}));
+    assert_eq!(drill["kill"]["route"], "relay");
+    let seqs: Vec<u64> =
+        drill["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+    assert_eq!(seqs, vec![1, 2, 3, 3, 4, 5, 6]);
+    assert_eq!(drill["resumes"][1]["phase"], "resume");
+    assert_eq!(drill["resumes"][1]["from_seq"], 3);
+    assert_eq!(fake.asked.len(), 1, "only the gate's diagnostics ran: {:?}", fake.asked);
 }
 
 #[test]

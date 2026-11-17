@@ -292,7 +292,7 @@ final class WorkspaceRowView: SidebarRowView {
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement
+            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement(in: window)
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -365,7 +365,7 @@ final class WorkspaceRowView: SidebarRowView {
                                     variant: SidebarWorkspaceTitleMotionVariant,
                                     placeholder: Bool) {
         guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, Motion.sidebar.animatesMovement else { return }
+              variant != .instant, Motion.sidebar.animatesMovement(in: window) else { return }
         let transition: CATransition
         switch variant {
         case .instant: return

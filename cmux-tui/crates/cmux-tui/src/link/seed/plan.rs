@@ -233,6 +233,91 @@ pub fn plan_since(
     build(&repo, out_bundle, &Since::Previous(previous), Vec::new())
 }
 
+/// The seed `recorded` (one this Mac sent before) again, from this repository's object store
+/// alone: no INDEX or WORK commit of the folder as it is now, nothing read from its working tree
+/// and nothing written to it, its index or its refs. The bundle carries `recorded`'s commits as
+/// `refs/cmux-seed/*` with `^BASE`, BASE the best base of `recorded.head`. Move to another
+/// Cloud machine seeds the second machine with it (`seed_cli::hop`), so both hold the seed
+/// Bring Back Local merges against.
+pub fn plan_recorded(
+    folder: &Path,
+    out_bundle: &Path,
+    recorded: &PreviousSeed,
+) -> Result<Planned, Fallback> {
+    let mut repo = Repo::open(folder)?;
+    let mut ids = vec![&recorded.head, &recorded.index, &recorded.work];
+    ids.extend(recorded.stash.as_ref());
+    for id in ids {
+        let hex = (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex || repo.commit(id).as_deref() != Some(id.as_str()) {
+            return Err(Fallback::new(
+                FallbackCode::NoPrevious,
+                format!("the recorded seed's commit {id} is not in this repository"),
+            ));
+        }
+    }
+    // The bases of the recorded HEAD, not of whatever this Mac checked out since.
+    repo.head = recorded.head.clone();
+    let bases = repo.bases();
+    let Some(base) = bases.first().cloned() else {
+        return Err(Fallback::new(
+            FallbackCode::NoBase,
+            format!("no commit on {} is known to share history with the seed", repo.remote),
+        ));
+    };
+    let scratch = Scratch::new()?;
+    let store = scratch.0.join("store.git");
+    git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
+        .map_err(|error| failed("making the scratch repository", error))?;
+    let objects = repo.git_path("objects")?;
+    std::fs::create_dir_all(store.join("objects/info"))
+        .map_err(|error| failed("making the scratch object store", error.to_string()))?;
+    write(&store.join("objects/info/alternates"), format!("{}\n", objects.display()))?;
+    let shallow = repo.git_path("shallow")?;
+    if shallow.is_file() {
+        std::fs::copy(shallow, store.join("shallow"))
+            .map_err(|error| failed("copying the shallow list", error.to_string()))?;
+    }
+    let mut refs = vec![
+        ("refs/cmux-seed/head", recorded.head.as_str()),
+        ("refs/cmux-seed/index", recorded.index.as_str()),
+        ("refs/cmux-seed/work", recorded.work.as_str()),
+    ];
+    if let Some(stash) = &recorded.stash {
+        refs.push(("refs/cmux-seed/stash", stash.as_str()));
+    }
+    for (name, id) in &refs {
+        run(git::bare(&store).args(["update-ref", *name, *id]), "naming the seed commits")?;
+    }
+    let mut bundle = git::bare(&store);
+    bundle.args(["bundle", "create", "-q"]).arg(out_bundle);
+    bundle.args(refs.iter().map(|(name, _)| *name)).arg(format!("^{base}"));
+    run(&mut bundle, "making the bundle")?;
+    let bundle_bytes = std::fs::metadata(out_bundle)
+        .map_err(|error| failed("reading the bundle", error.to_string()))?
+        .len();
+    Ok(Planned {
+        params: SeedParams {
+            url: repo.github.url(),
+            repo: repo.github.slug(),
+            base,
+            head_ref: repo.head_ref.clone(),
+            head: recorded.head.clone(),
+            index: recorded.index.clone(),
+            work: recorded.work.clone(),
+            stash: recorded.stash.clone(),
+            sparse: None,
+            lfs: uses_lfs(&repo, &[]),
+            since: None,
+        },
+        skipped: Vec::new(),
+        submodules: Vec::new(),
+        bases,
+        bundle_bytes,
+        unchanged: false,
+    })
+}
+
 /// What the machine already has.
 enum Since<'a> {
     Base(&'a str),

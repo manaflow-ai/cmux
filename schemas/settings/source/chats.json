@@ -93,6 +93,63 @@
           ]
         },
         {
+          "key": "agents.chats.coldArchive",
+          "name": "coldArchive",
+          "note": "Off by default (Leo, 2026-11-09: \"potentially auto compress old history to save disk? some sort of cold archival thing\"). On: the acpmux daemon moves the log of every chat idle for coldArchiveAfterDays into one zstd file and keeps a preview (title, last messages, sizes) in the chat list; opening the chat brings the log back byte for byte (cmux-tui acpmux hub/cold_archive.rs, read from the settings file at each pass).",
+          "title": {
+            "key": "settings.chats.coldArchive",
+            "text": "Compress Old Chats"
+          },
+          "help": {
+            "key": "settings.chats.coldArchive.help",
+            "text": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "cold",
+            "compress",
+            "disk",
+            "storage",
+            "old",
+            "history"
+          ]
+        },
+        {
+          "key": "agents.chats.coldArchiveAfterDays",
+          "name": "coldArchiveAfterDays",
+          "note": "Days with no new record and no change before Compress Old Chats compresses a chat. 30 by default.",
+          "title": {
+            "key": "settings.chats.coldArchiveAfterDays",
+            "text": "Compress Chats Idle For"
+          },
+          "help": {
+            "key": "settings.chats.coldArchiveAfterDays.help",
+            "text": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 30,
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "cold",
+            "compress",
+            "disk",
+            "idle",
+            "days"
+          ]
+        },
+        {
           "key": "chat.on",
           "name": "chatOn",
           "note": "The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: \"cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret\".",

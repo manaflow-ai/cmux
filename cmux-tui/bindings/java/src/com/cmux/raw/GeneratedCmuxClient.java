@@ -1187,6 +1187,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult setDividerVisible(SetDividerVisibleRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_DIVIDER_VISIBLE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
         return Wire.immutableJson(result);

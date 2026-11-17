@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -216,13 +217,12 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
 
     // Keyboard focus gives the focused button the hover's pill, with no edge and no outline: every bar
     // button, + included (Leo 2026-10-19). The outline went with #23745 (Leo 2026-10-21: no focus
-    // rings in the agent pane; the pill alone marks a focused button).
+    // rings in the agent pane; the pill alone marks a focused button). The focus comes from a real Tab:
+    // code focus earns no pill (FOCUS-RING, src/ui/focusModality.ts).
     test(`${engine}: keyboard focus pills the focused button only, ringless, with no outline`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       for (const [name, selector] of Object.entries(BAR)) {
-        // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
-        await page.keyboard.press("Shift");
-        await page.locator(selector).first().focus();
+        await focusByKey(page, selector);
         await settle(page);
         const controls = await pillsOf(page);
         const focused = controls.filter((each) => each.focused);

@@ -371,6 +371,13 @@ const openEnvironmentWithInsetArm =
 
 /// The environment control's machine list: Machines… on its right-click menu (its main list is This
 /// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
+/// Opens the picker, then its Move to… list.
+const openMoveTo: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-action="moveTo"]'));
+  await ctx.click({ role: "option", name: /Move to…/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-moves [data-action="moveTarget"]'));
+};
 const openMachineList: Play = async (ctx) => {
   await ctx.contextMenu({ role: "button", name: /^Environment/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
@@ -392,6 +399,27 @@ const stripMachines = {
   cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
+// Leo, 2026-11-09, of the machine chip's list ending in four retired lanes, each "Reconnecting": "Those
+// are being retired; drop retired and unreachable machines from the list, or group them at the bottom."
+// The person's machines, a pool that is busy, and four lanes acpmux has not reached for an hour.
+const UNAVAILABLE_FOR = 60 * 60_000;
+const retiredLanes = ["lane-1", "lane-2", "lane-3", "lane-4"];
+const unavailableMachines = (() => {
+  const live = ["studio-mini", "gpu-box", "swarm-03", "swarm-07", "swarm-11"];
+  const all = [...live, ...retiredLanes];
+  const by = <T,>(value: (name: string) => T) => Object.fromEntries(all.map((name) => [name, value(name)]));
+  return {
+    ...stripMachines,
+    sessions: [],
+    peers: all,
+    peerKinds: by(() => "ssh" as const),
+    peerConnected: by((name) => live.includes(name)),
+    peerStates: by((name) => (live.includes(name) ? "connected" : "reconnecting")),
+    peerLinks: Object.fromEntries(
+      retiredLanes.map((name) => [name, { link: "reconnecting" as const, since: Date.now() - UNAVAILABLE_FOR }]),
+    ),
+  };
+})();
 const onMachine = (peer: string) => ({
   summary: { sessionId: "", harness: "claude", host: peer, peer },
 });
@@ -1029,6 +1057,36 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     ...stripVariants("where-machine"),
+    "machines-unavailable-collapsed": {
+      height: 460,
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      props: unavailableMachines,
+      play: pickAnother,
+    },
+    "machines-unavailable-open": {
+      height: 640,
+      note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
+      props: { ...unavailableMachines, unavailableExpanded: true },
+      play: pickAnother,
+    },
+    "machines-unavailable-after-add": {
+      height: 460,
+      note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
+      props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-hidden": {
+      height: 420,
+      note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
+      props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-inline": {
+      height: 640,
+      note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
+      props: { ...unavailableMachines, unavailableGroup: "inline" as const },
+      play: pickAnother,
+    },
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
@@ -1119,6 +1177,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
@@ -1147,7 +1239,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        // The four machines acpmux cannot reach wait under Unavailable (4), closed.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "computer-menu-fleet": {
@@ -1252,6 +1345,97 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
+    },
+    // Move to… (Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper \"move to other cloud\"
+    // ... and \"move to local\""): every place a started chat can go, one list. Four arms: a chat on
+    // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
+    // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
+    "started-move-to-menu": {
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-from-cloud": {
+      note: "Preview, a Cloud chat a move from this Mac put on dev-box: Move to… lists This Mac and the other machine.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        moveTargets: [
+          { id: "local", label: "", kind: "local" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-cloud-only": {
+      note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        moveTargets: [{ id: "vm-gpu", label: "gpu-box", kind: "cloud" }],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud-only",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-refused": {
+      note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-refused",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
     },
     "started-branch": {
       note: "After a turn starts, location labels lock while the branch remains visible at the right.",

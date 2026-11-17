@@ -13,4 +13,6 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+# The digest a gesture ticket binds a question's answers by (src/canonical.rs).
+sha2.workspace = true
 unicode-normalization.workspace = true

@@ -67,6 +67,9 @@ final class AgentPaneSessionInfoPanel: NSView {
         let overChat = Self.liesOverChat(store.info)
         if overChat, backing == nil {
             let glass = Glass.makeOverlayPanel()
+            // Denser than a popover's glass: at the popover level the transcript under the list
+            // washed its text out (Lucas, 2026-11-10: "a bit too washed out").
+            glass.tintLevel = .chip
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             glass.frame = bounds

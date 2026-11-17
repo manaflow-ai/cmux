@@ -22,8 +22,8 @@ public final class TitleFade {
     /// The motion gate of the title's owner (tabs or sidebar): its marquee
     /// and mask fades obey that category's switch.
     public let gate: MotionGate
-    /// The motion policy (speed and Reduce Motion); tests pin it.
-    public lazy var policy: () -> MotionPolicy = { [gate] in gate.policy }
+    /// The motion policy (speed, Reduce Motion and a live resize of the title's window); tests pin it.
+    public lazy var policy: () -> MotionPolicy = { [gate, textLayer] in gate.policy(in: Motion.window(showing: textLayer)) }
 
     static let keyPath = "transform.translation.x"
     static let key = "marquee"

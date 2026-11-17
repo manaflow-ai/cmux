@@ -44,6 +44,8 @@ on:
       - "schemas/type-scale/type-scale.json"
       # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
       - "schemas/design-scale/design-scale.json"
+      # The theme slots the slot registry imports (src/slots/registry.ts).
+      - "schemas/theme/slots.json"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
@@ -171,7 +173,9 @@ jobs:
     needs: build
     if: needs.build.outputs.published != 'true'
     name: publish the web bundles to files.cmux.com
-    environment: artifacts
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
@@ -224,7 +228,9 @@ jobs:
     needs: [build, publish]
     if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     name: sign the web update pointer
-    environment: artifacts
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:

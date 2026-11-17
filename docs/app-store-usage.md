@@ -105,7 +105,7 @@ no key for the machine. Nothing in this path calls cmux Cloud.
 ### Your cmux Cloud machine
 
 ```sh
-cmux cloud list-machines         # find the machine id
+cmux vm ls         # find the machine id
 cmux apps install manaflow-ai/hello-deploy --deploy cloud-vm:<machine id>
 ```
 

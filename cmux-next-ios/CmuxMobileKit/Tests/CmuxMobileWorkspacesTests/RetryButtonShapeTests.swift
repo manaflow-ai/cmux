@@ -35,4 +35,34 @@ import UIKit
         #expect(ax.height > large.height, "Retry is \(ax.height) pt tall at AX3")
     }
 }
+
+/// Retry's spinner holds briefly once shown, so an answer in a frame or two reads
+/// as a load instead of a flicker, and a cancelled retry lets go at once.
+@MainActor @Suite struct RetryButtonHoldTests {
+    @Test func aFastAnswerStillShowsTheSpinnerForTheMinimum() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var ran = false
+        await RetryButton.run({ ran = true }, holdingFor: .milliseconds(120), on: clock)
+        #expect(ran)
+        #expect(clock.now - start >= .milliseconds(120))
+    }
+
+    @Test func aSlowAnswerIsNotHeldLonger() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        await RetryButton.run({ try? await Task.sleep(for: .milliseconds(150)) }, holdingFor: .milliseconds(50), on: clock)
+        #expect(clock.now - start < .milliseconds(1000))
+    }
+
+    @Test func aCancelledRetryEndsWithoutTheHold() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let task = Task { @MainActor in
+            await RetryButton.run({ withUnsafeCurrentTask { $0?.cancel() } }, holdingFor: .seconds(30), on: clock)
+        }
+        await task.value
+        #expect(clock.now - start < .seconds(5))
+    }
+}
 #endif

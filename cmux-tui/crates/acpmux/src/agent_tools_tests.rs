@@ -256,6 +256,67 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     );
 }
 
+/// CMUX-288: the `acpmux` server's `pr_state` runs `gh` with the server's env, and a client that
+/// passes a stdio server only an allowlisted env (Codex) left out the agent's gh sign-in. The
+/// server now gets the agent's own `GH_TOKEN`, `GITHUB_TOKEN` and `GH_CONFIG_DIR` after
+/// `for_session` resets its env, folded behind `cmux` too; no other server gets them.
+#[test]
+fn the_acpmux_server_gets_the_agents_gh_sign_in() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        ("GH_TOKEN".to_owned(), "gho_profile".to_owned()),
+        ("GH_CONFIG_DIR".to_owned(), "/home/u/.config/gh-work".to_owned()),
+    ]);
+    let folded = tools.scoped(&env).for_session("s-gh").folded();
+    let cmux = &folded.servers[0];
+    assert!(cmux.env.iter().all(|(k, _)| !super::GH_ENV.contains(&k.as_str())), "{:?}", cmux.env);
+    let upstreams = &cmux.env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    let acpmux = upstreams
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == crate::acpmux_mcp::SERVER_NAME)
+        .unwrap();
+    assert_eq!(acpmux["env"]["GH_TOKEN"], "gho_profile", "{acpmux}");
+    assert_eq!(acpmux["env"]["GH_CONFIG_DIR"], "/home/u/.config/gh-work", "{acpmux}");
+}
+
+/// Which gh values the agent has: a literal profile value first, else what every local child
+/// gets; a profile reference is left out (only the launch resolves it), and nothing else comes in.
+#[test]
+fn gh_env_is_what_the_agent_starts_with() {
+    let child = || {
+        vec![
+            ("GITHUB_TOKEN".to_owned(), "ghp_login".to_owned()),
+            ("GH_TOKEN".to_owned(), "gho_login".to_owned()),
+            ("GH_HOST".to_owned(), String::new()),
+            ("NPM_TOKEN".to_owned(), "npm".to_owned()),
+        ]
+    };
+    let profile = std::collections::BTreeMap::from([
+        ("GH_TOKEN".to_owned(), "${keychain:gh}".to_owned()),
+        ("GH_CONFIG_DIR".to_owned(), "/cfg".to_owned()),
+    ]);
+    assert_eq!(
+        super::gh_env(&profile, child),
+        vec![
+            ("GITHUB_TOKEN".to_owned(), "ghp_login".to_owned()),
+            ("GH_CONFIG_DIR".to_owned(), "/cfg".to_owned()),
+        ]
+    );
+    assert!(super::gh_env(&std::collections::BTreeMap::new(), Vec::new).is_empty());
+}
+
 /// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
 /// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
 /// Code takes as "block this call", and the plugin's command runs the call instead. A deny the

@@ -19,7 +19,10 @@
 .nt-composer[data-composer-look="codex"] > .nt-above {
   position: relative;
   z-index: var(--layer-base, 0);
-  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  /* Its inset from the column, which the gap under the tucked hat's pill reads (subagents.css). */
+  --acpmux-part-inset-left: var(--acpmux-tray-inset);
+  --acpmux-part-inset-right: var(--acpmux-tray-inset);
+  margin: 0 var(--acpmux-part-inset-right) calc(-1 * var(--acpmux-tray-tuck)) var(--acpmux-part-inset-left);
   padding: 4px 8px calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-surface, transparent));

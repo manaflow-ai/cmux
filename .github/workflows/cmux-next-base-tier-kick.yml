@@ -13,6 +13,12 @@ name: cmux NEXT base tier kick
 # started: the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
 # after a newer base tier run was dispatched). Nothing else is ever cancelled.
 # vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
+# The kick calls GitHub with its own cmux-bot App token, never github.token: every workflow's
+# GITHUB_TOKEN shares one REST budget an hour, and on 2026-11-10 14 of 40 kicks crashed on HTTP 403 when
+# other workflows had spent it. Waiting that out with github.token is a sleeping loop on the shared
+# budget, which tests/test_ci_no_github_token_polling.py (scripts/ci/github_token_polling.py) refuses.
+# The App installation has its own budget. There is no github.token fallback: one would bring the
+# shared-budget polling back, so a failed mint fails the kick red with the mint's error.
 on:
   push:
     branches: [feat-cmux-next]
@@ -36,8 +42,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     # The one wait (at most the 15-minute window) plus the listing and the dispatch.
     timeout-minutes: 20
+    # github.token only checks out; the API calls use the cmux-bot token minted below.
     permissions:
-      actions: write
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,10 +53,24 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_base_tier.py
             scripts/ci/cmux_next_tree_notify.py
+            scripts/ci/github_quota_client.py
+            scripts/ci/deadline_http.py
             .github/workflows/cmux-next.yml
           sparse-checkout-cone-mode: false
 
+      # The kick lists runs and their jobs, dispatches cmux-next.yml and cancels superseded base tier
+      # runs (actions: write), and reads the branch ref and compares commits (contents: read).
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+
       - name: Dispatch the base tier when it is due
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
         run: python3 -I scripts/ci/cmux_next_base_tier.py kick --repo "$GITHUB_REPOSITORY"

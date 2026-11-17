@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import python_floor  # noqa: F401  first: one clear line under a python3 older than 3.11.4
 import tomllib
 
 from notice_model import Key, LockPackage, NoticeError

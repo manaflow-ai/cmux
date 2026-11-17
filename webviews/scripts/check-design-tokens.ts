@@ -19,6 +19,13 @@
  * Font sizes are the type-scale ratchet's job (scripts/cmux-next/check-type-scale.py), not this one's.
  * A migration PR shrinks the baseline with `bun scripts/check-design-tokens.ts --update-baseline`,
  * which refuses to grow any count.
+ *
+ * Token-only surfaces (TOKEN_ONLY_FILES): a visible element built from the references, the spec and
+ * the tokens alone (Leo, 2026-11-10, on the unread marker: "make it look integrated and all that ...
+ * don't introduce any random stuff"; cmuxterm-hq docs/handbook/feature-thrown-in-without-design.md).
+ * Such a file has no baseline, and it is stricter than the ratchet: a literal colour, duration or
+ * easing is refused even as a var() fallback or in a custom property, a radius must be a token, and
+ * a TSX file holds no colour literal at all. A new visible element adds its sheet and component here.
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -61,7 +68,16 @@ const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
 
 export interface Finding {
   file: string;
-  kind: "spacing" | "height" | "opaque-glass" | "color" | "radius" | "font-weight" | "duration" | "easing";
+  kind:
+    | "spacing"
+    | "height"
+    | "opaque-glass"
+    | "color"
+    | "radius"
+    | "font-weight"
+    | "duration"
+    | "easing"
+    | "token-only";
   selector: string;
   property: string;
   value: string;
@@ -239,6 +255,96 @@ function key(finding: Omit<Finding, "line">): string {
   // Group by file, finding kind, property and value. Selectors are intentionally omitted so a
   // moved rule keeps its allowance, while a new off-scale value cannot hide in an old bucket.
   return [finding.file, finding.kind, finding.property, finding.value].join("\t");
+}
+
+/** Sheets and components that may use tokens only (see the header). Paths under src/. */
+export const TOKEN_ONLY_FILES: readonly string[] = [
+  "agent-session/acpmux/conversation/unread.css",
+  "agent-session/acpmux/conversation/SinceDivider.tsx",
+  "agent-session/acpmux/jumpPair.css",
+];
+const ANY_DURATION = /(?<![\w.-])\d*\.?\d+m?s\b/i;
+const ANY_EASING = /\bcubic-bezier\(|\bsteps\(|\blinear\(|(?<![\w-])ease(?:-in|-out|-in-out)?(?![\w-])/i;
+const TOKEN_RADIUS = /^(?:0|50%|inherit|var\(--[\w-]+\))$/;
+
+/** What makes `value` a literal in a token-only file, var() fallbacks included. */
+export function tokenOnlyKind(property: string, value: string): string | undefined {
+  const bare = value.replace(/url\([^)]*\)/gi, " ");
+  if (HEX_COLOR.test(bare)) return "a colour literal";
+  // A colour function only around tokens (`rgb(var(--x-rgb) / 0.5)`); color-mix() of var()s is not one.
+  for (const match of bare.matchAll(COLOR_FUNCTION)) {
+    let depth = 1;
+    let end = (match.index ?? 0) + match[0].length;
+    const start = end;
+    for (; end < bare.length && depth; end++) {
+      if (bare[end] === "(") depth++;
+      else if (bare[end] === ")") depth--;
+    }
+    if (!bare.slice(start, end).includes("var(")) return "a colour literal";
+  }
+  if (/^(?:transition|animation)/.test(property) || property.startsWith("--")) {
+    if (ANY_DURATION.test(value)) return "a duration literal";
+    if (ANY_EASING.test(value)) return "an easing literal";
+  }
+  if (RADIUS_PROPERTY.test(property) && !TOKEN_RADIUS.test(value.trim())) return "a radius that is not a token";
+  return undefined;
+}
+
+/** A token-only file's findings: the ratchet's own (with no baseline) and the stricter ones. */
+export function tokenOnlyFindings(rel: string, source: string): Finding[] {
+  const findings: Finding[] = [];
+  if (rel.endsWith(".css")) {
+    for (const block of parse(source)) {
+      for (const declaration of block.declarations) {
+        const why = tokenOnlyKind(declaration.property, declaration.value);
+        if (why)
+          findings.push({
+            file: rel,
+            kind: "token-only",
+            selector: block.selector,
+            property: declaration.property,
+            value: `${declaration.value} (${why})`,
+            line: declaration.line,
+          });
+      }
+    }
+    return findings;
+  }
+  // A component: no colour literal anywhere outside comments, and its inline styles on tokens.
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) => comment.replace(/[^\n]/g, " "));
+  code.split("\n").forEach((text, index) => {
+    if (HEX_COLOR.test(text) || /\b(?:rgba?|hsla?|oklch|oklab)\(/i.test(text))
+      findings.push({
+        file: rel,
+        kind: "token-only",
+        selector: "",
+        property: "source",
+        value: `${text.trim()} (a colour literal)`,
+        line: index + 1,
+      });
+  });
+  return [...findings, ...inlineStyleFindings(rel, source)];
+}
+
+/** Every token-only file's findings; each is an error, whatever the baseline holds. */
+export function findTokenOnlyViolations(): Finding[] {
+  return TOKEN_ONLY_FILES.flatMap((rel) => {
+    const path = join(SRC, rel);
+    if (!existsSync(path))
+      return [
+        {
+          file: rel,
+          kind: "token-only" as const,
+          selector: "",
+          property: "file",
+          value: "missing (TOKEN_ONLY_FILES names a file that is not there)",
+          line: 0,
+        },
+      ];
+    const source = readFileSync(path, "utf8");
+    const ratchet = rel.endsWith(".css") ? findingsForFile(path) : [];
+    return [...ratchet, ...tokenOnlyFindings(rel, source)];
+  });
 }
 
 function findingsForFile(file: string): Finding[] {
@@ -502,7 +608,11 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   } else {
-    const errors = report(current, baseline);
+    // Token-only surfaces: every finding is an error; no baseline holds one.
+    const strict = findTokenOnlyViolations();
+    for (const finding of strict)
+      console.error(`token-only ${finding.file}:${finding.line} ${finding.property}: ${finding.value}`);
+    const errors = report(current, baseline) + strict.length;
     if (!errors) console.log(`Design token ratchet passed: ${currentFindings.length} recorded violations.`);
     process.exitCode = errors ? 1 : 0;
   }

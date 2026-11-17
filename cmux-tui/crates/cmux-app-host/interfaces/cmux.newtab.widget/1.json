@@ -1,0 +1,28 @@
+{
+  "name": "cmux.newtab.widget/1",
+  "version": 1,
+  "docs": "A widget on the New Tab page: a small scene cmux draws in the page's widget row, beside its own widgets (clock, timer, quote), with the page's tokens. The render export gets the mount context ({surface: \"newTab\"}) and returns the widget's view. It mounts only on an open New Tab page where the person placed the widget (Edit New Tab > Add Widgets). A switch to another tab and back keeps the mount: the page draws the same widget and asks nothing again. It unmounts when the page closes, and a timer it starts belongs to the mount and stops then (cmux.timer.every is floored at 1 s). The page can be hidden while the widget is mounted, and cmux may pause a hidden page's timers, so do not rely on a tick while nobody looks. Nodes outside `nodes` are refused, and a scene over `maxNodes` stops drawing: the cell shows the widget's name and why, never a broken page. Clicks run the node's onTap with the app's own scopes.",
+  "props": {
+    "title": "string",
+    "symbol": "string?",
+    "size": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "nodes": ["VStack", "HStack", "Group", "Text", "Icon", "Spacer", "Divider", "Badge", "Row", "Button", "ProgressView", "EmptyState"],
+  "maxNodes": 64,
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "size": {
+        "type": "string",
+        "enum": ["small", "wide"],
+        "description": "The widget's cell: small sits inline in the row (a clock), wide takes the row's whole width (a list). Default small."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

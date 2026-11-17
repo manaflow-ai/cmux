@@ -246,3 +246,19 @@ fn a_fork_the_machine_refuses_names_its_words() {
 fn chat_cd_is_not_a_chat_start_with_the_prompt_cd() {
     assert!(crate::cli::chat_start::OTHER_VERBS.contains(&"cd"));
 }
+
+/// Leo (2026-11-09): a folderless Cloud chat picks its repository later. Such a chat runs in the
+/// fresh folder its machine made (`~/chats/<chat>`); `cmux chat cd` never reads that folder, so a
+/// cd from it is the same two steps as from any folder: the target is checked, then the chat forks
+/// into it. `~` is the machine's home, the folder a folderless chat's `/cd ~/...` names too.
+#[test]
+fn a_folderless_chat_cds_to_a_folder_on_its_machine() {
+    let mut fake = Fake::new(vec![out("@@folder\n/home/cmux\n"), forked("s-2")]);
+    let answer = run(&mut fake, &cd(&["peer-7", "~"]), "vm-1").expect("moved");
+    assert_eq!(answer["cwd"], "/home/cmux");
+    assert_eq!(answer["forked_from"], "peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd s-2 DIR|--repo OWNER/NAME");
+    assert_eq!(fake.scripts.len(), 2, "{:?}", fake.scripts);
+    assert!(fake.scripts.iter().all(|script| !script.contains("/chats/")), "{:?}", fake.scripts);
+    assert!(fake.scripts[1].contains("acp session fork peer-7 --cwd /home/cmux --json"));
+}

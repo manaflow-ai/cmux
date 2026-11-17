@@ -201,6 +201,10 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
+    /// Insert New, Hide Divider or Show Divider for a divider the screen no longer shows (a CLI split id that is gone).
+    public static var noDivider: String { text("handlers.refusal.noDivider", "that divider is no longer on the screen") }
+    /// Insert New > Browser where a browser tab cannot open in a split (an incognito or disconnected pane).
+    public static var dividerBrowser: String { text("handlers.refusal.dividerBrowser", "a browser can’t open between these panes") }
     /// A canvas action on a screen that shows its split or column layout.
     public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
     /// A canvas arrangement with nothing to move, or an overview of an empty canvas.

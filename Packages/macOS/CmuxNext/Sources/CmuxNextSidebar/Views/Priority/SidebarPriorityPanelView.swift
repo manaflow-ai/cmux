@@ -158,7 +158,7 @@ final class SidebarPriorityPanelView: NSView {
         // The held row stays under the pointer while another chat's text updates: only a re-rank or a
         // height change moves it, and those cancel the drag first (`show`).
         if let held = draggingID.flatMap({ rows[$0] }) { targets.removeAll { $0.0 === held } }
-        guard animated, Motion.sidebar.animatesMovement else {
+        guard animated, Motion.sidebar.animatesMovement(in: window) else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
             Motion.withoutAnimation {

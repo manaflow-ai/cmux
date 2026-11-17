@@ -18,6 +18,10 @@ extension AgentPaneModel {
     /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
     /// palette, as Cmd-K does, so they need no gesture credit.
     static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
+    /// New Cloud Chat from a started chat's `/side --on cloud` or `/cd --on cloud` (webviews
+    /// commandPlace.ts). It opens a tab, so it spends the person's gesture; its `handoff` is the page's
+    /// one-time token, handed to the new tab's page unread (the page keeps what it names).
+    static let cloudStartActions: Set<String> = ["palette.newCloudChat"]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -37,8 +41,8 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil) -> [String: Any] {
-        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
+        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -49,6 +53,7 @@ extension AgentPaneModel {
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if let environment { arguments["environment"] = environment }
+        if let handoff { arguments["handoff"] = handoff }
         switch onRunAction(id, arguments) {
         case .ran: return AgentPaneReply.success()
         case .refused(let reason): return Self.refused(reason)

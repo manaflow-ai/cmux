@@ -57,12 +57,12 @@ nonisolated final class MacScreenRdHost: Sendable {
     var startedProcess: Bool { process.started }
 
     var onEvent: (@Sendable (Event) -> Void)? {
-        get { handler.withLock { $0 } }
-        set { handler.withLock { $0 = newValue } }
+        get { handler.load() }
+        set { handler.store(newValue) }
     }
 
     private func emit(_ event: Event) {
-        handler.withLock { $0 }?(event)
+        handler.load()?(event)
     }
 
     /// Serves the session until it ends: waits for the viewer's offer, starts the host, answers with

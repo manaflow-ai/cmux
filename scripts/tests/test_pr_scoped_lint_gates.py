@@ -17,6 +17,7 @@ SCRIPTS = (
     'scripts/ci/crash-class-gate.sh',
     'scripts/ci/pr_owned_findings.py',
     'scripts/cmux-next/check-concurrency.sh',
+    'scripts/cmux-next/check-closure-mutex.py',
     'scripts/cmux-next/check-main-actor-work.py',
     'scripts/cmux-next/swift_scope.py',
     'Packages/macOS/CmuxNext/Package.swift',

@@ -49,7 +49,7 @@
   font: inherit;
   outline: none;
 }
-.acpmux-env-input:focus { border-color: var(--agent-muted); }
+.acpmux-env-input:focus-visible { border-color: var(--agent-muted); }
 
 .acpmux-env-panel .acpmux-env-select {
   display: flex;

@@ -15,19 +15,20 @@ import Foundation
 /// terminals of 30 background workspaces kept the shown workspace re-mapping through the split's own frames
 /// (instant-splits, "off-screen work is deferred"). Its screen's tree is held the same way.
 extension DaemonStore {
-    /// What one lift holds: each pending create's workspace (its screens) and each pending split's screen (its tree).
+    /// What one lift holds: each pending create's workspace (its screens) and the screen of each pending split, zoom or
+    /// swap (its tree and its zoom).
     struct HeldOverlayPublication {
         var workspaces: [WorkspaceModel] = []
         var screens: [ScreenModel] = []
     }
 
-    /// Holds the publication of the list, of each pending create's workspace's screens and of each pending split's
-    /// screen's tree; returns what it held.
+    /// Holds the publication of the list, of each pending create's workspace's screens and of the tree and zoom of each
+    /// pending split's, zoom's or swap's screen; returns what it held.
     func holdOverlayPublication() -> HeldOverlayPublication {
         if listBeforeLift == nil { listBeforeLift = workspaceList }
         var held = HeldOverlayPublication()
         for entry in intentLog.entries {
-            if let handle = entry.undo?.splitScreen, let screen = screensByHandle[handle] {
+            if let handle = entry.undo?.heldScreen, let screen = screensByHandle[handle] {
                 screen.holdTree()
                 held.screens.append(screen)
             }
@@ -69,6 +70,16 @@ extension IntentUndo {
         case .closedStandIn(let overlay, _): overlay?.splitScreen
         case .guessedTab(_, let provisional): provisional?.splitScreen
         default: nil
+        }
+    }
+
+    /// The screen whose tree or zoom this undo's overlay changed: a pending split's, zoom's or swap's. The lift takes the
+    /// change out and the restore puts it back, so the screen publishes only the net change of a daemon apply: the
+    /// daemon's `layout-changed` for a zoom or a swap the screen already shows wakes no reader (no second layout).
+    var heldScreen: ScreenID? {
+        switch self {
+        case .screenZoom(let screen, _), .swappedPanes(let screen, _, _): screen
+        default: splitScreen
         }
     }
 }

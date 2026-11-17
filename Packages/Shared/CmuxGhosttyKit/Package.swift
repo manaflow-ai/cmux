@@ -181,6 +181,22 @@ import PackageDescription
 // b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
 // 7a372c740: both changes above in one pin (RESIZE P0 22).
 //
+// Since b3a5ebfdf..a0975fd8c (release/cmux-gi-pin-sync-2, GI PIN SYNC): five
+// upstream Ghostty main commits picked onto b3a5ebfdf with `cherry-pick -x`:
+// 96d379822 and 15a443234 (RenderState.endUpdate looks up a row's styles
+// once per segment and walks the pending style runs as a shrinking slice:
+// less work per scrolled row), 321a32a42 (a resize that grows rows and
+// shrinks columns keeps the scrollback it pulled down), 5ce2325ec (a shrink
+// with no scrollback no longer leaves the cursor pin garbage, so a Kitty
+// image at the cursor draws) and 1b8b3f55b (pins are remapped when the
+// column backfill stops early: no viewport on a freed page). No C API change.
+//
+// Since a0975fd8c..c370b103a (release/cmux-gi-land-1 merges a0975fd8c and
+// a0e665d4f, release/cmux-gi-present-cb-1; ghostty-integration step 3):
+// ghostty_surface_set_present_callback reports each frame that becomes the
+// layer's contents (pixel size, content or resize, sequence, host time); it
+// replaces cmux's setContents: swizzle on IOSurfaceLayer.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -204,8 +220,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b3a5ebfdfe700635696ea8f71e9dfc72e496ab82-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "007a462b6e99a96a21cbfe4d37756164494b5337f9482d3c25fe14da7cec9b8a"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c370b103a8707897df449ba9ddd3f5586b227313-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "0669c1040f20e729f507bd3e52da3cb5a4b096c331cf8220b78941bde62811af"
         ),
     ]
 )

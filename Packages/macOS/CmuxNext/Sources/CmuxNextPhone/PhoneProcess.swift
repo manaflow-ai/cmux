@@ -74,14 +74,15 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         }
         try process.run()
         if let inPipe, let stdin {
-            // A child that exits without reading closes the read end: the write then fails with
-            // EPIPE, which `write(_:)` raises as an uncatchable Objective-C exception, and SIGPIPE
-            // would end a process that does not ignore it. Neither is the caller's problem; the
-            // child's own exit status tells what went wrong.
-            let writer = inPipe.fileHandleForWriting
-            _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
-            try? writer.write(contentsOf: stdin)
-            try? writer.close()
+            // The bytes (a pasteboard of any size) go on the feed's own queue, never this caller's
+            // thread: a pipe write waits for the child to read, and this init runs on the main
+            // actor before `waitForExit` arms the deadline. Our read end closes first, so a child
+            // that exits without reading fails the feed's write (EPIPE; PipeFeed sets
+            // F_SETNOSIGPIPE) instead of leaving it waiting.
+            try? inPipe.fileHandleForReading.close()
+            let feed = PipeFeed(inPipe.fileHandleForWriting)
+            feed.write(stdin)
+            feed.close()
         }
     }
 

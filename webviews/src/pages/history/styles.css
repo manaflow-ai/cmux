@@ -72,7 +72,7 @@
   user-select: text;
 }
 
-.history-search:focus {
+.history-search:focus-visible {
   border-color: var(--page-text-3);
 }
 

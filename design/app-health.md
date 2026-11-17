@@ -20,8 +20,10 @@ Background task when back". The dot takes the danger color when a part is stuck 
 out, and the attention color while the app repairs it or it is slow but making progress. A queued
 action alone has a muted dot.
 
-A click on the line opens the popover (`#/app-health` on the server card page, hosted as the
-server Health popover is). It shows the worst part's line and its detail in plain words, with one
+The line sits on the footer row right after the profile avatar (and Swift live mode's mark),
+before the spaces strip, and truncates to fit; with no room it steps out of the row. It does not
+fade with the footer. A click on the line, or Details on the "Restoring sessions…" card, opens the
+popover (`#/app-health` on the server card page, hosted as the server Health popover is). It shows the worst part's line and its detail in plain words, with one
 **Repair now** when that part can be repaired; every other non-healthy part with its detail and a
 **Repair** when it can be repaired; the queued actions; and **Recent repairs**, collapsed, the
 receipts newest first. A restore that still makes progress and workspace data that is merely large
@@ -54,7 +56,8 @@ returns the person to where they were. The agent chat composer keeps its own dra
 
 ## Treatment
 
-Gallery: `ui.app-health` shows three treatments, each in seven states (page repairing, renderer
+Native gallery: `AAAppHealthIndicatorGalleryTests` renders the footer line as `a-line` (shipped),
+`b-chip` and `c-dot` in four states, and the restoring card with Details. Web gallery: `ui.app-health` shows three treatments, each in seven states (page repairing, renderer
 failed, session daemon restart loop held, restoring workspaces, oversize workspace data, pending
 tab close while reconnecting, healthy):
 

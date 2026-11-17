@@ -203,7 +203,8 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 if (frames >= 32 && phase === "away") {
                   phase = "return";
                   started = paint;
-                  if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();
+                  if (way === "jump")
+                    document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!.click();
                   else revisit = true;
                 }
               },

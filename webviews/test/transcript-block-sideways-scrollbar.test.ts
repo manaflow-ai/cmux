@@ -273,6 +273,23 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
       { timeout: 10_000 },
     );
 
+  /// Waits out the box's scripted thumb fade (followShownScrollerFade): it steps the ink inline once a
+  /// frame and drops it when the fade ends, so the stylesheet's resting ink is what shows then.
+  const faded = (page: Page, block: Block) =>
+    page.waitForFunction(
+      ({ scroller, shadow }) => {
+        const body = document.querySelector<HTMLElement>(scroller)!;
+        const box = shadow
+          ? [...body.querySelectorAll("*")]
+              .map((element) => element.shadowRoot?.querySelector<HTMLElement>("[data-code]"))
+              .find(Boolean)
+          : body;
+        return box?.style.getPropertyValue("--cmux-sideways-ink") === "";
+      },
+      block,
+      { timeout: 10_000 },
+    );
+
   const painted = (page: Page) =>
     page.evaluate(async () => {
       for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
@@ -392,6 +409,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           const page = await open(engine, block);
           try {
             await page.evaluate(() => document.documentElement.setAttribute("data-cmux-scroller-fade", ""));
+            // The thumb fades out over the fade's length (3e0de67aedb), not in one frame.
+            await faded(page, block);
             await painted(page);
             const box = await measure(page, block);
             const rest = await thumb(page, box);
@@ -403,6 +422,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             const scrolling = await thumb(page, await measure(page, block));
             const thin = await thickness(page, await measure(page, block));
             await boxMark(page, block, "data-cmux-scrolling", false);
+            await faded(page, block);
             await painted(page);
             const rested = await thumb(page, await measure(page, block));
             // The pointer comes down to the bar.

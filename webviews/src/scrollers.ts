@@ -88,8 +88,14 @@ export function followShownScrollerFade(
 ): () => void {
   const { property: INK_PROPERTY, full } = ink;
   const view = element.ownerDocument.defaultView;
-  // A view that draws no frames (a test page made without them) runs no fade.
-  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
+  // A view that draws no frames (a test page made without them, or one that stubs only
+  // requestAnimationFrame: the stop function cancels a frame) runs no fade.
+  if (
+    !view?.MutationObserver ||
+    typeof view.requestAnimationFrame !== "function" ||
+    typeof view.cancelAnimationFrame !== "function"
+  )
+    return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>

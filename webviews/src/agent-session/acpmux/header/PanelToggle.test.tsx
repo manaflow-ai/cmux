@@ -40,20 +40,17 @@ afterEach(() => {
   saved.clear();
 });
 
-function glyph(shown: boolean): string {
-  const container = installDom();
-  root = createRoot(container);
+// One DOM per test: both renders share it, so cleanup restores the real globals and closes it.
+function glyph(container: HTMLElement, shown: boolean): string {
   act(() => root!.render(<PanelToggle label="Session Info" shown={shown} onToggle={() => {}} />));
-  const svg = container.querySelector("svg")!;
-  const markup = svg.innerHTML;
-  act(() => root?.unmount());
-  root = undefined;
-  return markup;
+  return container.querySelector("svg")!.innerHTML;
 }
 
 test("an open panel's toggle draws the same glyph, at the same weight, as a closed one", () => {
-  const off = glyph(false);
-  const on = glyph(true);
+  const container = installDom();
+  root = createRoot(container);
+  const off = glyph(container, false);
+  const on = glyph(container, true);
   expect(off).toContain("stroke-width");
   expect(on).toBe(off);
 });

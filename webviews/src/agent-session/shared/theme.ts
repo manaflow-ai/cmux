@@ -1,6 +1,7 @@
 import { MOTION_MS, MOTION_SEND_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
+import { configureThemeSlots } from "../../slots/registry";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
@@ -32,6 +33,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   motion: null,
   statusIndicators: null,
   workingLook: null,
+  slots: null,
   subagentTray: null,
   subagentTrayPlacement: null,
 };
@@ -67,6 +69,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // How agent work shows on running rows (conversation.css WORKING-LOOK).
   if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
   else delete root.dataset.workingLook;
+  // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
+  // a look without `slots` (every host today) leaves every slot on its default.
+  configureThemeSlots(theme.slots);
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

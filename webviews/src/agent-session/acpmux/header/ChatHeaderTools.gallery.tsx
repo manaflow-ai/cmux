@@ -15,6 +15,7 @@ import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
+import { FORK_ICON } from "../icons/forkIcon";
 
 type HeaderToolsProps = {
   /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
@@ -74,8 +75,8 @@ const menuRows = (): ChatMenuItem[] => [
   },
   "separator",
   { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
-  { key: "forkTo", label: "Fork to…", icon: "agent.fork", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: FORK_ICON, onSelect: () => undefined },
+  { key: "forkTo", label: "Fork to…", icon: FORK_ICON, onSelect: () => undefined },
   "separator",
   {
     key: "continue",
@@ -694,7 +695,7 @@ const motionVariants = {
     play: motionArrive(50),
   },
   "motion-spring-arrive-120ms": {
-    note: "Header motion: spring. 120 ms in: Changes overshoots a touch, its neighbours nearly there.",
+    note: "Header motion: spring. 120 ms in: Changes is almost at full size (never past it), its neighbours nearly there.",
     props: { ...motionBase("animated-spring"), hasChanges: false },
     play: motionArrive(120),
   },

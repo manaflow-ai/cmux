@@ -115,6 +115,20 @@ test("a successful delayed save preserves edits typed during the write and allow
   }
 });
 
+// Codex's review of #39247 at 5e952b6 (F1): text changed from the file holds the page against app
+// health's repair reload (pageHealth.ts reports the mark with its beat); the file's own text does not.
+test("the editor marks unsaved text for app health until it matches the file", async () => {
+  const view = await editor();
+  try {
+    const marked = () => view.container.querySelector("textarea")!.hasAttribute("data-cmux-unsaved-edits");
+    expect(marked()).toBe(false);
+    await view.type("unsaved");
+    expect(marked()).toBe(true);
+  } finally {
+    view.close();
+  }
+});
+
 test("a failed save leaves the draft editable and can be retried", async () => {
   const view = await editor();
   try {

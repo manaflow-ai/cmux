@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -154,7 +155,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(rest.length, "the box draws a rim").toBe(1);
           expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
           expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
-          await page.focus(`#${field}`);
+          await focusByKey(page, `#${field}`);
           const focused = await rims(page, box);
           // No focus ring: the same one rim at the same width, its tone a step brighter.
           expect(focused.length, "focus draws one rim").toBe(1);
@@ -170,7 +171,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${box}: focused, the rim still clears with appearance.borders none`, async () => {
       const page = await open(2);
       await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
-      await page.focus(`#${field}`);
+      await focusByKey(page, `#${field}`);
       for (const { rgba } of await rims(page, box))
         expect(rgba[3], `${box} focused rim alpha with borders none`).toBe(0);
       await page.close();
@@ -181,7 +182,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       const page = await open(2);
       await page.emulateMedia({ contrast: "more" });
       const rest = await rims(page, box);
-      await page.focus(`#${field}`);
+      await focusByKey(page, `#${field}`);
       const focused = await rims(page, box);
       const width = await page.evaluate(() =>
         parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-focus-ring-width")),
@@ -208,7 +209,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           stripRim: getComputedStyle(document.getElementById("strip")!).boxShadow,
         }));
       const rest = await edge();
-      await page.focus("#strip-composer-field");
+      await focusByKey(page, "#strip-composer-field");
       const focused = await edge();
       expect(focused.layer, "no rim layer round the strip").toBe("none");
       expect(focused.stripRim, "the strip draws no rim").toBe("none");
@@ -227,7 +228,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           card: getComputedStyle(document.getElementById("queue-composer")!, "::before").boxShadow,
         }));
       const rest = await edges();
-      await page.focus("#queue-composer-field");
+      await focusByKey(page, "#queue-composer-field");
       const focused = await edges();
       expect(tone(focused.queue), "the queue's edge takes the focused tone").not.toBe(tone(rest.queue));
       expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));

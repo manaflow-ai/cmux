@@ -285,11 +285,14 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -uo pipefail
-          selector="$RUNNER_TEMP/delta_since_green.py"
+          # The selector and the HTTP transport it imports (deadline_http.py), from the base revision.
+          mkdir -p "$RUNNER_TEMP/delta-selector"
+          selector="$RUNNER_TEMP/delta-selector/delta_since_green.py"
           if ! git show HEAD^1:scripts/ci/delta_since_green.py > "$selector" 2>/dev/null; then
             echo "The base revision has no delta selector; routing the pull request diff."
             exit 0
           fi
+          git show HEAD^1:scripts/ci/deadline_http.py > "$RUNNER_TEMP/delta-selector/deadline_http.py" 2>/dev/null || true
           python3 -I "$selector" --repository "$GITHUB_REPOSITORY" \
             --merge-sha "$MERGE_SHA" --head-sha "$HEAD_SHA" \
             --pull-request "$PR_NUMBER" --base-ref "$BASE_REF" \

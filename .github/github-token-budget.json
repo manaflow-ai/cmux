@@ -181,6 +181,7 @@
     "ios-testflight.yml: Publish the iOS source archive": "baseline 2026-11-04",
     "iroh-v2-production-drift.yml: Open, update, or close the drift issue": "baseline 2026-11-04",
     "labels-sync.yml: Create or update the labels in the manifest": "baseline 2026-11-04",
+    "language-boundaries.yml: Check the changed files against the language boundaries": "one PR file listing per run (1 call per 100 changed files); only with the leo-approved-port label on, its issue events, comments and reviews (3 more calls, plus one per extra 100)",
     "machine-vault-e2e.yml: Download the published cmux CLI": "baseline 2026-11-04",
     "machine-vault-e2e.yml: Refuse a channel without the vault": "baseline 2026-11-04",
     "main-compile-probe.yml: Adopt the nearest main seed": "baseline 2026-11-04",

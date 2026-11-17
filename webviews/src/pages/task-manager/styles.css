@@ -1,0 +1,185 @@
+/* The Task Manager page: a full-height table of processes over the shared page backdrop
+   (pageBase.css), and a footer with the total and Kill Process. The look of the app's list pages: no
+   card, hairline separators, rows on the control-row height, selection the foreground at low alpha
+   (--page-selection), numbers right-aligned in tabular digits. A row the app will not end (the app, a
+   daemon, another machine) reads in the secondary text. */
+.tm-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+/* The row menu's host (ui/ContextMenu) is the scroll box. */
+.tm-table-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* A row revealed by the arrow keys stops below the sticky header, not under it. */
+  scroll-padding-top: calc(var(--ds-control-row) + 1px);
+}
+
+/* Task and Process share the room; the numbers keep columns sized to their text (the PID column
+   fits a remote `host:pid`). Below the table's minimum width it scrolls sideways in .tm-table-scroll,
+   header and all, so Task keeps about 140px and Process about 110px: names stay readable at the
+   narrowest pane instead of shrinking to a letter. */
+.tm-table {
+  width: 100%;
+  min-width: 490px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  outline: none;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.tm-table th[data-column="pid"] {
+  width: 96px;
+}
+
+.tm-table th[data-column="cpu"] {
+  width: 60px;
+}
+
+.tm-table th[data-column="memory"] {
+  width: 84px;
+}
+
+/* Narrow: Task holds its 140px and Process takes the rest (110px or more within the minimum width);
+   wider, the two split the room evenly. */
+@media (max-width: 540px) {
+  .tm-table th[data-column="task"] {
+    width: 140px;
+  }
+}
+
+.tm-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-raised);
+  padding: 0;
+  background: var(--page-elevated);
+  border-bottom: 1px solid var(--page-separator);
+  font-weight: 400;
+  text-align: start;
+}
+
+.tm-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: 100%;
+  height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  cursor: default;
+}
+
+.tm-numeric .tm-sort {
+  flex-direction: row-reverse;
+}
+
+.tm-sort:hover {
+  background: var(--page-hover);
+}
+
+th[aria-sort="ascending"] .tm-sort,
+th[aria-sort="descending"] .tm-sort {
+  color: var(--page-text);
+}
+
+.tm-sort-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-sort-mark {
+  flex: none;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+.tm-row {
+  height: var(--ds-control-row);
+  cursor: default;
+}
+
+.tm-row td {
+  padding: 0 var(--ds-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.tm-row:hover {
+  background: var(--page-hover);
+}
+
+.tm-row[aria-selected="true"] {
+  background: var(--page-selection);
+}
+
+.tm-row[data-refused] {
+  color: var(--page-text-2);
+}
+
+.tm-numeric {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Another machine's `host:pid`: the host gives way first, the pid never does. */
+.tm-remote-id {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.tm-remote-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-remote-pid {
+  flex: none;
+  white-space: nowrap;
+}
+
+.tm-empty {
+  position: absolute;
+  inset: var(--ds-space-6) 0 auto;
+  margin: 0;
+  text-align: center;
+  color: var(--page-text-3);
+}
+
+.tm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2);
+  border-top: 1px solid var(--page-separator);
+}
+
+.tm-total {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
+}

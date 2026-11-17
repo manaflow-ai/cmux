@@ -23,6 +23,10 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let trayHandlePath = ["agentPane", "display", "trayHandle"]
     nonisolated static let trayHandleDefault = "middle"
     nonisolated static let trayHandleValues = ["left", "middle", "right"]
+    /// `agentPane.display.unreadBanner`: How the floating unread banner shows at the transcript's top start while the "New" line is off screen (webviews conversation/SinceDivider.tsx UnreadBanner, design/transcript-overlays.md; Leo, 2026-11-10: "you can have the collapsed view. You can have the expanded view. You can have, like, right click to just hide it completely. You can right click to bring it back"). The banner's chevron and the right-click menus of the banner and the line write it.
+    nonisolated static let unreadBannerPath = ["agentPane", "display", "unreadBanner"]
+    nonisolated static let unreadBannerDefault = "expanded"
+    nonisolated static let unreadBannerValues = ["expanded", "collapsed", "off"]
     /// `agentPane.display.senderIcon.lead`: A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: "you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like"). Which of the two is big.
     nonisolated static let senderIconLeadPath = ["agentPane", "display", "senderIcon", "lead"]
     nonisolated static let senderIconLeadDefault = "family"
@@ -79,6 +83,9 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
+    nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
+    nonisolated static let promptCoachDefault = true
     /// `agentPane.display.statusVerbs.mode`: The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.
     nonisolated static let statusVerbsModePath = ["agentPane", "display", "statusVerbs", "mode"]
     nonisolated static let statusVerbsModeDefault = "thinking"

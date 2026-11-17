@@ -1,6 +1,6 @@
 /**
  * The Cloud journey's chaos leg (`cloud-journey.ts --chaos`): faults injected into a live machine's carrier mid-turn,
- * each timed from the moment its cause ends until the person's client answers again, with what the person saw.
+ * each timed from the moment its cause ends until the person sees the reply to what they sent, with what they saw.
  *
  * One `cmux carrier dial` stays open the whole leg, the way the app's carrier serve socket holds one. A pinger writes
  * `identify` on it every PING_MS, and every answer is timed. When the dial ends (the session is gone, which a daemon
@@ -16,10 +16,15 @@
  *   supervisor (cmux-host) starts it again;
  * - `agent daemon restart`: acpmux on the machine is killed with SIGKILL mid-turn and acpmux.service brings it back.
  *
- * Per fault it records: recover_ms (from the cause's end to the first identify answered after it), how the carrier came
- * back (resumed in the same session, or a new dial), and the turn's outcome from `acp history` (completed once, missing,
- * or started twice: a lost or duplicated prompt). Faults it cannot inject from the machine (the vault, an image roll
- * during a spare claim) are recorded as not run with the reason.
+ * Per fault it records: felt_ms, the time the person feels: at the cause's end a second chat (FeltChat: idle, on its
+ * own dial, as the person's other chat tab) sends a prompt, and felt_ms runs from that send to the first record of the
+ * agent's reply the client receives (feltAfterSend). A send the dial cannot take yet is tried again with the same
+ * prompt_id until it is, as the app holds a send while it reconnects, so the clock starts at the person's send, not
+ * at the connection's return. recover_ms is the network's part of it (from the cause's end to the first identify
+ * answered after it). Also how the carrier came back (resumed in the same session, or a new dial), and the turn's
+ * outcome from `acp history` (completed once, missing, or started twice: a lost or duplicated prompt). Faults it
+ * cannot inject from the machine (the vault, an image roll during a spare claim) are recorded as not run with the
+ * reason.
  *
  * And whether the person lost output. A second dial is the person's chat as the app holds it (ChatClient: a chat tab
  * on the machine's store, `agent-session-start`, `agent-session-prompt`, `agent-session-attach` and its live records,
@@ -38,6 +43,9 @@ export type ChaosExec = (command: string, timeoutMs?: number) => Promise<{ code:
 export type ChaosResult = {
   fault: string;
   outcome: "ok" | "fail" | "not run";
+  /** From a send at the cause's end to the first record of the reply the client received: the person's felt time. */
+  felt_ms: number | null;
+  /** From the cause's end to the first identify the carrier answered: the connection's part of felt_ms. */
   recover_ms: number | null;
   carrier: string;
   turn: string;
@@ -366,7 +374,7 @@ export async function resolveChatSurface(request: (frame: Record<string, unknown
 }
 
 /** One record as the client received it, and how: on the live push or in a page it read after (re)attaching. */
-type Received = { seq: number; record: any; via: "live" | "page" };
+type Received = { seq: number; record: any; via: "live" | "page"; at: number };
 
 /**
  * The person's chat as the app holds it, over its own carrier dial: a new chat tab on the machine's own store
@@ -399,7 +407,12 @@ export class ChatClient {
   lastError = "";
   private attached = false;
   private paging = false;
-  private stash: any[] = [];
+  private stash: Array<{ record: any; at: number }> = [];
+
+  /** Every record the client has received from index `from` on, with the live pushes still held while a page loads. */
+  arrivals(from: number): Array<{ seq: number; record: any; at: number }> {
+    return [...this.received.slice(from), ...this.stash.map((r) => ({ seq: Number(r.record?.seq), record: r.record, at: r.at }))];
+  }
   private stopped = false;
   private reattaching = false;
   readonly dial: DialLike;
@@ -429,10 +442,14 @@ export class ChatClient {
     await this.attach(undefined);
   }
 
-  /** The prompt, as the app sends it. */
-  async prompt(text: string): Promise<void> {
-    await this.resolveSurface();
-    answerOf(await this.dial.request({ cmd: "agent-session-prompt", surface: this.surface, prompt_id: `chaos-${Date.now().toString(36)}`, text }, 60_000));
+  /**
+   * The prompt, as the app sends it; a send tried again keeps its `promptId`, so acpmux takes it once. Each request
+   * waits at most until `until` (an absolute time), from the budget left when it goes out.
+   */
+  async prompt(text: string, promptId = `chaos-${Date.now().toString(36)}`, until = Date.now() + 90_000): Promise<void> {
+    const left = (cap: number) => Math.max(1, Math.min(cap, until - Date.now()));
+    await this.resolveSurface(left(30_000));
+    answerOf(await this.dial.request({ cmd: "agent-session-prompt", surface: this.surface, prompt_id: promptId, text }, left(60_000)));
   }
 
   /** The highest counting step the client has seen for `tag`. */
@@ -452,7 +469,7 @@ export class ChatClient {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
       if (!this.attached) return;
-      if (this.paging) this.stash.push(m.record);
+      if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
       else this.live(m.record);
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
@@ -462,12 +479,12 @@ export class ChatClient {
     }
   }
 
-  private live(record: any): void {
+  private live(record: any, at = Date.now()): void {
     if (record.seq <= this.held) {
       this.overlaps += 1;
       return;
     }
-    this.received.push({ seq: record.seq, record, via: "live" });
+    this.received.push({ seq: record.seq, record, via: "live", at });
     this.held = record.seq;
   }
 
@@ -479,8 +496,8 @@ export class ChatClient {
   }
 
   /** Looks the chat tab's current surface up again (it changes when the session host restarts). */
-  private async resolveSurface(): Promise<void> {
-    const now = await resolveChatSurface((f) => this.dial.request(f), this.tab, this.session);
+  private async resolveSurface(timeoutMs = 30_000): Promise<void> {
+    const now = await resolveChatSurface((f) => this.dial.request(f, timeoutMs), this.tab, this.session);
     if (now === null) throw new Error(`the chat's tab (${this.tab || `session ${this.session}`}) is not in the machine's tree`);
     if (now === this.surface) return;
     this.ctx.log?.(`chaos: the chat's tab is now surface ${now} (was ${this.surface})`);
@@ -511,6 +528,7 @@ export class ChatClient {
   private async attach(after: number | undefined): Promise<void> {
     this.paging = true;
     this.stash = [];
+    const from = this.received.length;
     try {
       const page = answerOf(await this.dial.request({ cmd: "agent-session-attach", surface: this.surface, ...(after === undefined ? {} : { after_seq: after }), limit: 500 }));
       this.attaches += 1;
@@ -526,10 +544,22 @@ export class ChatClient {
         more = this.take(answerOf(await this.dial.request({ cmd: "agent-session-events", surface: this.surface, after_seq: this.held, limit: 500 })));
       }
     } finally {
-      this.paging = false;
-      const held = this.stash;
-      this.stash = [];
-      for (const r of held) this.live(r);
+      this.flushStash(from);
+    }
+  }
+
+  /**
+   * The live pushes held while a page loaded, in order. A push the page also carried (from index `pageFrom` of
+   * `received`) is dropped as an overlap, and the page's copy keeps the push's earlier arrival time.
+   */
+  private flushStash(pageFrom: number): void {
+    this.paging = false;
+    const held = this.stash;
+    this.stash = [];
+    for (const r of held) {
+      const copy = r.record.seq <= this.held ? this.received.slice(pageFrom).find((x) => x.seq === r.record.seq) : undefined;
+      if (copy) copy.at = Math.min(copy.at, r.at);
+      this.live(r.record, r.at);
     }
   }
 
@@ -538,7 +568,7 @@ export class ChatClient {
     for (const e of events) {
       if (typeof e?.seq !== "number") continue;
       // Kept even when already held: a page that repeats a seq is a replay that started too early.
-      this.received.push({ seq: e.seq, record: e, via: "page" });
+      this.received.push({ seq: e.seq, record: e, via: "page", at: Date.now() });
       this.held = Math.max(this.held, e.seq);
     }
     return page?.hasMore === true && events.length > 0;
@@ -623,6 +653,58 @@ export class SeqTerminal {
   }
 }
 
+/** The record kinds that are the agent's reply as the chat draws it; the echo of the person's own prompt is not. */
+const REPLY_KINDS = new Set(["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan"]);
+
+/** Whether a chat record (a journal line or a live `session/update`) is part of the agent's reply. */
+export function isReply(record: any): boolean {
+  const update = record?.msg?.params?.update ?? record?.params?.update ?? record?.update;
+  return REPLY_KINDS.has(String(record?.kind ?? update?.sessionUpdate ?? ""));
+}
+
+/** The felt chat's prompt marker: a prompt the stub answers with its short reply, never the counting turn. */
+export const feltMarker = (tag: string) => `[chaos-felt ${tag}]`;
+
+export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: number; error: string };
+
+/**
+ * The person's felt time: `text` sent on `chat` now, and the time until the client receives the first record of the
+ * agent's reply (isReply) after it. A send the dial refuses or never answers (the carrier is still down) is tried
+ * again with the same prompt_id, as the app holds a send while it reconnects; the clock keeps running from the first
+ * try. `ack_ms` is when the machine took the prompt. Null felt_ms when no reply came within `deadlineMs`.
+ *
+ * Only a record past `afterSeq` (the journal's last seq of the chat's previous turn) and past what the chat held at
+ * the send is this send's reply: a late or replayed record of an earlier turn never stops the clock. A try never
+ * waits past the deadline, and a reply received after it does not count.
+ */
+export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0): Promise<Felt> {
+  const sentAt = Date.now();
+  const from = chat.received.length;
+  const held = Math.max(chat.held, afterSeq);
+  const promptId = `chaos-felt-${sentAt.toString(36)}`;
+  let ack: number | null = null;
+  let tries = 0;
+  let error = "";
+  for (const until = sentAt + deadlineMs; ;) {
+    // The earliest arrival of any reply record, a live push still held behind a loading page included.
+    const times = chat.arrivals(from).filter((r) => r.seq > held && r.at >= sentAt && r.at <= until && isReply(r.record)).map((r) => r.at);
+    if (times.length) return { felt_ms: Math.min(...times) - sentAt, ack_ms: ack, tries, error };
+    if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
+    if (ack === null) {
+      tries += 1;
+      try {
+        await chat.prompt(text, promptId, until);
+        ack = Date.now() - sentAt;
+      } catch (e) {
+        error = (e as Error).message;
+        await sleep(500);
+      }
+      continue;
+    }
+    await sleep(50);
+  }
+}
+
 /** How many turns of the session started with this marker, and whether the last one ended. */
 async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ started: number; running: boolean; status: string; detail: string }> {
   const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(session)} --limit 20 2>&1`, 45_000);
@@ -683,7 +765,9 @@ export function journalCommand(session: string, baseline: number): string {
     "    if k in ('tool_call', 'tool_call_update'): out['msg'] = {'params': {'update': ((e.get('msg') or {}).get('params') or {}).get('update')}}",
     "    print(json.dumps(out))",
   ].join("\n");
-  return `"$c" acp tail ${shq(session)} --since ${baseline} 2>/dev/null | python3 -I -c ${shq(py)}; echo "@@exit $?"`;
+  // `acp tail` writes to a file first, so its own failure is the exit the line reports (sh has no pipefail).
+  return `t=$(mktemp) && { "$c" acp tail ${shq(session)} --since ${baseline} > "$t" 2>/dev/null; rc=$?; ` +
+    `python3 -I -c ${shq(py)} < "$t"; py=$?; rm -f "$t"; [ "$rc" -eq 0 ] || py=$rc; echo "@@exit $py"; }`;
 }
 
 async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number): Promise<SeqEvent[] | string> {
@@ -697,6 +781,17 @@ async function readJournal(ctx: ChaosContext, tag: string, session: string, base
     } catch { /* the @@exit line */ }
   }
   return events;
+}
+
+/**
+ * Where the felt chat's next send is measured from: the journal's last seq once its previous turn has ended
+ * (`ended`), so no record of that turn can stop the next clock. Null when that end is not verified (the turn did not
+ * end, or the journal could not be read): the next felt send is then not measured.
+ */
+async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
+  if (!ended) return null;
+  const journal = await readJournal(ctx, "", session, after);
+  return typeof journal === "string" ? null : Math.max(after, ...journal.map((e) => e.seq));
 }
 
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
@@ -745,17 +840,37 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
   const carrier = new Carrier(ctx);
   carrier.start();
   const chat = new ChatClient(ctx);
-  const failed = (fault: string, detail: string): ChaosResult => ({ fault, outcome: "fail", recover_ms: null, carrier: "", turn: "", detail });
+  // The person's other chat tab, idle: what they send in it at each fault's end times the felt wait (feltAfterSend).
+  const felt = new ChatClient(ctx);
+  const failed = (fault: string, detail: string): ChaosResult => ({ fault, outcome: "fail", felt_ms: null, recover_ms: null, carrier: "", turn: "", detail });
   try {
     const first = await carrier.answeredAfter(0, 60_000);
     if (first === null) throw new Error("the carrier dial never answered identify before the faults");
     // The person's chat, opened and read over its own carrier dial the way the app does. Without it no fault can be
     // judged for lost output, so each fails with the reason.
-    const chatError = await chat.open(ctx.harness ?? "claude").then(() => "", (e: Error) => e.message);
-    if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface} over its own carrier dial`);
+    const chatError = await chat.open(ctx.harness ?? "claude").then(() => "", (e: Error) => e.message)
+      || await felt.open(ctx.harness ?? "claude").then(() => "", (e: Error) => `the felt chat: ${e.message}`);
+    // One reply on the felt chat before any fault, so the first fault's felt time holds no cold agent start.
+    // Each felt send counts only records past the felt chat's previous turn (feltFloor; null: not verified).
+    let feltFloor: number | null = felt.held;
+    let warmError = "";
+    if (!chatError) {
+      const warmMarker = feltMarker(`${safeTag(ctx.tag)}-warm`);
+      const warm = await feltAfterSend(felt, `${warmMarker} warm up.`, RECOVER_DEADLINE_MS, feltFloor);
+      const warmTurn = await turnOutcome(ctx, warmMarker, felt.session);
+      feltFloor = await feltBoundary(ctx, felt.session, feltFloor, warmTurn.ok);
+      if (warm.felt_ms === null) warmError = `the felt chat's warm-up got no reply within ${RECOVER_DEADLINE_MS / 1000} s${warm.error ? ` (${warm.error})` : ""}`;
+      else if (feltFloor === null) warmError = `the felt chat's warm-up turn has no verified end (${warmTurn.text})`;
+      else ctx.log?.(`chaos: the felt chat's warm-up reply began after ${warm.felt_ms} ms`);
+    }
+    if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface}, its felt chat ${felt.session} on ${felt.surface}, each over its own carrier dial`);
     for (const [i, f] of FAULTS.entries()) {
       if (chatError) {
         out.push(failed(f.name, `the client's chat could not be opened over the carrier: ${chatError}`));
+        continue;
+      }
+      if (warmError) {
+        out.push(failed(f.name, warmError));
         continue;
       }
       const tag = `${safeTag(ctx.tag)}-${i}`;
@@ -801,21 +916,33 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       }
       const healed = causeEndedAt(injectedAt, Date.now(), f.secs);
       await sleep(Math.max(0, healed - Date.now()));
+      // The person sends as the cause ends; the connection is timed alongside.
+      const floor = feltFloor;
+      const feltSent: Promise<Felt> = floor === null
+        ? Promise.resolve({ felt_ms: null, ack_ms: null, tries: 0, error: "not sent: the felt chat's previous turn has no verified end" })
+        : feltAfterSend(felt, `${feltMarker(tag)} ${f.name}: reply.`, RECOVER_DEADLINE_MS, floor);
       const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
       const recover = back === null ? null : back - healed;
+      const feel = await feltSent;
+      const feltTurn = floor === null ? { ok: false, text: "not sent" } : await turnOutcome(ctx, feltMarker(tag), felt.session);
+      feltFloor = floor === null ? null : await feltBoundary(ctx, felt.session, floor, feltTurn.ok);
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
       const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true);
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
-      const ok = recover !== null && turn.ok && loss.ok && terminal.ok;
+      const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
+      const feltText = feel.felt_ms === null
+        ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
+        : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"})`;
       const result: ChaosResult = {
         fault: f.name,
         outcome: ok ? "ok" : "fail",
+        felt_ms: feel.felt_ms,
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `injected ${when}; ${recover === null ? `no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
+        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
       };
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
@@ -825,8 +952,9 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
   } finally {
     carrier.stop();
     chat.stop();
+    felt.stop();
   }
-  for (const n of NOT_INJECTED) out.push({ fault: n.name, outcome: "not run", recover_ms: null, carrier: "", turn: "", detail: n.why });
+  for (const n of NOT_INJECTED) out.push({ fault: n.name, outcome: "not run", felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why });
   return out;
 }
 
@@ -1044,16 +1172,24 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 
-/** The leg as one synthetic-probe row (cmuxterm-hq probes.py): ok only when every injected fault passed. */
+/**
+ * The leg as one synthetic-probe row (cmuxterm-hq probes.py): ok only when every injected fault passed. `ms` is the
+ * slowest felt time (send to the reply's first record), the number the person lives; `network_ms` the slowest
+ * connection recovery.
+ */
 export function chaosProbeRow(probe: string, results: ChaosResult[], run?: string, at = new Date()): Record<string, unknown> {
   const ran = results.filter((r) => r.outcome !== "not run");
   const failed = ran.filter((r) => r.outcome === "fail");
-  const times = ran.map((r) => r.recover_ms).filter((n): n is number => typeof n === "number");
+  const slowest = (key: "felt_ms" | "recover_ms") => {
+    const times = ran.map((r) => r[key]).filter((n): n is number => typeof n === "number");
+    return times.length ? Math.max(...times) : null;
+  };
   return {
     probe,
     at: at.toISOString().replace(/\.\d+Z$/, "Z"),
     outcome: ran.length && !failed.length ? "ok" : "fail",
-    ms: times.length ? Math.max(...times) : null,
+    ms: slowest("felt_ms"),
+    network_ms: slowest("recover_ms"),
     error: failed.length ? failed.map((r) => `${r.fault}: ${r.detail}`).join("; ").slice(0, 500) : ran.length ? null : "no fault ran",
     faults: results,
     ...(run ? { run } : {}),

@@ -80,8 +80,10 @@ function boxes(css: string) {
     const declared = (property: string) =>
       [...body!.matchAll(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;!]+)`, "g"))].at(-1)?.[1]?.trim();
     const radius = declared("border-radius");
-    const height = declared("height");
-    const width = declared("width");
+    // A box sized in logical properties (block-size and inline-size, as the theme slots' marks
+    // are, slots/thinkingIndicator/thinkingIndicator.css) is as square as one sized in physical ones.
+    const height = declared("height") ?? declared("block-size");
+    const width = declared("width") ?? declared("inline-size");
     if (!radius && !height && !width) continue;
     for (const selector of selectors!.split(/,(?![^(]*\))/).map((part) =>
       part
@@ -128,6 +130,16 @@ describe("capsule detection", () => {
     [
       "a pill of two tokens",
       ".control { width: var(--ds-control-wide); height: var(--ds-control-primary); border-radius: 999px; }",
+      true,
+    ],
+    [
+      "a circle sized in logical properties",
+      ".control { inline-size: 0.375em; block-size: 0.375em; border-radius: 999px; }",
+      false,
+    ],
+    [
+      "a pill sized in logical properties",
+      ".control { inline-size: 2em; block-size: 1em; border-radius: 999px; }",
       true,
     ],
     ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],

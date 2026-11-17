@@ -115,7 +115,7 @@
 }
 .acpmux-task-action {
   flex: none;
-  height: 24px;
+  height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   font-weight: var(--weight-regular);

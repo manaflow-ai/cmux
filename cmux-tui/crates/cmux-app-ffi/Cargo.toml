@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the cmux SDK daemon client and the Chrome cookie sync"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client and the Chrome cookie sync"
 
 # Own workspace, like its members: built only for the app xcframework
 # (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
@@ -32,6 +32,8 @@ cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
 cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 # How the app starts and keeps its daemon (src/ffi.rs: JSON ops, the watch, stderr lines).
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
+cmux-health-core = { path = "../cmux-health-core" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }

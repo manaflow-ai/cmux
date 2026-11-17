@@ -57,6 +57,10 @@ import Foundation
             guard let screen = store.screensByHandle[handle], screen.pinned != pinned else { return nil }
             screen.pinned = pinned
             return .screenPinned(screen: handle, pinned: !pinned)
+        case .setDividerVisible(let handle, let split, let visible):
+            guard let screen = store.screensByHandle[handle], screen.hiddenDividers.contains(split) == visible else { return nil }
+            screen.setDivider(split, visible: visible)
+            return .dividerVisible(screen: handle, split: split, visible: !visible)
         case .renameWorkspace(let key, let name):
             guard let workspace = store.workspacesByKey[key], workspace.name != name else { return nil }
             let previous = workspace.name
@@ -108,6 +112,10 @@ import Foundation
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
+        case .zoomPane(let pane, let zoomed):
+            return zoom(pane, zoomed: zoomed, in: store)
+        case .swapPanes(let leading, let trailing):
+            return swap(leading: leading, trailing: trailing, in: store)
         case .bindAgentSession(let surface, let session, let harness):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession,
                   record.session != session || (harness != nil && record.harness != harness) else { return nil }
@@ -194,6 +202,12 @@ import Foundation
             store.screensByHandle[screen]?.icon = icon
         case .screenPinned(let screen, let pinned):
             store.screensByHandle[screen]?.pinned = pinned
+        case .screenZoom(let screen, let pane):
+            store.screensByHandle[screen]?.zoomedPane = pane
+        case .swappedPanes(let screen, let first, let second):
+            if let screen = store.screensByHandle[screen] { exchange(first, second, in: screen) }
+        case .dividerVisible(let screen, let split, let visible):
+            store.screensByHandle[screen]?.setDivider(split, visible: visible)
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
         case .workspaceColor(let key, let color):

@@ -200,6 +200,44 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
     assert!(started.elapsed() < Duration::from_secs(10));
 }
 
+/// The service refusing the access token (401 on the signaling upgrade) comes
+/// out typed, `Refused` with code `unauthorized`, for every transport: the app
+/// refreshes the token once on it, and a refused fresh token is a revoked
+/// session that stops redialing (reliability matrix `pairing_revoked_token`).
+/// Before, it was `Signaling` with the status only in the message.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_token_is_typed_unauthorized() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    for transport in [Transport::WireGuard, Transport::WebRtc] {
+        let result = connect_inner(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                // The fake backend admits only `user:<name>` tokens.
+                token: "revoked".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: uuid::Uuid::new_v4().to_string(),
+                transport,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                video_lane: false,
+                webrtc_media: false,
+                ultra_on_cellular: false,
+            },
+            None,
+        )
+        .await;
+        match result {
+            Err(cmux_mobile_link_ffi::CmuxMobileError::Refused { code, .. }) => {
+                assert_eq!(code, cmux_mobile_link_ffi::UNAUTHORIZED, "{transport:?}");
+            }
+            Err(other) => panic!("{transport:?}: a refused token gave {other:?}"),
+            Ok(_) => panic!("{transport:?}: a refused token connected"),
+        }
+    }
+}
+
 /// Relay only over WebRTC needs TURN; the fake backend offers none, so the
 /// dial fails at once instead of waiting for ICE to time out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

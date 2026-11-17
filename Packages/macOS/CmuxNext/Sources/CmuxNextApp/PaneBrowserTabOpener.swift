@@ -213,10 +213,13 @@ extension PaneBrowserTabOpener {
     /// takes the focus once it is there (Leo 2026-11-03).
     private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
                              profile: String?, notice: String?) {
-        let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
-        let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
+        let controller = controller, cache = controller.services.cache, browserTabs = cache.browserTabs, model = controller.pane, machine = controller.daemon.machineID
+        let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion)
         let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
-        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID) }
+        let send = BenchSpans.measure("split.intend") { // an agent's split marks its new pane's pages agent-driven until the reply names its tab
+            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: split.agentDriven ? { @MainActor in cache.markAgentDriven(pane: $0, machine: machine) } : nil,
+                              settled: split.agentDriven ? { @MainActor in cache.settleAgentDriven(pane: $0, machine: machine, surface: $1) } : nil)
+        }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {

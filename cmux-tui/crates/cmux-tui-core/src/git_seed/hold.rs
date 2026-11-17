@@ -1,4 +1,4 @@
-//! `git-seed-hold-v1`: the machine holds a folder's sync barrier for a copy this Mac streams
+//! `git-seed-hold-v2`: the machine holds a folder's sync barrier for a copy this Mac streams
 //! in itself (`cmux link sync push`: a folder with no GitHub remote, which no seed can clone),
 //! so the chat may open at the copy's head while every tool waits for the whole folder
 //! (cmuxterm-hq goals/cloud-no-network-wait.md, step 6).
@@ -87,6 +87,11 @@ pub(super) struct JobParams {
     pub ok: Option<bool>,
 }
 
+/// Whether the hold still runs: a copy's write ([`super::GitSeedService::under_hold`]) reads it
+/// for as long as it writes, and the owner thread sets it false before the barrier goes. So a
+/// write lands while the hold runs, or not at all.
+pub(super) type Alive = std::sync::Arc<std::sync::RwLock<bool>>;
+
 /// What the hold's owner thread is asked.
 pub(super) enum Op {
     /// Any op on the job: the lease starts again.
@@ -95,10 +100,15 @@ pub(super) enum Op {
     End(bool, mpsc::Sender<Result<(), Failed>>),
 }
 
-/// Whether `folder` may take a hold: absent, or an empty folder (the copy goes to a new folder of
-/// its own; a hold never stands over files it did not write).
+/// Whether `folder` may take a hold: absent, an empty folder (the copy goes to a new folder of
+/// its own; a hold never stands over files it did not write), or one whose last sync failed
+/// (a copy that ended short or went quiet): no tool runs in such a folder until a sync
+/// completes it, so the copy's retry holds it again and repairs it, where a plain copy would
+/// leave it failed.
 pub(super) fn fresh(folder: &Path) -> Result<(), SeedRefusal> {
-    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) {
+    use cmux_git::sync_barrier::{Probe, probe};
+    let failed = || matches!(probe(folder), Ok(Probe::Incomplete));
+    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) && !failed() {
         return Err(SeedRefusal {
             code: "seed.folder_not_empty",
             message: "the folder exists and is not empty".into(),
@@ -115,13 +125,14 @@ pub(super) fn spawn(
     head: HeadFirst,
     lease: Duration,
     barrier: Barrier,
+    alive: Alive,
     done: impl FnOnce() + Send + 'static,
 ) -> Result<mpsc::Sender<Op>, SeedRefusal> {
     let (send, ops) = mpsc::channel();
     std::thread::Builder::new()
         .name("cmux-git-seed-hold".into())
         .spawn(move || {
-            own(&job, &folder, &head, lease, barrier, &ops);
+            own(&job, &folder, &head, lease, barrier, &alive, &ops);
             done();
         })
         .map_err(|error| SeedRefusal::bad_request(format!("cannot start the hold: {error}")))?;
@@ -136,8 +147,11 @@ fn own(
     head: &HeadFirst,
     lease: Duration,
     mut barrier: Barrier,
+    alive: &Alive,
     ops: &mpsc::Receiver<Op>,
 ) {
+    // Waits out a write in flight; none lands after.
+    let stop_writes = || *alive.write().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
     loop {
         match ops.recv_timeout(lease) {
             Ok(Op::Renew) => {}
@@ -158,6 +172,7 @@ fn own(
                 let _ = reply.send(marked);
             }
             Ok(Op::End(ok, reply)) => {
+                stop_writes();
                 let result = if ok {
                     barrier
                         .complete()
@@ -173,6 +188,7 @@ fn own(
                 return;
             }
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                stop_writes();
                 // Released first: a retry that reads the job failed may begin the folder again.
                 drop(barrier);
                 job.finish(Err(Failed {

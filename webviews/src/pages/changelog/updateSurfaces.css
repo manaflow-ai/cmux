@@ -342,6 +342,12 @@
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
+/* The doodle card's change line keeps two lines' room (its longest; the line stops at two), so the
+   loading line and the words that replace it, one line or two, stand at one height (review F1 of
+   #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
+.wn-card[data-decoration="doodle"] .wn-card-note {
+  min-height: 2.6em;
+}
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
@@ -435,6 +441,55 @@
   text-overflow: ellipsis;
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
+
+/* The change line while the update's notes load (UpdateSurfaces.tsx NoteLoading; Leo 2026-11-09: "it
+   should have the updated to Nightly already loaded in, instead of just having a blank glass bit ...
+   should have a loading indicator, like an ellipsis-type thing"). It is the note's own box, and its
+   marks are inline on the note's baseline, no taller than its capitals: the line keeps the note's
+   strut, so its trimmed box (cap to baseline, above) is the words' and they swap in with no jump. The
+   shipped look is three still dots in the note's quiet color: no loop, since a dot that breathes or
+   blinks forever is the look Leo had removed (2026-10-21, test/no-breathing-dots.test.ts), and the
+   line lasts at most the 1.5 s settle. Gallery looks: the ellipsis glyph, a bar one line tall that a
+   light crosses, the words.
+   The label is for VoiceOver: clipped to nothing and out of the line. */
+.wn-card-note-loading { position: relative; }
+.wn-note-label {
+  position: absolute;
+  inset-inline-start: 0;
+  white-space: nowrap;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.wn-note-dots > span {
+  display: inline-block;
+  width: 0.24em;
+  height: 0.24em;
+  margin-inline-end: 0.2em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  vertical-align: baseline;
+}
+.wn-note-bar {
+  display: inline-block;
+  width: 9em;
+  max-width: 70%;
+  height: 0.7em;
+  border-radius: 0.35em;
+  vertical-align: baseline;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, currentColor 18%, transparent) 50%, transparent 100%) 0 0 / 200% 100%,
+    color-mix(in srgb, currentColor 12%, transparent);
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-bar {
+  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) linear infinite;
+}
+@keyframes wn-note-bar {
+  from { background-position: 100% 0, 0 0; }
+  to { background-position: -100% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-note-bar { animation: none !important; }
+}
 
 /* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
    composer's hairline between them as its stack draws one between parts. Closed it is clipped to

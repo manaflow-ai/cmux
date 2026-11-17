@@ -18,7 +18,7 @@
         "--focus"
       ],
       "wait": 3,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift:11 (tour app-store-features)"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/app_store.rs (tour app-store-features)"
     }
   ]
 }

@@ -63,6 +63,19 @@ class Ok:
         return b'{"runners": []}'
 
 
+def as_request(answer):
+    """pr_runner_pool's calls go through deadline_http.request: an answer as urlopen gives it (a raised
+    HTTPError, or a response read whole), as request() gives it."""
+    if isinstance(answer, BaseException):
+        raise answer
+    return 200, answer.read(), {}
+
+
+def answering(answers):
+    left = iter(answers)
+    return lambda *args, **kwargs: as_request(next(left))
+
+
 def clients():
     return (("pool", pool, lambda: pool.GitHub("t", "o/r", retry_cap=60).get_api("/orgs/o/actions/runners?per_page=100"), 60.0),)
 
@@ -83,7 +96,11 @@ class RefusalDetailTests(unittest.TestCase):
         err = io.StringIO()
         if module is cascade:
             fn = lambda: self.cascade_api._get("/orgs/o/actions/runner-groups?x=1")  # noqa: E731
-        with mock.patch.object(module.urllib.request, "urlopen", side_effect=answers) as opened, \
+        if module is pool:
+            opener = mock.patch.object(pool.deadline_http, "request", side_effect=answering(answers))
+        else:
+            opener = mock.patch.object(module.urllib.request, "urlopen", side_effect=answers)
+        with opener as opened, \
                 mock.patch.object(module.time, "sleep", side_effect=sleeps.append), contextlib.redirect_stderr(err):
             try:
                 result = fn()
@@ -167,7 +184,7 @@ class RefusalDetailTests(unittest.TestCase):
 
         client = pool.GitHub("t", "o/r", retry_cap=5)
         err = io.StringIO()
-        with mock.patch.object(pool.urllib.request, "urlopen", side_effect=slow) as opened, \
+        with mock.patch.object(pool.deadline_http, "request", side_effect=slow) as opened, \
                 mock.patch.object(pool.time, "sleep", side_effect=lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s))), \
                 contextlib.redirect_stderr(err):
             for _ in range(3):
@@ -192,7 +209,8 @@ class RefusalDetailTests(unittest.TestCase):
             now[0] = 0.0
             sleeps.clear()
             env = {"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "a", "ROUTE_TOKEN_FALLBACK": "b"}
-            with mock.patch.object(pool.urllib.request, "urlopen", side_effect=slow) as opened, \
+            with mock.patch.object(pool.deadline_http, "request", side_effect=slow) as opened, \
+                    mock.patch.object(pool.urllib.request, "urlopen", side_effect=AssertionError("bare urlopen")), \
                     mock.patch.object(pool.time, "sleep",
                                       side_effect=lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s))), \
                     mock.patch.object(side, "SIDE_RETRY_CAP_SECONDS", cap), \

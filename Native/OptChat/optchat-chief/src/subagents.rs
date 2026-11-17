@@ -451,6 +451,26 @@ struct Waiting {
 }
 
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
+/// What `spawn` answers for its Direct tasks (action_lifetime.rs): not started, and why, so the
+/// Chief makes the change itself with its cmux workspace tools.
+fn direct_refusal(direct: &[String], why: impl Fn(&str) -> String) -> String {
+    let list = direct
+        .iter()
+        .map(|t| format!("\"{}\" ({})", crate::workspaces::title(t), why(t)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let organize = direct.iter().any(|t| {
+        crate::action_lifetime::is_organize(&crate::sidebar_choice::body(t).to_lowercase())
+    });
+    let tools = if organize {
+        " with the cmux workspace tools (workspace_list, workspace_group_create with reuse, \
+         workspace_place, workspace_rename, workspace_move, workspace_group_update)"
+    } else {
+        " with your own tools"
+    };
+    format!("not started: {list}. Do it yourself now{tools}; no helper and no workspace.")
+}
+
 pub struct Spawner {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1111,8 +1131,21 @@ impl Spawner {
         // The terminal beside the chat runs on this Mac: a peer session's
         // folder is on the VM (/home/agent/work), and a PTY spawned in a
         // folder missing here fails, so the subagent got no workspace (a511).
+        // Its lifetime (action_lifetime.rs): a background Task has no workspace, a tucked
+        // Workspace joins the collapsed Chief group and closes when its work ends.
+        // One that runs with policy ask always shows: only its tab can allow its prompts, so it
+        // is never tucked or reaped.
+        let mut route = self.lifetime(task);
+        if spec.policy == crate::approval::ASK {
+            route = route.shown("it asks before it acts");
+        }
+        let made = crate::action_lifetime::Made::of(&route);
         let slot_place = (
-            crate::workspaces::spawn_group(task).to_owned(),
+            if made.tucked() {
+                crate::action_lifetime::TUCK_GROUP.to_owned()
+            } else {
+                crate::workspaces::spawn_group(task).to_owned()
+            },
             match &peer {
                 Some(_) => self.settings.cwd.clone(),
                 None => s.cwd.clone(),
@@ -1135,6 +1168,7 @@ impl Spawner {
             session_id: session.clone(),
             policy: Some(spec.policy.clone()),
             harness: Some(s.harness.clone()),
+            made: Some(made.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -1161,20 +1195,19 @@ impl Spawner {
         };
         let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The Chief's choice under the user's rules (sidebar_choice.rs, a1018):
-        // a hidden one is reached from its link in the Chief's reply, and
-        // `control show` adds its workspace. One that runs with policy ask
-        // (the spawn floor, or MUX_POLICY) always shows: only its tab can
-        // allow its prompts.
-        let choice = self.sidebar_choice(task);
-        if spec.policy != crate::approval::ASK && !choice.show {
+        // Its lifetime under the person's words and rules (action_lifetime.rs, sidebar_choice.rs):
+        // a background Task is reached from its link in the Chief's reply and its row in the
+        // composer hat, and `control show` adds its workspace. One that runs with policy ask
+        // (the spawn floor, or MUX_POLICY) always shows: only its tab can allow its prompts.
+        let ask = spec.policy == crate::approval::ASK;
+        if !ask && route.lifetime != crate::action_lifetime::Lifetime::Workspace {
             self.trace.emit(
                 "subagent.hidden",
-                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "why": choice.why}),
+                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "why": route.why, "lifetime": route.lifetime.as_str()}),
             );
             return Ok(format!(
-                "hidden: no sidebar workspace ({}); its link opens its chat, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
-                choice.why
+                "hidden: a background task with no sidebar workspace ({}); its link opens its chat, its row shows over the composer until it ends, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
+                route.why
             ));
         }
         match workspaces.open(&key, &session, &name, &group, &term_cwd) {
@@ -1197,9 +1230,14 @@ impl Spawner {
                         r.move_to_top()
                     ));
                 }
-                note.push_str(&match spec.policy == crate::approval::ASK {
-                    true => "; shown because it asks before it acts".to_owned(),
-                    false => format!("; shown because {}", choice.why),
+                note.push_str(&match (ask, made.tucked()) {
+                    (true, _) => "; shown because it asks before it acts".to_owned(),
+                    (false, true) => format!(
+                        "; tucked in the collapsed \"{}\" group because {}; it closes when its work ends",
+                        crate::action_lifetime::TUCK_GROUP,
+                        route.why
+                    ),
+                    (false, false) => format!("; shown because {}", route.why),
                 });
                 let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
@@ -1269,23 +1307,36 @@ impl Spawner {
         }
     }
 
-    /// Whether `task` gets its sidebar workspace as it starts: its `Sidebar:`
-    /// line (the Chief's choice) under the user's rules, read now.
-    fn sidebar_choice(&self, task: &str) -> crate::sidebar_choice::Choice {
-        let user = match &self.user_settings {
+    /// The lifetime of `task` as it starts (action_lifetime.rs): the person's remembered
+    /// preferences (their profile's learned lines), its `Sidebar:` line (the Chief's choice)
+    /// and the person's rules, read now.
+    pub(crate) fn lifetime(&self, task: &str) -> crate::action_lifetime::Route {
+        let user = self.user_document();
+        let rules = crate::sidebar_choice::Rules::from_user(user.as_ref(), self.show_workspaces());
+        let learned = self
+            .person
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|t| crate::action_lifetime::learned_lines(&t))
+            .unwrap_or_default();
+        crate::action_lifetime::route(
+            task,
+            crate::sidebar_choice::Requested::of_task(task),
+            &learned,
+            &rules,
+        )
+    }
+
+    /// The person's settings document (cmux-next.json), read now.
+    fn user_document(&self) -> Option<serde_json::Value> {
+        match &self.user_settings {
             Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {
                 serde_json::from_str(&crate::agent_memory::settings::strip_jsonc(&t)).ok()
             }),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),
-        };
-        let rules = crate::sidebar_choice::Rules::from_user(user.as_ref(), self.show_workspaces());
-        crate::sidebar_choice::decide(
-            task,
-            crate::sidebar_choice::Requested::of_task(task),
-            &rules,
-        )
+        }
     }
 
     /// Whether the Chief setting `subagents.showWorkspaces` is on (every
@@ -1665,6 +1716,25 @@ impl Orchestrator for Spawner {
         harness: Option<String>,
         model: Option<String>,
     ) -> Result<String, String> {
+        // A Direct action (an organize request, or what the person told the Chief to do
+        // itself) never becomes a helper or a workspace (action_lifetime.rs): the Chief does it
+        // in its own turn, and the other tasks start.
+        let (direct, tasks): (Vec<_>, Vec<_>) = tasks
+            .into_iter()
+            .partition(|t| self.lifetime(t).lifetime == crate::action_lifetime::Lifetime::Direct);
+        if !direct.is_empty() {
+            let refused = direct_refusal(&direct, |t| self.lifetime(t).why);
+            self.trace.emit(
+                "subagent.direct",
+                json!({"tasks": direct.len(), "started": tasks.len()}),
+            );
+            if tasks.is_empty() {
+                return Err(refused);
+            }
+            return self
+                .spawn_with_route(tasks, cwd, effort, place, harness, model)
+                .map(|started| format!("{refused}\n{started}"));
+        }
         let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let (harness, model) = (given(harness), given(model));
         let choice = self.engine_choice();

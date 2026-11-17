@@ -147,6 +147,14 @@ impl Hub {
     /// A watched chat for `listing`'s conversation, created as a script's, unless a chat (watched,
     /// adopted, or this daemon's own harness) already shows it.
     async fn list_bridged(self: &Arc<Self>, listing: Listing<'_>) -> Result<(), String> {
+        self.list_bridged_session(listing).await.map(drop)
+    }
+
+    /// [`Self::list_bridged`], answering with the chat it made (`None`: a chat shows it already).
+    pub(super) async fn list_bridged_session(
+        self: &Arc<Self>,
+        listing: Listing<'_>,
+    ) -> Result<Option<Arc<super::Session>>, String> {
         let stores = super::adoption::store_families(&*self.config.read().await);
         let (shown, name) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -161,7 +169,7 @@ impl Hub {
             (shown, unique_name(listing.base, listing.suffix, taken))
         };
         if shown {
-            return Ok(());
+            return Ok(None);
         }
         let req = super::NewRequest {
             harness: Some(listing.harness.to_owned()),
@@ -183,19 +191,19 @@ impl Hub {
         };
         let session = self.new_session(req).await.map_err(|e| e.message)?;
         self.set_tags(&session, listing.tags.as_object(), &[], None);
-        Ok(())
+        Ok(Some(session))
     }
 }
 
 /// One conversation the bridge lists as a watched chat.
-struct Listing<'a> {
-    harness: &'static str,
-    agent_session_id: &'a str,
-    cwd: Option<std::path::PathBuf>,
+pub(super) struct Listing<'a> {
+    pub(super) harness: &'static str,
+    pub(super) agent_session_id: &'a str,
+    pub(super) cwd: Option<std::path::PathBuf>,
     /// Its name, and what follows it when another chat has that name.
-    base: &'a str,
-    suffix: &'a str,
-    tags: Value,
+    pub(super) base: &'a str,
+    pub(super) suffix: &'a str,
+    pub(super) tags: Value,
 }
 
 /// Where the daemon carries the bridged chat a send came from (`_meta.acpmux`), from the request
@@ -242,12 +250,16 @@ impl Hub {
             mux.remove(BRIDGED_KEY);
         }
         let Some(pid) = peer_pid.filter(|_| !proven_caller) else { return };
+        let mut registered: Vec<String> = Vec::new();
         let (claude, codex): (Vec<(String, String)>, Vec<(String, String)>) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let chats = sessions.values().filter_map(|s| {
                 let meta = s.meta();
                 let family = meta.watching.as_ref()?.family.clone();
                 meta.tags.get("bridge").filter(|t| t.value == family)?;
+                if super::register::is_registered(s) {
+                    registered.push(s.id.clone());
+                }
                 Some((family, (s.id.clone(), meta.agent_session_id?)))
             });
             let (claude, codex): (Vec<_>, Vec<_>) = chats
@@ -261,14 +273,43 @@ impl Hub {
         }
         let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let found = tokio::task::spawn_blocking(move || {
-            if !crate::claude_peers::enabled() {
+            // A registered chat (`register.rs`) is bound whatever the setting says; with the
+            // setting off, only registered chats are.
+            let on = crate::claude_peers::enabled();
+            let (claude, codex): (Vec<_>, Vec<_>) = if on {
+                (claude, codex)
+            } else {
+                let mine = |c: &(String, String)| registered.contains(&c.0);
+                (
+                    claude.into_iter().filter(mine).collect(),
+                    codex.into_iter().filter(mine).collect(),
+                )
+            };
+            if claude.is_empty() && codex.is_empty() {
                 return None;
             }
             let ancestry = crate::sender_harness::ancestors(pid);
             let listed = crate::claude_peers::listed_entrypoints();
             if !claude.is_empty() {
                 let live = crate::claude_peers::live(&homes.claude);
-                if let Some(id) = bound_chat(&ancestry, &claude, &live, &listed) {
+                // A registered chat binds only the process its registration recorded (pid,
+                // inbox, start: `claude_peers::token_for`), when it is its conversation's only
+                // live claimant; any entry may name a registered chat's session id.
+                let acpmux_home = crate::config::home();
+                let registered_by = |id: &str, peer: &Peer| {
+                    registered.iter().any(|r| r == id)
+                        && crate::claude_peers::sole_claimant(peer, &live)
+                        && crate::claude_peers::token_for(
+                            &acpmux_home,
+                            id,
+                            peer,
+                            crate::claude_peers::started_at(&homes.claude, peer.pid),
+                        )
+                        .is_some()
+                };
+                if let Some(id) =
+                    bound_chat(&ancestry, &claude, &live, &listed, &registered, registered_by)
+                {
                     return Some(id);
                 }
             }
@@ -291,17 +332,29 @@ impl Hub {
 }
 
 /// The chat (of `chats`, `(chat id, Claude session id)`) whose live registry entry (`live`) has
-/// a pid in `ancestry` and an entrypoint in `listed`.
+/// a pid in `ancestry` and an entrypoint in `listed`; a chat of `registered` only by the process
+/// its registration recorded (`registered_by`, `register.rs`), whatever the entrypoint. The nearest
+/// ancestor wins: a Claude Code run inside another's shell is its own sender.
 fn bound_chat(
     ancestry: &[u32],
     chats: &[(String, String)],
     live: &[Peer],
     listed: &[String],
+    registered: &[String],
+    registered_by: impl Fn(&str, &Peer) -> bool,
 ) -> Option<String> {
-    let peer = live.iter().find(|p| {
-        ancestry.contains(&p.pid) && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
-    })?;
-    chats.iter().find(|(_, sid)| *sid == peer.session_id).map(|(id, _)| id.clone())
+    ancestry.iter().find_map(|pid| {
+        let peer = live.iter().find(|p| p.pid == *pid)?;
+        let (id, _) = chats.iter().find(|(_, sid)| *sid == peer.session_id)?;
+        // A registered chat binds only the process its registration recorded: an entrypoint the
+        // setting lists is anyone's to write, so it never stands in for that proof.
+        let bound = if registered.iter().any(|r| r == id) {
+            registered_by(id, peer)
+        } else {
+            peer.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+        };
+        bound.then(|| id.clone())
+    })
 }
 
 /// The chat's name: the session's own, else the app and the folder it works in.
@@ -347,7 +400,7 @@ fn unique_name(name: &str, suffix: &str, taken: impl Fn(&str) -> bool) -> String
 }
 
 /// Provenance tags, from the registry entry the session wrote.
-fn tags_of(peer: &Peer) -> Value {
+pub(super) fn tags_of(peer: &Peer) -> Value {
     let mut tags = json!({
         "bridge": "claude",
         "origin": peer.entrypoint.as_deref().unwrap_or("claude"),
@@ -360,7 +413,7 @@ fn tags_of(peer: &Peer) -> Value {
 }
 
 /// A Codex thread's provenance tags, from the row Codex wrote.
-fn codex_tags_of(thread: &Thread) -> Value {
+pub(super) fn codex_tags_of(thread: &Thread) -> Value {
     let mut tags = json!({"bridge": "codex", "origin": thread.originator});
     if let (Some(v), Some(map)) = (thread.version.as_deref(), tags.as_object_mut()) {
         map.insert("origin.version".to_owned(), json!(v));
@@ -427,15 +480,38 @@ mod tests {
         let chats = vec![("chat-1".to_owned(), "sid".to_owned())];
         let live = vec![peer(None)];
         let listed = vec!["claude-desktop".to_owned()];
+        let none = |_: &str, _: &Peer| false;
         // acpmux (50) under bash (45) under the desktop session's claude (42).
-        assert_eq!(bound_chat(&[50, 45, 42, 1], &chats, &live, &listed).as_deref(), Some("chat-1"));
+        assert_eq!(
+            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, &[], none).as_deref(),
+            Some("chat-1")
+        );
         // Another process tree: nothing.
-        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed), None);
+        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, &[], none), None);
         // An entrypoint the setting does not list: nothing.
-        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()]), None);
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &[], none), None);
         // A live app with no chat the bridge made: nothing.
         let other = vec![("chat-2".to_owned(), "other".to_owned())];
-        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed), None);
+        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed, &[], none), None);
+        // A chat its session registered is bound whatever its entrypoint, by the process its
+        // registration recorded.
+        let recorded = |id: &str, p: &Peer| id == "chat-1" && p.pid == 42;
+        let registered = ["chat-1".to_owned()];
+        assert_eq!(
+            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &registered, recorded)
+                .as_deref(),
+            Some("chat-1")
+        );
+        // Repro: another process writes an entry naming the registered chat's session id; with
+        // the setting off it is not the recorded process, so its sends are not that chat's.
+        let forged = |_: &str, p: &Peer| p.pid == 99;
+        assert_eq!(
+            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &registered, forged),
+            None
+        );
+        // Repro: the forged entry names the default listed entrypoint (claude-desktop, the one
+        // `listed` holds here); a registered chat still binds only its recorded process.
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &listed, &registered, forged), None);
     }
 
     #[test]

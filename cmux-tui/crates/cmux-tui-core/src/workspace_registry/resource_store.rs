@@ -1911,6 +1911,10 @@ pub enum RegistryLayoutNode {
         ratio: f32,
         first: Box<RegistryLayoutNode>,
         second: Box<RegistryLayoutNode>,
+        /// The split's divider is hidden (`split-divider-visibility-v1`).
+        /// Absent in layouts stored before it, which load as visible.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        divider_hidden: bool,
     },
     Stack {
         panes: Vec<PanePublicId>,
@@ -2237,7 +2241,7 @@ fn validate_layout_node<'a>(
                 anyhow::bail!("pane {pane} appears twice in one layout");
             }
         }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
             if !splits.insert(split) {
                 anyhow::bail!("duplicate split public id: {split}");
             }

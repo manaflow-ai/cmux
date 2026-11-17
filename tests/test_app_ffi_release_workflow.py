@@ -278,6 +278,11 @@ class RePin(unittest.TestCase):
         pr_mint = next(step for step in job["steps"] if step.get("id") == "pr-token")
         self.assertEqual(pr_mint["with"]["permission-pull-requests"], "write")
         self.assertTrue(pr_mint.get("continue-on-error"))
+        base_mint = next(step for step in job["steps"] if step.get("id") == "base-token")
+        self.assertEqual(base_mint["with"]["app-id"], "${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}")
+        self.assertEqual(base_mint["with"]["permission-contents"], "write")
+        self.assertTrue(base_mint.get("continue-on-error"))
+        self.assertEqual(job["steps"][-1]["env"]["BASE_TOKEN"], "${{ steps.base-token.outputs.token }}")
         script = "\n".join(str(step.get("run", "")) for step in job["steps"])
         self.assertEqual(script.strip(), "bash scripts/cmux-next/publish-app-ffi-repin.sh")
 
@@ -304,7 +309,7 @@ if Path(sys.argv[0]).name == "git":
         refs = state["refs"] if state["cache"] is None else state["cache"]
         ref = args[-1].removeprefix("refs/heads/")
         if ref in refs: print(refs[ref] + "\trefs/heads/" + ref)
-    elif args[0] == "fetch": pass
+    elif args[0] in ("fetch", "checkout"): pass
     elif args[0] == "push":
         if "--delete" in args: state["refs"].pop(args[-1], None)
         else:
@@ -324,6 +329,8 @@ if Path(sys.argv[0]).name == "git":
 elif args[:2] == ["pr", "list"]: print("1")  # deliberately stale
 elif args[:2] == ["pr", "edit"]:
     if state["close_on_edit"]: state["prs"][args[2]] = "closed"; save()
+elif args[:2] == ["pr", "close"]:
+    state["prs"][args[2]] = "closed"; save()
 elif args[:2] == ["pr", "create"]:
     state["prs"]["2"] = "open"; save()
     print("https://github.com/manaflow-ai/cmux/pull/2")
@@ -375,7 +382,7 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
-                  check_total=None,
+                  check_total=None, base_result="newer", base_enabled="true",
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -395,6 +402,11 @@ class RePinPublication(unittest.TestCase):
             # The newest published release (NewestPublishedRelease tests the real one).
             executable(scripts / "newest_app_ffi_release.py",
                        f"print('{'d' * 40} {'e' * 64}')\n")
+            # The pin on the base (pin-app-ffi-on-base.test.sh tests the real one): None fails it, else it
+            # writes that result; it records the token and switch it was given.
+            executable(scripts / "pin-app-ffi-on-base.sh", "#!/bin/sh\nexit 1\n" if base_result is None else
+                       f'#!/bin/sh\necho "result={base_result}" >> "$GITHUB_OUTPUT"\n'
+                       f'echo "$TOKEN $ENABLED $1 $2" > "$RUNNER_TEMP/base-call"\n')
             helper = ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"
             if helper.exists(): executable(scripts / helper.name, helper.read_text())
             state_path = work / "state.json"
@@ -408,12 +420,45 @@ class RePinPublication(unittest.TestCase):
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
+                       BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
                        GITHUB_RUN_ID=RUN_ID, GITHUB_RUN_ATTEMPT="2", GITHUB_SERVER_URL="https://github.com",
                        RUNNER_TEMP=temp)
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work,
                                     env=env, capture_output=True, text=True, timeout=10)
-            return result, json.loads(state_path.read_text())
+            state = json.loads(state_path.read_text())
+            base_call = Path(temp) / "base-call"
+            state["base_call"] = base_call.read_text().split() if base_call.exists() else None
+            return result, state
+
+    def test_a_pin_on_the_base_opens_no_pull_request(self):
+        for base_result in ("pinned", "already"):
+            with self.subTest(base_result):
+                result, state = self.run_repin(base_result=base_result)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertIn("no re-pin pull request", result.stdout)
+                # The open re-pin pull request pins an older release now: it is closed.
+                self.assertEqual(state["prs"]["1"], "closed")
+
+    def test_the_pin_on_the_base_gets_the_picked_release_and_the_switch(self):
+        result, state = self.run_repin(base_result="pinned")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["base_call"], ["base-token", "true", "d" * 40, "e" * 64])
+        # Off (CMUX_NEXT_BASE_AUTOFIX is not 1): a dry run, which falls through to the pull request.
+        result, state = self.run_repin(base_result="dry-run", base_enabled="false")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["base_call"], ["base-token", "d" * 40, "e" * 64])
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+
+    def test_no_pin_on_the_base_falls_through_to_the_pull_request(self):
+        for base_result in ("newer", "pr", "dry-run", None):
+            with self.subTest(base_result):
+                result, state = self.run_repin(base_result=base_result)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                self.assertIn(f"app FFI pin on feat-cmux-next: {base_result or 'failed'}", result.stdout)
 
     def test_stable_ref_never_points_to_unpinned_base(self):
         result, state = self.run_repin()

@@ -70,6 +70,8 @@ mod prompt_approval;
 mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
+#[path = "hub_integration/prompt_coach.rs"]
+mod prompt_coach;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[cfg(unix)]

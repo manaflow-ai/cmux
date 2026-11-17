@@ -34,10 +34,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Cmd-Shift-] / [ step the focused pane's tabs (Lawrence 2026-10-15: switching
     /// workspaces on them is "extremely bad"); Ctrl-Tab / Ctrl-Shift-Tab are the catalog keys.
-    public static let tabCycleAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSurface"),
-        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface"),
-    ]
+    public static let tabCycleAliases: [KeyBinding] = RustActionCatalog.shared.bindings["tab_cycle_aliases"] ?? []
 
     /// Workspaces as tabs (the `sidebar.workspacesAsTabs` setting or Debug tunable, off; Leo, relayed
     /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab` with `scope`
@@ -46,14 +43,7 @@ public nonisolated struct KeyBindingDefaults {
     /// over `nextSurface`; like every cmux default, the user's Ghostty config and cmux.json win over them.
     /// The table holds them only while the tunable is on (`ActionRegistry.includesWorkspaceTabKeys`),
     /// so off, the keymap, the shortcut list and its conflicts are the shipped ones. Home keeps its own keys.
-    public static let workspacesAsTabs: [KeyBinding] = {
-        let when = WhenClause.and([.has(KeyContext.workspacesAsTabs), .not(onHome)])
-        let scope: [String: ActionValue] = ["scope": .string("workspaces")]
-        return [
-            KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSidebarTab", arguments: scope, when: when),
-            KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSidebarTab", arguments: scope, when: when),
-        ]
-    }()
+    public static let workspacesAsTabs: [KeyBinding] = RustActionCatalog.shared.bindings["workspaces_as_tabs"] ?? []
 
     /// Home's chat list has the keyboard (Lawrence 2026-10-21: "ctrl 1-9 and cmd shift [] and ctrl
     /// tab ... need to work for cycling through chiefs (only for home chief, if user opens chief in
@@ -68,28 +58,18 @@ public nonisolated struct KeyBindingDefaults {
     /// The actions that step or pick a Home conversation: every key of theirs (a default, a cmux.json
     /// or a Settings rebind) runs only where ``onHomeChats`` holds, so a rebind never takes the key
     /// from a terminal or a pane's tabs (`RegistryKeyBindings`).
-    public static let homeChatScoped: Set<ActionID> = [
-        "home.nextConversation", "home.previousConversation", "home.selectConversationByNumber",
-    ]
+    public static let homeChatScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_chat_scoped"] ?? [])
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
     /// where ``onChiefZoom`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
-    public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
+    public static let homeScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_scoped"] ?? [])
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
     /// sidebar order, wrapping as tabs do. Ctrl-Tab / Ctrl-Shift-Tab and Ctrl-1…9 are also the
     /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the catalog defaults and
     /// ``tabCycleAliases``, which they replace on Home only; like every cmux default, the user's
     /// Ghostty config and cmux.json win over them.
-    public static let homeChatSwitching: [KeyBinding] = {
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
-            KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument, when: onHomeChats)
-        }
-        return [
-            bind("\t", [.control], "home.nextConversation"), bind("\t", [.control, .shift], "home.previousConversation"),
-            bind("]", [.command, .shift], "home.nextConversation"), bind("[", [.command, .shift], "home.previousConversation"),
-        ] + (1...9).map { bind(String($0), [.control], "home.selectConversationByNumber", String($0)) }
-    }()
+    public static let homeChatSwitching: [KeyBinding] = RustActionCatalog.shared.bindings["home_chat_switching"] ?? []
 
     /// The Home tab keys whose action is on and keeps its default key: a rebound action (cmux.json,
     /// Settings) keeps only its own key, still scoped to Home (``homeChatScoped``).
@@ -128,21 +108,7 @@ public nonisolated struct KeyBindingDefaults {
     }
 
     /// The scoped defaults without the registry's unbinding applied.
-    public static let scopedDefaults: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
-                   when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
-        // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
-        KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
-        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home and on Bring your history zoom the Chief chat, as they
-        // zoom an agent chat or a page.
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onChiefZoom),
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onChiefZoom),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onChiefZoom),
-        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onChiefZoom),
-        // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
-        // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
-        KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
-    ]
+    public static let scopedDefaults: [KeyBinding] = RustActionCatalog.shared.bindings["scoped_defaults"] ?? []
 
     /// The sidebar list has the keyboard with two or more rows selected.
     public static let sidebarMultiSelection = WhenClause.has(KeyContext.sidebarMultiSelection)
@@ -174,22 +140,12 @@ public nonisolated struct KeyBindingDefaults {
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.
-    public static let paneResizeAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut(left, modifiers: [.control, .command])], command: "resizePaneLeft"),
-        KeyBinding(keys: [Shortcut(right, modifiers: [.control, .command])], command: "resizePaneRight"),
-        KeyBinding(keys: [Shortcut(up, modifiers: [.control, .command])], command: "resizePaneUp"),
-        KeyBinding(keys: [Shortcut(down, modifiers: [.control, .command])], command: "resizePaneDown"),
-    ]
+    public static let paneResizeAliases: [KeyBinding] = RustActionCatalog.shared.bindings["pane_resize_aliases"] ?? []
 
     /// The vim-letter aliases for pane focus, in addition to each action's
     /// catalog Cmd-Opt arrow; they disappear when a user overrides or
     /// unbinds that action.
-    public static let paneFocusAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("h", modifiers: [.control, .command])], command: "focusLeft"),
-        KeyBinding(keys: [Shortcut("j", modifiers: [.control, .command])], command: "focusDown"),
-        KeyBinding(keys: [Shortcut("k", modifiers: [.control, .command])], command: "focusUp"),
-        KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
-    ]
+    public static let paneFocusAliases: [KeyBinding] = RustActionCatalog.shared.bindings["pane_focus_aliases"] ?? []
 
     /// Cmd-[ / Cmd-] are focus history Back / Forward everywhere but a web
     /// page, as in the shipping cmux (chief decision, cx-442;
@@ -204,18 +160,11 @@ public nonisolated struct KeyBindingDefaults {
     /// The catalog keys Opt-Cmd-, / Opt-Cmd-. run the titlebar's Back / Forward in every pane, a web
     /// page and a terminal included (Lawrence 2026-11-07: "we need a new shortcut for back and forth
     /// by default for top left one not browser one").
-    public static let focusHistoryAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("[", modifiers: [.command])], command: "focusHistoryBack", when: notWebPage),
-        KeyBinding(keys: [Shortcut("]", modifiers: [.command])], command: "focusHistoryForward", when: notWebPage),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.control])], command: "focusHistoryBack", when: notTerminal),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.control, .shift])], command: "focusHistoryForward", when: notTerminal),
-    ]
+    public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
     /// browser page never loses the key to it.
-    public static let zoomAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "markdownZoomIn"),
-    ]
+    public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
     static let notWebPage = WhenClause.and([
@@ -233,12 +182,7 @@ public nonisolated struct KeyBindingDefaults {
     /// catalog Ctrl-Opt-1…9 (the Number Keys card's scheme, ``ShortcutDigitScheme``) and adds
     /// Ctrl-Opt-Cmd-1…9. Ctrl-Cmd-arrows and Ctrl-Cmd-digits were asked for, but they are Ghostty's
     /// reserved pane resize and Focus Pane by Number; Ctrl-arrows and Ctrl-digits are Mission Control's.
-    public static let spaceAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .option, .command])], command: "space.previous", when: .not(.has(KeyContext.codeEditorFocusedKey))),
-        KeyBinding(keys: [Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .option, .command])], command: "space.next", when: .not(.has(KeyContext.codeEditorFocusedKey))),
-        KeyBinding(keys: [Shortcut("[", modifiers: [.option, .command])], command: "space.previous", when: .not(.has(KeyContext.codeEditorFocusedKey))),
-        KeyBinding(keys: [Shortcut("]", modifiers: [.option, .command])], command: "space.next", when: .not(.has(KeyContext.codeEditorFocusedKey))),
-    ] + (1...9).map { KeyBinding(keys: [Shortcut(String($0), modifiers: [.control, .option, .command])], command: "space.selectByNumber", argument: String($0)) }
+    public static let spaceAliases: [KeyBinding] = RustActionCatalog.shared.bindings["space_aliases"] ?? []
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -246,14 +190,7 @@ public nonisolated struct KeyBindingDefaults {
     /// the key reaches the editor. A user binding keeps its own `when`.
     /// App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9,
     /// Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) are not here.
-    public static let yieldsToCodeEditor: Set<ActionID> = [
-        "splitRight", "openBrowser", "focusUp", "focusDown",
-        "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "home.openChiefDock", "focusLocation", "groupSelectedWorkspaces",
-        // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
-        // "all common vscode shortcuts").
-        "toggleChecklistItemComplete", "toggleSplitZoom",
-    ]
+    public static let yieldsToCodeEditor: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_code_editor"] ?? [])
 
     /// Actions whose default key a terminal program also uses: their default binding applies everywhere but a
     /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
@@ -263,16 +200,13 @@ public nonisolated struct KeyBindingDefaults {
     /// focused terminal, as in Ghostty and the shipping cmux (decision K1 follow-up, 2026-10-06).
     /// Cmd-Return (checklist item) reaches the terminal program, as in the shipping cmux
     /// (plans/cmux-next/terminal-shortcuts.md).
-    public static let yieldsToTerminal: Set<ActionID> = [
-        "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
-        "groupSelectedWorkspaces", "toggleChecklistItemComplete",
-    ]
+    public static let yieldsToTerminal: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_terminal"] ?? [])
 
     /// Actions whose default key an agent chat or a web page also uses: their default binding
     /// applies everywhere but there (`notWebContent`), so the page's own handler gets the key.
     /// Cmd-Return steers a running agent turn in the composer (Composer.tsx) and submits forms
     /// on many sites; the checklist toggle took it first and refused "no todo items".
-    public static let yieldsToWebContent: Set<ActionID> = ["toggleChecklistItemComplete"]
+    public static let yieldsToWebContent: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_web_content"] ?? [])
 
     /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
     public static let notWebContent = WhenClause.and([
@@ -286,58 +220,17 @@ public nonisolated struct KeyBindingDefaults {
     /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
     /// Return).
     /// The checklist toggle took Cmd-Return from the chat composer and refused "no todo items".
-    public static let textInputKeys: Set<Shortcut> = [
-        Shortcut(Shortcut.returnKey, modifiers: []), Shortcut(Shortcut.returnKey, modifiers: [.command]),
-        Shortcut(Shortcut.returnKey, modifiers: [.shift]), Shortcut(Shortcut.returnKey, modifiers: [.option]),
-        Shortcut(Shortcut.escapeKey, modifiers: []), Shortcut(Shortcut.upArrowKey, modifiers: []),
-    ]
+    public static let textInputKeys: Set<Shortcut> = RustActionCatalog.shared.textInputKeys
 
     /// No text field, page editor or terminal TextBox has the keyboard.
     public static let notTextInput = WhenClause.and([
         .not(.has(KeyContext.textInputFocus)), .not(.has("textBoxFocused")),
     ])
 
-    /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
+    /// The command palette's keys (R59 fold, the catalog's `PaletteKeyActionCatalog` group), in
     /// table order: a later applicable entry wins, so a more specific
     /// `when` follows a general one for the same key.
-    public static let paletteKeys: [KeyBinding] = {
-        typealias K = KeyContext
-        let open = WhenClause.has("paletteOpen")
-        func when(_ clauses: WhenClause...) -> WhenClause { .and([open] + clauses) }
-        let tree = WhenClause.has(K.paletteHierarchical), menu = WhenClause.has(K.paletteActionsMenuOpen)
-        let empty = WhenClause.has(K.paletteQueryEmpty)
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ clause: WhenClause) -> KeyBinding {
-            KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, when: clause)
-        }
-        return [
-            bind(Shortcut.upArrowKey, [], "commandPalettePrevious", open),
-            bind(Shortcut.downArrowKey, [], "commandPaletteNext", open),
-            bind(Shortcut.upArrowKey, [.command], "paletteKey.firstItem", open),
-            bind(Shortcut.upArrowKey, [.command], "paletteKey.leaveLevel", when(tree, .not(menu))),
-            bind(Shortcut.downArrowKey, [.command], "paletteKey.lastItem", open),
-            bind(pageUp, [], "paletteKey.pageUp", open),
-            bind(pageDown, [], "paletteKey.pageDown", open),
-            bind(home, [], "paletteKey.firstItem", when(.or([menu, .and([tree, empty])]))),
-            bind(end, [], "paletteKey.lastItem", when(.or([menu, .and([tree, empty])]))),
-            bind(Shortcut.returnKey, [], "paletteKey.submit", open),
-            bind(Shortcut.returnKey, [.shift], "paletteKey.submit", open),
-            bind(Shortcut.returnKey, [.option], "paletteKey.submit", open),
-            bind(Shortcut.returnKey, [.command], "paletteKey.submitAlternate", open),
-            bind(Shortcut.returnKey, [.command, .shift], "paletteKey.submitAlternate", open),
-            bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
-            bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
-            bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            // Tab opens the Actions menu; Cmd-K shows or hides it too (Copy Session ID on a
-            // Go to Workspace row), and on an action row edits its shortcut.
-            bind("k", [.command], "paletteKey.toggleActions", open),
-            bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
-            bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
-            bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),
-            bind(Shortcut.deleteKey, [], "paletteKey.back", when(empty, .not(menu))),
-            bind(Shortcut.deleteKey, [], "paletteKey.filterDeleteBackward", when(menu)),
-            bind("w", [.command], "paletteKey.closeItem", open),
-        ]
-    }()
+    public static let paletteKeys: [KeyBinding] = RustActionCatalog.shared.bindings["palette_keys"] ?? []
 
     /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
     /// Ctrl-K move up wherever a list-like control has the keyboard
@@ -345,12 +238,7 @@ public nonisolated struct KeyBindingDefaults {
     /// a terminal or a plain text field, where `listFocus` is unset.
     public static let listFocus = WhenClause.has(KeyContext.listFocus)
 
-    public static let listNavigation: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "list.next", when: listFocus),
-        KeyBinding(keys: [Shortcut("j", modifiers: [.control])], command: "list.next", when: listFocus),
-        KeyBinding(keys: [Shortcut("p", modifiers: [.control])], command: "list.previous", when: listFocus),
-        KeyBinding(keys: [Shortcut("k", modifiers: [.control])], command: "list.previous", when: listFocus),
-    ]
+    public static let listNavigation: [KeyBinding] = RustActionCatalog.shared.bindings["list_navigation"] ?? []
 
     /// The aliases whose action still has its default key, then list
     /// navigation (removed one by one with `-list.next` entries in

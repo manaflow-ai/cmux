@@ -576,17 +576,17 @@
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
-            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
+            "Sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
             "cmux iOS uygulaması"
           ],
           "max": [
-            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
+            "Sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
             "Daha büyük makine boyutları",
             "Pro'daki her şey"
           ],
           "team": [
             "Her üyeye Pro'daki her şey",
-            "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 20 vCPU ve 40 GB RAM tüm ekip tarafından paylaşılır",
+            "Ekipteki herkes için sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; ekibin harcama sınırı durdurma noktasıdır",
             "Tüm ekip için tek fatura",
             "Öncelikli destek"
           ]
@@ -2968,13 +2968,13 @@
       "planMax": "Max",
       "sizesDefault": "Boyut seçmediğinizde yeni makineler 8 GB bellek kullanır. Planınızın izin verdiği boyutları görmek için cmux vm ls --json komutunu çalıştırın.",
       "limitsTitle": "Plan sınırları",
-      "limitsDesc": "Etkin makineleriniz tek bir vCPU ve bellek havuzunu paylaşır. Tek bir büyük makine veya birkaç küçük makine çalıştırın. Duraklatılmış makineler havuzu kullanmaz. Disk her makine için ayrı belirlenir ve havuza dahil değildir.",
+      "limitsDesc": "Pro, Team ve Max planlarında sahip olabileceğiniz makine sayısına sınır yoktur; Plus bir makine tutar. Dahil kullanımın ötesinde çalışan makineler vCPU-saat ve GB-saat başına, kaydedilen ve duraklatılan makineler ise diskin GB-ayı başına ölçülür. Tek durdurma noktası ekibin harcama sınırıdır: sınıra ulaşıldığında yeni başlatmalar reddedilir ve çalışan makineler bir uyarının ardından duraklatılır, hiçbir şey kaybolmaz.",
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
-      "limitsPaid": "Pro hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 makine (duraklatılanlar dahil) olabilir.",
-      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 makine (duraklatılanlar dahil) olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
-      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 makine (duraklatılanlar dahil) olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
-      "limitsPoolFull": "Yeni, sürdürülen, büyütülen veya çatallanan bir makine havuzu aşacaksa cmux isteği reddeder ve havuzun ne kadarının kullanıldığını gösterir. Kaynak açmak için bir makineyi duraklatın veya silin ya da Max'e yükseltin.",
-      "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
+      "limitsPaid": "Pro hesaplarında istenen sayıda makine olabilir, her biri en fazla 16 GB ve 8 vCPU.",
+      "limitsTeam": "Team isteğe bağlıdır: herkesi tek bir ortak faturada ve tek bir harcama sınırında toplar. Koltuklar, kimsenin sahip olabileceği makine sayısını değiştirmez.",
+      "limitsMax": "Max hesaplarında istenen sayıda makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil en fazla 64 GB ve 32 vCPU kullanabilir; Pro ve Team 16 GB ve 8 vCPU'da durur.",
+      "limitsPoolFull": "Harcama sınırında cmux yeni veya sürdürülen bir makineyi reddeder ve ekibin sınırına ulaştığını söyler. Makineleri yeniden başlatmak için sınırı yükseltin; hiçbir şey silinmez.",
+      "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Dahil miktarın ötesindeki kullanım ölçülür.",
       "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
       "agentUpdatesDesc": "Bu ayar açıkken makine Claude Code, Codex, OpenCode, pi ve agent-browser araçlarını günceller. Makine oluşturulduktan sonra ve her bağlandığınızda, 24 saatte en fazla bir kez denetler. Güncelleme ayrı çalışır, bu yüzden bağlantıyı asla engellemez.",
       "agentUpdatesSource": "Her araç resmi GitHub sürümünden gelir ve sürüm dosyasının sha256 özetiyle doğrulanır. npm kullanılmaz. Bir sürüm ancak 3 gündür herkese açıksa kurulur ve bir güncelleme asla daha eski bir sürüm kurmaz. Çalışan bir ajan başladığı dosyaları korur, başarısız bir güncelleme mevcut sürümü yerinde bırakır.",
@@ -5415,7 +5415,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",
     "title": "cmux Pro’ya hoş geldin",
-    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
+    "body": "Pro, sayı sınırı olmayan ve dahil kullanımın ötesinde ölçülen Cloud VM'lerin yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
     "done": "Kontrol paneline git",
     "steps": {
       "iosApp": {

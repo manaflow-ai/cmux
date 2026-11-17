@@ -2,7 +2,8 @@
 # "!" line exempts a path from every freeze): the
 # permanent freezes and the settings slot. A regenerated file under one is
 # reported and left to its owner's pull request (Package.swift: the app FFI pin
-# goes through app-ffi-release.yml's app-ffi-repin pull request).
+# goes through app-ffi-release.yml's repin job, which pins it on the base or
+# opens the app-ffi-repin pull request).
 cmux.xcodeproj/project.pbxproj
 Packages/macOS/CmuxNext/Package.swift
 schemas/settings/*

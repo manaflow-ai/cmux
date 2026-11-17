@@ -1034,6 +1034,15 @@ pub(crate) fn nested_local(
         .collect()
 }
 
+/// The login, vault and machine values every local child gets whatever its family (the
+/// allow-list's common part and `loginEnvAllow`), with the profile `profile` deciding the
+/// Bedrock and Vertex conditions. A family's own keys and the daemon's own env are not here.
+pub(crate) fn every_child_pairs(
+    profile: Option<&BTreeMap<String, String>>,
+) -> Vec<(String, String)> {
+    pairs_for(None, profile)
+}
+
 fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,

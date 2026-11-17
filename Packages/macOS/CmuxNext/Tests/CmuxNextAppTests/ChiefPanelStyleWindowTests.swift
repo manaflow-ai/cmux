@@ -221,7 +221,7 @@ struct ChiefPanelStyleWindowTests {
         eye.performClick(nil)
         #expect(toggles == 1)
         view.seesScreen = false
-        #expect(eye.toolTip != nil && eye.image?.accessibilityDescription != nil)
+        #expect(eye.themedToolTip != nil && eye.image?.accessibilityDescription != nil)
     }
 
     static func find(_ id: String, in view: NSView) -> NSView? {

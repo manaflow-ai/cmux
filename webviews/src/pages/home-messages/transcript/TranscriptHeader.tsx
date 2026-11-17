@@ -9,6 +9,8 @@ import { HomeIcon } from "../../home-channels/icons";
 import type { HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { initials } from "../../../ui/initials";
+import { attachHeader } from "../seeThrough";
+import { ChiefPlaceChip, type ChiefFace, type ChiefPlace } from "./ChiefPlace";
 
 /** One top-right toggle (`HomeHeaderPanelItem`): a panel beside Home that it opens and closes. */
 export interface HeaderPanelItem {
@@ -28,11 +30,17 @@ export interface TranscriptHeaderProps {
   title: string;
   /** The participant the avatar shows (the other person, or the Chief); absent: the title's initials. */
   participant?: HomeParticipant;
+  /** A Chief chat's face as the app read it: it wins over the participant's picture. */
+  face?: Omit<ChiefFace, "conversation">;
+  /** A Chief chat's location chip beside its name, and its click. */
+  place?: ChiefPlace;
+  onPlace?(anchor: { x: number; y: number; width: number; height: number }): void;
   /** Names of the others who have the conversation open now (presence), already without me. */
   alsoHere?: readonly string[];
   panels?: readonly HeaderPanelItem[];
   onPanel?(id: string): void;
-  onContact?(): void;
+  /** The name pill's click, with the pill's box in page points (a host popover anchors there). */
+  onContact?(anchor: { x: number; y: number; width: number; height: number }): void;
   strings: Strings;
 }
 
@@ -64,6 +72,9 @@ function faceHue(name: string): number {
 export function TranscriptHeader({
   title,
   participant,
+  face,
+  place,
+  onPlace,
   alsoHere = [],
   panels = [],
   onPanel,
@@ -72,10 +83,14 @@ export function TranscriptHeader({
 }: TranscriptHeaderProps) {
   const list = new Intl.ListFormat(strings.language, { type: "conjunction" });
   return (
-    <header className="mt-header">
+    <header ref={attachHeader} className="mt-header">
       <div className="mt-header-center">
         <span className="mt-header-avatar" aria-hidden>
-          {participant ? (
+          {face?.picture ? (
+            <img className="mt-header-picture" src={face.picture} alt="" draggable={false} />
+          ) : face?.text ? (
+            <span className="mt-header-initials">{face.text}</span>
+          ) : participant ? (
             <Avatar participant={participant} size={36} />
           ) : (
             <span className="mt-header-initials">{initials(title)}</span>
@@ -86,11 +101,15 @@ export function TranscriptHeader({
             type="button"
             className="mt-name-pill"
             aria-label={strings.format("header.contact", title)}
-            onClick={onContact}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              onContact?.({ x: box.x, y: box.y, width: box.width, height: box.height });
+            }}
           >
             <span className="mt-name-text">{title}</span>
             <HomeIcon name="chevronRight" />
           </button>
+          {place && <ChiefPlaceChip place={place} {...(onPlace ? { onOpen: onPlace } : {})} />}
           {alsoHere.length > 0 && (
             <span className="mt-faces">
               <span className="mt-sr">{strings.format("home.header.alsoHere", list.format(alsoHere))}</span>

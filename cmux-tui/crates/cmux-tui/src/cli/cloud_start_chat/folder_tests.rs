@@ -48,7 +48,8 @@ fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
     std::fs::write(&file, "x").unwrap();
     let missing = dir.path().join("gone");
     for words in [
-        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        // `~` is the shell's to expand: quoted, it is no folder of this shell's.
+        vec!["--prompt", "x", "--from-folder", "~/app"],
         vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
         vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
         vec!["--prompt", "x", "--from-folder"],
@@ -62,6 +63,21 @@ fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
     let mut output = OutputMode::Human;
     let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
     assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+/// A relative `--from-folder` is a folder of this shell's working directory, answered canonical, as
+/// `cloud start-session --from-folder` sends it (`app::run_action`).
+#[test]
+fn relative_from_folder_of_start_chat_is_of_the_working_directory() {
+    let folder = std::fs::canonicalize("src").unwrap().to_string_lossy().into_owned();
+    for spelled in ["src", "./src/../src"] {
+        let parsed = request(&["--prompt", "x", "--from-folder", spelled]);
+        assert_eq!(parsed.from_folder.as_deref(), Some(folder.as_str()), "{spelled}");
+    }
+    assert!(
+        parse(&strings(&["--prompt", "x", "--from-folder", "relative/app"]), || Ok(String::new()))
+            .is_err()
+    );
 }
 
 #[test]
@@ -185,4 +201,22 @@ fn from_folder_refuses_home_above_it_and_credential_folders_before_any_step() {
     let control = format!("{}\n", at("proj"));
     assert!(local_folder_in(&control, false, None).is_err());
     assert!(local_folder_in(&format!("/{}", "a".repeat(4096)), false, None).is_err());
+}
+
+/// A folder refused for what it is prints its reason and what to do, coded
+/// `cloud_start_chat.folder_refused`, never the whole start-chat help; other usage errors keep it.
+#[test]
+fn a_folder_refusal_is_its_reason_not_the_help() {
+    use super::super::folder::{REFUSED_CODE, local_folder_in, refusal};
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    let error = local_folder_in(&home.to_string_lossy(), false, Some(&home)).unwrap_err();
+    let reason = refusal(&error).expect("a folder refusal");
+    assert!(reason.contains("Pick the project folder inside it"), "{reason}");
+    assert!(!reason.contains("usage:") && !reason.contains('\u{1}'), "{reason}");
+    assert_eq!(REFUSED_CODE, "cloud_start_chat.folder_refused");
+    let both = local_folder_in(&home.to_string_lossy(), true, Some(&home)).unwrap_err();
+    assert_eq!(refusal(&both), None, "--cwd with --from-folder is a usage error");
+    let parsed = parse(&strings(&["--prompt", "x", "--bogus"]), || Ok(String::new()));
+    assert_eq!(parsed.map_err(|error| refusal(&error).is_none()), Err(true));
 }

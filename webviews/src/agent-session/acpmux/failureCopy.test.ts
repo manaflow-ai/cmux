@@ -323,3 +323,20 @@ test("no cmux model router code reads as an own key's empty account", () => {
       "no-credit",
     );
 });
+
+test("the team's spending cap on a model call reads as its own kind, never the chat key's credit", () => {
+  // backend inference/route.ts at the team's cap (cmux#39915): a 402 `team.cap_reached`, typed `insufficient_quota`.
+  const body =
+    'API Error: 402 {"error":{"code":"team.cap_reached","message":"Your team reached its spending cap for this billing period. A team admin can raise it.","type":"insufficient_quota"}}';
+  expect(failureKind(body)).toBe("team-cap");
+  expect(failureKind("Your team reached its spending cap for this billing period. A team admin can raise it.")).toBe(
+    "team-cap",
+  );
+  // acpmux's typed reason alone would read as the key's credit: the message names the cap first.
+  expect(failureKind(body, undefined, "insufficient_quota")).toBe("team-cap");
+  expect(failureRecovery("team-cap")).toBe("switch-model");
+  expect(offersOwnRoute("team-cap")).toBe(false);
+  const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
+  expect(copy).toContain("spending cap");
+  expect(copy).toContain("team admin");
+});

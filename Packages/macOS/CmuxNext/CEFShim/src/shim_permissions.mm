@@ -15,7 +15,9 @@ namespace cmux_shim {
 
 namespace {
 
-// Location only: notifications are off (disable-notifications, CEFSwitches).
+// Location only. A notification request stays with Chromium, whose bubble cmux never shows:
+// it stays unanswered, so the permission stays `default` and no web notification is shown
+// (CEFSwitches keeps the page's Notification and PushManager interfaces, as Chrome has them).
 constexpr uint32_t kHostPermissions = CEF_PERMISSION_TYPE_GEOLOCATION;
 
 // Waiting prompts by token (prompt id + 1), UI thread. Never destroyed at

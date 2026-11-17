@@ -29,19 +29,17 @@ extension CloudStartChat {
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services, asker: asker), steps = CloudStartSteps(logger: cloud.logger)
+        defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") } // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
+        if await decision.takeWarmReceipt(cli: cloud.move.cli, machine: machineID, userID: userID, ask: ask) { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
         await gate.read(into: &decision)
         steps.done("login.gate")
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
-        // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
-        defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") }
         do {
             var verdict = decision.verdict // One FFI answer per step (cmux#32483): a step's fields never mix a failed call with a good one.
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
-                // The guest's kind (again until a new guest binds) and the machine's own login, read at once; a login the
-                // provider rejects (a reused machine's expired token) is replaced like a missing one.
-                try await decision.readMachine(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause,
-                                               warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID, cloud.claimedCopies) }) { await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams) }
+                // The guest's kind, the machine's own login and the transfer's guest check, at once (``CloudHarnessLoginDecision/readMachine(on:machineID:teamID:userID:otherTeams:warmCopy:)``).
+                try await decision.readMachine(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID, cloud.claimedCopies) })
                 steps.done("login.machine")
             }
             verdict = decision.verdict
@@ -78,7 +76,7 @@ extension CloudStartChat {
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, steps: steps, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, steps: steps, guestCheckedAt: decision.guestCheckedAt, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                        confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) }, stillAllowed: gate.stillAllowed)
             }

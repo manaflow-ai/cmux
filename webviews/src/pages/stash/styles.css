@@ -82,8 +82,8 @@
   user-select: text;
 }
 
-.stash-search:focus,
-.stash-import-text:focus {
+.stash-search:focus-visible,
+.stash-import-text:focus-visible {
   border-color: var(--page-text-3);
 }
 

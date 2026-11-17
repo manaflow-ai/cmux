@@ -325,10 +325,7 @@ impl RemoteSession {
                     surface.dirty.store(true, Ordering::Release);
                 }
                 if let Some(title) = value.get("title").and_then(Value::as_str) {
-                    self.emit(MuxEvent::TitleChanged {
-                        surface: id,
-                        title: Arc::<str>::from(title),
-                    });
+                    self.emit(MuxEvent::page_title(id, Arc::<str>::from(title)));
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
@@ -455,13 +452,22 @@ impl RemoteSession {
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
-                        let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
+                        // The cache keeps what the tab shows (D2): a raw title
+                        // would bring back a spinner frame on the next tree read.
+                        let (shown, updated) = {
+                            let mut tree = self.tree.lock().unwrap();
+                            let kind = tree.view.surface(id).map(|tab| tab.kind);
+                            let shown = remote_shown_title(title, &value, kind);
+                            let updated = tree.update_title(id, shown.text.to_string());
+                            (shown, updated)
+                        };
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
                         self.emit(MuxEvent::TitleChanged {
                             surface: id,
-                            title: Arc::<str>::from(title),
+                            title: title.into(),
+                            shown,
                         });
                     } else if self.invalidate_tree_once() {
                         self.emit(MuxEvent::TreeChanged);
@@ -719,4 +725,27 @@ impl RemoteSession {
         }
         self.frame_logs.lock().unwrap().push(surface, line.to_string());
     }
+}
+
+/// What a remote daemon's `title-changed` shows: its `text` and `activity`
+/// when it sends them (D2). A daemon from before them sends only `title`:
+/// the rule of the tab's `kind` then applies, as for a tree tab, so a page's
+/// title keeps its own leading mark. A tab the tree does not hold yet reads
+/// as a terminal; the tree refresh that follows applies its kind.
+fn remote_shown_title(
+    title: &str,
+    value: &Value,
+    kind: Option<SurfaceKind>,
+) -> cmux_tui_core::TabTitle {
+    let Some(text) = value.get("text").and_then(Value::as_str) else {
+        return match kind {
+            Some(SurfaceKind::Browser) => cmux_tui_core::TabTitle::page(title),
+            Some(SurfaceKind::Pty) | None => cmux_tui_core::TabTitle::terminal(title),
+        };
+    };
+    let activity = value
+        .get("activity")
+        .and_then(Value::as_str)
+        .and_then(cmux_tui_core::TitleActivity::from_wire);
+    cmux_tui_core::TabTitle { text: Arc::from(text), activity }
 }

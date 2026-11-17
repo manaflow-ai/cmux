@@ -148,13 +148,13 @@ export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:$
 
 /** One line of the section, top to bottom. */
 export type SectionItem =
-  | { type: "header"; key: string; title: string; first: boolean }
+  | { type: "header"; key: string; title: string; first: boolean; team?: { name: string; personal: boolean } }
   | { type: "row"; key: string; row: MachineRow; afterHeader: boolean }
   | { type: "add"; key: string; gap: boolean };
 
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
 export function sectionItems(
-  snapshot: Pick<MachinesSnapshot, "rows" | "style">,
+  snapshot: Pick<MachinesSnapshot, "rows" | "style" | "cloudTeam">,
   strings: Strings,
   removed: ReadonlySet<string> = new Set(),
 ): SectionItem[] {
@@ -163,7 +163,11 @@ export function sectionItems(
   const rows = removed.size ? snapshot.rows.filter((row) => !removed.has(row.id)) : snapshot.rows;
   for (const group of groups(rows, snapshot.style)) {
     const title = groupTitle(group.kind, strings);
-    if (title) items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0 });
+    // The Cloud machines are the active team's: their header names it (Leo, 2026-11-09: "i guess is
+    // team? it's kinda hard to realize tho").
+    const team = group.kind === "cloud" ? snapshot.cloudTeam : undefined;
+    if (title)
+      items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0, ...(team ? { team } : {}) });
     group.rows.forEach((row, index) => {
       items.push({ type: "row", key: `r:${row.id}`, row, afterHeader: index === 0 && !!title });
     });
@@ -176,7 +180,7 @@ export function sectionItems(
 export function shownLines(snapshot: MachinesSnapshot, strings: Strings): string[] {
   const state = showsStateLine(snapshot.style);
   return sectionItems(snapshot, strings).map((item) => {
-    if (item.type === "header") return item.title;
+    if (item.type === "header") return item.team ? `${item.title} · ${item.team.name}` : item.title;
     if (item.type === "add") return strings.t("machines.addMachine");
     const { row } = item;
     if (row.joined) return [row.name, joinedCaption(row.joined, snapshot.failed[row.joined.id], strings)].join(" · ");

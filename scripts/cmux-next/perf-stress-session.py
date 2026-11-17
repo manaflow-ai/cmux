@@ -55,6 +55,26 @@ Use it three ways:
 
   3. Build STRESS in a running tagged app: --socket /tmp/cmux-debug-<tag>.sock
 
+The LARGE session (`--session large`, `Stress.build_large()`; plans/cmux-next/main-thread-scheduling.md 1.5, the
+main-thread scheduling step 0 and the Chrome parity bench reuse it, so keep this shape and the shape check in step):
+
+  * LARGE_WORKSPACES (60) workspaces x 6 tabs = 360 tabs, one pane each: 3 terminals, 1 agent chat, 1 Chromium page,
+    1 WebKit page (LARGE_MIX). Every tab is made live: its workspace is shown while its tabs open, as a person's
+    new tabs (a page opened in a hidden workspace opens offscreen). The window shows the last workspace at the end.
+    The 60 are the workspaces with a pane. Home (what an app with a clean HOME starts on) has no pane and is not one
+    of them: the sidebar then has 61 rows, and the summary says `workspaces_without_pane: 1`.
+  * The typed terminal: the last workspace's first terminal (the bench turns it into `cat`).
+  * TITLE_STREAMS (5) title streams: the first terminal of 5 hidden workspaces (TITLE_STREAM_WORKSPACES) runs a shell
+    loop that prints `ESC ] 0 ; <spinner glyph> agent task <n> BEL` every TITLE_FRAME_S (80 ms, 12.5 Hz, the Claude
+    Code spinner rate) and changes <n> every TITLE_TEXT_FRAMES frames (2 s): 62.5 title writes a second in all, 2.5
+    of them text changes. `start_title_streams()` starts them; `stop_title_streams()` removes their run file and
+    each loop ends within one frame. The 5 agent status changes a second (`cmux workspace <id> status set agent
+    <state>` over the same 5 workspaces) are the bench's own thread (sidebar-churn-typing.py --session large), as
+    they go through the app's CLI.
+  * `check_large` refuses another shape (StressShapeError): 60 workspaces, each one pane with exactly the mix,
+    no provisional tab, no chat replaced by the New Tab page, Chromium running, the window on the last workspace,
+    5 streams in 5 distinct hidden workspaces.
+
 pane-perf-terminal.py --stress measures pane motion in it (layout name `stress`).
 Prints one line `STRESS-SESSION {json}`: workspaces, the measured workspace id, its panes, tabs by
 kind, busy terminals, Chromium pages elsewhere and the build time.
@@ -76,6 +96,25 @@ WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
 LEGACY_ORIGIN = (80, 40)
 MINIMUM_PANE = {"layout.minimumPaneWidth": 80, "layout.minimumPaneHeight": 32}
 WEB_DEV_CONFIG = os.path.expanduser("~/.config/cmux/web-dev.json")  # routes pages to a dev server when present
+# The LARGE session (module docstring, plans/cmux-next/main-thread-scheduling.md 1.5).
+LARGE_WORKSPACES = 60
+LARGE_MIX = ("terminal", "terminal", "terminal", "chat", "chromium", "webkit")  # the first terminal comes with the workspace
+TITLE_STREAMS = 5
+TITLE_STREAM_WORKSPACES = (0, 12, 24, 36, 48)  # 0-based build order: hidden, spread over the sidebar
+TITLE_FRAME_S = 0.08
+TITLE_TEXT_FRAMES = 25  # 25 x 80 ms = a new text every 2 s
+SPINNER = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"  # the braille spinner Claude Code prints
+
+
+def title_stream_command(run_file):
+    """The shell loop of one title stream: while `run_file` exists, a title of one spinner glyph and `agent task <n>`
+    every TITLE_FRAME_S, <n> one more every TITLE_TEXT_FRAMES frames. The glyphs go as printf octal escapes, so the
+    command text the app types is ASCII; bash and zsh printf both read them. Ends within one frame of the file's removal."""
+    glyphs = " ".join("'" + "".join("\\%03o" % byte for byte in glyph.encode()) + "'" for glyph in SPINNER)
+    return (f"i=0; while [ -e '{run_file}' ]; do for g in {glyphs}; do [ -e '{run_file}' ] || break; "
+            f"printf \"\\033]0;$g agent task %d\\007\" $((i / {TITLE_TEXT_FRAMES})); i=$((i + 1)); sleep {TITLE_FRAME_S}; done; done\r")
+
+
 BUSY_COMMAND = 'while :; do echo "$RANDOM $RANDOM $RANDOM stress output line $(date +%s)"; sleep 0.02; done\r'
 
 
@@ -359,6 +398,149 @@ class Stress:
         for kind in kinds:
             self.add_tab(workspace, first, kind)
         return workspace, panes
+
+    # The LARGE session (module docstring; plans/cmux-next/main-thread-scheduling.md 1.5).
+
+    def fill_large(self, workspace):
+        """`workspace` shown, then its one pane filled to LARGE_MIX: the tabs it lacks by kind (a new workspace has its
+        first terminal). Returns the pane id."""
+        self.show(workspace)
+        # The pane of a new workspace can come with a later delta than its id: wait for it, do not read it once.
+        pane = wait(lambda: (self.panes(self.workspace(workspace)) or [{}])[0].get("id"), 30, step=0.05)
+        if not pane:
+            raise StressShapeError(f"workspace {workspace} has no pane after 30 s")
+        self.record_first(workspace, pane)
+        have = {}
+        for kind, _, _ in self.made.get(pane, []):
+            have[kind] = have.get(kind, 0) + 1
+        for kind in LARGE_MIX:
+            if have.get(kind, 0):
+                have[kind] -= 1
+                continue
+            self.add_tab(workspace, pane, kind)
+        return pane
+
+    def build_large(self, check=True):
+        """The LARGE session: LARGE_WORKSPACES workspaces of LARGE_MIX each (the ones the app has count), the last one
+        shown with its first terminal focused. Returns the summary (`summary_large`); raises StressShapeError on another
+        shape unless `check` is false. The title streams are not started (`start_title_streams`)."""
+        start = time.monotonic()
+        # A workspace the app starts with counts only when it has a pane. An app with a clean HOME starts on Home,
+        # which a window draws as the Home page: it has no pane and can hold no tab, so it is not one of the 60.
+        existing = [w["id"] for w in self.workspaces() if self.panes(w)]
+        if len(existing) > LARGE_WORKSPACES:
+            raise StressShapeError(f"the app already has {len(existing)} workspaces; LARGE has {LARGE_WORKSPACES} in all")
+        order = list(existing)
+        while len(order) < LARGE_WORKSPACES:
+            workspace = self.new_workspace()
+            if not workspace:
+                raise StressShapeError(f"workspace {len(order) + 1} did not appear")
+            order.append(workspace)
+        self.large = order
+        self.large_panes = {}
+        for index, workspace in enumerate(order):
+            self.large_panes[workspace] = self.fill_large(workspace)
+            if (index + 1) % 10 == 0:
+                self.log(f"large: {index + 1}/{len(order)} workspaces filled")
+        self.measured = order[-1]
+        self.show(self.measured)
+        self.focus_pane(self.large_panes[self.measured])
+        self.streams = [self.first_terminal(order[index]) for index in TITLE_STREAM_WORKSPACES]
+        time.sleep(self.settle)  # test script: first page loads before a measure
+        summary = self.summary_large()
+        summary["build_s"] = round(time.monotonic() - start, 1)
+        if check:
+            self.check_large(summary)
+        return summary
+
+    def first_terminal(self, workspace):
+        """The id of the first terminal tab of `workspace`'s pane (the typed one, a stream), or None."""
+        return self.first_terminal_in(self.workspace(workspace))
+
+    def start_title_streams(self, run_dir):
+        """Starts the TITLE_STREAMS title loops (`title_stream_command`) in the stream terminals; they run while
+        `run_dir`/title-streams.run exists. Returns the run file."""
+        os.makedirs(run_dir, exist_ok=True)
+        self.stream_run_file = os.path.join(run_dir, "title-streams.run")
+        open(self.stream_run_file, "w").close()
+        for tab in getattr(self, "streams", []):
+            if tab:
+                self.send(tab, title_stream_command(self.stream_run_file))
+        return self.stream_run_file
+
+    def stop_title_streams(self):
+        """Ends the title loops: removes their run file (each loop checks it every frame)."""
+        run_file = getattr(self, "stream_run_file", None)
+        if run_file and os.path.exists(run_file):
+            os.remove(run_file)
+
+    def summary_large(self):
+        """The LARGE shape as built: workspaces, each workspace's tab mix (from the tabs this builder made and the
+        topology's kinds), provisional tabs, the shown workspace, the streams and Chromium's state."""
+        topology = self.topology()
+        workspaces = [w for w in topology.get("workspaces") or [] if w.get("id")]
+        by_id = {w["id"]: w for w in workspaces}
+        want = {kind: LARGE_MIX.count(kind) for kind in set(LARGE_MIX)}
+        problems = []
+        tabs = 0
+        for workspace in getattr(self, "large", []):
+            panes = self.panes(by_id.get(workspace))
+            if len(panes) != 1:
+                problems.append(f"workspace {workspace}: {len(panes)} panes, not 1")
+                continue
+            live = {t.get("id"): t.get("kind") for t in panes[0].get("tabs") or []}
+            tabs += len(live)
+            asked = self.made.get(panes[0].get("id"), [])
+            got = {k: sum(1 for kind, _, _ in asked if kind == k) for k in want}
+            wrong = [f"{kind} tab {tab} is {live.get(tab)}" for kind, tab, fallback in asked
+                     if tab is None or live.get(tab) not in topology_kinds(kind, fallback)]
+            pending = [tab for tab in live if str(tab or "").startswith(PROVISIONAL_TAB)]
+            if got != want or len(live) != len(LARGE_MIX) or wrong or pending:
+                problems.append(f"workspace {workspace}: {len(live)} tabs, made {got}"
+                                f"{'; ' + ', '.join(wrong[:3]) if wrong else ''}{'; provisional ' + str(pending[:2]) if pending else ''}")
+        shown = self.window_showing(getattr(self, "measured", None), topology)
+        stream_workspaces = [workspace for workspace in getattr(self, "large", [])
+                             if self.first_terminal_in(by_id.get(workspace)) in set(getattr(self, "streams", []))]
+        with_pane = [w for w in workspaces if self.panes(w)]
+        return {"session": "large", "workspaces": len(with_pane), "workspaces_without_pane": len(workspaces) - len(with_pane),
+                "tabs": tabs, "measured": getattr(self, "measured", None),
+                "measured_shown": shown is not None, "streams": [t for t in getattr(self, "streams", []) if t],
+                "stream_workspaces": stream_workspaces, "chat_fallbacks": self.chat_fallbacks,
+                "chat_fallback_ok": self.allow_chat_fallback, "workspace_problems": problems[:6],
+                "workspace_problem_count": len(problems), "refusals": self.refusals[:10],
+                "chromium_unavailable": ([r for r in self.refusals if r.startswith("openBrowser.chromium")]
+                                         + cef_problems(self.rpc("debug.cef"), self.web_dev_config))[:4],
+                "title_frame_ms": TITLE_FRAME_S * 1000, "title_text_every_s": TITLE_FRAME_S * TITLE_TEXT_FRAMES}
+
+    def first_terminal_in(self, workspace):
+        """`first_terminal` of a topology workspace dict already read."""
+        pane = (self.panes(workspace) or [{}])[0]
+        return next((t.get("id") for t in pane.get("tabs") or [] if t.get("kind") == "terminal" and not provisional(t)), None)
+
+    @staticmethod
+    def check_large(summary):
+        """Raises StressShapeError when the session is not LARGE (module docstring)."""
+        problems = list(summary.get("workspace_problems") or [])
+        if summary.get("workspace_problem_count", 0) > len(problems):
+            problems.append(f"{summary['workspace_problem_count'] - len(problems)} more workspaces with the wrong mix")
+        if summary.get("workspaces") != LARGE_WORKSPACES:
+            problems.append(f"{summary.get('workspaces')} workspaces, not {LARGE_WORKSPACES}")
+        if summary.get("tabs") != LARGE_WORKSPACES * len(LARGE_MIX):
+            problems.append(f"{summary.get('tabs')} tabs, not {LARGE_WORKSPACES * len(LARGE_MIX)}")
+        if not summary.get("measured_shown"):
+            problems.append(f"no window shows the last workspace {summary.get('measured')}")
+        streams = summary.get("stream_workspaces") or []
+        if len(summary.get("streams") or []) != TITLE_STREAMS or len(set(streams)) != TITLE_STREAMS:
+            problems.append(f"{len(summary.get('streams') or [])} title streams in {len(set(streams))} workspaces, not {TITLE_STREAMS}")
+        if summary.get("measured") in streams:
+            problems.append("a title stream runs in the shown workspace (the streams are hidden workspaces)")
+        if summary.get("chat_fallbacks") and not summary.get("chat_fallback_ok"):
+            problems.append(f"{summary.get('chat_fallbacks')} agent chats were replaced by the New Tab page")
+        if summary.get("chromium_unavailable"):
+            problems.append(f"Chromium is not available: {summary.get('chromium_unavailable')}")
+        if problems:
+            raise StressShapeError("LARGE session has the wrong shape: " + "; ".join(problems)
+                                   + f" (refusals: {summary.get('refusals')})")
 
     def close(self):
         """Stops the local pages' server (the end of a run, or a test)."""
@@ -849,6 +1031,9 @@ def main():
     where.add_argument("--app", help="a Debug `cmux DEV <tag>.app` to launch (not running)")
     where.add_argument("--socket", help="the debug socket of a running tagged app")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cmux-stress-"))
+    parser.add_argument("--session", choices=["stress", "large"], default="stress",
+                        help="stress: the STRESS grid; large: the LARGE session (60 x 6 tabs, 5 title streams; with --keep the "
+                             "streams run until the script ends)")
     parser.add_argument("--selected", choices=["terminal", "chromium"], default="terminal")
     parser.add_argument("--busy-where", choices=["measured", "elsewhere"], default="measured")
     parser.add_argument("--keep", action="store_true", help="leave the launched app running")
@@ -875,8 +1060,15 @@ def main():
             rpc = app.rpc
         else:
             rpc = socket_rpc(opts.socket)
-        summary = Stress(rpc, selected=opts.selected, busy_where=opts.busy_where).build()
-        print("STRESS-SESSION " + json.dumps(summary), flush=True)
+        builder = Stress(rpc, selected=opts.selected, busy_where=opts.busy_where)
+        if opts.session == "large":
+            summary = builder.build_large()
+            if opts.keep:
+                builder.start_title_streams(opts.out)
+            print("LARGE-SESSION " + json.dumps(summary), flush=True)
+        else:
+            summary = builder.build()
+            print("STRESS-SESSION " + json.dumps(summary), flush=True)
         with open(os.path.join(opts.out, "stress-session.json"), "w") as f:
             json.dump(summary, f, indent=1)
         if app and opts.keep:

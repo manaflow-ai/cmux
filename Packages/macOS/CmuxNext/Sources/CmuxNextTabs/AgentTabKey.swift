@@ -33,6 +33,9 @@ public struct AgentTabKey: Hashable, Sendable {
 /// no tab once two machines list the same one, so every read and write says which machine.
 public struct AgentTabMap<Value>: Sequence {
     private var storage: [AgentTabKey: Value] = [:]
+    /// The machines that hold each tab id: "which machines have this id" (`keys(ofTab:)`) is asked on
+    /// every key press and tab draw with an id alone, so it reads this, never every key.
+    private var machines: [String: Set<String>] = [:]
 
     public typealias Element = (key: AgentTabKey, value: Value)
     public typealias Iterator = IndexingIterator<[Element]>
@@ -59,15 +62,15 @@ public struct AgentTabMap<Value>: Sequence {
         get { storage[key] }
         set {
             if let newValue {
-                storage[key] = newValue
+                if storage.updateValue(newValue, forKey: key) == nil { machines[key.key, default: []].insert(key.machine) }
             } else {
-                storage.removeValue(forKey: key)
+                _ = removeValue(forKey: key)
             }
         }
     }
 
     /// The keys of tab id `key` on every machine that has one.
-    public func keys(ofTab key: String) -> [AgentTabKey] { storage.keys.filter { $0.key == key } }
+    public func keys(ofTab key: String) -> [AgentTabKey] { machines[key]?.map { AgentTabKey(machine: $0, key: key) } ?? [] }
 
     /// The values by tab id of the ids exactly one machine has (an id two machines share names neither).
     public var unambiguousIDs: [String: Value] {
@@ -77,11 +80,16 @@ public struct AgentTabMap<Value>: Sequence {
 
     /// The one key of tab id `key`; nil when no machine or more than one has it.
     public func onlyKey(ofTab key: String) -> AgentTabKey? {
-        let keys = keys(ofTab: key)
-        return keys.count == 1 ? keys[0] : nil
+        guard let holders = machines[key], holders.count == 1, let machine = holders.first else { return nil }
+        return AgentTabKey(machine: machine, key: key)
     }
 
-    public mutating func removeValue(forKey key: AgentTabKey) -> Value? { storage.removeValue(forKey: key) }
+    public mutating func removeValue(forKey key: AgentTabKey) -> Value? {
+        guard let value = storage.removeValue(forKey: key) else { return nil }
+        machines[key.key]?.remove(key.machine)
+        if machines[key.key]?.isEmpty == true { machines[key.key] = nil }
+        return value
+    }
 
     public func filter(_ isIncluded: ((key: AgentTabKey, value: Value)) throws -> Bool) rethrows -> AgentTabMap<Value> {
         var result = AgentTabMap<Value>()

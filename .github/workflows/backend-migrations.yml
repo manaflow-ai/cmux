@@ -259,7 +259,25 @@ jobs:
       - name: Plan succeeded
         env:
           RESULT: ${{ needs.plan.result }}
-        run: '[ "$RESULT" = success ] || { echo "::error::migration plan $RESULT"; exit 1; }'
+        run: |
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
+          needs_verdict "migration plan" "plan=$RESULT"
       - name: No migration changes, or merge queue (verified at PR time)
         if: needs.plan.outputs.migrations != 'true' || github.event_name == 'merge_group'
         run: echo "nothing to verify here (no migration changes, or a merge group of PRs whose gate passed)"

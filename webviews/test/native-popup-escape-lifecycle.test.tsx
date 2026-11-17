@@ -51,6 +51,9 @@ test.each(["shown", "rejected"] as const)(
     };
     for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
     Object.assign(scope, replacements);
+    // The popup host reads the viewport from the window, which JSDOM sizes at 1024x768.
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 100 });
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 500 });
     const menu = document.getElementById("menu")!;
     const shell = document.getElementById("shell")!;
     Object.defineProperty(menu, "offsetHeight", { value: 120 });

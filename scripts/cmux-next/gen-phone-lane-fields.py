@@ -50,9 +50,10 @@ REVIEWED_FIELDS = {
                                                 "tab shows (host, session, harness, host_name); the daemon "
                                                 "only records them and starts nothing",
                                                 "db5f27c4f0aa2ac2"),
-    ("new-conversation-tab", "split"): ("ConversationTabSplit: a side and caller-minted pane_/split_ ids "
-                                        "for placing the tab in a new pane",
-                                        "51c9b9b2ab895f7a"),
+    ("new-conversation-tab", "split"): ("ConversationTabSplit: a side, caller-minted pane_/split_ ids and "
+                                        "an existing split's numeric id (around) for placing the tab in a "
+                                        "new pane",
+                                        "d7e4b99608f964b9"),
 }
 
 

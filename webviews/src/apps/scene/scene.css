@@ -202,3 +202,113 @@
   max-height: 100%;
   object-fit: contain;
 }
+
+/* Toggle: the label leading and the shared small switch (ui/Switch) trailing, as the native settings rows. */
+.cmux-app-scene-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--grid-gap);
+  min-width: 0;
+  min-height: var(--grid-row);
+}
+.cmux-app-scene-toggle-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Slider: the full row width, its track in the scope's primary ink (the native slider's trackFillColor). */
+.cmux-app-scene-slider {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid-row);
+}
+.cmux-app-scene-slider-input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--agent-text);
+}
+.cmux-app-scene-slider-input:disabled {
+  opacity: 0.5;
+}
+
+/* Panel: a group on the card surface, inset by the card's outer margin, with the card's padding and
+   radius and an optional caption title. `glass` (the default) is the sidebar cards' veil and rim;
+   `card` is the translucent hover fill with a separator hairline. */
+.cmux-app-scene-panel {
+  --cmux-app-scene-panel-spacing: calc(var(--grid-base) * 2);
+  display: flex;
+  flex-direction: column;
+  margin-inline: calc(var(--grid-base) * 3);
+  padding: calc(var(--grid-base) * 3);
+  border-radius: var(--surface-card-radius, 12px);
+}
+.cmux-app-scene-panel[data-style="glass"] {
+  background: var(--surface-card-veil, var(--agent-control-hover));
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--surface-card-rim-top, transparent),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--surface-card-rim-bottom, transparent);
+}
+.cmux-app-scene-panel[data-style="card"] {
+  background: var(--agent-control-hover);
+  box-shadow: inset 0 0 0 1px var(--agent-border);
+}
+.cmux-app-scene-panel-title {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The quiet row a failed or disconnected mount draws in place of its scene (native AppFailureNSView). */
+.cmux-app-scene-failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-base);
+  padding: calc(var(--grid-base) * 2) calc(var(--grid-base) * 4);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cmux-app-scene-failure-title {
+  color: var(--agent-muted);
+  overflow-wrap: anywhere;
+}
+.cmux-app-scene-failure-location,
+.cmux-app-scene-failure-detail {
+  color: color-mix(in srgb, var(--agent-text) 38%, transparent);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.cmux-app-scene-failure-detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+.cmux-app-scene-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--grid-base) * 3);
+}
+.cmux-app-scene-failure-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-accent, var(--cmux-accent, var(--agent-text)));
+  font: inherit;
+  cursor: default;
+}
+.cmux-app-scene-failure-action:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.cmux-app-scene-mount {
+  min-width: 0;
+}
+.cmux-app-scene-switch {
+  flex: none;
+}

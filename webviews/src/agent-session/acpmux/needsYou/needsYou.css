@@ -418,7 +418,7 @@
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
-.acpmux-needs-you-side-field:focus {
+.acpmux-needs-you-side-field:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
 

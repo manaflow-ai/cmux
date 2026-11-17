@@ -516,7 +516,8 @@ jobs:
     runs-on: ${{ needs.plan.outputs.linux_runner }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    # A part's benches run up to 30 minutes (cmd_run_linux_part's cap), after about 5 minutes of setup.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -539,7 +540,7 @@ jobs:
 
       # The web UI benches drive headless Chromium and WebKit (the measured commit's Playwright).
       - name: Install Playwright browsers
-        if: ${{ needs.plan.outputs.linux_part == 'web-ui' || needs.plan.outputs.linux_part == 'web-ui-scale' }}
+        if: ${{ startsWith(needs.plan.outputs.linux_part, 'web-ui') }}
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 

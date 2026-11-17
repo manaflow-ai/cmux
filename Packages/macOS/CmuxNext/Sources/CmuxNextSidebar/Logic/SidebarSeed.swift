@@ -4,8 +4,10 @@
 /// (`SidebarRowState.stale`), or, for another machine, with placeholder
 /// rows when nothing was saved. While the app is launching, saved sections the live sidebar
 /// does not list yet (pinned, Cloud machines before the machine list
-/// arrives) keep their place. A section that stopped loading spends its
-/// saved rows, so they never come back later. A section given placeholders
+/// arrives) keep their place. A section whose machine has not loaded its rows
+/// yet (`unloaded`) is still loading, after the launch too: its saved rows
+/// never give way to an empty section before the live ones. A section that
+/// stopped loading spends its saved rows, so they never come back later. A section given placeholders
 /// at launch keeps them through the launch grace period. Once the launch has
 /// settled, an empty or unavailable machine section stays empty until live
 /// workspaces arrive. The bars wait out `grace` first, so a machine that
@@ -38,7 +40,9 @@ public struct SidebarSeed {
     /// `failed` lists machines whose first connection gave up while their
     /// header still says connecting: their placeholders end and do not
     /// reappear during a later connecting callback.
-    public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
+    /// `unloaded` lists machines whose rows have not been loaded yet (no first tree from their daemon).
+    public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = [],
+                               unloaded: Set<MachineID> = []) -> [SidebarSection] {
         if !launching, !settled {
             settled = true
             // Cancel a pending grace callback before it can repopulate rows
@@ -47,8 +51,11 @@ public struct SidebarSeed {
         }
         var result: [SidebarSection] = []
         for section in live {
-            let loading = Self.isLoading(section, launching: launching)
             let machineFailed = section.machine.map { failed.contains($0.id) || $0.status.needsAttention } ?? false
+            // A machine whose rows have not loaded keeps its saved rows past its header's connect and the launch's
+            // end (Leo, 2026-11-09: "it regresses into the skeletons and placeholders"); a failed one does not.
+            let loading = Self.isLoading(section, launching: launching)
+                || (!machineFailed && section.machine.map { unloaded.contains($0.id) } == true)
             if machineFailed {
                 suppressedSections.insert(section.id)
                 grace.reset(section.id)

@@ -49,14 +49,19 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
-        // Web notifications must not make CEF's Alerts helper request a
-        // separate macOS notification authorization. DesktopNotifier owns the
-        // one app-level authorization request when cmux posts a banner.
-        result.append("disable-notifications")
-        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
-        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
-        // authorization for the app and its Alerts helper on the first launch, with no action of
-        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        // Web notifications must not make CEF's Alerts helper request a separate macOS
+        // notification authorization: DesktopNotifier owns the one app-level request, made when
+        // cmux posts a banner. Chromium's macOS notification bridge, made for the profile at
+        // startup while SystemNotifications is on, asked macOS for authorization for the app and
+        // its Alerts helper on the first launch, with no action of the person
+        // (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        //
+        // Never add `disable-notifications` here: it takes `Notification` and `PushManager` out
+        // of every page, which no desktop Chrome does, and bot checks read that as automation.
+        // Akamai Bot Manager then served its challenge page again and again (godaddy.com reloaded
+        // about twice per second, then "Access Denied"; Chrome with the two interfaces deleted
+        // does the same). Pages keep the interfaces and read the permission as `default`:
+        // nothing in cmux grants it (shim_permissions.mm), so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go

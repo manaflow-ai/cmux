@@ -34,7 +34,7 @@ impl Hub {
         // every pane hears is the marks kept; and a move begins before the change or after it.
         let moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
         if moving.is_some() {
-            return Err(queue::moving_error());
+            return Err(queue::moving_error(session));
         }
         let (marks, before) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());

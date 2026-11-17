@@ -84,6 +84,8 @@ export interface StateResult {
   bar_title: string;
   other_title: string;
   can_set_folder_icons: boolean;
+  /** The page's lend (a bar page moves between tabs): bumped on every move. */
+  lend?: number;
 }
 
 export interface IconsResult {
@@ -93,7 +95,10 @@ export interface IconsResult {
 }
 
 export interface HostChangedEvent {
-  reason?: "state" | "icons";
+  /** `lend`: the page moved to another tab or back to the pool; nothing to re-read. */
+  reason?: "state" | "icons" | "lend";
+  /** The page's current lend. */
+  lend?: number;
 }
 
 export type Disposition = "current" | "newTab" | "backgroundTab";

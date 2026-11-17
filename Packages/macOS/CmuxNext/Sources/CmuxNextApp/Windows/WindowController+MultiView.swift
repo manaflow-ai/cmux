@@ -283,7 +283,7 @@ extension WindowController: WindowDockFrame {
     var frameChiefPanelShown: Bool { chiefPanelView.map { $0.superview === root.contentHost } ?? false }
     var frameChiefPanelHasKeys: Bool { frameChiefPanelShown && chiefPanelView?.hasKeys == true }
     func frameChiefPanelLies(toward direction: LayoutDirection) -> Bool { chiefPanelView?.lies(toward: direction, docked: state.chiefPanel.dockedEdge) ?? false }
-    func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeHostView)?.focusTarget) }
+    func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeConversationPage)?.focusTarget) }
     func frameFocusStage(toward direction: LayoutDirection?) { focusStagePane(toward: direction) }
     func frameChiefPanelDidChange() { frameDidChange() }
 

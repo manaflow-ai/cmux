@@ -12,6 +12,8 @@
      never clipped (Lawrence 2026-11-05: "cant see full model name"). It only grows while open
      (frameRef), so a search never shrinks it under the pointer. */
   width: max-content;
+  /* The resize grip (.acpmux-cols-resize) sits on its edge. */
+  position: relative;
   --acpmux-cols-min-width: 28.5em;
   min-width: min(var(--acpmux-cols-min-width), var(--available-width, calc(100vw - 24px)));
   max-width: min(40em, var(--available-width, calc(100vw - 24px)));
@@ -275,12 +277,13 @@
 .acpmux-cols-row[aria-disabled="true"] { color: var(--agent-muted); }
 .acpmux-cols-tune .acpmux-cols-row { gap: var(--ds-space-3); }
 .acpmux-cols-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The columns' names wrap rather than clip: the whole name always reads. */
+/* The columns' names stay on one line. The menu is as wide as the longest name of every tab
+   (modelMenuWidth.ts), so a name reads whole; a menu dragged narrower ends it in an ellipsis
+   (Lucas 2026-11-10). */
 .acpmux-cols-body .acpmux-cols-name {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A name other rows share, with its model id under it (twinRows). */
 .acpmux-cols-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
@@ -460,3 +463,31 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
 }
+
+/* The grip on the menu's outer edge (QuickModelColumns startResize): a drag sets the width, a
+   double-click goes back to the default. Its hit area runs the whole height, half outside. */
+.acpmux-cols-resize {
+  position: absolute;
+  top: var(--ds-space-3);
+  bottom: var(--ds-space-3);
+  z-index: var(--layer-raised);
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.acpmux-cols-resize[data-edge="end"] { right: -4px; }
+.acpmux-cols-resize[data-edge="start"] { left: -4px; }
+.acpmux-cols-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  translate: -50% -50%;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 30%, transparent);
+  opacity: 0;
+}
+.acpmux-cols-resize:hover::after,
+.acpmux-cols-resize[data-dragging]::after { opacity: 1; }

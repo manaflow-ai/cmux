@@ -145,12 +145,12 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         applyEye()
         let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
-        hideButton.toolTip = hide
+        hideButton.themedToolTip = hide
         let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .module)
         gripMark.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: grip)
         gripMark.contentTintColor = .tertiaryLabelColor
         gripMark.frameCenterRotation = 90
-        bar.toolTip = grip
+        bar.themedToolTip = grip
         chiefMark.image = NSImage(systemSymbolName: "bubble.left.fill",
                                   accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
         chiefMark.contentTintColor = .controlAccentColor
@@ -223,7 +223,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .module)
             : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .module)
         dockButton.image = NSImage(systemSymbolName: floating ? "sidebar.left" : "macwindow.on.rectangle", accessibilityDescription: label)
-        dockButton.toolTip = label
+        dockButton.themedToolTip = label
         applyShape()
     }
 
@@ -489,7 +489,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             : String(localized: "layout.chiefPanel.seesScreen.off", defaultValue: "Chief Does Not See Your Screen", bundle: .module)
         eyeButton.image = NSImage(systemSymbolName: seesScreen ? "eye" : "eye.slash", accessibilityDescription: label)
         eyeButton.contentTintColor = seesScreen ? .controlAccentColor : .secondaryLabelColor
-        eyeButton.toolTip = label
+        eyeButton.themedToolTip = label
     }
 
     /// The see-through plate's height: the message box and its margin.

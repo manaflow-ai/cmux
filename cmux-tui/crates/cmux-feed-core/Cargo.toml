@@ -11,5 +11,8 @@ description = "cmux feed local owner: notice items, typed ops and the pure reduc
 workspace = true
 
 [dependencies]
+chrono.workspace = true
+icu_normalizer.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true

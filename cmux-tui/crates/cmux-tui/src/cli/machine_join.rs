@@ -703,7 +703,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 47] = [
+const KNOWN_CODES: [&str; 48] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -746,6 +746,9 @@ const KNOWN_CODES: [&str; 47] = [
     "workspace_machine.not_admitted",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
+    // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
+    // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
+    "cloud.plan.required",
     "bad_request",
     "unauthorized",
     "not_found",

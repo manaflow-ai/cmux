@@ -3,7 +3,7 @@
 
 Runs on a GUI host through `nx-remote --needs gui --app-from-fleet cmux --tag TAG --ref SHA`,
 never on a laptop. Launches the tagged app with a scratch config (no-activate), then for each
-motion configuration (in memory through `debug.motion`: bounce, per-kind switches, Reduce Motion)
+motion configuration (in memory through `debug.motion`: per-kind switches, Reduce Motion)
 records `debug.new_tab` frame_strip around Cmd-T, the strip's +, closing a tab, Cmd-N, Cmd-D,
 Cmd-Shift-D and the close of each split, with `debug.motion` spans and per-frame samples (clock dt,
 travel left per animator) for each. Cmd-T and + start from a terminal tab (`newSurface`): on a New Tab
@@ -14,22 +14,22 @@ is left (`display_links`) and samples the app's CPU while idle. Writes OUT/resul
 strips under OUT/<config>/<gesture>/. A build without the new `debug.motion` actions (the base)
 ignores them; its results say which configurations it could not set.
 
-Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,bouncy,...]
+Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,panes-on,...]
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 # Phase 3 (hq-1d 2026-10-14): every kind is off by default (instant, no spring); each opt-in alone,
-# all of them bouncy, and all of them under Reduce Motion (which still moves nothing).
+# and all of them under Reduce Motion (which still moves nothing). No configuration bounces: the
+# bounce setting is gone (no bounce in any motion, Lawrence 2026-11-10).
 ALL_ON = [{"action": "kind", "name": k, "value": True} for k in ("paneAnimations", "newTab", "newWorkspace")]
 CONFIGS = {
     "default": [],
     "panes-on": [{"action": "kind", "name": "paneAnimations", "value": True}],
     "newtab-on": [{"action": "kind", "name": "newTab", "value": True}],
     "newworkspace-on": [{"action": "kind", "name": "newWorkspace", "value": True}],
-    "bouncy": ALL_ON + [{"action": "bounce", "value": "subtle"}],
     "reduce": ALL_ON + [{"action": "reduce", "value": True}],
 }
-RESET = [{"action": "bounce", "value": "none"}, {"action": "reduce", "value": None},
+RESET = [{"action": "reduce", "value": None},
          {"action": "kind", "name": "paneAnimations", "value": False}, {"action": "kind", "name": "newTab", "value": False},
          {"action": "kind", "name": "newWorkspace", "value": False}, {"action": "speed", "value": "fast"}]
 
@@ -200,7 +200,7 @@ def run_config(name, settings):
         rpc("debug.motion", change)
     state = rpc("debug.motion", {"action": "read"}) or {}
     out = os.path.join(opts.out, name)
-    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "bounce", "enabled_kinds", "pane_animations")},
+    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "enabled_kinds", "pane_animations")},
                "gestures": []}
     # Cmd-T from a terminal tab (Cmd-T on a New Tab page only focuses it), then its close.
     terminal_tab()

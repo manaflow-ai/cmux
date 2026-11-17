@@ -160,9 +160,15 @@ struct FirstRunPageAppShortcutsTests {
         }
     }
 
-    /// Every action the rule names exists in the catalog and carries the flag (a rename must not drop one silently).
+    /// The actions that open a new tab or pane in the window's workspace (the New Tab family and the
+    /// new panes) are exactly the ones the Rust catalog flags (a rename must not drop one silently).
     @Test func everyContentOpenerIsACatalogAction() {
+        let openers: Set<ActionID> = [
+            "newSurface", "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.toRight", "newTab.ofKind",
+            "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
+            "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+        ]
         let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
-        #expect(flagged == ActionCatalog.workspaceContentActionIDs, "missing: \(ActionCatalog.workspaceContentActionIDs.subtracting(flagged))")
+        #expect(flagged == openers, "missing: \(openers.subtracting(flagged)), extra: \(flagged.subtracting(openers))")
     }
 }

@@ -41,7 +41,22 @@ public final class ScreenModel: Identifiable {
     }
     @ObservationIgnored private var columnList: [ColumnSnapshot]
     public internal(set) var viewportBaseWidth: Double
-    public internal(set) var zoomedPane: PaneID?
+    /// The pane the screen shows alone; nil shows the whole layout. Held with ``layout``: a pending zoom's overlay takes
+    /// it out and puts it back around each daemon batch.
+    public internal(set) var zoomedPane: PaneID? {
+        get {
+            access(keyPath: \.zoomedPane)
+            return zoomedValue
+        }
+        set {
+            guard treeBeforeHold == nil else {
+                zoomedValue = newValue
+                return
+            }
+            withMutation(keyPath: \.zoomedPane) { zoomedValue = newValue }
+        }
+    }
+    @ObservationIgnored private var zoomedValue: PaneID?
     public internal(set) var defaultPane: PaneID?
     /// The daemon's active screen of its workspace, as of the last snapshot or screen record
     /// (no event moves it in between): where a `move-tab-to-workspace` lands.
@@ -63,7 +78,7 @@ public final class ScreenModel: Identifiable {
     }
     @ObservationIgnored private var paneList: [PaneModel]
     /// The tree as it was published when the store began holding it (``holdTree()``); nil while not held.
-    @ObservationIgnored private var treeBeforeHold: (layout: LayoutNode, columns: [ColumnSnapshot], panes: [PaneModel])?
+    @ObservationIgnored private var treeBeforeHold: (layout: LayoutNode, columns: [ColumnSnapshot], panes: [PaneModel], zoomed: PaneID?)?
     /// Palette token, nil = none (`screen-metadata-v1`).
     public internal(set) var color: String?
     /// SF Symbol name or one emoji grapheme.
@@ -71,6 +86,13 @@ public final class ScreenModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
+    /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
+    public internal(set) var hiddenDividers: Set<SplitID>
+
+    /// Shows or hides `split`'s divider line here (a Hide / Show Divider intent, until the daemon's layout says it).
+    func setDivider(_ split: SplitID, visible: Bool) {
+        if visible { hiddenDividers.remove(split) } else { hiddenDividers.insert(split) }
+    }
     /// Color, icon, pin, and group come from the daemon's state resources
     /// (`DaemonStore.session`), which the raw tree does not carry.
     @ObservationIgnored var metadataFromState = false
@@ -83,7 +105,7 @@ public final class ScreenModel: Identifiable {
         layoutValue = s.layout
         columnList = s.columns
         viewportBaseWidth = s.viewportBaseWidth ?? 1
-        zoomedPane = s.zoomedPane
+        zoomedValue = s.zoomedPane
         defaultPane = s.activePane
         isActive = s.active
         paneList = s.panes.map(PaneModel.init)
@@ -91,6 +113,7 @@ public final class ScreenModel: Identifiable {
         icon = s.icon
         pinned = s.pinned
         group = s.group
+        hiddenDividers = s.hiddenDividers
         adoptUnread()
     }
 
@@ -127,6 +150,7 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
+        if hiddenDividers != s.hiddenDividers { hiddenDividers = s.hiddenDividers }
         if isActive != s.active { isActive = s.active }
         if !metadataFromState {
             if color != s.color { color = s.color }
@@ -147,6 +171,7 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (d.viewportBaseWidth ?? 1) { viewportBaseWidth = d.viewportBaseWidth ?? 1 }
         if zoomedPane != d.zoomedPane { zoomedPane = d.zoomedPane }
         if defaultPane != d.activePane { defaultPane = d.activePane }
+        if hiddenDividers != d.hiddenDividers { hiddenDividers = d.hiddenDividers }
     }
 
     /// Lays the daemon's screen state over the record.
@@ -161,10 +186,10 @@ public final class ScreenModel: Identifiable {
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
 
-    /// Holds the publication of ``layout``, ``columns`` and ``panes`` until ``publishHeldTree()``
+    /// Holds the publication of ``layout``, ``columns``, ``panes`` and ``zoomedPane`` until ``publishHeldTree()``
     /// (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``): the writes still change the record at once.
     func holdTree() {
-        if treeBeforeHold == nil { treeBeforeHold = (layoutValue, columnList, paneList) }
+        if treeBeforeHold == nil { treeBeforeHold = (layoutValue, columnList, paneList, zoomedValue) }
     }
 
     /// Publishes each held field once, only when it is not what it was when held (panes by identity).
@@ -174,6 +199,7 @@ public final class ScreenModel: Identifiable {
         if before.layout != layoutValue { withMutation(keyPath: \.layout) {} }
         if before.columns != columnList { withMutation(keyPath: \.columns) {} }
         if !before.panes.elementsEqual(paneList, by: ===) { withMutation(keyPath: \.panes) {} }
+        if before.zoomed != zoomedValue { withMutation(keyPath: \.zoomedPane) {} }
     }
 
 }

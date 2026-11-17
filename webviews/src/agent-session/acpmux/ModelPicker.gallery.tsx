@@ -686,6 +686,12 @@ export default componentEntry<GalleryProps>({
       },
       play: openColumns,
     },
+    // OpenCode's provider-prefixed names are the longest of any harness: the menu opens on Claude Code
+    // already as wide as the longest of them, and keeps that width on every tab (Lucas 2026-11-10).
+    "quick-menu-widest-name": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: openColumns,
+    },
     // A short window with many accounts (Lawrence: "model picker too tall"): the account card
     // stays inside the window and its list scrolls to the final row.
     "quick-menu-many-profiles": {
