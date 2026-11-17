@@ -2798,8 +2798,9 @@ PULL_DISPATCH = ({"same_tree_origin": "pull_request", "same_tree_sha": "a" * 40,
 
 
 def route_at(expression: str, event: str, attempt: int, switch: str, placed: int = 1,
-             actor: str = RERUN_BOT, inputs: dict | None = None) -> object:
-    """rerun_route_at() for any event, triggering actor and dispatch inputs."""
+             actor: str = RERUN_BOT, inputs: dict | None = None, retry: tuple = ()) -> object:
+    """rerun_route_at() for any event, triggering actor and dispatch inputs; with retry (jobs), the placement at
+    attempt `placed` also wrote the small Blacksmith label as their retry label."""
     context = github_context(event, CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
                              CI_BLACKSMITH_MACOS=switch, MACOS_RUNNER_26=SMALL)
     if inputs is not None:
@@ -2809,8 +2810,13 @@ def route_at(expression: str, event: str, attempt: int, switch: str, placed: int
                              "author_association": "MEMBER", "labels": []}}
     context["github"].update(run_attempt=str(attempt), triggering_actor=actor, repository="manaflow-ai/cmux",
                              event=pull if event == "pull_request" else {})
-    context["needs"] = _RerunPlacedNeeds(placed)
+    context["needs"] = _RetryPlacedNeeds(placed, SMALL, retry) if retry else _RerunPlacedNeeds(placed)
     return evaluate(expression, context)
+
+
+# The jobs whose route reads the placement's retry label (retry_jobs, retry_runner).
+RETRY_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile", "swift-test", "daemon-test",
+              "generated-files")
 
 
 def rescue_env(**overrides: str) -> dict:
@@ -2900,7 +2906,11 @@ class BlacksmithPrRescue(unittest.TestCase):
                                               inputs=inputs),
                                      route_at(expression, "workflow_dispatch", attempt, "", actor=actor,
                                               inputs=inputs), f"dispatch {inputs} by {actor} attempt {attempt}")
-                rerun = route_at(expression, "pull_request", 2, RESCUE)
+                # A re-run the placement wrote no retry label for keeps its route (cmux#44966); one it did takes it.
+                for placed in (1, 2):
+                    self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=placed),
+                                     route_at(expression, "pull_request", 2, "", placed=placed), f"placed {placed}")
+                rerun = route_at(expression, "pull_request", 2, RESCUE, placed=2, retry=RETRY_JOBS)
                 if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
                     moved.add(where.split(" ", 2)[1].rstrip(":"))
         for job in ("fast-tier", "swift-test", "daemon-test", "cmux-scheme-compile"):
@@ -2911,38 +2921,37 @@ class BlacksmithPrRescue(unittest.TestCase):
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
         expression = runs_on_of(job)
         self.assertEqual(route_at(expression, "pull_request", 1, RESCUE), SIDE)
-        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE), SMALL)
+        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=2, retry=RETRY_JOBS), SMALL)
+        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=2), SIDE)
         self.assertEqual(route_at(expression, "pull_request", 2, ""), SIDE)
         self.assertEqual(route_at(expression, "push", 2, RESCUE), route_at(expression, "push", 2, ""))
 
-    def test_a_bot_rerun_of_a_pull_requests_dispatch_takes_blacksmith(self):
+    def test_a_bot_rerun_of_a_pull_requests_dispatch_takes_only_the_placements_label(self):
         """cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016, `cmux-next · <head>`, queued
-        on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16: under pr-rescue a bot's re-run of a workflow_dispatch
-        run took the side lane again, so the stall move skipped it (cmuxterm-hq#12109). The dispatch that gates a pull
-        request (default run name) now leaves the owned pool on the bot's re-run like the pull_request run's."""
+        on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
+        fallback, vars.MACOS_RUNNER_26, until cmux#44966 showed that label can have no runner online: a re-run now
+        takes Blacksmith macOS only through the placement's retry label, as the pull_request run's does."""
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
         expression = runs_on_of(job)
-        for inputs in PULL_DISPATCH:
+        for inputs in PULL_DISPATCH + NOT_A_PULL_DISPATCH:
             with self.subTest(inputs=inputs):
                 self.assertEqual(route_at(expression, "workflow_dispatch", 1, RESCUE, inputs=inputs), SIDE)
-                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, inputs=inputs), SMALL)
-                self.assertEqual(route_at(expression, "workflow_dispatch", 2, "", inputs=inputs), SIDE)
-                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, actor="a-person",
-                                          inputs=inputs), SIDE)
-        for inputs in NOT_A_PULL_DISPATCH:
-            with self.subTest(inputs=inputs):
-                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, inputs=inputs), SIDE)
+                for actor, placed in itertools.product((RERUN_BOT, "a-person"), (1, 2)):
+                    self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, placed=placed, actor=actor,
+                                              inputs=inputs), SIDE)
+                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, placed=2, inputs=inputs,
+                                          retry=RETRY_JOBS), SMALL)
         moved = set()
         for where, route in rerun_routes(WORKFLOW).items():
             try:
-                rerun = route_at(route, "workflow_dispatch", 2, RESCUE, inputs=PULL_DISPATCH[0])
+                rerun = route_at(route, "workflow_dispatch", 2, RESCUE, placed=2, inputs=PULL_DISPATCH[0],
+                                 retry=RETRY_JOBS)
             except Exception:  # noqa: BLE001 - an expression this evaluator cannot read
                 continue
             if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
                 moved.add(where.split(" ", 2)[1].rstrip(":"))
         for name in ("fast-tier", "swift-test", "daemon-test", "cmux-scheme-compile"):
             self.assertIn(name, moved)
-
 
 class _RetryPlacedNeeds(_RerunPlacedNeeds):
     """_RerunPlacedNeeds whose placement also wrote a retry label for `jobs` (retry_runner, retry_jobs)."""
