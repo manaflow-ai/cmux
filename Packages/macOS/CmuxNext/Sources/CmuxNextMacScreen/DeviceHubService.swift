@@ -332,7 +332,8 @@ public final class DeviceHubService {
         running = nil
         hubChanged?(nil, nil, nil)
         if removed { pages.endHubSessions(reason: "device_removed:viewer") }
-        let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
+        // A session the acpmux daemon serves is the daemon's: this app never ends it.
+        let ids = Set(hub.tickets.filter { !$0.value.isServedByDaemon }.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
         pages.hub = nil
         guard endingSessions else {
             trackStop(Task {
@@ -347,13 +348,7 @@ public final class DeviceHubService {
         let completion = Task {
             await hub.freezeForCapture()
             for start in starts { await start.completion.value }
-            do { try await hub.signOutDevice() } catch {
-                await withTaskGroup(of: Void.self) { group in
-                    for id in ids {
-                        group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
-                    }
-                }
-            }
+            await hub.signOut(ending: ids, reason: MacScreenHubReason.signedOut.rawValue)
             await hub.stopAndWait()
         }
         trackStop(completion)

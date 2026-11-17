@@ -29,6 +29,9 @@ import { chromium } from "./browsers";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
+import { reportTrace, traceWindow } from "./styleInvalidationTrace";
+import { sourceMapper } from "./sourceMapper";
+let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -42,6 +45,10 @@ const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 const DEV = argv.includes("--dev");
+/// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
+/// stream with no typing; it prints elements restyled per key and per token and what restyled them
+/// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
+const TRACE = argv.includes("--trace");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -144,7 +151,14 @@ function printProfile(length: number, profile: CpuProfile) {
 // dev server's pane instead (development React, several times the script time per render). With --profile the build
 // is unminified, so the profile names functions.
 const releases: (() => unknown)[] = [];
-const serveOptions = { dev: DEV, unminified: PROFILE };
+// --trace builds unminified with source maps, so the trace names source lines (a second arm's build maps over the
+// first's).
+const serveOptions = {
+  dev: DEV,
+  unminified: PROFILE || TRACE,
+  sourcemap: TRACE,
+  built: TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
+};
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
 async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
@@ -199,10 +213,15 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     const before = await metrics();
     const since = await page.evaluate(() => performance.now());
     const letters = "abcdefghijklmnopqrstuvwxyz";
-    for (let i = 0; i < KEYS; i += 1) {
-      await page.keyboard.press(letters[i % letters.length]!);
-      await page.waitForTimeout(GAP_MS);
-    }
+    const typeKeys = async () => {
+      for (let i = 0; i < KEYS; i += 1) {
+        await page.keyboard.press(letters[i % letters.length]!);
+        await page.waitForTimeout(GAP_MS);
+      }
+    };
+    const typedAt = performance.now();
+    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    const typedMs = performance.now() - typedAt;
     await page.waitForTimeout(500);
     const after = await metrics();
     const until = await page.evaluate(() => performance.now());
@@ -220,6 +239,27 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
+    if (typedEvents) {
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
+      console.log(
+        `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
+      );
+    }
+    if (TRACE && mode === "stream") {
+      let run: Record<string, any> = {};
+      const events = await traceWindow(browser, page, async () => {
+        run = (await page.evaluate(() =>
+          (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 2, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
+        )) as Record<string, any>;
+      });
+      const tokens = Number(run.deltas ?? 0) + Number(run.tools ?? 0);
+      console.log(
+        `STYLE-TRACE stream-only ${rows}rows RUN ${JSON.stringify({ deltas: run.deltas, tools: run.tools, frames: run.frames, rows: run.rows })}`,
+      );
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`stream-only ${rows}rows`, events, { tokens }, mapUrl, cdp);
+    }
     // Per stream event, nobody typing: the composer's renders while a reply and tool calls stream
     // (loadRun), then while a tool's output ticks and another chat changes (loadTick).
     let composerPerEvent: number | undefined;
