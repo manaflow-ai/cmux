@@ -208,6 +208,19 @@ impl RestoreGate {
         self.pending.fetch_add(1, Ordering::SeqCst);
     }
 
+    /// Tests elsewhere in the hub: a host at its lane cap, so every chat that waits is parked.
+    #[cfg(test)]
+    pub(super) fn fake_at_cap(&self) {
+        let at_cap: FakeHost = Arc::new(|_| Reading {
+            live: 12,
+            cap: Some(12),
+            over: Vec::new(),
+            cores: 16,
+            hosted: Default::default(),
+        });
+        *self.fake.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(at_cap);
+    }
+
     fn release_one(&self) {
         let left = self.pending.fetch_sub(1, Ordering::SeqCst) - 1;
         if left == 0 || left <= self.lock().parked.len() {
