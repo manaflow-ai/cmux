@@ -39,6 +39,11 @@ PRAGMA user_version=1;
 /// The shortest word the trigram index can find.
 const MIN_TEXT_WORD: usize = 3;
 
+/// The most of one doc's text the index holds: its first this many bytes. A query's snippet reads
+/// the whole text of each hit, so one 50 MB message (a pasted log) made every query that found it
+/// take seconds (`tests/search_index_scale.rs`).
+pub const MAX_TEXT_BYTES: usize = 256 * 1024;
+
 /// What a hit is, and so where it jumps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SearchKind {
@@ -344,9 +349,18 @@ fn put(transaction: &Transaction<'_>, doc: &SearchDoc) -> Result<(), HistoryErro
     let id = transaction.last_insert_rowid();
     transaction.execute(
         "INSERT INTO docs_text(rowid, text, title) VALUES (?1, ?2, ?3)",
-        params![id, doc.text, doc.title],
+        params![id, bounded(&doc.text), doc.title],
     )?;
     Ok(())
+}
+
+/// The first [`MAX_TEXT_BYTES`] of `text`, cut on a character boundary.
+fn bounded(text: &str) -> &str {
+    let end = (0..=text.len().min(MAX_TEXT_BYTES))
+        .rev()
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or_default();
+    text.get(..end).unwrap_or_default()
 }
 
 /// ` AND d.kind IN (?, …)` for `kinds`, binding them; empty for every kind.
