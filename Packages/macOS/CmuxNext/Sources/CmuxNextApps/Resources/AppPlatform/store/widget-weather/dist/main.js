@@ -2672,7 +2672,7 @@
     ]).frame({ maxWidth: "infinity" });
   }
   function hourStrip(r, look) {
-    return HStack({ spacing: 0 }, r.forecast.hours.map((h) => hourColumn(h, look)));
+    return HStack({ spacing: 0 }, r.forecast.hours.flatMap((h, i) => i === 0 ? [hourColumn(h, look)] : [Spacer(), hourColumn(h, look)]));
   }
   var BAR_WIDTH = 72;
   function rangeBar(d, span, look) {

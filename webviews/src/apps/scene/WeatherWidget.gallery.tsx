@@ -19,6 +19,9 @@ const TILE = {
   large: { width: 364, height: 382 },
 };
 
+const TILE_CSS = `.weather-gallery-tile > .cmux-app-scene-root { flex: 1 1 auto; display: flex; min-height: 0 }
+.weather-gallery-tile > .cmux-app-scene-root > * { flex: 1 1 auto }`;
+
 function WeatherWidget({ state = "small-clear-day" }: Props) {
   const scene = scenes[state];
   const [store] = useState(() => {
@@ -27,8 +30,10 @@ function WeatherWidget({ state = "small-clear-day" }: Props) {
     return s;
   });
   const size = TILE[scene.size as keyof typeof TILE];
+  // The New Tab card (widgets.css .nt-widget-card) grows the scene root to the tile; do the same here.
   return (
-    <div style={{ ...size, borderRadius: 22, overflow: "hidden", display: "flex" }}>
+    <div className="weather-gallery-tile" style={{ ...size, borderRadius: 22, overflow: "hidden", display: "flex" }}>
+      <style>{TILE_CSS}</style>
       <SceneRenderer store={store} dispatch={() => {}} />
     </div>
   );

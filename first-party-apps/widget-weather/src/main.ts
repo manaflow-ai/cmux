@@ -191,8 +191,12 @@ function hourColumn(h: Hour, look: Look): View {
   ]).frame({ maxWidth: "infinity" })
 }
 
+/** Apple's strip: the columns spread evenly over the width, the first and last at the edges. */
 function hourStrip(r: Reading, look: Look): View {
-  return HStack({ spacing: 0 }, r.forecast.hours.map((h) => hourColumn(h, look)))
+  return HStack(
+    { spacing: 0 },
+    r.forecast.hours.flatMap((h, i) => (i === 0 ? [hourColumn(h, look)] : [Spacer(), hourColumn(h, look)]))
+  )
 }
 
 const BAR_WIDTH = 72
