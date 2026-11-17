@@ -101,6 +101,8 @@ final class ScreenContentView: NSView {
     var dropGeometryComputes = 0
     /// The room checks and edge previews of this layout, viewport and style: a pointer move inside one zone computes none.
     var dropAnswers = DropAnswerMemo()
+    /// The screen's floating panes, their cards and a pointer's move or resize of one (ScreenContentView+Floating).
+    var floatState = FloatingPanesState()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
         self.screenID = screenID
         self.layout = layout
@@ -204,8 +206,9 @@ final class ScreenContentView: NSView {
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
-        let animated = updateCanvas(canvas, animated: animated) && animated
-        let structural = !self.layout.hasSameStructure(as: layout)
+        // A floating pane that comes, goes, moves or changes its place in the order shows at once.
+        let floatChange = floatState.takeChange(), animated = updateCanvas(canvas, animated: animated) && animated && floatChange == .none
+        let structural = !self.layout.hasSameStructure(as: layout) || floatChange == .panes
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
         #if DEBUG
@@ -251,7 +254,7 @@ final class ScreenContentView: NSView {
         reconcilePasses += 1
         applyCamera()
         reconciledScale = scale
-        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale).placingFloating(floatState.shown, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         // A structural change (a split, a close, a zoom, an unzoom, a pane moved) is one commit: its end is known when
         // it starts, so no pane and no divider of it shows between the two layouts. Every frame snaps to its place in
@@ -302,7 +305,7 @@ final class ScreenContentView: NSView {
                 // Opaque and in its place from the first frame that shows it.
                 paneFrames[pane] = AnimatedFrame(target)
             }
-            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
+            if baseGeometry.floatingCards[pane] == nil { context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes) }
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }

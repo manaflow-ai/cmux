@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextDesign
 
 extension NSWindow {
     /// Radius of this window's own corners: the one AppKit draws
@@ -7,7 +6,7 @@ extension NSWindow {
     /// private `_cornerRadius`, read only when present). Zero in fullscreen and for
     /// borderless windows. Chrome inset from the window's edges rounds
     /// concentrically with it (`Metrics.mainPaneCornerRadius(windowCornerRadius:)`),
-    /// and a Chromium page masks itself to it.
+    /// a Chromium page masks itself to it, and a floating pane's corners follow it.
     public var frameCornerRadius: CGFloat {
         if styleMask.contains(.fullScreen) || !styleMask.contains(.titled) { return 0 }
         let selector = NSSelectorFromString("_cornerRadius")

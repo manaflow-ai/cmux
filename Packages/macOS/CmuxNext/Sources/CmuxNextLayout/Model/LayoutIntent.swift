@@ -1,3 +1,5 @@
+public import CoreGraphics
+
 /// Phase of a continuous gesture.
 public nonisolated enum LayoutGesturePhase: Hashable, Sendable {
     /// Live update: applied locally, never sent as an intent.
@@ -43,6 +45,9 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     case setRowHeights(ColumnID, heights: [RowHeight], fit: Bool)
     /// Daemon `new-row {pane, height_permille}` (`rows-v1`).
     case newRow(below: PaneID, height: Int)
+    /// Daemon `float-pane {pane, mode: "on", x, y, w, h}` (`floating-panes-v1`): the frame a pointer's move or resize
+    /// of a floating pane released, as fractions of the pane area. Shown at once (`LayoutModel.setFloatingFrame`).
+    case setFloatingFrame(PaneID, frame: CGRect)
     /// A divider or column-edge gesture ended with no release (its target
     /// went away mid-drag): nothing more of `transaction` will be sent.
     case cancelGesture(LayoutTransactionID)

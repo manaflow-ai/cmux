@@ -279,7 +279,7 @@ enum DebugAgentPane {
             }
             if let target = shown(content.focusedPane) { return .success(target) }
             // Layout order, so the report is deterministic.
-            for id in content.layoutModel.screens.flatMap(\.layout.panes) {
+            for id in content.layoutModel.screens.flatMap(\.panes) {
                 if let target = shown(content.panes[id]) { showing.append(target) }
             }
         }

@@ -41,7 +41,8 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            front.append(host.frame)
+            // A floating pane covers what is under its whole card (the card, not the resize band around it).
+            front.append(floatState.cards[host.pane]?.cardFrame ?? host.frame)
         }
         return covers
     }
@@ -85,7 +86,7 @@ extension ScreenContentView {
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
         let areaWindow = displayedAreaWindow(of: host.pane)
         let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
-                                   covers: above[ObjectIdentifier(host)] ?? [])
+                                   covers: floatState.contentCovers(above[ObjectIdentifier(host)] ?? []))
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
         stripClipsComputed += 1
@@ -134,6 +135,7 @@ extension ScreenContentView {
             }()
             view.place(cover: entry.glass, column: entry.frame, paneCornerRadius: context.style.paneCornerRadius)
         }
+        reconcileFloatingCards()
         ensureStacking()
     }
 
@@ -153,13 +155,17 @@ extension ScreenContentView {
         case let backdrop as DockBackdropView:
             return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.dock.first { $0.column == entry.key } })
         case is StripScrollbarView: return 9
+        // A floating pane's card is one rank under its pane, so above the floating panes behind it.
+        case let card as FloatingPaneCardView: return liveRank(of: card.pane, in: geometry) - 1
         default: return 0
         }
     }
 
-    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's.
+    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's; a floating pane's is above every
+    /// other view, in the order of the list, with one free rank under it for its card.
     func liveRank(of pane: PaneID, in layout: ScreenGeometry) -> Int {
-        layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
+        if let index = layout.floating.firstIndex(of: pane) { return 12 + 2 * index }
+        return layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
     }
 
     /// 3 for a dock that owns the frame's corners, else 0.

@@ -226,7 +226,7 @@ public final class LayoutModel {
         let previous = daemonScreens
         // Shown closes whose pane leaves the daemon's tree now: their column widths are reconciled
         // across the closes still pending (`noteLandedColumnClose`), not taken from the raw trees.
-        let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.layout.contains(pane) } })
+        let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.contains(pane) } })
         noteLandedCloses(from: previous, to: newScreens, landed: landed) // before the overlay below reads them
         defer {
             applyCloseSizing(from: previous, to: newScreens, landed: landed)
@@ -244,7 +244,7 @@ public final class LayoutModel {
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
         }
-        if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
+        if let focusedPane, screens.contains(where: { $0.contains(focusedPane) }) {
             return
         }
         // The focused pane closed. The app's focus coordinator picks the successor right after
@@ -334,8 +334,11 @@ public final class LayoutModel {
     }
 
     public func screen(containing pane: PaneID) -> LayoutScreen? {
-        screens.first { $0.layout.contains(pane) }
+        screens.first { $0.contains(pane) }
     }
+
+    /// Shows `screens` as `body` changes them, ahead of the daemon's next snapshot (a floating pane's released frame).
+    func showLocally(_ body: (inout [LayoutScreen]) -> Void) { var shown = screens; body(&shown); if shown != screens { screens = shown } }
 
     // MARK: Focus and screens
 
@@ -367,8 +370,8 @@ public final class LayoutModel {
         lastFocusSource = source
         if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
-        // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
-        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
+        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) } // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
+        if let raise = LayoutFloatingPane.raise(pane, in: screen.floating, source: source) { emit(raise) } // A floating pane that gets the focus comes to the front.
         if notify { emit(.focus(pane)) }
     }
 
@@ -390,7 +393,7 @@ public final class LayoutModel {
     public func selectScreen(_ id: ScreenID) {
         guard activeScreenID != id, let screen = screens.first(where: { $0.id == id }) else { return }
         activeScreenID = id
-        if focusedPane.map({ !screen.layout.contains($0) }) ?? true {
+        if focusedPane.map({ !screen.contains($0) }) ?? true {
             dismissFocusRing()
             focusedPane = screen.layout.panes.first
         }
