@@ -432,6 +432,10 @@ jobs:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
         run: |
           set -euo pipefail
+          # ghostty-vt-sys runs ZIG first; the ghostty-next Zig (CMUX_VT_ZIG, 0.17) goes there, not the
+          # default classic Zig on PATH (0.16), as nightly's refresh-build-in-tree-acpmux.sh does.
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          echo "libghostty-vt zig: ${ZIG:-zig} ($("${ZIG:-zig}" version 2>/dev/null || echo unknown))"
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
