@@ -205,6 +205,25 @@ export function toggleSlot(layout: Layout, slot: Slot): Layout {
   return { slots, lines: layout.lines };
 }
 
+/** The name the preview row shows (a sample workspace). */
+// l10n-allow: sample data (a workspace name), not words.
+export const PREVIEW_NAME = "cmux";
+
+/** What the preview row shows for each text item: sample data (a path, a branch, a port). */
+export const PREVIEW_SAMPLE: Record<TextToken, string> = {
+  // l10n-allow: sample row values, the same in every language.
+  notification: "1",
+  directory: "~/cmux",
+  branch: "main",
+  process: "zsh",
+  agentStatus: "claude",
+  tabCount: "3",
+  ports: ":3000",
+  lastActivity: "2m",
+  pullRequest: "#128",
+  log: "build ✓",
+};
+
 /** The element switch keys a layout replaces (`sidebar.workspaceRow.<token>`). */
 export function switchKey(token: Token): string {
   return `sidebar.workspaceRow.${token}`;

@@ -84,6 +84,20 @@ const variants: Record<string, SettingsPageVariant> = {
       await ctx.waitFor(() => ctx.document.querySelector(".row-layout-problems"));
     },
   },
+  preview: {
+    section: "sidebar",
+    focus: LINES,
+    note: "The preview row: icon, name and line one's items, the working mark and progress bar, three lines.",
+    options: {
+      values: {
+        [LINES]: [
+          ["icon", "name", "branch", "ports", "working", "progress"],
+          ["directory", "process", "lastActivity"],
+          ["agentStatus", "pullRequest"],
+        ],
+      },
+    },
+  },
   full: {
     section: "sidebar",
     focus: LINES,
@@ -106,7 +120,7 @@ const atDensity = (base: SettingsPageVariant, density: "compact" | "comfortable"
   note: `${base.note} At the ${density} density.`,
   options: { ...base.options, values: { ...base.options?.values, "appearance.density": density } },
 });
-for (const name of ["all-rows", "by-kind", "refused"])
+for (const name of ["all-rows", "by-kind", "refused", "preview"])
   for (const density of ["compact", "comfortable"] as const)
     variants[`${name}-${density}`] = atDensity(variants[name]!, density);
 

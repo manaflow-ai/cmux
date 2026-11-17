@@ -190,6 +190,24 @@ describe("the editor", () => {
     expect(page!.container.querySelector(`[data-row-key="${BY_KIND_KEY}"]`)).toBeNull();
   });
 
+  test("the preview draws the row the layout makes and follows each edit", async () => {
+    await open({ mock: { values: { [LINES_KEY]: [["icon", "name", "branch", "working"], ["agentStatus"]] } } });
+    const preview = () => editor().querySelector<HTMLElement>("[data-row-layout-preview]")!;
+    const lines = () =>
+      [...preview().querySelectorAll<HTMLElement>("[data-preview-line]")].map((line) =>
+        [...line.querySelectorAll<HTMLElement>("[data-token]")].map((item) => item.dataset.token),
+      );
+    expect(preview().querySelector(".row-layout-preview-name")!.textContent).toBe("cmux");
+    expect(lines()).toEqual([["branch"], ["agentStatus"]]);
+    expect(preview().querySelector('[data-preview-slot="icon"]')).not.toBeNull();
+    expect(preview().querySelector('[data-preview-slot="working"]')).not.toBeNull();
+    expect(preview().querySelector('[data-preview-slot="progress"]')).toBeNull();
+    await click(editor().querySelector('[data-slot="progress"]')!);
+    expect(preview().querySelector('[data-preview-slot="progress"]')).not.toBeNull();
+    await click(editor().querySelector('[data-chip="agentStatus"] .row-layout-chip-remove')!);
+    expect(lines()).toEqual([["branch"]]);
+  });
+
   test("remove, slot toggle, keyboard move and Delete each write one whole layout", async () => {
     await open({ mock: { values: { [LINES_KEY]: [["icon", "name", "branch", "ports"], ["agentStatus"]] } } });
     await click(editor().querySelector('[data-chip="ports"] .row-layout-chip-remove')!);

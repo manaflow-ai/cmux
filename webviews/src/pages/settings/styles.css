@@ -2877,6 +2877,9 @@ button.menu-disclosure {
   gap: var(--ds-space-1);
 }
 
+/* The row as the layout draws it (RowPreview): a sidebar row on the surface, sample values in its
+   lines, the name in body text and the items muted, joined by a dot (Herdr's rows). */
+.row-layout-preview-row,
 .row-layout-marks,
 .row-layout-line {
   display: grid;
@@ -2890,6 +2893,82 @@ button.menu-disclosure {
 
 .row-layout-marks {
   margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row {
+  align-items: start;
+  margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row > .row-layout-line-label {
+  padding-top: var(--ds-space-2);
+}
+
+.row-layout-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface);
+}
+
+.row-layout-preview-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-caption);
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.row-layout-preview-line[data-preview-line="0"] {
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.row-layout-preview-name {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.row-layout-preview-line > * + .row-layout-preview-item::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-1);
+}
+
+.row-layout-preview-icon {
+  flex: none;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-working {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-progress {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 60%;
+  height: 2px;
+  background: var(--cmux-accent, var(--ds-color-accent));
 }
 
 .row-layout-line {

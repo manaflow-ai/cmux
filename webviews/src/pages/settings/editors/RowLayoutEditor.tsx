@@ -20,6 +20,8 @@ import {
   LINES_KEY,
   MAX_AGENTS,
   MAX_LINES,
+  PREVIEW_NAME,
+  PREVIEW_SAMPLE,
   SLOTS,
   addToken,
   addable,
@@ -676,6 +678,7 @@ function LayoutEditor({
       <span id={hintId} className="visually-hidden">
         {t("settingsPage.rowLayout.chipHint")}
       </span>
+      <RowPreview layout={layout} />
       <div className="row-layout-marks">
         <span className="row-layout-line-label">{t("settingsPage.rowLayout.marks")}</span>
         <div className="row-layout-chips">
@@ -804,6 +807,43 @@ function LayoutEditor({
           style={{ left: drop.caret.left, top: drop.caret.top, height: drop.caret.height }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The row as this layout draws it, with sample values: the icon, the name and line one's items,
+ * then each further line, its items joined by a dot (Herdr's rows), the progress bar under them.
+ */
+function RowPreview({ layout }: { layout: Layout }) {
+  const has = (slot: Slot) => layout.slots.has(slot);
+  const label = t("settingsPage.rowLayout.preview");
+  return (
+    <div className="row-layout-preview-row">
+      <span className="row-layout-line-label" aria-hidden="true">
+        {label}
+      </span>
+      <div className="row-layout-preview" data-row-layout-preview="" role="group" aria-label={label}>
+        {layout.lines.map((line, l) => (
+          <div key={l} className="row-layout-preview-line" data-preview-line={l}>
+            {l === 0 && has("icon") && (
+              <span className="row-layout-preview-icon" data-preview-slot="icon" aria-hidden="true" />
+            )}
+            {l === 0 && <span className="row-layout-preview-name">{PREVIEW_NAME}</span>}
+            {line.map((token) => (
+              <span key={token} className="row-layout-preview-item" data-token={token}>
+                {PREVIEW_SAMPLE[token]}
+              </span>
+            ))}
+            {l === 0 && has("working") && (
+              <span className="row-layout-preview-working" data-preview-slot="working" aria-hidden="true" />
+            )}
+          </div>
+        ))}
+        {has("progress") && (
+          <span className="row-layout-preview-progress" data-preview-slot="progress" aria-hidden="true" />
+        )}
+      </div>
     </div>
   );
 }
