@@ -1235,7 +1235,7 @@ export async function runStartBench(args: {
     if (platformSnapshot) {
       const snapshot = platformSnapshot;
       for (let attempt = 1; ; attempt++) {
-        const error = await args.api.op("cloud.snapshot.delete", { snapshot }, `${args.tag}-start-snapshot-delete`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
+        const error = await args.api.op("cloud.snapshot.delete", { snapshot }, `${args.tag}-start-snapshot-delete-${attempt}`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
         if (error === null || /not_found/.test(error)) break;
         if (attempt >= 12) { notes.push(`platform snapshot delete failed: ${scrub(error, args.journey.secrets).slice(0, 200)}`); break; }
         await sleep(10_000);

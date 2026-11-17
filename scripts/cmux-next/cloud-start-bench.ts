@@ -43,10 +43,10 @@ export type StartSample = {
   facts: Record<string, unknown>;
 };
 
-/** What the bench needs of one path: the create, one status read, the exec route, the delete. */
 /** A `running` read that saw the machine fail: the sample ends at once. */
 export class MachineFailed extends Error {}
 
+/** What the bench needs of one path: the create, one status read, the exec route, the delete. */
 export type StartTarget = {
   path: StartPath;
   /** Before the timed create, not timed: e.g. wait for the warm to name a ready spare. Its facts join the sample's. */
