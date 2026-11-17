@@ -67,6 +67,16 @@ pub(super) fn has_section(scope: &str) -> bool {
     !OWN_HELP.contains(&scope) && offered().contains_key(scope)
 }
 
+/// The APP ACTIONS section's lines above its verbs.
+fn header(scope: &str) -> String {
+    format!(
+        "APP ACTIONS\n  The cmux app runs these: cmux {scope} <verb> [--<argument> <value>]...\n  \
+         `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n  \
+         A verb whose target is an id also takes it first: cmux {scope} <id> <verb>\n  \
+         is cmux {scope} <verb> --target <id>.\n"
+    )
+}
+
 /// The APP ACTIONS section for `scope`, `None` when it has no offered verbs.
 pub(super) fn section(scope: &str) -> Option<String> {
     if !has_section(scope) {
@@ -75,12 +85,7 @@ pub(super) fn section(scope: &str) -> Option<String> {
     let verbs = offered().get(scope)?;
     let width = verbs.iter().map(|(verb, _)| verb.len()).filter(|len| *len <= VERB_COLUMN).max();
     let width = width.unwrap_or(VERB_COLUMN);
-    let mut text = format!(
-        "APP ACTIONS\n  The cmux app runs these: cmux {scope} <verb> [--<argument> <value>]...\n  \
-         `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n  \
-         A verb whose target is an id also takes it first: cmux {scope} <id> <verb>\n  \
-         is cmux {scope} <verb> --target <id>.\n"
-    );
+    let mut text = header(scope);
     for (verb, title) in verbs {
         if title.is_empty() {
             text.push_str(&format!("  {verb}\n"));
@@ -127,7 +132,7 @@ mod tests {
     fn titles_start_in_one_column_per_scope() {
         for scope in scopes().filter(|scope| has_section(scope)) {
             let text = section(scope).expect("section");
-            let rows = text.lines().skip(3).collect::<Vec<_>>();
+            let rows = text.lines().skip(header(scope).lines().count()).collect::<Vec<_>>();
             assert_eq!(rows.len(), verbs(scope).count(), "{scope}: one line per verb");
             // Rows follow the sorted verbs; a verb may be several words (`chat channel create`).
             let columns = rows
