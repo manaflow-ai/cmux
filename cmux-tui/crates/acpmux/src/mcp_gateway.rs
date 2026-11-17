@@ -60,6 +60,7 @@ const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
 const REPLAY_ID: &str = "acpmux-gateway-initialize";
 
+// test-hook-allow: holds no hook; only the daemon's start sets it, once, and tests bind their own Gateway
 static GATEWAY: OnceLock<Arc<Gateway>> = OnceLock::new();
 
 /// Where a harness reaches its chat's `cmux` server.
