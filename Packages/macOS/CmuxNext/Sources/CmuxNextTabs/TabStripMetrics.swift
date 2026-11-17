@@ -166,7 +166,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         iconSize = Metrics.tabIconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
-        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
+        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
+            ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
         iconTitleSpacing = TabTunables.iconTitleSpacing.value
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value

@@ -635,24 +635,13 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        // Wait for the answers of earlier indeterminate commits before the
-        // pin: the writer needs the connection to commit and answer, so a
-        // wait under the pin could only run out. The caller holds the
-        // registry, so no new indeterminate commit appears after this. A
-        // commit still unanswered stays; the flow's own prepare refuses to
-        // build on it (`drain_unsettled` without waiting).
-        let _ = registry.connection.drain_unsettled();
         let connection = registry.connection.pin();
-        let (mut pinned, poisoned) = match self.state.lock() {
+        let (pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: the answers that can arrive were taken before the
-        // pin; one still unanswered stays for a later holder, and the
-        // prepare paths refuse to build on it (drain_unsettled).
-        self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }
