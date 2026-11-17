@@ -5,6 +5,8 @@ import { useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
+import { CommunityView, useCommunity } from "./CommunityView";
+import type { CommunityStore } from "./community";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
 import { categoryLabel, featuredApps, filterApps, type StoreTab } from "./model";
@@ -15,11 +17,22 @@ import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { useLasting } from "../../ui/lasting";
 
-/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
-type ToolbarTab = StoreTab | "examples";
+/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement, plus Community. */
+type ToolbarTab = StoreTab | "examples" | "community";
 
-export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
+export function AppsPage({
+  store,
+  strings,
+  community,
+}: {
+  store: AppsStore;
+  strings: Strings;
+  /** The Community tab (community.ts); absent, the page has no Community tab. */
+  community?: CommunityStore;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const communitySnap = useCommunity(community);
+  const onCommunity = !!community && communitySnap?.active === true;
   const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
   // A lost owner link shows nothing until it lasts past the grace (a launch, a daemon restart:
@@ -29,11 +42,19 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
-  const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
-  const current: ToolbarTab =
-    snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+  const storeTabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
+  const tabs: ToolbarTab[] = community ? [...storeTabs.slice(0, -1), "community", "installed"] : storeTabs;
+  const current: ToolbarTab = onCommunity
+    ? "community"
+    : snap.tab === "installed"
+      ? "installed"
+      : examplesTab && snap.shelf === "example"
+        ? "examples"
+        : "discover";
   // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
+    community?.setActive(tab === "community");
+    if (tab === "community") return;
     if (tab === "examples") store.setShelf("example");
     else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
     else store.setTab(tab);
@@ -78,12 +99,16 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           type="search"
           placeholder={t("store.search")}
           aria-label={t("store.search")}
-          value={snap.query}
+          value={onCommunity ? communitySnap!.query : snap.query}
           disabled={snap.connection === "disconnected"}
-          onChange={(event) => store.setQuery(event.target.value)}
+          onChange={(event) =>
+            onCommunity ? community!.setQuery(event.target.value) : store.setQuery(event.target.value)
+          }
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && snap.query) {
-              store.setQuery("");
+            const query = onCommunity ? communitySnap!.query : snap.query;
+            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && query) {
+              if (onCommunity) community!.setQuery("");
+              else store.setQuery("");
               event.preventDefault();
             }
           }}
@@ -111,6 +136,8 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           <strong>{t("store.window.title")}</strong>
           <span>{t("store.disconnected")}</span>
         </output>
+      ) : onCommunity ? (
+        <CommunityView snap={communitySnap!} store={community!} strings={strings} />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
