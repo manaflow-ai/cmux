@@ -74,6 +74,13 @@ pub trait Remote {
     fn first_contact(&self, _accept_new_host_key: bool) -> Result<RemoteOut> {
         self.exec("true", None)
     }
+    /// The reach check again under strict host key checking, which records and updates
+    /// nothing. Enrollment asks it only when the first try said no more than "Host key
+    /// verification failed." (OpenSSH's default policy under `BatchMode` says only that for an
+    /// unknown key), to get positive evidence that the key is merely unknown.
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.first_contact(false)
+    }
     /// Copy a local file to `remote` (a plain `~/` or absolute path).
     fn push(&self, local: &Path, remote: &str) -> Result<()>;
     /// Start one of acpmux's fixed scripts on the host and leave it running,
@@ -106,6 +113,10 @@ impl Remote for SshRemote<'_> {
 
     fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
         self.exec_argv(first_contact_argv(self.0, accept_new_host_key)?, None)
+    }
+
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec_argv(strict_host_key_check_argv(self.0)?, None)
     }
 
     fn spawn(&self, script: &str) -> Result<Child> {
@@ -169,6 +180,17 @@ fn first_contact_argv(host: &str, accept_new_host_key: bool) -> Result<Vec<Strin
     }
     // Recovery depends on SSH's diagnostic, even when the user's config is quiet.
     argv.extend(["-o", "LogLevel=ERROR"].map(str::to_owned));
+    argv.extend(ssh_argv(host, "true")?);
+    Ok(argv)
+}
+
+/// [`Remote::strict_host_key_check`]: the candidate probe's host key policy (strict, no key
+/// updates, diagnostics kept under a quiet config) on enrollment's reach command.
+pub(crate) fn strict_host_key_check_argv(host: &str) -> Result<Vec<String>> {
+    let mut argv: Vec<String> =
+        ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+            .map(str::to_owned)
+            .to_vec();
     argv.extend(ssh_argv(host, "true")?);
     Ok(argv)
 }
@@ -1197,6 +1219,13 @@ mod tests {
         assert_eq!(&opted_in[..2], ["-o", "StrictHostKeyChecking=accept-new"]);
         assert_eq!(&opted_in[2..], diagnostic);
         assert!(first_contact_argv("-oProxyCommand=bad", true).is_err());
+        let strict = strict_host_key_check_argv("user@box").unwrap();
+        assert_eq!(
+            &strict[..6],
+            ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+        );
+        assert_eq!(&strict[6..], normal);
+        assert!(strict_host_key_check_argv("-oProxyCommand=bad").is_err());
         // A later command or copy keeps the user's policy, even after an opted-in reach.
         assert_eq!(ssh_argv("user@box", "true").unwrap(), normal);
         assert!(
