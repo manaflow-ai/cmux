@@ -487,3 +487,33 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
     assert!(r.need_recovery());
 }
+
+/// A frame still arriving when its first NACK goes out: a gap that a later
+/// shard exposes after that NACK must be requested at once, not held to the
+/// frame's 50 ms retry cadence (screen-share +45 ms repair, 1% loss).
+#[test]
+fn a_gap_exposed_after_the_frames_first_nack_is_requested_without_the_retry_wait() {
+    let mut p = Packetizer::new(0, 256);
+    let sent = p.packetize(1, flags::KEYFRAME, &body(1, 5000, true), 0).expect("packetize");
+    let n = sent.datagrams.len();
+    assert!(n >= 16, "{n} shards");
+    let mut r = Reassembler::with_nack_after(1_000_000, 5_000);
+    // One shard every 500 us over ~10 ms; shards 3 and 12 are lost.
+    let at = |i: usize| i as u64 * 500;
+    for i in (0..n).filter(|&i| i != 3 && i != 12) {
+        let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
+        r.push(&h, payload, at(i));
+        if at(i) == 5_000 {
+            // The first NACK, due 5 ms after the first shard, carries the early gap.
+            let first = r.take_nacks(5_000);
+            assert_eq!(first.len(), 1);
+            assert_eq!(first[0].indexes, vec![3]);
+        }
+    }
+    // Shard 13 arrived at 6.5 ms and proved 12 missing.
+    let exposed = at(13);
+    let due = r.next_nack_us().expect("frame still incomplete");
+    assert!(due <= exposed + 5_000, "late gap NACK due at {due} us, exposed at {exposed} us");
+    let late = r.take_nacks(exposed + 5_000);
+    assert!(late.iter().any(|n| n.indexes.contains(&12)), "{late:?}");
+}
