@@ -54,7 +54,7 @@ struct CloudConfigurationSignedDEVTests {
         for configuration in [staging, production] {
             #expect(configuration.buildSpace.space?.headerValue == "dev:next")
             #expect(configuration.keychainService.hasPrefix("com.cmuxterm.app.debug.next.auth."))
-            let store = CloudAuth.tokenStore(configuration: configuration, nightlySession: nil)
+            let store = CloudAuth.tokenStore(configuration: configuration)
             #expect(!(store is ImportingTokenStore))
             #expect(!(store is MemoryStackTokenStore))
         }

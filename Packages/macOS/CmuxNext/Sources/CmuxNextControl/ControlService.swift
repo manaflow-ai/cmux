@@ -43,8 +43,7 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
-        sessionHandoff: SessionHandoffResponder? = nil
+        watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -68,8 +67,7 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog,
-            sessionHandoff: sessionHandoff
+            watchdog: watchdog
         )
     }
 
@@ -81,8 +79,7 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
-        sessionHandoff: SessionHandoffResponder? = nil
+        watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
@@ -90,7 +87,6 @@ public final class ControlService {
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
-        server.setSessionHandoff(sessionHandoff)
         try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
     }

@@ -68,8 +68,6 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var storage: StorageNames
     /// The namespaced store a legacy default used before #36384, adopted once.
     public var namespacedLegacyStore: LegacyStore?
-    /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
-    public var adoptsNightlySession = false
     /// The build's cloud data space, made with the configuration from the bundle's identity (``dataSpace(of:)``):
     /// a tagged dev build sends `X-Cmux-Build-Space: dev:<slug>`, nightly, RC and release send no header, and a DEV
     /// build with no usable tag is misconfigured: every client of this configuration's origins refuses its calls
@@ -129,7 +127,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             struct Kind: Decodable { var kind: String, url: URL? }
             var backend: Kind, apiBaseUrl: URL, authWebOrigin: URL, stackBaseUrl: URL, stackProjectId: String
             var stackPublishableClientKey: String, isProductionAuth: Bool, callbackScheme: String, bundleId: String
-            var isDebugBuild: Bool, storage: StorageNames, namespacedLegacyStore: LegacyStore?, adoptsNightlySession: Bool
+            var isDebugBuild: Bool, storage: StorageNames, namespacedLegacyStore: LegacyStore?
         }
         let request = Request(selection: selection, bundleId: bundleID, bundled: bundled, process: process, isDebugBuild: isDebugBuild)
         guard let made = CloudStartCore().call("cloud_config_from_selection", request, as: Made.self) else { return .unavailable }
@@ -143,8 +141,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackBaseURL: made.stackBaseUrl, stackProjectID: made.stackProjectId,
             stackPublishableClientKey: made.stackPublishableClientKey, isProductionAuth: made.isProductionAuth,
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
-            runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
-            adoptsNightlySession: made.adoptsNightlySession)
+            runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore)
         // A tagged dev build asks every cloud backend for its own data space; nightly and stable send nothing.
         configuration.buildSpace = dataSpace(of: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]))
         return configuration
