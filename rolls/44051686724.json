@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44051686724",
+  "recorded_at": "2026-11-17T09:09:44Z",
+  "reason": "cmux-tui 4094cf6d7ee1 changes the image's cmux-tui (pinned 8b34d017bf38)",
+  "dry_run": false,
+  "cmux_tui": "4094cf6d7ee16e0c70bb14081cacd8ccb588fc1f",
+  "fixes": [
+    {
+      "sha": "4094cf6d7ee16e0c70bb14081cacd8ccb588fc1f",
+      "mergedAt": "2026-11-17T00:41:10-08:00",
+      "subject": "cmux-next-ios, cmux-tui: hybrid frames keep the alternate screen and input modes; varints past 64 bits refused (#44052 F1, F2) (#45121)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T09:09:44Z",
+    "snapshot_id": "sh-3fbbdd10fbb244d5a338fcf3c0e537f8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44051686724): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e244410a856ae648a55d8a30fd8b4f13c8676ba6",
+    "image": "cloud-native-auto-4094cf6d-44051686724-1",
+    "revision": "ci-44051686724-1",
+    "at": "2026-11-17T09:09:44Z"
+  },
+  "rolled_back": false
+}
