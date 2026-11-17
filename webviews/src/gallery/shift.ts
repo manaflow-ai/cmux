@@ -234,10 +234,13 @@ function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSo
   // says nothing of where it went. A row after the target that an opening pushed past the
   // transcript's bottom (the running turn's live line under a digest that opens whole) is the
   // expansion's push; judge it by where its box is now, which must be straight below where it was.
+  // The browser's rect is the row's visual rect, ink hanging past its box included, so the box lies
+  // within it across, not on its left edge (a turn summary's 4 px, transcript#edit-long-line-code).
   if (now.width <= 0 || now.height <= 0) {
     if (!following) return false;
     const live = element.getBoundingClientRect();
-    return Math.abs(live.x - was.x) <= MOVE_SLACK && live.y > was.y + MOVE_SLACK;
+    const within = live.x >= was.x - MOVE_SLACK && live.x + live.width <= was.x + was.width + MOVE_SLACK;
+    return within && live.y > was.y + MOVE_SLACK;
   }
   const dx = now.x - was.x;
   const dy = now.y - was.y;
