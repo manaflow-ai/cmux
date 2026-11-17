@@ -12,7 +12,7 @@ import UIKit
 
 /// A workspace tab's composer stack at rest: its height and its bottom's distance from the
 /// page's bottom (TabsKit rests it 8 pt above the toolbar capsule).
-struct ChatRestingStack: Equatable {
+struct ChatRestingStack: Codable, Equatable {
     var height: CGFloat
     var bottomGap: CGFloat
 
@@ -216,8 +216,27 @@ public final class AgentChatSurface {
     var restingStack: ChatRestingStack?
     /// The resting stack a tab placed last on this phone, for a tab whose own stack is not
     /// measured yet (not shown in this launch): every tab's resting composer is the same
-    /// capsule over the same toolbar, so its card and its page's first frames use this.
-    static var lastRestingStack: ChatRestingStack?
+    /// capsule over the same toolbar, so its card and its page's first frames use this. Kept
+    /// in defaults, so a workspace opened on a terminal tab after a relaunch has it too.
+    static var lastRestingStack: ChatRestingStack? {
+        get {
+            if !restingStackLoaded {
+                restingStackLoaded = true
+                storedRestingStack = UserDefaults.standard.data(forKey: restingStackKey)
+                    .flatMap { try? JSONDecoder().decode(ChatRestingStack.self, from: $0) }
+            }
+            return storedRestingStack
+        }
+        set {
+            restingStackLoaded = true
+            guard newValue != storedRestingStack else { return }
+            storedRestingStack = newValue
+            UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: restingStackKey)
+        }
+    }
+    private static var storedRestingStack: ChatRestingStack?
+    private static var restingStackLoaded = false
+    private static let restingStackKey = "cmux.chat.restingStack.v1"
 
     /// The resting stack this tab's card and page are placed from: its own, else the last one
     /// measured, else `ChatRestingStack.fallback`.

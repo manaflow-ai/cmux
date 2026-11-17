@@ -89,14 +89,76 @@ public struct AgentChatPreview: View {
 
     private var rows: some View {
         let rows = model.tail(of: store, turns: turns)
-        return VStack(alignment: .leading, spacing: 0) {
+        return PreviewRows(rows: rows, context: model.context(store))
+            .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+/// The card's rows, stacked as the transcript stacks them (`ChatTranscriptLayout`): each row
+/// `gap` below the one before, a row the transcript draws natively (`ChatNativeEligibility`)
+/// at its native layout's height, the rest at their SwiftUI height. The card draws every row
+/// in SwiftUI (a picture cannot hold UIKit cells), so its rows take the live list's heights.
+private struct PreviewRows: View {
+    let rows: [ChatRow]
+    let context: ChatRowContext
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    var body: some View {
+        PreviewColumn(rows: rows, category: UIContentSizeCategory(textSize), wrapCode: CmuxMobilePreferences.wrapCode()) {
             ForEach(rows) { row in
-                ChatRowView(row: row, context: model.context(store))
+                ChatRowView(row: row, context: context)
                     .modifier(PreviewRowProbe(id: row.id))
-                    .padding(.top, row.gap)
             }
         }
-        .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+struct PreviewColumn: Layout {
+    let rows: [ChatRow]
+    let category: UIContentSizeCategory
+    let wrapCode: Bool
+
+    struct Cache {
+        var width: CGFloat = -1
+        var heights: [CGFloat] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    /// A row's height in a column `width` wide (its 20 pt margins already out), as the live
+    /// list lays it out: its native layout's when it draws natively at rest.
+    private func heights(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [CGFloat] {
+        if cache.width == width, cache.heights.count == subviews.count { return cache.heights }
+        let environment = ChatNativeEnvironment(width: width, category: category, wrapCode: wrapCode)
+        let heights = zip(rows, subviews).map { row, subview -> CGFloat in
+            if ChatNativeEligibility.drawsNatively(row, accessibilitySize: category.isAccessibilityCategory, wrapCode: wrapCode, isOpen: { _ in nil }),
+               let native = ChatNativeLayout.make(row.kind, id: row.id, expanded: false, environment: environment) {
+                return native.height
+            }
+            return subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+        cache = Cache(width: width, heights: heights)
+        return heights
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 0
+        let heights = heights(width: width, subviews: subviews, cache: &cache)
+        let total = zip(rows, heights).reduce(CGFloat(0)) { $0 + CGFloat($1.0.gap) + $1.1 }
+        return CGSize(width: width, height: total)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let heights = heights(width: bounds.width, subviews: subviews, cache: &cache)
+        var y = bounds.minY
+        for (index, subview) in subviews.enumerated() where index < rows.count {
+            y += CGFloat(rows[index].gap)
+            // At its own height, pinned to its slot's top (as `ChatRowTop` pins a hosted row).
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: nil))
+            y += heights[index]
+        }
     }
 }
 
