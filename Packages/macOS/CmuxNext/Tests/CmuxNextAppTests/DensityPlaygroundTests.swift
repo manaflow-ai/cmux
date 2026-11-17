@@ -233,6 +233,14 @@ struct DensityPlaygroundTests {
         #expect(f.saves.last?.customs.isEmpty == true)
     }
 
+    /// Tabbing through the name field of a built-in (it shows the display name) makes no copy.
+    @Test func leavingABuiltInsNameAsShownMakesNoCopy() {
+        let f = Self.fixture(active: DensityPreset.cozy.tokens)
+        f.model.rename(f.model.name(f.model.draft))
+        #expect(f.model.customs.isEmpty && f.model.isBuiltIn)
+        #expect(f.saves.isEmpty)
+    }
+
     /// Export writes what Import (and the Settings density card) reads; importing again adds a copy, never a replacement.
     @Test func exportedJSONImportsAsANewDensity() throws {
         let f = Self.fixture(active: DensityPreset.cozy.tokens)

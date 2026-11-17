@@ -30,6 +30,8 @@ import SwiftUI
         SettingsTheme.shared.follow(scope)
         scope.adopt(window)
         window.makeKeyAndOrderFront(nil)
+        // The SwiftUI content takes the keys, so Tab reaches the name and the value fields from the keyboard.
+        if window.firstResponder === window { window.makeFirstResponder(window.initialFirstResponder) }
     }
 
     /// Closes the window.
@@ -50,8 +52,9 @@ import SwiftUI
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.densityPlayground")
         panel.delegate = self
         SettingsTheme.shared.follow(scope)
-        panel.install(kind: .debugSettings, content: NSHostingView(rootView: DensityPlaygroundView(model: model)),
-                      scope: scope, activeLook: activeLook)
+        let content = NSHostingView(rootView: DensityPlaygroundView(model: model))
+        panel.install(kind: .debugSettings, content: content, scope: scope, activeLook: activeLook)
+        panel.initialFirstResponder = content
         if !panel.setFrameUsingName("cmux.densityPlayground") {
             // Beside the app's window, so the chrome being tuned stays in view: right of it, else left, else over
             // its trailing edge (the content, not the sidebar or the tab strip's leading tabs).

@@ -92,8 +92,8 @@ def type_text(text):
 
 
 def field(value):
-    """Tab to the next field, select all, type `value`, Return."""
-    keys("tab", (("cmd",), "a"))
+    """Tab to the next field (a field Tab enters selects its text), type `value`, Return."""
+    keys("tab")
     type_text(value)
     return keys("return")
 
@@ -137,23 +137,27 @@ def frame(label):
 
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
-    BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+    INFO = plistlib.load(f)
+BINARY = os.path.join(opts.app, "Contents/MacOS", INFO["CFBundleExecutable"])
 
 
 def launch(log):
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
-    # Placed with no activation (the frame knob needs it); the panel is made key for its keys (`keys`).
+    # Activated (a panel takes keys only in the active app), the window placed so the playground fits beside it.
     process = subprocess.Popen([BINARY], env={
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NO_ACTIVATE": "1",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
         "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
         "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"),
-        "CMUX_NEXT_TEST_WINDOW_FRAME": "16,24,860,680", "CMUX_NEXT_TEST_WINDOW_SCREEN": "0", "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"},
+        "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"},
         stdout=open(os.path.join(opts.out, log), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     if not wait(lambda: os.path.exists(SOCKET) and not (rpc("debug.window_frame") or {}).get("error"), 180):
         sys.exit("the tagged app did not come up")
     time.sleep(3)  # capture harness: the first window settles
+    subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)  # the running copy
+    print("frame", rpc("debug.window_frame", {"frame": [16, 120, 860, 700]}), flush=True)  # AppKit points
+    time.sleep(1.5)  # capture harness: activation and the move land
     return process
 
 
@@ -188,7 +192,7 @@ try:
     pair("before")
     frame("Default")
     # The name first: a built-in stays as it is, so naming it makes the copy that every later change goes into.
-    print("name", keys("tab", (("cmd",), "a")), flush=True)
+    print("name", keys("tab"), flush=True)
     type_text("Roomy")
     keys("return")
     frame("named Roomy")
@@ -198,6 +202,7 @@ try:
     field("6")
     frame("sidebar row gap 6")
     keys((("cmd",), "2"))
+    keys("tab")  # the shown field left with the group: Tab starts again at the name
     frame("Horizontal tabs")
     field("36")
     frame("tab row height 36")

@@ -96,7 +96,8 @@ public final class DensityPlaygroundModel {
     /// Renames the draft (a custom density; a built-in is copied under the new name).
     public func rename(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != draft.name else { return }
+        // The field shows ``name(_:)`` (a built-in's display name): leaving it as shown changes nothing.
+        guard !trimmed.isEmpty, trimmed != draft.name, trimmed != name(draft) else { return }
         if draft.isBuiltIn {
             duplicate(name: trimmed)
             return

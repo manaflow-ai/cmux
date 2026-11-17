@@ -63,12 +63,13 @@ struct DensityPlaygroundView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Size.gap) {
             HStack(spacing: Size.gap) {
+                Text(DensityPlaygroundStrings.density)
                 Picker(DensityPlaygroundStrings.density, selection: Binding(get: { model.draft.id }, set: { model.select(id: $0) })) {
                     ForEach(model.densities) { density in
                         Text(model.name(density)).tag(density.id)
                     }
                 }
-                .frame(width: 220)
+                .labelsHidden().pickerStyle(.menu).fixedSize()
                 .accessibilityIdentifier("cmux.densityPlayground.picker")
                 TextField(DensityPlaygroundStrings.name, text: $nameText)
                     .textFieldStyle(.roundedBorder)
