@@ -14,7 +14,9 @@
 //! ffmpeg with libx264: on PATH, `--ffmpeg` or `CMUX_FFMPEG`.
 
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::ExitCode;
+
+use cmux_process::{Child, Command, Stdio};
 
 use cmux_follow_cam::damage::{DamageConfig, FrameDiff, thumbnail, thumbnail_size};
 use cmux_follow_cam::video::{Aspect, Y4mHeader, crop_plane, fit_trace};
@@ -91,6 +93,11 @@ fn spawn(ffmpeg: &str, argv: &[&str], stdin: Stdio, stdout: Stdio) -> Result<Chi
         .map_err(|e| format!("cannot run {ffmpeg} ({e}): install ffmpeg or pass --ffmpeg PATH"))
 }
 
+/// A child's pipe that `spawn` asked for.
+fn piped<T>(pipe: Option<T>) -> Result<T, String> {
+    pipe.ok_or_else(|| "ffmpeg started without its pipe".to_string())
+}
+
 fn run(args: &Args) -> Result<(), String> {
     let trace = match &args.trace {
         Some(path) => {
@@ -109,7 +116,7 @@ fn run(args: &Args) -> Result<(), String> {
         Stdio::null(),
         Stdio::piped(),
     )?;
-    let mut frames_in = BufReader::with_capacity(1 << 20, decoder.stdout.take().expect("piped"));
+    let mut frames_in = BufReader::with_capacity(1 << 20, piped(decoder.stdout.take())?);
     let mut line = String::new();
     frames_in.read_line(&mut line).map_err(|e| format!("reading frames: {e}"))?;
     if line.is_empty() {
@@ -159,7 +166,7 @@ fn run(args: &Args) -> Result<(), String> {
         Stdio::piped(),
         Stdio::null(),
     )?;
-    let mut frames_out = BufWriter::with_capacity(1 << 20, encoder.stdin.take().expect("piped"));
+    let mut frames_out = BufWriter::with_capacity(1 << 20, piped(encoder.stdin.take())?);
     frames_out.write_all(out_header.as_bytes()).map_err(|e| format!("encoder: {e}"))?;
 
     let config = Config { aspect: args.aspect.ratio(), zoom: args.zoom, ..Config::default() };
@@ -222,10 +229,11 @@ fn run(args: &Args) -> Result<(), String> {
         return Err(format!("ffmpeg failed: decode {decoded}, encode {encoded}"));
     }
     if let Some(path_out) = &args.path_out {
-        let text: String = path
-            .iter()
-            .map(|f| serde_json::to_string(f).expect("frame serializes") + "\n")
-            .collect();
+        let mut text = String::new();
+        for frame in &path {
+            text += &serde_json::to_string(frame).map_err(|e| format!("{path_out}: {e}"))?;
+            text.push('\n');
+        }
         std::fs::write(path_out, text).map_err(|e| format!("{path_out}: {e}"))?;
     }
     eprintln!(

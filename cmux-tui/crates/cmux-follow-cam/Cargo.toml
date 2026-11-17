@@ -11,5 +11,6 @@ description = "Follow camera for screen sharing: picks the focus (caret, pointer
 workspace = true
 
 [dependencies]
+cmux-process = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
