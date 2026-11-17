@@ -84,6 +84,13 @@ impl Screen {
         let source = self.index(from).unwrap_or(self.panes.len());
         neighbor(&self.panes, source, direction).map(|index| self.names[index].as_str())
     }
+
+    /// [`Self::next`] of a screen whose rows are not valid.
+    fn next_of_rows_not_valid(&self, from: &str, direction: FocusDirection) -> Option<&str> {
+        assert!(!is_valid(&self.panes), "the rows are not valid");
+        let source = self.index(from).unwrap_or(self.panes.len());
+        neighbor(&self.panes, source, direction).map(|index| self.names[index].as_str())
+    }
 }
 
 // The tiled rule.
@@ -195,11 +202,13 @@ fn with_no_history_the_largest_overlap_then_the_nearest_centre_then_the_top_left
         ("x", frame(300.0, 0.0, 100.0, 600.0)),
     ]);
     assert_eq!(order.next("s", Right), Some("x"), "equal in each way: the order of the rows");
-    // The overlap is compared as a whole number: 300.4 and 299.6 are equal, so the top pane wins.
+    // The overlap and the distance between the centres are compared as whole numbers: 299.6 and 300.4 are
+    // equal, and 150.2 and 149.8 are equal, so the top pane wins. Not rounded, `b` has the larger overlap and
+    // the nearer centre.
     let rounded = screen(&[
         ("s", frame(0.0, 0.0, 300.0, 600.0)),
-        ("a", frame(300.0, 0.0, 300.0, 300.4)),
-        ("b", frame(300.0, 300.4, 300.0, 299.6)),
+        ("a", frame(300.0, 0.0, 300.0, 299.6)),
+        ("b", frame(300.0, 299.6, 300.0, 300.4)),
     ]);
     assert_eq!(rounded.next("s", Right), Some("a"));
 }
@@ -267,13 +276,14 @@ fn with_no_overlapping_pane_the_nearest_edge_then_the_nearest_centre_wins() {
     assert_eq!(centre(290.0, 610.0).next("s", Right), Some("up"), "the nearest centre");
     assert_eq!(centre(299.8, 600.0).next("s", Right), Some("down"), "the centres are not rounded");
     assert_eq!(centre(300.0, 600.0).next("s", Right), Some("up"), "equal centres: the top one");
-    // The distance is compared as a whole number: 0.4 and 0 are equal, so the top pane wins.
+    // The distance is compared as a whole number: 0.4 and 0 are equal, so the nearer centre wins. Not rounded,
+    // `b` has the nearer edge.
     let rounded = screen(&[
         ("s", frame(0.0, 0.0, 300.0, 300.0)),
-        ("a", frame(300.4, 600.0, 300.0, 300.0)),
-        ("b", frame(300.0, 300.0, 300.0, 300.0)),
+        ("a", frame(300.4, 300.0, 300.0, 300.0)),
+        ("b", frame(300.0, 600.0, 300.0, 300.0)),
     ]);
-    assert_eq!(rounded.next("s", Right), Some("b"));
+    assert_eq!(rounded.next("s", Right), Some("a"));
 }
 
 #[test]
@@ -360,12 +370,58 @@ fn a_screen_of_one_pane_has_no_neighbor_and_rows_that_are_not_valid_are_known() 
     assert!(!is_valid(&[FocusPane { frame: frame(f64::NAN, 0.0, 1.0, 10.0), ..pane(0) }]));
     assert!(!is_valid(&[FocusPane { frame: frame(0.0, 0.0, 1.0, f64::INFINITY), ..pane(0) }]));
     assert!(is_valid(&[FocusPane { frame: None, ..pane(0) }]));
-    for (code, direction) in [(0, Left), (1, Right), (2, Up), (3, Down)] {
+    for (code, direction, back) in
+        [(0, Left, Right), (1, Right, Left), (2, Up, Down), (3, Down, Up)]
+    {
         assert_eq!(FocusDirection::from_code(code), Some(direction));
-        assert_eq!(direction.opposite().opposite(), direction);
+        assert_eq!(direction.opposite(), back);
         assert_eq!(direction.opposite().is_horizontal(), direction.is_horizontal());
     }
     assert_eq!(FocusDirection::from_code(4), None);
+}
+
+#[test]
+fn a_pane_whose_frame_is_not_valid_is_as_a_pane_with_no_frame() {
+    // Each frame is one that `is_valid` refuses: not a number, not finite, a negative size.
+    for bad in [
+        frame(f64::NAN, 25.0, 50.0, 50.0),
+        frame(100.0, 25.0, f64::INFINITY, 50.0),
+        frame(100.0, 25.0, -50.0, 50.0),
+    ] {
+        // On the way of `s` to the right, before `f` in the list of the floating panes.
+        let floating = screen(&[
+            ("s", frame(0.0, 0.0, 100.0, 100.0)),
+            ("bad", bad),
+            ("f", frame(250.0, 25.0, 100.0, 50.0)),
+        ])
+        .floating(&["bad", "f"])
+        .history(&["s"]);
+        assert_eq!(floating.next_of_rows_not_valid("s", Right), Some("f"), "{bad:?} is no stop");
+        // Beside `s` as `t` is, and before `t` in the order of the rows.
+        let tiled = screen(&[
+            ("s", frame(0.0, 0.0, 100.0, 100.0)),
+            ("bad", bad.map(|frame| FocusFrame { y: 0.0, h: 100.0, ..frame })),
+            ("t", frame(100.0, 0.0, 100.0, 100.0)),
+        ]);
+        assert_eq!(tiled.next_of_rows_not_valid("s", Right), Some("t"), "{bad:?} is no candidate");
+        for direction in [Left, Right, Up, Down] {
+            assert_eq!(
+                floating.next_of_rows_not_valid("bad", direction),
+                None,
+                "{bad:?} as a source"
+            );
+            assert_eq!(tiled.next_of_rows_not_valid("bad", direction), None, "{bad:?} as a source");
+        }
+        // With no floating pane, its column can remember it, as a pane with no frame.
+        let remembered = screen(&[
+            ("a", frame(0.0, 0.0, 400.0, 900.0)),
+            ("b1", frame(400.0, 0.0, 400.0, 900.0)),
+            ("bad", bad),
+        ])
+        .columns(&[&["a"], &["b1", "bad"]])
+        .history(&["a", "bad", "b1"]);
+        assert_eq!(remembered.next_of_rows_not_valid("a", Right), Some("bad"));
+    }
 }
 
 // The rule with floating panes.
@@ -562,6 +618,114 @@ fn a_long_focus_history_gives_the_newest_tiled_pane_that_shows_as_the_pane_befor
     // The pane before `f` is `a`.
     assert_eq!(shown().history(&["f", "b", "a", "c"]).next("f", Right), Some("c"));
     assert_eq!(shown().history(&["f", "b", "a", "c"]).next("f", Left), Some("a"));
+}
+
+#[test]
+fn a_floating_pane_with_its_corner_out_of_the_area_is_a_stop_as_each_other_one() {
+    let shown = || {
+        screen(&[
+            ("a", frame(0.0, 0.0, 600.0, 900.0)),
+            ("b", frame(600.0, 0.0, 600.0, 900.0)),
+            ("f", frame(-100.0, -50.0, 300.0, 300.0)),
+        ])
+        .floating(&["f"])
+    };
+    assert_eq!(shown().history(&["a"]).next("a", Left), Some("f"));
+    assert_eq!(shown().history(&["a"]).next("a", Up), Some("f"));
+    assert_eq!(shown().history(&["a"]).next("a", Right), Some("b"));
+    assert_eq!(shown().history(&["a"]).next("a", Down), None);
+    assert_eq!(
+        shown().history(&["f", "a"]).next("f", Right),
+        Some("a"),
+        "the opposite key goes back"
+    );
+    assert_eq!(shown().history(&["f", "a"]).next("f", Down), Some("a"));
+    assert_eq!(shown().history(&["f", "a"]).next("f", Left), None);
+    assert_eq!(shown().history(&["f", "a"]).next("f", Up), None);
+    assert_eq!(shown().history(&["b", "a"]).next("b", Left), Some("a"), "`f` is not between the 2");
+}
+
+#[test]
+fn with_a_floating_pane_a_column_gives_no_pane_that_has_no_frame() {
+    let tiled = screen(&[
+        ("a", frame(0.0, 0.0, 400.0, 900.0)),
+        ("b1", frame(400.0, 0.0, 400.0, 900.0)),
+        ("hidden", None),
+    ])
+    .columns(&[&["a"], &["b1", "hidden"]])
+    .history(&["a", "hidden", "b1"]);
+    assert_eq!(tiled.next("a", Right), Some("hidden"), "no floating pane: the tiled rule");
+    // The same screen with one floating pane that is on no way of the key.
+    let shown = screen(&[
+        ("a", frame(0.0, 0.0, 400.0, 900.0)),
+        ("b1", frame(400.0, 0.0, 400.0, 900.0)),
+        ("hidden", None),
+        ("f", frame(50.0, 700.0, 100.0, 100.0)),
+    ])
+    .columns(&[&["a"], &["b1", "hidden"]])
+    .floating(&["f"])
+    .history(&["a", "hidden", "b1"]);
+    assert_eq!(shown.next("a", Right), Some("b1"), "a column remembers only its panes that show");
+}
+
+/// A tiled pane `s` with no tiled pane on its right, and 23 floating panes beside it: `far` at the centre 500,
+/// `nan` (its x is not a number), `f02` at the centre 300 and `f03` to `f22` at the centres 331 to 464, back to
+/// front in that order. The screen, and the stops of the key right from `s`.
+fn a_way_with_a_frame_that_is_not_a_number(reversed: bool) -> (Screen, Vec<String>) {
+    let stop = |centre: f64| frame(centre - 25.0, 25.0, 50.0, 50.0);
+    let mut rows = vec![
+        ("s".to_owned(), frame(0.0, 0.0, 100.0, 100.0)),
+        ("far".to_owned(), stop(500.0)),
+        ("nan".to_owned(), frame(f64::NAN, 25.0, 50.0, 50.0)),
+        ("f02".to_owned(), stop(300.0)),
+    ];
+    rows.extend((3_u8..=22).map(|at| (format!("f{at:02}"), stop(310.0 + 7.0 * f64::from(at)))));
+    let back_to_front = rows.iter().skip(1).map(|(name, _)| name.clone()).collect::<Vec<_>>();
+    if reversed {
+        rows.reverse();
+    }
+    let named = rows.iter().map(|(name, frame)| (name.as_str(), *frame)).collect::<Vec<_>>();
+    let order = back_to_front.iter().map(String::as_str).collect::<Vec<_>>();
+    let shown = screen(&named).floating(&order).history(&["s"]);
+    let mut stops = back_to_front.iter().skip(2).cloned().collect::<Vec<_>>();
+    stops.push("far".to_owned());
+    (shown, stops)
+}
+
+/// The panes that `count` presses of the key give from `from`, to the first press that gives none.
+fn presses(shown: &Screen, from: &str, direction: FocusDirection, count: usize) -> Vec<String> {
+    let mut at = from.to_owned();
+    let mut reached = Vec::new();
+    for _ in 0..count {
+        let Some(next) = shown.next_of_rows_not_valid(&at, direction) else { break };
+        at = next.to_owned();
+        reached.push(at.clone());
+    }
+    reached
+}
+
+#[test]
+fn a_way_of_22_floating_panes_and_a_frame_that_is_not_a_number_has_one_order() {
+    for reversed in [false, true] {
+        let (shown, stops) = a_way_with_a_frame_that_is_not_a_number(reversed);
+        assert_eq!(stops.len(), 22);
+        assert_eq!(
+            presses(&shown, "s", Right, stops.len() + 1),
+            stops,
+            "the key right gives each floating pane with a valid frame by its centre, then no pane \
+             (rows in the other order: {reversed})"
+        );
+        let mut back = stops.iter().rev().skip(1).cloned().collect::<Vec<_>>();
+        back.push("s".to_owned());
+        assert_eq!(
+            presses(&shown, "far", Left, stops.len()),
+            back,
+            "the key left goes back the same way (rows in the other order: {reversed})"
+        );
+        for direction in [Left, Right, Up, Down] {
+            assert_eq!(shown.next_of_rows_not_valid("nan", direction), None, "never a source");
+        }
+    }
 }
 
 // The property test: grids of 1 to 4 columns and 1 to 3 rows with 1 to 3 floating panes, from a fixed seed. It
