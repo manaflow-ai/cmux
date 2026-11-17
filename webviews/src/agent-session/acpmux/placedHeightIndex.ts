@@ -147,6 +147,10 @@ function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: 
   return node?.leaf;
 }
 
+/// The root-to-leaf prefix walks this module has made: a test reads it to see that the rows in view share one walk per
+/// leaf, never one per row (placedHeightIndex.test.ts).
+export const placedIndexStats = { prefixWalks: 0 };
+
 /// What the rows before leaf `leafIndex` sum to.
 function prefixBeforeLeaf(
   root: Node | undefined,
@@ -154,6 +158,7 @@ function prefixBeforeLeaf(
   leafIndex: number,
   between: GapBetween | undefined,
 ): Summary {
+  placedIndexStats.prefixWalks += 1;
   let prefix = EMPTY;
   let node = root;
   let low = 0;
