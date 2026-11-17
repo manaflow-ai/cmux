@@ -98,6 +98,11 @@ final class AgentCLIHybridBench {
             open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
             openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
+        // A still (the pixel matrix) plays the session at once after the attach, while the
+        // phone's size claim waits for the Mac's answer, and this fake Mac never answers it:
+        // the PTY side then held a Mac grid change (`TerminalReclaimHold`) and showed the
+        // screen from before it. A real Mac answers within a round trip; no claim wait here.
+        if Self.stillMs != nil { terminal.reclaimWait = .zero }
         self.terminal = terminal
         model = TerminalModel(session: terminal, artifactSource: MockArtifactSource(), title: "hybrid bench")
     }

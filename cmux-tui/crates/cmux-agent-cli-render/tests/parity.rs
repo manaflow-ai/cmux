@@ -1034,6 +1034,61 @@ fn export_sessions_for_the_phone_bench() {
     }
 }
 
+/// The bench's PTY side, the pixel matrix's reference: a viewer fed the attach's `vt-state`
+/// replay, then the PTY bytes after it (a `resized` entry: a fresh terminal at the new size fed
+/// its replay, as the phone's mirror resets), shows the Mac's screen at every moment after the
+/// attach.
+#[test]
+fn the_bench_pty_side_rebuilds_the_macs_screen() {
+    let decode =
+        |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().unwrap()).unwrap();
+    let sized = |cols: u16, rows: u16| {
+        let mut term =
+            ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.resize(cols, rows, 8, 16).unwrap();
+        term
+    };
+    let mut wrong = Vec::new();
+    for dir_name in [SHELL, PIXEL_MATRIX, CODEX] {
+        let out = export(&load(dir_name));
+        let attach = out["attach"]["t_ms"].as_u64().unwrap();
+        let mut phone = terminal();
+        phone.vt_write(&decode(&out["attach"]["pty"]));
+        let at = |entry: &Value| entry[0].as_u64().unwrap();
+        let entries = out["pty"].as_array().unwrap();
+        let mut next = entries.iter().position(|e| at(e) > attach).unwrap_or(entries.len());
+        for moment in out["moments"].as_array().unwrap() {
+            let t = moment["t_ms"].as_u64().unwrap();
+            if t <= attach {
+                continue;
+            }
+            while next < entries.len() && at(&entries[next]) < t {
+                let data = &entries[next][1];
+                if data.is_string() {
+                    phone.vt_write(&decode(data));
+                } else {
+                    let dim = |key: &str| u16::try_from(data[key].as_u64().unwrap()).unwrap();
+                    phone = sized(dim("cols"), dim("rows"));
+                    phone.vt_write(&decode(&data["replay"]));
+                }
+                next += 1;
+            }
+            let shown = phone.viewport_text().unwrap();
+            let want = moment["text"].as_str().unwrap();
+            if shown != want {
+                let line = shown.lines().zip(want.lines()).position(|(a, b)| a != b);
+                println!(
+                    "{dir_name} {}: the PTY side differs from line {line:?}\n--- PTY\n{shown}\n--- Mac\n{want}",
+                    moment["name"]
+                );
+                wrong.push(format!("{dir_name} {}", moment["name"]));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "the bench's PTY side is not the Mac's screen at {wrong:?}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // The phone's parity fixtures (cmux-next-ios `AgentCLIHybridParityTests`, Leo 2026-11-16:
 // "prove it correct").
