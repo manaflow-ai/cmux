@@ -548,6 +548,16 @@ unsafe fn init(
     l.iMaxSpatialBitrate = bitrate;
     l.uiProfileIdc = PRO_BASELINE;
     l.uiLevelIdc = LEVEL_UNKNOWN;
+    // The VUI says what the pictures are (crate::color::SCREEN), so a viewer converts them
+    // back with the same matrix and range instead of guessing.
+    let color = crate::color::SCREEN;
+    l.bVideoSignalTypePresent = true;
+    l.uiVideoFormat = 5; // unspecified
+    l.bFullRange = color.full_range;
+    l.bColorDescriptionPresent = true;
+    l.uiColorPrimaries = color.primaries;
+    l.uiTransferCharacteristics = color.transfer;
+    l.uiColorMatrix = color.matrix;
     let slices = opts.slices.unwrap_or(threads).max(1);
     if slices > 1 {
         l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;

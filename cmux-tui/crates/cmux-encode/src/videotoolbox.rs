@@ -547,6 +547,9 @@ impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
+        // The pictures are BT.709 video range from sRGB (crate::color::SCREEN): the same
+        // matrix and primaries as a captured surface, so tag them the same way.
+        self.apply_color(ColorTag::Srgb);
         self.fill(pic)?;
         let pb = self.pixel_buffer;
         self.encode_buffer(pb, force_idr || resized, pts, out)
