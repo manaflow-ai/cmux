@@ -23,10 +23,13 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
-import tab_switch_judge as judge
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # run as a script (preflight), its siblings import
+import tab_switch_judge as judge  # noqa: E402
 
 CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 ANSWER_SECONDS = 30.0
@@ -45,6 +48,7 @@ class CuaSession:
         self.driver = driver
         self.process = None
         self.next_id = 0
+        self.stderr = None  # cua-driver's own words: why it closed, when it does
 
     def _readline(self, seconds):
         got = []
@@ -70,7 +74,7 @@ class CuaSession:
             if line is None:
                 break
             if not line:
-                raise CaptureError(f"cua-driver mcp closed during {method}")
+                raise CaptureError(f"cua-driver mcp closed during {method}{self._stderr_tail()}")
             try:
                 answer = json.loads(line)
             except ValueError:
@@ -89,9 +93,25 @@ class CuaSession:
             raise CaptureError(f"cua-driver {name}: {(facts.get('last_error') or words)[:300]}")
         return facts
 
+    def _stderr_tail(self):
+        if self.stderr is None:
+            return ""
+        try:
+            self.stderr.flush()
+            self.stderr.seek(0)
+            words = " ".join(self.stderr.read().decode("utf-8", "replace").split())
+        except (OSError, ValueError):
+            return ""
+        if self.process is not None and self.process.poll() is not None:
+            words = f"exit {self.process.returncode}; {words}" if words else f"exit {self.process.returncode}"
+        return f" ({words[-400:]})" if words else ""
+
     def open(self):
+        # stderr goes to a file, not a pipe nobody reads: a full pipe would block cua-driver, and a closed session
+        # must say why (2026-11-16: "closed during initialize" and nothing else).
+        self.stderr = tempfile.TemporaryFile()
         self.process = subprocess.Popen([self.driver, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, bufsize=1, start_new_session=True)
+                                        stderr=self.stderr, text=True, bufsize=1, start_new_session=True)
         self._send("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                   "clientInfo": {"name": "tab-switch", "version": "1"}})
         self._send("notifications/initialized", notify=True)
@@ -126,6 +146,9 @@ class CuaSession:
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)  # our own child, by its own process group
             process.wait()
+        stderr, self.stderr = self.stderr, None
+        if stderr is not None:
+            stderr.close()
 
 
 class Marker:
@@ -258,3 +281,33 @@ class Capture:
     def close(self):
         self.marker.quit()
         self.session.close()
+
+
+def preflight(driver=CUA_DRIVER):
+    """Whether this Mac can record, in seconds: CuaDriver starts, answers and holds Screen Recording.
+
+    tab-switch.sh runs it before the build, as the console user the harness runs as, so a Mac that cannot record
+    exits 3 at once instead of after an hour-long build on an exclusive display worker (2026-11-16: the pull request
+    steps on three display Macs built the app, then died in `initialize`)."""
+    session = CuaSession(driver)
+    try:
+        return session.open()
+    finally:
+        session.close()
+
+
+def main(argv):
+    if argv[1:] != ["preflight"]:
+        print("usage: tab_switch_capture.py preflight", file=sys.stderr)
+        return 2
+    try:
+        granted = preflight()
+    except CaptureError as error:
+        print(f"TSW cannot record: {error}")
+        return 3
+    print(f"TSW recorder ready: {json.dumps(granted, sort_keys=True)[:300]}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
