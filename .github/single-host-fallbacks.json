@@ -18,6 +18,10 @@
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
+    "glaeda-promote-trusted-light-xcode-26.6": {
+      "fallback": "Blacksmith macOS after the owned-pool grace",
+      "after_minutes": 5
+    },
     "glaeda-promote-trusted-std-xcode-26.6": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
