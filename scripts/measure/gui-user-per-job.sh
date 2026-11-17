@@ -53,6 +53,7 @@ UID0=5100
 WORK="/Users/Shared/gup-probe.$$"
 CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
 failed=0
+made=0
 created=()
 
 say() { printf 'GUP %s\n' "$1"; }
@@ -67,7 +68,7 @@ now() { "$WORK/gup" now 2>/dev/null || date +%s; }
 ms_since() { "$WORK/gup" since "$1"; }
 
 # remove_account U: its processes (by PID; every process of a pool uid is this probe's), its launchd domains, the
-# account and its home. Only ever called for cmuxci-gui-NN accounts whose full name is $MARK.
+# account and its home. Only ever called for cmuxci-gui-NN accounts whose full name starts with $MARK.
 remove_account() {
   local u="$1" uid pids
   uid=$(dscl . -read "/Users/$u" UniqueID 2>/dev/null | awk '{print $2}')
@@ -339,17 +340,18 @@ for e in s.get("elements") or []:
     if e.get("role") == "AXButton" and "gup-press" in (str(e.get("label")) + str(e.get("title")) + str(e.get("identifier"))) and e.get("element_token"):
         print(e["element_token"]); break
 ' 2>/dev/null)
-  click_raw=""; ms_click=-1
+  click_raw=""; ms_click=-1; ms_call=-1
   if [[ -n "$tok" ]]; then
     t0=$(now)
     click_raw=$(as_console "$CUA" call click "{\"pid\":$pid,\"window_id\":$wid,\"element_token\":\"$tok\",\"action\":\"press\"}" 2>&1)
+    ms_call=$(ms_since "$t0")
     local end=$(( $(date +%s) + 5 ))
     while [[ "$(field "$st" clicks)" == 0 && $(date +%s) -lt $end ]]; do sleep 0.05; done
     ms_click=$(ms_since "$t0")
   fi
   clicks=$(field "$st" clicks)
   local shot_bytes=0; [[ -s "$shot" ]] && shot_bytes=$(stat -f%z "$shot")
-  say "{\"stage\":\"cua\",\"tag\":$(jstr "$tag"),\"pid\":${pid:-0},\"wid\":${wid:-0},\"shot_bytes\":$shot_bytes,\"state_ms\":${ms_state:-0},\"button_in_tree\":$([[ -n "$tok" ]] && echo true || echo false),\"click_ms\":${ms_click:--1},\"clicks\":${clicks:-0},\"state_raw\":$(jstr "${raw:0:300}"),\"click_raw\":$(jstr "${click_raw:0:300}")}"
+  say "{\"stage\":\"cua\",\"tag\":$(jstr "$tag"),\"pid\":${pid:-0},\"wid\":${wid:-0},\"shot_bytes\":$shot_bytes,\"state_ms\":${ms_state:-0},\"button_in_tree\":$([[ -n "$tok" ]] && echo true || echo false),\"click_call_ms\":${ms_call:--1},\"click_ms\":${ms_click:--1},\"clicks\":${clicks:-0},\"state_raw\":$(jstr "${raw:0:300}"),\"click_raw\":$(jstr "${click_raw:0:300}")}"
 }
 
 if [[ -x "$CUA" ]]; then
@@ -391,14 +393,16 @@ trap cleanup EXIT INT TERM HUP
 
 # ------------------------------------------------------------------ (b) TCC writes as root, SIP on or off
 sys_db="/Library/Application Support/com.apple.TCC/TCC.db"
-tcc_try() { /usr/bin/sqlite3 "$1" 'BEGIN IMMEDIATE; ROLLBACK;' 2>&1 && echo ok; }
-say "{\"stage\":\"tcc\",\"db\":\"system\",\"read\":$(jstr "$(/usr/bin/sqlite3 "$sys_db" "select service||'|'||client||'|'||auth_value from access where service in ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServicePostEvent','kTCCServiceListenEvent')" 2>&1 | tr '\n' ';')"),\"write\":$(jstr "$(tcc_try "$sys_db")")}"
+# Whether root can open the database read-write (no write is made: sqlite opens it O_RDWR and reads one row; SIP
+# refuses the open itself for a protected file).
+tcc_try() { /usr/bin/python3 -I -c 'import sqlite3, sys; c = sqlite3.connect("file:" + sys.argv[1] + "?mode=rw", uri=True); c.execute("select count(*) from access").fetchone(); print("open read-write ok")' "$1" 2>&1 | tail -1; }
+say "{\"stage\":\"tcc\",\"db\":\"system\",\"read\":$(jstr "$(/usr/bin/sqlite3 "$sys_db" "select service||' auth='||auth_value||' rows='||count(*)||' e.g. '||max(client) from access where service in ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServicePostEvent','kTCCServiceListenEvent') and client not like '%cmux-build-worker/bin/worker-%' group by service, auth_value; select 'worker binaries: '||count(*)||' rows, granted '||sum(auth_value=2) from access where client like '%cmux-build-worker/bin/worker-%'" 2>&1 | tr '\n' ';')"),\"write\":$(jstr "$(tcc_try "$sys_db")")}"
 
 # ------------------------------------------------------------------ (d) accounts: create, home, keychain
 for (( i = 1; i <= pool_n; i++ )); do
   u=$(printf '%s%02d' "$PREFIX" "$i")
   if dscl . -read "/Users/$u" >/dev/null 2>&1; then
-    if [[ "$(dscl . -read "/Users/$u" RealName 2>/dev/null | tail -1 | sed 's/^ *//; s/^RealName: //')" == "$MARK" ]]; then
+    if [[ "$(dscl . -read "/Users/$u" RealName 2>/dev/null | tail -1 | sed 's/^ *//; s/^RealName: //')" == "$MARK"* ]]; then
       note "$u is left from an earlier run of this probe; removing it"; remove_account "$u"
     else
       say "{\"stage\":\"accounts\",\"ok\":false,\"why\":$(jstr "$u exists and is not this probe's; refusing")}"; exit 4
@@ -413,12 +417,12 @@ for (( i = 1; i <= pool_n; i++ )); do
   u=$(printf '%s%02d' "$PREFIX" "$i")
   pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
   t0=$(now)
-  out=$(sysadminctl -addUser "$u" -fullName "$MARK" -UID $(( UID0 + i )) -password "$pw" -home "/Users/$u" -shell /bin/zsh 2>&1)
+  out=$(sysadminctl -addUser "$u" -fullName "$MARK $(printf %02d "$i")" -UID $(( UID0 + i )) -password "$pw" -home "/Users/$u" -shell /bin/zsh 2>&1)
   add_ms=$(ms_since "$t0")
   if ! dscl . -read "/Users/$u" >/dev/null 2>&1; then
     say "{\"stage\":\"add\",\"user\":\"$u\",\"ok\":false,\"out\":$(jstr "$out")}"; failed=1; break
   fi
-  created+=("$u")
+  created+=("$u"); made=$(( made + 1 ))
   dscl . -create "/Users/$u" IsHidden 1
   home_after_add=$([[ -d "/Users/$u" ]] && echo true || echo false)
   t0=$(now); hout=$(createhomedir -c -u "$u" 2>&1); home_ms=$(ms_since "$t0")
@@ -482,10 +486,11 @@ host_mem() {  # used MB (active + wired + compressed), swap used MB, CPU idle % 
   ps_b=$(sysctl -n hw.pagesize)
   vm_stat | awk -v p="$ps_b" '/Pages active/ {a=$3} /Pages wired/ {w=$4} /occupied by compressor/ {c=$5} END {printf "%d ", (a+w+c)*p/1048576}'
   sysctl -n vm.swapusage | awk '{print $6+0}' | tr '\n' ' '
-  top -l 2 -n 0 -s 3 | awk '/CPU usage/ {i=$7} END {print i+0}'
+  top -l 2 -n 0 -s 3 | awk '/CPU usage/ {i=$7} END {printf "%d ", i+0}'
+  sysctl -n vm.loadavg | awk '{print $2}'
 }
-read -r base_used base_swap base_idle < <(host_mem)
-say "{\"stage\":\"density-base\",\"used_mb\":$base_used,\"swap_mb\":$base_swap,\"cpu_idle_pct\":$base_idle}"
+read -r base_used base_swap base_idle base_load < <(host_mem)
+say "{\"stage\":\"density-base\",\"used_mb\":$base_used,\"swap_mb\":$base_swap,\"cpu_idle_pct\":$base_idle,\"load1\":${base_load:-0},\"runner_note\":\"a lease lets running jobs finish; host use here includes them\"}"
 IFS=, read -ra ks <<<"$ns"
 for k in "${ks[@]}"; do
   (( k > ${#created[@]} )) && break
@@ -498,14 +503,15 @@ for k in "${ks[@]}"; do
   all_ms=$(ms_since "$t0")
   ready=$(for (( j = 0; j < k; j++ )); do field "$WORK/status/d$j.json" ready_ms; done | sort -n | tr '\n' ',' | sed 's/,$//')
   sleep 5  # let per-account services the apps started settle before reading their cost
-  read -r used swap idle < <(host_mem)
+  read -r used swap idle load < <(host_mem)
+  pool_rss=$(ps -axo uid=,rss= | awk -v lo=$(( UID0 + 1 )) -v hi=$(( UID0 + 16 )) '$1 >= lo && $1 <= hi {r += $2} END {print int(r/1024)}')
   per=""
   for (( j = 0; j < k; j++ )); do
     pu=$(id -u "${created[$j]}")
     read -r pn prss < <(ps -axo uid=,rss= | awk -v u="$pu" '$1 == u {n++; r += $2} END {print n+0, int(r/1024)}')
     per+="{\"user\":\"${created[$j]}\",\"procs\":$pn,\"rss_mb\":$prss,\"app\":$(jout "$WORK/gup" mem "$(field "$WORK/status/d$j.json" pid)")},"
   done
-  say "{\"stage\":\"density\",\"k\":$k,\"up\":$up,\"all_up_ms\":$all_ms,\"ready_ms\":[${ready}],\"used_mb\":$used,\"used_delta_mb\":$(( used - base_used )),\"swap_mb\":$swap,\"cpu_idle_pct\":$idle,\"per_account\":[${per%,}],\"pool_procs\":$(jstr "$(ps -axo uid=,comm= | awk -v lo=$(( UID0 + 1 )) -v hi=$(( UID0 + 16 )) '$1 >= lo && $1 <= hi {n=split($2,p,"/"); print p[n]}' | sort | uniq -c | sort -rn | head -15 | awk '{printf "%s x%d; ", $2, $1}')")}"
+  say "{\"stage\":\"density\",\"k\":$k,\"up\":$up,\"all_up_ms\":$all_ms,\"ready_ms\":[${ready}],\"used_mb\":$used,\"used_delta_mb\":$(( used - base_used )),\"swap_mb\":$swap,\"cpu_idle_pct\":$idle,\"load1\":${load:-0},\"pool_rss_mb\":${pool_rss:-0},\"per_account\":[${per%,}],\"pool_procs\":$(jstr "$(ps -axo uid=,comm= | awk -v lo=$(( UID0 + 1 )) -v hi=$(( UID0 + 16 )) '$1 >= lo && $1 <= hi {n=split($2,p,"/"); print p[n]}' | sort | uniq -c | sort -rn | head -15 | awk '{printf "%s x%d; ", $2, $1}')")}"
   for (( j = 0; j < k; j++ )); do p=$(field "$WORK/status/d$j.json" pid); [[ -n "$p" ]] && kill "$p" 2>/dev/null; done
 done
 
@@ -525,5 +531,6 @@ for u in "${created[@]}"; do
   say "{\"stage\":\"delete\",\"user\":\"$u\",\"bootout_ms\":$bo_ms,\"delete_ms\":$del_ms,\"record_gone\":$gone,\"home_gone\":$([[ -d "/Users/$u" ]] && echo false || echo true),\"out\":$(jstr "$(printf '%s' "$dout" | head -2)")}"
 done
 cleanup   # anything the loop above left; also removes $WORK
-echo "GUP-SUMMARY pool stages ran on $(hostname -s) as root; accounts made: $pool_n; all removed"
+left=$(dscl . -list /Users | grep -c "^$PREFIX")
+echo "GUP-SUMMARY pool stages ran on $(hostname -s) as root; accounts made: $made of $pool_n; pool accounts left: $left"
 exit "$failed"
