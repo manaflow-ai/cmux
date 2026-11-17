@@ -559,7 +559,11 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
-        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onPageBuilt = { [weak services] key in
+            services?.cache.hibernation?.agentPages?.pageBuilt(key)
+            // A chat whose agent used an app before its page was made gets its card now.
+            services?.computerUsePreviews.replayChats()
+        }
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs

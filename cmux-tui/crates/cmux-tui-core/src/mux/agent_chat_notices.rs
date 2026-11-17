@@ -862,6 +862,14 @@ fn apply(mux: &Arc<Mux>, before: Option<&Chat>, mut next: Chat, chats: &mut Hash
         mux.post_agent_chat_notice(&next.session, notice);
     }
     mux.update_cache_ttl_timer(&next);
+    // The chat's turn ended: its agent's Computer Use is no longer active (its cursor hides,
+    // its live preview turns done).
+    if let Some(before) = before
+        && next.last_turn.is_some()
+        && before.last_turn != next.last_turn
+    {
+        mux.computer_use_turn_ended(next.session.clone(), false);
+    }
     chats.insert(next.session.clone(), next);
 }
 

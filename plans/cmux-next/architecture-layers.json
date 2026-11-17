@@ -47,6 +47,7 @@
     "CmuxNextKeepAwake": {"layer": "service"},
     "CmuxNextPhoneAccess": {"layer": "service"},
     "CmuxNextComputerUse": {"layer": "service"},
+    "CmuxNextComputerUsePreview": {"layer": "ui"},
     "CmuxNextStash": {"layer": "service"},
     "CmuxNextHistoryPages": {"layer": "ui"},
     "CmuxNextSidebarActions": {"layer": "ui", "mixes": ["domain"], "plan": "domain once CmuxNextSidebar's Store splits from its views (owner a590)"},

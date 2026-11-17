@@ -142,7 +142,7 @@ import Testing
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
         #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
-                                     "cursorTag", "settle", "cloudVm", "menus"])
+                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview"])
         #expect(object["cursorTag"] as? String == "hover")
         #expect(object["settle"] as? String == "adaptive")
         #expect(object["mode"] as? String == "approvedApps")
@@ -150,6 +150,15 @@ import Testing
         #expect(object["allowForeground"] as? Bool == true)
         #expect(object["cloudVm"] as? Bool == false)
         #expect(object["menus"] as? String == "open")
+        #expect(object["livePreview"] as? Bool == true)
+    }
+
+    /// `computerUse.livePreview` reaches the engine (preview.rs): off, the worker streams no window
+    /// and every card goes. Before, the policy left it out, so the setting changed nothing.
+    @Test func livePreviewReachesTheEngine() throws {
+        let off = computerUse(.object(["computerUse": .object(["livePreview": .bool(false)])]))
+        let object = try #require(try JSONSerialization.jsonObject(with: off.policyConfigJSON()) as? [String: Any])
+        #expect(object["livePreview"] as? Bool == false)
     }
 
     /// `computerUse.menus` reads `open` or `refuse` (default `open`); another value keeps the default

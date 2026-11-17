@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 
 use crate::backoff::Backoff;
 
+#[path = "computer_use_lifecycle.rs"]
+mod computer_use_lifecycle;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -139,6 +141,9 @@ struct Inner {
     /// mux's `computer-use-activity` event, set by `configure_remote_host`).
     activity: Mutex<Value>,
     on_activity: Mutex<Option<ActivitySink>>,
+    /// Set while the daemon's `preview/watch` connection to the worker is
+    /// open (computer_use_lifecycle.rs).
+    preview_watching: std::sync::atomic::AtomicBool,
 }
 
 /// Where the Computer Use worker's activity goes (any thread; must not block).
@@ -682,7 +687,12 @@ impl crate::mux::Mux {
         let mux = Arc::downgrade(self);
         self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
             if let Some(mux) = mux.upgrade() {
+                // An agent acts: its live preview reaches the app from the worker.
+                let acting = payload["sessions"].as_array().is_some_and(|s| !s.is_empty());
                 mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
+                if acting {
+                    mux.ensure_computer_use_preview();
+                }
             }
         }));
         self.control_clients.remote_host.configure(paths_for(daemon_socket, &state_root));

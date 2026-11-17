@@ -308,6 +308,8 @@ pub struct EngineParts {
     /// The sessions the person stopped ([`crate::stop`]); shared so a test
     /// can stop a session from inside a running call.
     pub stops: Arc<Stops>,
+    /// The platform's window streams for the live preview ([`crate::preview`]).
+    pub preview: Arc<dyn crate::preview::PreviewSource>,
 }
 
 /// Time since the first call, from the monotonic clock.
@@ -330,6 +332,7 @@ impl EngineParts {
             sleep: Arc::new(std::thread::sleep),
             clock: Arc::new(monotonic),
             stops: Arc::new(Stops::default()),
+            preview: Arc::new(crate::preview::NoPreview),
         }
     }
 }
@@ -338,7 +341,10 @@ pub struct Engine {
     desktop: Arc<dyn Desktop>,
     config: Arc<RwLock<PolicyConfig>>,
     sessions: Sessions,
-    cursor: Arc<dyn CursorSink>,
+    /// Every cursor event goes through [`crate::cursor::Lifecycle`], which
+    /// knows which sessions' Computer Use is active.
+    cursor: Arc<crate::cursor::Lifecycle>,
+    preview: Arc<crate::preview::PreviewHub>,
     approver: Arc<dyn Approver>,
     takeover: Arc<dyn PersonActivity>,
     /// (session, "w:<window>" | "d:<display>") -> what the agent last saw.
@@ -410,13 +416,16 @@ fn need_f64(args: &Value, key: &str) -> Result<f64, ToolOutput> {
 impl Engine {
     pub fn new(parts: EngineParts) -> Self {
         let audit = parts.state_dir.as_ref().map(|d| d.join("audit.jsonl"));
-        let config = Arc::new(RwLock::new(parts.config));
+        let config = Arc::new(RwLock::new(parts.config.clone()));
         parts.desktop.set_menu_guard(Arc::new(PolicyMenuGuard(config.clone())));
+        let preview =
+            Arc::new(crate::preview::PreviewHub::new(parts.preview, previews_on(&parts.config)));
         Self {
             sessions: Sessions::open(parts.state_dir.as_deref()),
             desktop: parts.desktop,
             config,
-            cursor: parts.cursor,
+            cursor: Arc::new(crate::cursor::Lifecycle::new(parts.cursor, preview.clone())),
+            preview,
             approver: parts.approver,
             takeover: parts.takeover,
             seen: Mutex::new(HashMap::new()),
@@ -442,14 +451,58 @@ impl Engine {
         if off || !config.allow_foreground {
             lock(&self.agent_front).clear();
         }
+        let previews = previews_on(&config);
         *self.config.write().unwrap_or_else(std::sync::PoisonError::into_inner) = config;
+        self.preview.set_enabled(previews);
         if off {
-            self.sessions.revoke_all(None);
+            self.revoke_sessions();
         }
+    }
+
+    /// Every session's grants are revoked (Computer Use turned off, or the
+    /// person's Revoke): no agent's Computer Use is active any more, so
+    /// every cursor hides and every preview turns done.
+    pub fn revoke_sessions(&self) {
+        self.sessions.revoke_all(None);
+        self.cursor.end_where(|_| true);
+    }
+
+    /// The live preview's cards and watchers.
+    pub fn preview(&self) -> &Arc<crate::preview::PreviewHub> {
+        &self.preview
+    }
+
+    /// The sessions whose Computer Use is active now (their cursor shows).
+    pub fn active_sessions(&self) -> Vec<String> {
+        self.cursor.active()
+    }
+
+    /// The agent's turn ended (`session/idle`): its Computer Use is no
+    /// longer active, so its cursor hides and its preview turns done; its
+    /// approvals stay for its next turn. `session` names one session, or
+    /// with `prefix` every session whose key starts with it (a terminal's
+    /// agents, `terminal:<id>:`). The sessions it ended.
+    pub fn idle(&self, session: &str, prefix: bool) -> Vec<String> {
+        if session.is_empty() {
+            return Vec::new();
+        }
+        self.cursor.end_where(|s| if prefix { s.starts_with(session) } else { s == session })
     }
 
     pub fn sessions(&self) -> &Sessions {
         &self.sessions
+    }
+
+    /// The window of a call that passed the policy, for its session's
+    /// preview card (also before anyone watches: the daemon's watch starts
+    /// with the session's first action); nothing while the preview is off.
+    fn note_preview_window(&self, ctx: &CallContext, window_id: &str, app: Option<&TargetApp>) {
+        if !self.preview.enabled() {
+            return;
+        }
+        let Ok(Some(window)) = self.desktop.window(window_id) else { return };
+        let name = app.map(|a| a.name.as_str()).unwrap_or_default();
+        self.preview.note_window(&ctx.session, &ctx.label, &window.id, window.frame, name);
     }
 
     /// The agent session ended: hide its cursor and forget what it saw.
@@ -541,6 +594,13 @@ impl Engine {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
+        // The live preview shows the window a call passed the policy for.
+        if !out.is_error
+            && app.is_some()
+            && let Some(window_id) = args_str(&args, "window_id")
+        {
+            self.note_preview_window(ctx, window_id, app.as_ref());
+        }
 
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         // Recorded at once (a restart must not act twice), but never with a
@@ -556,6 +616,7 @@ impl Engine {
                 label: ctx.label.clone(),
                 at: None,
                 reason: reason.to_string(),
+                ends: false,
             });
         }
         // After the record: a retry returns the action's result, and the agent
@@ -658,6 +719,7 @@ impl Engine {
                 label: safe_label(label),
                 at: None,
                 reason: stop::STOPPED_CAPTION.to_string(),
+                ends: true,
             });
         }
         added
@@ -687,6 +749,7 @@ impl Engine {
                 label: ctx.label.clone(),
                 at: None,
                 reason: stop::STOPPED_CAPTION.to_string(),
+                ends: true,
             });
         }
         self.write_audit(ctx, name, None, &out);
@@ -2013,6 +2076,11 @@ pub fn safe_label(label: &str) -> String {
         out.push('\u{2026}');
     }
     if out.is_empty() { "Agent".into() } else { out }
+}
+
+/// Whether the live preview runs under `config`.
+fn previews_on(config: &PolicyConfig) -> bool {
+    config.live_preview && config.mode != policy::Mode::Off
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

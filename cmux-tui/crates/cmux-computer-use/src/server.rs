@@ -16,6 +16,15 @@
 //!   memory. `status` and `tools/list` answer at once.
 //! - A call keeps running when its connection drops, so the bridge's retry on
 //!   a new connection gets the first attempt's result.
+//! - Lifecycle: `session/attach` holds its connection open for the agent's
+//!   life (the bridge's); when the last one of a session closes (the agent's
+//!   process exited or crashed), the session ends as with `session/end`, so
+//!   its cursor never lingers. `session/idle {session, prefix?}` ends the
+//!   Computer Use of a session whose agent turn ended (the daemon and
+//!   acpmux send it), keeping its approvals.
+//! - `preview/watch` turns its connection into the live preview's stream
+//!   ([`crate::preview`]): `{"event":"preview",...}` lines, the latest per
+//!   session when the peer reads slower than frames come.
 
 use std::io::{self, BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -67,6 +76,8 @@ struct Shared {
     stopped: AtomicBool,
     lanes: Arc<lanes::Lanes>,
     connections: Mutex<Vec<Weak<dyn Stream>>>,
+    /// Open `session/attach` connections per session.
+    attached: Mutex<std::collections::HashMap<String, usize>>,
 }
 
 /// A serving endpoint. [`Server::stop`] (or drop) stops accepting, ends the
@@ -104,6 +115,7 @@ fn serve_on(
         stopped: AtomicBool::new(false),
         lanes: lanes::Lanes::new(),
         connections: Mutex::new(Vec::new()),
+        attached: Mutex::new(std::collections::HashMap::new()),
     });
     let accept = {
         let shared = Arc::clone(&shared);
@@ -238,6 +250,7 @@ fn connection(shared: &Arc<Shared>, stream: Arc<dyn Stream>, admitted: Result<()
         &writer,
         &json!({"ok": true, "protocol": wire::PROTOCOL, "capabilities": [wire::CAPABILITY], "pid": std::process::id()}),
     );
+    let mut conn = Conn::default();
     loop {
         let line = match read_line(&mut reader, wire::MAX_LINE) {
             Ok(Some(line)) => line,
@@ -253,9 +266,102 @@ fn connection(shared: &Arc<Shared>, stream: Arc<dyn Stream>, admitted: Result<()
         if shared.stopped.load(Ordering::SeqCst) {
             break;
         }
-        handle(shared, &stream, &writer, &line);
+        handle(shared, &stream, &writer, &line, &mut conn);
     }
+    conn.close(shared);
     stream.shutdown();
+}
+
+/// What one connection holds beyond its requests.
+#[derive(Default)]
+struct Conn {
+    /// Its `session/attach` sessions.
+    attached: Vec<String>,
+    /// Its `preview/watch`: the watcher id and its outbox.
+    watch: Option<(u64, Arc<Outbox>)>,
+}
+
+impl Conn {
+    /// The connection ended: its watch stops, and a session whose last
+    /// attach this was ends (its agent's process is gone).
+    fn close(&mut self, shared: &Arc<Shared>) {
+        if let Some((id, outbox)) = self.watch.take() {
+            shared.engine.preview().unwatch(id);
+            outbox.close();
+        }
+        for session in self.attached.drain(..) {
+            let last = {
+                let mut attached = lock(&shared.attached);
+                let count = attached.entry(session.clone()).or_insert(1);
+                *count = count.saturating_sub(1);
+                let last = *count == 0;
+                if last {
+                    attached.remove(&session);
+                }
+                last
+            };
+            if last {
+                let engine = Arc::clone(&shared.engine);
+                let ended = session.clone();
+                shared.lanes.submit(&session, move || engine.end_session(&ended));
+            }
+        }
+    }
+}
+
+/// A watch connection's outgoing lines, the latest per session: a slow
+/// reader never stalls the preview (or the calls and frames that feed it),
+/// and never misses a card's last state.
+#[derive(Default)]
+struct Outbox {
+    state: Mutex<(Vec<(String, Value)>, bool)>,
+    ready: std::sync::Condvar,
+}
+
+impl Outbox {
+    fn push(&self, line: &Value) -> bool {
+        let mut state = lock(&self.state);
+        if state.1 {
+            return false;
+        }
+        let key = line.get("session").and_then(Value::as_str).unwrap_or_default().to_string();
+        match state.0.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = line.clone(),
+            None => state.0.push((key, line.clone())),
+        }
+        self.ready.notify_one();
+        true
+    }
+
+    fn close(&self) {
+        lock(&self.state).1 = true;
+        self.ready.notify_all();
+    }
+
+    /// The writer thread: sends lines until the outbox closes or a write fails.
+    fn drain(&self, stream: &Arc<dyn Stream>, writer: &Mutex<()>) {
+        loop {
+            let lines = {
+                let mut state = lock(&self.state);
+                while state.0.is_empty() && !state.1 {
+                    state = self.ready.wait(state).unwrap_or_else(PoisonError::into_inner);
+                }
+                if state.1 {
+                    return;
+                }
+                std::mem::take(&mut state.0)
+            };
+            for (_, line) in lines {
+                let mut text = line.to_string();
+                text.push('\n');
+                let _guard = lock(writer);
+                if stream.write_all(text.as_bytes()).is_err() {
+                    self.close();
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// A call's context from its request. `origin` is the bridge's (the only
@@ -277,7 +383,13 @@ pub fn context(request: &Value) -> Result<CallContext, String> {
     })
 }
 
-fn handle(shared: &Arc<Shared>, stream: &Arc<dyn Stream>, writer: &Arc<Mutex<()>>, line: &[u8]) {
+fn handle(
+    shared: &Arc<Shared>,
+    stream: &Arc<dyn Stream>,
+    writer: &Arc<Mutex<()>>,
+    line: &[u8],
+    conn: &mut Conn,
+) {
     let Ok(request) = serde_json::from_slice::<Value>(line) else {
         return send(stream, writer, &json!({"id": null, "ok": false, "error": "invalid_json"}));
     };
@@ -311,6 +423,47 @@ fn handle(shared: &Arc<Shared>, stream: &Arc<dyn Stream>, writer: &Arc<Mutex<()>
                 engine.end_session(&ctx.session);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": {}}));
             });
+        }
+        "session/attach" => {
+            if !conn.attached.contains(&ctx.session) {
+                *lock(&shared.attached).entry(ctx.session.clone()).or_insert(0) += 1;
+                conn.attached.push(ctx.session);
+            }
+            send(stream, writer, &json!({"id": id, "ok": true, "result": {}}));
+        }
+        "session/idle" => {
+            let prefix = request.get("prefix").and_then(Value::as_bool).unwrap_or(false);
+            let (engine, stream, writer) =
+                (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
+            let session = ctx.session.clone();
+            let run = move || {
+                let ended = engine.idle(&session, prefix);
+                send(&stream, &writer, &json!({"id": id, "ok": true, "result": {"ended": ended}}));
+            };
+            // One session: after its calls in flight. A prefix: at once.
+            if prefix {
+                run();
+            } else {
+                shared.lanes.submit(&ctx.session, run);
+            }
+        }
+        // The window's pixels are for this machine's own cmux only.
+        "preview/watch" if ctx.origin != OriginKind::Local => {
+            fail("refused", "the live preview is for this machine's cmux".into());
+        }
+        "preview/watch" => {
+            if conn.watch.is_none() {
+                let outbox = Arc::new(Outbox::default());
+                let (drain, stream, writer) =
+                    (Arc::clone(&outbox), Arc::clone(stream), Arc::clone(writer));
+                let _ = std::thread::Builder::new()
+                    .name("cmux-cu-preview".into())
+                    .spawn(move || drain.drain(&stream, &writer));
+                let sink = Arc::clone(&outbox);
+                let watcher = shared.engine.preview().watch(Arc::new(move |line| sink.push(line)));
+                conn.watch = Some((watcher, outbox));
+            }
+            send(stream, writer, &json!({"id": id, "ok": true, "result": {}}));
         }
         "status" => {
             let out: ToolOutput = shared.engine.call(&ctx, "status", &json!({}));

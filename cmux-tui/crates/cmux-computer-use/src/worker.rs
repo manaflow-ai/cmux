@@ -303,7 +303,7 @@ fn control(engine: &Engine, approver: &StdioApprover, out: &Out, message: &Value
                 "forget" if !app.is_empty() => sessions.update_saved(|s| s.forget(app)),
                 "always" if !app.is_empty() => sessions.update_saved(|s| s.set_always(app)),
                 "never" if !app.is_empty() => sessions.update_saved(|s| s.set_never(app)),
-                "revoke_sessions" => sessions.revoke_all(None),
+                "revoke_sessions" => engine.revoke_sessions(),
                 "list" => emit(
                     out,
                     &json!({"type": "approvals", "id": message.get("id"), "saved": sessions.saved()}),

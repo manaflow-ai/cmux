@@ -224,6 +224,35 @@ import Testing
         #expect(overlay.sessionCount == 0)
     }
 
+    /// As in Codex, the cursor stays while the agent thinks between actions: no timer hides it,
+    /// only the session's end (`hide`) or the person's Stop (a refusal that ends it). Before this,
+    /// the overlay hid every cursor 4 s after its last event.
+    @MainActor @Test func theCursorStaysThroughThinkingPausesAndHidesOnlyWhenItsSessionEnds() {
+        let overlay = AgentCursorOverlay(reduceMotion: { true })
+        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 100, y: 100)))
+        overlay.show(AgentCursorEvent(kind: .look, session: "b", label: "Codex", at: CGPoint(x: 300, y: 300)))
+        // A long thinking pause, past the old 4 s idle hide.
+        RunLoop.main.run(until: Date().addingTimeInterval(5))
+        #expect(overlay.sessionCount == 2)
+        // The person's Stop: the red caption, then the cursor goes.
+        var stopped = AgentCursorEvent(kind: .refused, session: "b", label: "Codex", text: "Stopped")
+        stopped.ends = true
+        overlay.show(stopped)
+        #expect(overlay.sessionCount == 2)
+        RunLoop.main.run(until: Date().addingTimeInterval(AgentCursorOverlay.endedCaptionHold + 0.5))
+        #expect(overlay.sessionCount == 1)
+        // The turn ended.
+        overlay.show(AgentCursorEvent(kind: .hide, session: "a"))
+        #expect(overlay.sessionCount == 0)
+    }
+
+    @Test func aRefusalThatEndsTheSessionDecodes() {
+        let json = Data(#"{"kind":"refused","session":"s","label":"Codex","at":null,"reason":"Stopped","ends":true}"#.utf8)
+        #expect(AgentCursorEvent(json: json)?.ends == true)
+        let plain = Data(#"{"kind":"refused","session":"s","label":"Codex","at":null,"reason":"No"}"#.utf8)
+        #expect(AgentCursorEvent(json: plain)?.ends == false)
+    }
+
     @MainActor @Test func approvalQuestionsQueueAndEndUnavailableOnStop() {
         let panel = ApprovalPanel()
         let answers = Answers()

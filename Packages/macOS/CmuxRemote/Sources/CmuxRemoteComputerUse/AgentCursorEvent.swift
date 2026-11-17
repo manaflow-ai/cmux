@@ -26,6 +26,9 @@ struct AgentCursorEvent: Equatable, Sendable {
     var from: CGPoint?
     /// Look: the window looked at (global desktop points, top-left origin).
     var rect: CGRect?
+    /// Refused: the session's Computer Use ended with it (the person's Stop): the cursor shows
+    /// the caption, then hides.
+    var ends = false
 
     init(kind: Kind, session: String, label: String = "", at: CGPoint? = nil, text: String = "") {
         self.kind = kind
@@ -48,6 +51,7 @@ struct AgentCursorEvent: Equatable, Sendable {
         let dy = (object["dy"] as? NSNumber)?.doubleValue ?? 0
         scroll = CGVector(dx: dx.isFinite ? dx : 0, dy: dy.isFinite ? dy : 0)
         from = Self.point(object["from"])
+        ends = object["ends"] as? Bool ?? false
         if let r = object["rect"] as? [String: Any],
            let x = (r["x"] as? NSNumber)?.doubleValue, let y = (r["y"] as? NSNumber)?.doubleValue,
            let w = (r["width"] as? NSNumber)?.doubleValue, let h = (r["height"] as? NSNumber)?.doubleValue,

@@ -53,6 +53,7 @@ struct Fixture {
     path: PathBuf,
     desktop: Arc<FakeDesktop>,
     gate: Arc<Gate>,
+    engine: Arc<Engine>,
     _dir: tempdir::Dir,
 }
 
@@ -97,8 +98,8 @@ fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     if let Some(uid) = uid {
         listener.uid = uid;
     }
-    let server = serve_on(engine, listener, path.to_str().unwrap(), &SECRET).unwrap();
-    Fixture { _dir: dir, path, desktop, gate, server: Some(server) }
+    let server = serve_on(engine.clone(), listener, path.to_str().unwrap(), &SECRET).unwrap();
+    Fixture { _dir: dir, path, desktop, gate, engine, server: Some(server) }
 }
 
 struct Client {
@@ -259,4 +260,83 @@ fn a_stale_socket_is_replaced_but_a_regular_file_is_not() {
     serve(engine.clone(), path.to_str().unwrap(), &SECRET).unwrap().stop();
     std::fs::write(&path, b"not a socket").unwrap();
     assert!(serve(engine, path.to_str().unwrap(), &SECRET).is_err());
+}
+
+/// Polls `cond` for up to 10 s (the connection's end reaches the server on
+/// its own thread).
+fn eventually(cond: impl Fn() -> bool) -> bool {
+    for _ in 0..1000 {
+        if cond() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+fn look(client: &mut Client, id: u64, session: &str) {
+    client.call(id, session, "get_ui_tree", json!({"window_id": "1"}), None);
+    let answer = client.recv();
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+}
+
+#[test]
+fn an_agent_process_that_exits_without_session_end_ends_its_session() {
+    let f = fixture("att", None);
+    let mut presence = Client::connect(&f.path);
+    presence.send(&json!({"id": 1, "method": "session/attach", "session": "s"}));
+    assert_eq!(presence.recv()["ok"], true);
+    let mut calls = Client::connect(&f.path);
+    look(&mut calls, 2, "s");
+    assert_eq!(f.engine.active_sessions(), vec!["s".to_string()]);
+    // The cursor stays while the agent thinks: nothing ends it but its end.
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(f.engine.active_sessions(), vec!["s".to_string()]);
+    // The agent crashed: its bridge's connections close, no session/end.
+    drop(calls);
+    drop(presence);
+    assert!(eventually(|| f.engine.active_sessions().is_empty()));
+}
+
+#[test]
+fn a_turn_end_idles_the_sessions_of_its_terminal_only() {
+    let f = fixture("idle", None);
+    let mut client = Client::connect(&f.path);
+    look(&mut client, 1, "terminal:T1:100");
+    look(&mut client, 2, "terminal:T2:200");
+    look(&mut client, 3, "chat-1");
+    client.send(
+        &json!({"id": 4, "method": "session/idle", "session": "terminal:T1:", "prefix": true}),
+    );
+    let answer = client.recv();
+    assert_eq!(answer["result"]["ended"], json!(["terminal:T1:100"]), "{answer}");
+    client.send(&json!({"id": 5, "method": "session/idle", "session": "chat-1"}));
+    assert_eq!(client.recv()["result"]["ended"], json!(["chat-1"]));
+    assert_eq!(f.engine.active_sessions(), vec!["terminal:T2:200".to_string()]);
+}
+
+#[test]
+fn a_preview_watch_gets_the_card_of_an_active_session() {
+    let f = fixture("pw", None);
+    let mut client = Client::connect(&f.path);
+    // The session's first action comes before the daemon's watch (which its activity starts).
+    look(&mut client, 2, "s");
+    let mut watch = Client::connect(&f.path);
+    watch.send(&json!({"id": 1, "method": "preview/watch"}));
+    assert_eq!(watch.recv()["ok"], true);
+    assert!(eventually(|| f.engine.preview().streaming() == vec!["1".to_string()]));
+    f.engine.preview().frame("1", b"jpeg");
+    let line = watch.recv();
+    assert_eq!(line["event"], "preview", "{line}");
+    assert_eq!(line["card"]["session"], "s");
+    assert_eq!(line["card"]["app"], "Safari");
+    client.send(&json!({"id": 3, "method": "session/idle", "session": "s"}));
+    client.recv();
+    let done = watch.recv();
+    assert_eq!(done["card"]["done"], true, "{done}");
+    // A remote origin never watches this machine's windows.
+    let mut remote = Client::connect(&f.path);
+    remote.send(&json!({"id": 1, "method": "preview/watch",
+        "origin": {"kind": "remote", "machine": "m", "same_account": true}}));
+    assert_eq!(remote.recv()["ok"], false);
 }

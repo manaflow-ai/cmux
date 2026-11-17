@@ -40,6 +40,8 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     let tap = TakeoverTap()
     /// Which agent sessions act, for the host (the app's menu bar badge and Computer Use row).
     let activity: ComputerUseActivityReporter
+    /// The live preview's window streams (the engine's `preview` callback).
+    let previews: PreviewStreams
     private let lock = NSLock()
     private var engine: ComputerUseEngine?
     private var server: ServerHandle?
@@ -55,7 +57,17 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     init(output: LineChannel) {
         channel = output
         activity = ComputerUseActivityReporter(write: { line in _ = output.write(line) })
+        let owner = PreviewOwner()
+        previews = PreviewStreams(frame: { window, jpeg in
+            owner.services?.currentEngine?.previewFrame(window: window, jpeg: jpeg)
+        }, closed: { window in
+            owner.services?.currentEngine?.previewClosed(window: window)
+        })
+        owner.services = self
     }
+
+    /// The engine once configured (preview frames before then have nowhere to go).
+    fileprivate var currentEngine: ComputerUseEngine? { lock.withLock { engine } }
 
     @MainActor func start() {
         overlay = AgentCursorOverlay()
@@ -86,6 +98,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         // concurrency-allow: this is the control thread (never main); the main actor only answers the open panels.
         DispatchQueue.main.sync { MainActor.assumeIsolated { self.approvals?.cancelAll() } }
         if let engine, let server { engine.stopServing(server) }
+        previews.stopAll()
         DispatchQueue.main.async {
             MainActor.assumeIsolated { self.overlay?.hideAll() }
             exit(0)
@@ -352,8 +365,16 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         host.person_keys_epoch = { context in
             WorkerServices.services(context)?.keyBlindEpoch() ?? -1
         }
+        host.preview = { context, json, length in
+            WorkerServices.services(context)?.previews.set(WorkerServices.data(json, length))
+        }
         return host
     }
+}
+
+/// The worker the preview streams' callbacks reach, set once at the end of its init.
+private final class PreviewOwner: @unchecked Sendable { // crash-allow: written once in WorkerServices.init before any stream can start
+    weak var services: WorkerServices?
 }
 
 /// A captured frame's bytes, kept alive until the engine calls `release_frame`.

@@ -287,8 +287,8 @@ enum Attempt {
     Worker(String),
 }
 
-trait Duplex: Read + Write {}
-impl<T: Read + Write> Duplex for T {}
+trait Duplex: Read + Write + Send {}
+impl<T: Read + Write + Send> Duplex for T {}
 
 /// A connection to the worker, and how to lift the hello's read timeout
 /// once admitted (a call may wait on the person's approval).
@@ -320,7 +320,10 @@ fn open(socket: &str) -> io::Result<Conn> {
 }
 
 /// One connection: the secret, the hello, then `request`'s answer.
-fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
+/// A connection to the worker past its hello, and how to lift its read timeout.
+fn open_admitted(
+    endpoint: &Endpoint,
+) -> Result<(BufReader<Box<dyn Duplex>>, Box<dyn FnOnce()>), Attempt> {
     let transport = |e: io::Error| Attempt::Transport(e.to_string());
     let Conn { stream, unbounded } = open(&endpoint.socket).map_err(transport)?;
     let mut reader = BufReader::new(stream);
@@ -333,6 +336,12 @@ fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
         let reason = answer["reason"].as_str().unwrap_or("refused");
         return Err(Attempt::Transport(format!("the worker refused this connection: {reason}")));
     }
+    Ok((reader, unbounded))
+}
+
+fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
+    let transport = |e: io::Error| Attempt::Transport(e.to_string());
+    let (mut reader, unbounded) = open_admitted(endpoint)?;
     unbounded();
     let mut line = request.to_string();
     line.push('\n');
@@ -444,6 +453,11 @@ pub struct Caller<D: Daemon> {
     /// The agent cursor's tag: the one the agent set (`cursor_tag`, kept for the session's later
     /// calls), else its cmux workspace's name, read from the daemon on the first call.
     tag: Mutex<CursorTag>,
+    /// The worker this session's presence connection (`session/attach`) is
+    /// open to: it closes with this process, so a crashed agent's session
+    /// ends and its cursor never lingers. None until the first call, and
+    /// again once the worker it was open to went away.
+    attached: std::sync::Arc<Mutex<Option<Endpoint>>>,
 }
 
 /// Where the agent cursor's tag comes from.
@@ -469,7 +483,51 @@ impl<D: Daemon> Caller<D> {
             endpoint: Mutex::new(None),
             next_id: std::sync::atomic::AtomicU64::new(1),
             tag: Mutex::new(CursorTag::default()),
+            attached: std::sync::Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Opens this session's presence connection to `endpoint` (`session/attach`) unless one is
+    /// open there; best effort. A thread holds it until the worker closes it (a restart; the
+    /// next call attaches again); this process's exit closes it, which ends the session on the
+    /// worker. Only for this machine's own agent (a relayed call's session is the other
+    /// machine's).
+    fn attach(&self, endpoint: &Endpoint) {
+        if self.origin.is_some() {
+            return;
+        }
+        let Ok(mut attached) = self.attached.lock() else { return };
+        if attached.as_ref() == Some(endpoint) {
+            return;
+        }
+        let request = json!({"id": self.id(), "method": "session/attach", "session": self.session});
+        let Ok((mut reader, unbounded)) =
+            open_admitted(endpoint).and_then(|(mut reader, unbounded)| {
+                let mut line = request.to_string();
+                line.push('\n');
+                reader
+                    .get_mut()
+                    .write_all(line.as_bytes())
+                    .map_err(|e| Attempt::Transport(e.to_string()))?;
+                read_json(&mut reader).map_err(|e| Attempt::Transport(e.to_string()))?;
+                Ok((reader, unbounded))
+            })
+        else {
+            return;
+        };
+        *attached = Some(endpoint.clone());
+        unbounded();
+        let (slot, held) = (std::sync::Arc::clone(&self.attached), endpoint.clone());
+        let _ = std::thread::Builder::new().name("cu-attach".into()).spawn(move || {
+            // Nothing comes on it; it ends when the worker goes.
+            let mut sink = [0u8; 256];
+            while matches!(reader.get_mut().read(&mut sink), Ok(n) if n > 0) {}
+            if let Ok(mut attached) = slot.lock()
+                && attached.as_ref() == Some(&held)
+            {
+                *attached = None;
+            }
+        });
     }
 
     /// The cmux workspace the agent runs in: its name is the cursor's default tag.
@@ -666,6 +724,7 @@ impl<D: Daemon> Caller<D> {
                 },
             };
             if let Some(endpoint) = endpoint {
+                self.attach(&endpoint);
                 match exchange(&endpoint, request) {
                     Ok(result) => return Ok(result),
                     Err(Attempt::Worker(message)) => {

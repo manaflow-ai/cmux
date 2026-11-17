@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use crate::cursor::{CMUX_BLUE, CursorEvent, CursorSink, IDLE_HIDE, NoCursor, OUTLINE};
+use crate::cursor::{CMUX_BLUE, CursorEvent, CursorSink, NoCursor, OUTLINE};
 use crate::desktop::Point;
 
 mod layer;
@@ -120,24 +120,30 @@ impl CursorSink for Channel {
     }
 }
 
-/// Glides the overlay to each event's point and hides it when idle or when
-/// its session stops. One overlay, the latest session's position.
+/// Glides the overlay to each event's point and hides it when its session's
+/// Computer Use ends ([`CursorEvent::Hide`], or a refusal that ends it); it
+/// stays through the agent's pauses. One overlay, the latest session's
+/// position.
 pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
     let mut at: Option<Point> = None;
     let mut glide: Option<(Point, Point, Instant)> = None;
-    let mut last_event = Instant::now();
     let mut owner = String::new();
     loop {
-        let wait = if glide.is_some() {
-            FRAME
+        // Between glides nothing changes until the next event: block on it.
+        let next = if glide.is_some() {
+            rx.recv_timeout(FRAME)
         } else {
-            IDLE_HIDE.saturating_sub(last_event.elapsed()).max(FRAME)
+            rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
         };
-        match rx.recv_timeout(wait) {
+        match next {
             Ok(ev) => {
-                last_event = Instant::now();
-                if let CursorEvent::Hide { session } = &ev {
-                    if *session == owner || owner.is_empty() {
+                let ends = matches!(
+                    ev,
+                    CursorEvent::Hide { .. } | CursorEvent::Refused { ends: true, .. }
+                );
+                if ends {
+                    let session = ev.session();
+                    if session == owner || owner.is_empty() {
                         overlay.hide();
                         at = None;
                         glide = None;
@@ -169,10 +175,6 @@ pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
             if t >= 1.0 {
                 glide = None;
             }
-        }
-        if at.is_some() && glide.is_none() && last_event.elapsed() >= IDLE_HIDE {
-            overlay.hide();
-            at = None;
         }
     }
 }

@@ -115,7 +115,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
                                   showCursor: showCursor, cursorTag: cursorTag.rawValue, settle: settle.rawValue, cloudVm: false,
-                                  menus: menus.rawValue)
+                                  menus: menus.rawValue, livePreview: livePreview)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // A struct of strings and booleans always encodes; an empty object is the engine's default.
@@ -133,5 +133,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let settle: String
         let cloudVm: Bool
         let menus: String
+        /// `computerUse.livePreview`: off, the worker streams no window and every card goes.
+        let livePreview: Bool
     }
 }

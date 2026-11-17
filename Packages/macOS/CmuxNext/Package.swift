@@ -296,6 +296,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextControl",
                 "CmuxNextCookieImport",
                 "CmuxNextCrashReporting",
@@ -973,6 +974,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextComputerUse",
             dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Computer Use's live preview in the surface its agent runs in (ComputerUsePreviewRouter):
+        // the daemon's `computer-use-preview` events to the agent chat's or the terminal pane's card.
+        .target(
+            name: "CmuxNextComputerUsePreview",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentPane",
+                "CmuxNextDaemon",
+                "CmuxNextTerminal",
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -2498,6 +2510,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloudUI",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",

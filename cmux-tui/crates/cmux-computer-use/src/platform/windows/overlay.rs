@@ -1,8 +1,9 @@
 //! The agent cursor: a cmux-blue arrow with a white outline in a layered,
 //! click-through, always-on-top window that never activates, on a UI
 //! thread of its own. It glides between the points the engine reports
-//! (ease-out; a jump when the person turned off Windows animations), and
-//! hides after [`crate::cursor::IDLE_HIDE`] without events. The window asks
+//! (ease-out; a jump when the person turned off Windows animations), stays
+//! up while the session's Computer Use is active and hides when it ends
+//! ([`CursorEvent::Hide`], or a refusal that ends it). The window asks
 //! to be excluded from screen capture (WDA_EXCLUDEFROMCAPTURE); Windows does
 //! not honor that everywhere (a live run on Windows Server 2022 with the
 //! basic display adapter still showed it in a display shot), so display
@@ -33,7 +34,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, w};
 
 use super::pure;
-use crate::cursor::{CMUX_BLUE, CursorEvent, CursorSink, IDLE_HIDE, OUTLINE};
+use crate::cursor::{CMUX_BLUE, CursorEvent, CursorSink, OUTLINE};
 use crate::desktop::Point;
 
 const GLIDE: Duration = Duration::from_millis(220);
@@ -175,7 +176,6 @@ struct Cursor {
     from: (f64, f64),
     to: (f64, f64),
     started: Instant,
-    last_event: Instant,
     visible: bool,
     session: String,
 }
@@ -267,14 +267,13 @@ impl Cursor {
     }
 
     fn handle(&mut self, event: CursorEvent) {
-        if let CursorEvent::Hide { session } = &event {
-            if *session == self.session || self.session.is_empty() {
+        if matches!(event, CursorEvent::Hide { .. } | CursorEvent::Refused { ends: true, .. }) {
+            if event.session() == self.session || self.session.is_empty() {
                 self.hide();
             }
             return;
         }
         self.session = event.session().to_string();
-        self.last_event = Instant::now();
         let at = match &event {
             CursorEvent::Move { at, .. }
             | CursorEvent::Click { at, .. }
@@ -305,8 +304,6 @@ impl Cursor {
             self.draw(pure::glide(self.from, self.to, t));
         } else if self.pos != Some(self.to) {
             self.draw(self.to);
-        } else if now.duration_since(self.last_event) >= IDLE_HIDE {
-            self.hide();
         }
     }
 }
@@ -351,7 +348,6 @@ fn run(shared: Arc<Shared>) {
             from: (0.0, 0.0),
             to: (0.0, 0.0),
             started: now,
-            last_event: now,
             visible: false,
             session: String::new(),
         };
