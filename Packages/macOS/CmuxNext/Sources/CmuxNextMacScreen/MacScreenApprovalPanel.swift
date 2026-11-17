@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextDevices
@@ -27,14 +27,26 @@ public final class MacScreenApprovalPrompt {
     @ObservationIgnored var hub: @MainActor () -> DeviceHub? = { nil }
     /// Requests answered or expired here, which the hub may still list for a moment.
     @ObservationIgnored private var settled: Set<String> = []
-    @ObservationIgnored private var panel: CmuxFloatingDialogPanel?
+    @ObservationIgnored private var panel: MacScreenApprovalPanel?
     @ObservationIgnored private let expiry = DemandTimer(owner: "mac-screen.approval-expiry")
     @ObservationIgnored private var watch: Task<Void, Never>?
     /// Shows and hides the panel; tests replace it.
     @ObservationIgnored var present: @MainActor (Bool) -> Void = { _ in }
+    /// Where the card's answers go (``answer(_:)``); tests replace it.
+    @ObservationIgnored var answerChoice: @MainActor (MacScreenApprovalChoice) -> Void = { _ in }
+    /// SECURITY: whether an event is the person's own input (the app's strict source check,
+    /// `PersonInputCheck`); with none set, none is, and no click allows.
+    @ObservationIgnored public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false } {
+        didSet { panel?.personClick.isPersonEvent = isPersonEvent }
+    }
+    /// The event the app is handling now (tests set it).
+    @ObservationIgnored var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent } {
+        didSet { panel?.personClick.eventInHand = eventInHand }
+    }
 
     public init() {
         present = { [weak self] visible in self?.setPanelVisible(visible) }
+        answerChoice = { [weak self] choice in self?.answer(choice) }
     }
 
     /// Follows `hub`'s pending requests from now on (nil: none).
@@ -110,6 +122,9 @@ public final class MacScreenApprovalPrompt {
     /// The card shown now (tests).
     var dialogView: CmuxDialogView? { panel?.dialogView }
 
+    /// The panel shown now (tests).
+    var approvalPanel: MacScreenApprovalPanel? { panel }
+
     private func setPanelVisible(_ visible: Bool) {
         guard visible, let request = current else {
             // Closed, not only ordered out: its card holds this prompt, so an ordered-out panel
@@ -119,13 +134,13 @@ public final class MacScreenApprovalPrompt {
             panel = nil
             return
         }
-        let panel = self.panel ?? CmuxFloatingDialogPanel(identifier: "macScreen.approval.panel")
+        let panel = self.panel ?? MacScreenApprovalPanel(prompt: self)
         self.panel = panel
         render(request, in: panel)
     }
 
     /// Draws `request` (with the last error) in the cmux dialog card, then follows the error and the answer in flight.
-    private func render(_ request: SessionRequest, in panel: CmuxFloatingDialogPanel) {
+    private func render(_ request: SessionRequest, in panel: MacScreenApprovalPanel) {
         let shown = withObservationTracking {
             (error: error, answering: answering)
         } onChange: { [weak self] in
@@ -136,9 +151,15 @@ public final class MacScreenApprovalPrompt {
         }
         let spec = Self.spec(request, error: shown.error)
         if panel.dialogView?.spec != spec {
+            // A new request (not a redraw of the one shown): a click aimed at what was there before is not taken.
+            if panel.shownRequest != request.id {
+                panel.shownRequest = request.id
+                panel.personClick.shown()
+            }
             panel.show(spec) { [weak self] id in
-                guard let choice = MacScreenApprovalChoice(rawValue: id) else { return }
-                self?.answer(choice)
+                // SECURITY: an Allow's action answers nothing (the panel reads the person's click); Deny takes any press.
+                guard let choice = MacScreenApprovalChoice(rawValue: id), choice == .deny else { return }
+                self?.answerChoice(choice)
             }
         }
         // No second answer while one is on its way.
@@ -146,8 +167,9 @@ public final class MacScreenApprovalPrompt {
     }
 
     /// The prompt as a cmux dialog: who asks and for what, the asking device's key fingerprint to compare, a failed
-    /// answer, and the four answers stacked the card's width (``CmuxDialogSpec/Layout/stacked``): Allow Once first
-    /// (Return), the two Always Allow choices under it, and Deny last as quiet red text (Escape).
+    /// answer, and the four answers stacked the card's width (``CmuxDialogSpec/Layout/stacked``): Allow Once first,
+    /// the two Always Allow choices under it, and Deny last as quiet red text (Escape). SECURITY: the three Allows
+    /// are person-only (no key, no keycap): only the person's own click answers them (``MacScreenApprovalPanel``).
     static func spec(_ request: SessionRequest, error: String?) -> CmuxDialogSpec {
         let title = String(format: request.scope == .full
             ? L.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
@@ -156,7 +178,7 @@ public final class MacScreenApprovalPrompt {
             [.code(label: L.t("macScreen.approval.fingerprint", "Device key fingerprint"), text: fingerprintLines($0))]
         } ?? []
         func button(_ choice: MacScreenApprovalChoice, _ role: CmuxDialogButton.Role) -> CmuxDialogButton {
-            CmuxDialogButton(id: choice.rawValue, title: choice.title, role: role)
+            CmuxDialogButton(id: choice.rawValue, title: choice.title, role: role, personOnly: choice != .deny)
         }
         return CmuxDialogSpec(
             title: title,
@@ -173,5 +195,37 @@ public final class MacScreenApprovalPrompt {
         let half = (groups.count + 1) / 2
         return [groups.prefix(half), groups.dropFirst(half)].filter { !$0.isEmpty }
             .map { $0.joined(separator: " ") }.joined(separator: "\n")
+    }
+}
+
+/// The device-control prompt's floating panel. SECURITY: an Allow answers here, from the person's own click on it
+/// (``CmuxDialogPersonClick``), never from the button's action: no Accessibility press, programmatic click, key
+/// or click another process posts allows a device to see or control this Mac. A click that begins within the
+/// double-click interval of the prompt showing, or of the person's previous click, is not taken.
+@MainActor
+final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
+    private weak var prompt: MacScreenApprovalPrompt?
+    let personClick = CmuxDialogPersonClick(activationDelay: { NSEvent.doubleClickInterval })
+    /// The request whose card shows (a redraw of the same request keeps the activation delay's start).
+    var shownRequest: String?
+
+    init(prompt: MacScreenApprovalPrompt) {
+        self.prompt = prompt
+        super.init(identifier: "macScreen.approval.panel")
+        personClick.isPersonEvent = prompt.isPersonEvent
+        personClick.eventInHand = prompt.eventInHand
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        dispatch(event) { super.sendEvent(event) }
+    }
+
+    /// The panel's own dispatch of `event`; the person's click that ends on an Allow answers it, once.
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        let card = dialogView
+        let allows = MacScreenApprovalChoice.allCases.filter { $0 != .deny }
+        let control = personClick.dispatch(event, allows: { allows.compactMap { card?.buttonView($0.rawValue) } }, in: windowNumber, body)
+        guard let control, let choice = allows.first(where: { card?.buttonView($0.rawValue) === control }) else { return }
+        prompt?.answerChoice(choice)
     }
 }
