@@ -599,9 +599,9 @@ impl<H: Http> CloudClient<H> {
         self.post_with_token(path, body, now_wall_ms)
     }
 
-    /// A connector read against the environment's platform, authenticated as
-    /// this machine. Neither origin nor team is taken from the socket caller.
-    fn github_repos_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+    /// A read against the environment's platform, authenticated as this
+    /// machine. Neither origin nor team is taken from the socket caller.
+    fn platform_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
         let url = format!("{}{}", self.bound.env.platform_origin(), path);
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;
@@ -616,9 +616,36 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body }
     }
 
+    /// One GET on this machine's API origin as its `vm` install. As
+    /// [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
+    /// cached bearer and retries once.
+    fn get_as_install(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.get(&url, Some(&token)).ok()
+        };
+        let Some((mut status, mut body)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && body
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, body) = again;
+        }
+        Answer::Http { status, body }
+    }
+
+    /// One page of the repositories this machine's team linked to GitHub
+    /// (`GET /v1/integrations/github/repos` on the API as its `vm` install).
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
-        super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
+        super::github_repos::answer(ask, &team, |path| self.get_as_install(path, now_wall_ms))
     }
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
@@ -632,7 +659,7 @@ impl<H: Http> CloudClient<H> {
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
-        let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
+        let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)
     }
 

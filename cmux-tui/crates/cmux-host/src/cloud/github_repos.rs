@@ -1,5 +1,13 @@
 //! Read-only GitHub discovery for a Cloud machine. The agent owns the bearer,
 //! environment and team; its unprivileged caller supplies only search/cursor.
+//!
+//! The listing is cmux-api's `GET /v1/integrations/github/repos` as this
+//! machine's `vm` install, the route that answers a machine in every
+//! environment under the same gate as its token mint (the platform's
+//! `/v1/connectors/github/repos` is off on staging and never listed for a
+//! machine outside development). A machine cannot issue `integration.connect`,
+//! so a missing or expired link answers `connect: {}` and the linked Mac
+//! supplies the install link.
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -8,9 +16,7 @@ use super::github::{refusal, valid_repo};
 use super::sender::Answer;
 
 pub const REQUEST_KEY: &str = "github_repos";
-const REPOS_PATH: &str = "/v1/connectors/github/repos";
-const INSTALL_PATH: &str = "/v1/connectors/github/install";
-const CATALOG_PATH: &str = "/v1/connectors/";
+const REPOS_PATH: &str = "/v1/integrations/github/repos";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReposAsk {
@@ -67,6 +73,12 @@ fn team_path(path: &str, team: &str) -> String {
     format!("{path}?team={}", encode(team))
 }
 
+/// The machine is not linked to GitHub (or the link needs renewing): a
+/// recoverable state with no list, never a failure.
+fn connect() -> Value {
+    json!({"ok": true, "repos": [], "connect": {}})
+}
+
 fn failure(answer: &Answer) -> Value {
     match answer {
         Answer::Transport => refusal(
@@ -74,12 +86,16 @@ fn failure(answer: &Answer) -> Value {
             "Check this machine's connection and retry listing repositories.",
         ),
         Answer::Http { status, body } => {
-            let code = match (status, body.get("_tag").and_then(Value::as_str)) {
-                (_, Some("ConnectorCursorStale")) => "cursor_stale",
-                (403, _) => "repo.no_access",
-                (404, _) | (409, Some("ConnectorNeedsAuth")) => "repo.needs_github",
+            let error = body.get("error");
+            let api_code = error.and_then(|e| e.get("code")).and_then(Value::as_str);
+            let api_message =
+                error.and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or("");
+            let code = match (status, api_code) {
+                (400, _) if api_message.contains("cursor") => "cursor_stale",
+                (403, Some("policy.denied")) => "repo.no_access",
                 (429, _) => "rate_limited",
                 (400, _) => "request.invalid",
+                (401 | 403, _) => "auth.required",
                 _ => "integration.unavailable",
             };
             let message = match code {
@@ -89,94 +105,29 @@ fn failure(answer: &Answer) -> Value {
                 "repo.no_access" => {
                     "Ask your team administrator to allow GitHub access, then retry."
                 }
-                "repo.needs_github" => "Connect GitHub, then retry adding the repository.",
                 "rate_limited" => "GitHub is rate limited. Wait a moment, then retry.",
                 "request.invalid" => {
                     "Check the repository search and list again from the first page."
                 }
-                _ => "The GitHub connector did not answer. Retry listing repositories.",
+                "auth.required" => {
+                    "This machine's cmux Cloud sign-in needs renewing. Reconnect to the machine, then retry."
+                }
+                _ => "GitHub did not answer. Retry listing repositories.",
             };
-            refusal(code, message)
-        }
-    }
-}
-
-/// Preserve the denied result even when a policy also denies issuing a link.
-/// A user-authorized caller may receive an install URL here; a VM whose
-/// upstream grant refuses integration.connect must recover through its Mac.
-fn failure_with_install(
-    answer: &Answer,
-    team: &str,
-    get: &mut impl FnMut(&str) -> Answer,
-) -> Value {
-    let mut reply = failure(answer);
-    if reply.pointer("/error/code").and_then(Value::as_str) == Some("repo.no_access")
-        && let Answer::Http { status: 200, body } = get(&team_path(INSTALL_PATH, team))
-        && let Some(url) =
-            body.get("url").and_then(Value::as_str).filter(|url| url.starts_with("https://"))
-    {
-        reply.set_path(&["error", "install_url"], json!(url));
-        reply.set_path(
-            &["error", "message"],
-            json!("Install GitHub for this organization or request access, then retry."),
-        );
-    }
-    reply
-}
-
-fn connect(team: &str, get: &mut impl FnMut(&str) -> Answer) -> Value {
-    let answer = get(&team_path(INSTALL_PATH, team));
-    match &answer {
-        Answer::Http { status: 200, body } => {
-            if let Some(url) =
-                body.get("url").and_then(Value::as_str).filter(|url| url.starts_with("https://"))
-            {
-                json!({"ok": true, "repos": [], "connect": {"install_url": url}})
-            } else {
-                refusal(
-                    "integration.bad_answer",
-                    "GitHub did not return a connection link. Retry Connect GitHub.",
-                )
+            let mut reply = refusal(code, message);
+            if let Some(retry) = body.get("retry_after").and_then(Value::as_u64) {
+                reply.set("retry_after", json!(retry));
             }
+            reply
         }
-        // The catalog/list already proved this account needs a link. VM
-        // installs cannot issue integration.connect; the linked Mac supplies
-        // its user-authorized URL. Preserve that recoverable state rather
-        // than turning this expected policy refusal into a failed list.
-        Answer::Http { status: 403, .. } => json!({"ok": true, "repos": [], "connect": {}}),
-        _ => failure(&answer),
     }
 }
 
 /// One page, preserving the opaque next cursor. A connected account with
 /// zero repos remains connected; it is never confused with a missing link.
 /// The caller follows `next_cursor` until absent before resolving a name.
+/// Rows keep the socket's `fullName` / `private` shape.
 pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -> Value {
-    let catalog = get(&team_path(CATALOG_PATH, team));
-    match &catalog {
-        Answer::Http { status: 200, body } => {
-            let state = body
-                .get("connectors")
-                .and_then(Value::as_array)
-                .and_then(|rows| {
-                    rows.iter()
-                        .find(|row| row.get("provider").and_then(Value::as_str) == Some("github"))
-                })
-                .and_then(|row| row.get("state"))
-                .and_then(Value::as_str);
-            match state {
-                Some("available" | "needs-auth" | "expired") => return connect(team, &mut get),
-                Some("installed") => {}
-                _ => {
-                    return refusal(
-                        "integration.unavailable",
-                        "GitHub is unavailable. Retry listing repositories.",
-                    );
-                }
-            }
-        }
-        _ => return failure_with_install(&catalog, team, &mut get),
-    }
     let listed = get(&ask.path(team));
     match &listed {
         Answer::Http { status: 200, body } => {
@@ -189,7 +140,7 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             let mut repos = Vec::with_capacity(rows.len());
             for row in rows {
                 let name =
-                    row.get("fullName").and_then(Value::as_str).filter(|name| valid_repo(name));
+                    row.get("full_name").and_then(Value::as_str).filter(|name| valid_repo(name));
                 let private = row.get("private").and_then(Value::as_bool);
                 let (Some(name), Some(private)) = (name, private) else {
                     return refusal(
@@ -214,12 +165,14 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             }
             reply
         }
-        Answer::Http { status: 404, .. } => connect(team, &mut get),
-        Answer::Http { status: 409, body }
-            if body.get("_tag").and_then(Value::as_str) == Some("ConnectorNeedsAuth") =>
+        Answer::Http { status: 404 | 409, body }
+            if matches!(
+                body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str),
+                Some("integration.not_found" | "needs_reauth")
+            ) =>
         {
-            connect(team, &mut get)
+            connect()
         }
-        _ => failure_with_install(&listed, team, &mut get),
+        _ => failure(&listed),
     }
 }
