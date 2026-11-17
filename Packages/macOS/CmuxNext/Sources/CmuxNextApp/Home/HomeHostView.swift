@@ -79,7 +79,9 @@ final class HomeHostView: NSView {
     #endif
 
     init(services: AppServices, conversation: String, owner: HomeStore? = nil) {  // owner: another store (a bare launch's provisional Chief): same view, its data
-        let service = services.home, id = ConversationID(conversation), store = owner ?? service.homeStore
+        let service = services.home
+        let id = ConversationID(conversation)
+        let store = owner ?? service.homeStore
         transcript = HomeNativeTranscriptView(store: store, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
                                               openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") }) // window_usable: the next key goes in (piece 8)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),

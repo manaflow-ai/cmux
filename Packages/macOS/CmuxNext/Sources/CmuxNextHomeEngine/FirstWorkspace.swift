@@ -11,13 +11,22 @@ extension Array where Element == WorkspaceModel {
     /// (`HomeService.ensureHomeWorkspace`) and holds only the Chief tab.
     /// `home` is the workspace `ensure_home` named: Home even while the tree
     /// does not report its kind yet (a fresh store's first snapshot).
+    /// The daemon's "Recovered terminals" workspace does not count either: it holds terminal
+    /// hosts an earlier daemon left running, not a workspace the person made, and counting it
+    /// made the first contact with classic skip the import prompt (classic handoff B16).
     public func needsFirstWorkspace(leftover: [String], home: ResourceID? = nil) -> Bool {
         !contains { workspace in
             !leftover.contains(workspace.id) && !workspace.ephemeral && workspace.kind != "home"
                 && (home == nil || workspace.resourceID != home)
+                && !recoveredTerminalsNames.contains(workspace.name)
         }
     }
 }
+
+/// The names cmux-tui gives the workspace it recovers orphaned terminal hosts into, in each
+/// language it ships (`cmux-tui-util/src/terminal_respawn_text.rs`,
+/// `cmux-tui/src/localization/terminal_respawn.rs`). The daemon reports no kind for it.
+private let recoveredTerminalsNames: Set<String> = ["Recovered terminals", "復元されたターミナル"]
 
 /// Where a first launch lands (`FirstWorkspaceLaunch`): Home, the Chief's workspace, unless Home
 /// is classic; then the launch makes a New Tab workspace.

@@ -953,6 +953,31 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
   expect(folderName()).not.toContain("owl");
 });
 
+test("Cloud picked: the chip says only Cloud for every team, and the menu's Cloud row names the team", async () => {
+  for (const stripLayout of ["combined", "where-machine"] as const)
+    for (const cloudTeam of [
+      { name: "Austin Wang's Team", personal: false },
+      { name: "Personal", personal: true },
+    ]) {
+      await mount(true, {
+        stripLayout,
+        cloudSignedIn: true,
+        cloudTeam,
+        runMode: { mode: "cloud", onMode: () => undefined },
+      });
+      const chip = computerButton()!;
+      expect(chip.querySelector(".acpmux-team-tag")).toBeNull();
+      expect(chip.querySelector(".acpmux-location-label")?.textContent).toBe(t("composer.cloud"));
+      expect(chip.getAttribute("aria-label")).not.toContain(cloudTeam.name);
+      await openPicker();
+      expect(doc().querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag')?.textContent).toBe(
+        cloudTeam.name,
+      );
+      act(() => root?.unmount());
+      root = undefined;
+    }
+});
+
 test("without Labs, or once the chat started, there is no Sandboxed", async () => {
   const runMode = { mode: "persistent", onMode: () => undefined };
   await mount(false, { runMode });
