@@ -240,3 +240,62 @@ fn the_id_must_be_the_owners_and_engines_must_admit_this_cmux() {
     community::check_engines(&package, "0.80.0").unwrap();
     community::check_engines(&package, "0.0.0").unwrap();
 }
+
+#[test]
+fn a_snippet_sets_only_look_settings_and_its_stylesheet_loads_nothing() {
+    let marker = |settings: &str| {
+        format!(
+            r#"{{ "cmuxSnippet": 1, "id": "bob/x", "name": "X", "cmuxProfile": 1, "settings": {settings} }}"#
+        )
+    };
+    let why = refused(&[("cmux-snippet.json", &marker(r#"{ "chief.reactionsCanWake": true }"#))]);
+    assert!(why.contains("not a look setting"), "{why}");
+    let look = marker(r#"{ "appearance.density": "compact" }"#);
+    for css in [
+        "@import 'https://x.example/a.css';",
+        ".a { background: url(https://x.example/p.png) }",
+        ".a { background: URL( \"//x.example/p\" ) }",
+        ".a { background: u\\rl(https://x.example) }",
+        "@font-face { src: src(\"https://x.example/f\") }",
+    ] {
+        let why = refused(&[("cmux-snippet.json", &look), ("agent-pane/theme.css", css)]);
+        assert!(why.contains("loads nothing from the network"), "{css}: {why}");
+    }
+    let inline =
+        ".a { background: url(\"data:image/png;base64,AAAA\") } /* url(https://x) in a comment */";
+    let package =
+        read(tree(&[("cmux-snippet.json", &look), ("agent-pane/theme.css", inline)]).path());
+    assert!(package.profile.files.contains_key("agent-pane/theme.css"));
+    // A shortcuts file in the tree is not read: a binding can run any action.
+    let package = read(tree(&[("cmux-snippet.json", &look), ("keybindings.json", "[]")]).path());
+    assert!(package.profile.files.is_empty());
+}
+
+#[test]
+fn an_install_never_writes_over_a_library_entry_of_the_same_name_it_did_not_make() {
+    let home = Home::new();
+    let customize = home.customize();
+    // The person's own entry, by hand, under the name the theme would take.
+    let mine = cmux_customize::profile::Profile {
+        version: 1,
+        name: "theme-alice-dusk".to_owned(),
+        description: String::new(),
+        created_ms: 0,
+        settings: [("appearance.density".to_owned(), serde_json::json!("compact"))].into(),
+        files: Default::default(),
+    };
+    customize.library_put(mine, "ask", vec!["mine".to_owned()], true, "cli", 1).unwrap();
+    let package =
+        read(tree(&[("cmux-theme.json", THEME_MARKER), ("themes/dusk.json", DUSK)]).path());
+    match customize.community_put(
+        &package,
+        receipt(&package, "github.com/alice/dusk"),
+        true,
+        "cli",
+        2,
+    ) {
+        Err(Error::Community(why)) => assert!(why.contains("already has an entry named"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(customize.library().unwrap().entries[0].source, "ask");
+}

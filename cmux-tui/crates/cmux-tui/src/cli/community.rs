@@ -20,7 +20,7 @@ use std::io::{IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 
 use cmux_customize::Customize;
-use cmux_customize::community::{self, Package, Receipt, SNIPPET_FILES, Tier};
+use cmux_customize::community::{self, Receipt, SNIPPET_FILES, Tier};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 

@@ -11,7 +11,7 @@
 //!   `appearance.themeFile` to the one the header names.
 //! - A **snippet** repository is marked by `cmux-snippet.json`: a listing
 //!   header plus a `cmuxProfile` (the format `cmux customize save` writes): a
-//!   few settings and, at most, the per-surface stylesheets and shortcuts.
+//!   few settings and, at most, the per-surface stylesheets.
 //!   Views (code), automations and theme files are refused: a snippet runs
 //!   nothing.
 //!
@@ -45,17 +45,16 @@ pub const SNIPPET_MARKER: &str = "cmux-snippet.json";
 pub const MAX_MARKER_BYTES: u64 = 256 * 1024;
 /// The most theme files one theme repository installs.
 pub const MAX_THEMES: usize = 16;
-/// A stylesheet or shortcuts file a snippet carries is at most this.
+/// A stylesheet a snippet carries is at most this.
 pub const MAX_SNIPPET_FILE_BYTES: u64 = 256 * 1024;
 /// The files a snippet may carry, by logical path: the per-surface
-/// stylesheets cmux loads and the shortcuts file.
+/// stylesheets cmux loads. Not shortcuts: a binding can run any action.
 pub const SNIPPET_FILES: &[&str] = &[
     "agent-pane/theme.css",
     "markdown/theme.css",
     "diff/theme.css",
     "picker/theme.css",
     "fileViewer/theme.css",
-    "keybindings.json",
 ];
 /// Where installed community items are recorded, in the state dir.
 pub const RECEIPTS: &str = "community.json";
@@ -362,6 +361,16 @@ fn snippet_profile(dir: &Path, header: &Value) -> Result<Profile, Error> {
             theme_file::SETTING_KEY
         )));
     }
+    // Only how cmux looks: an anonymous repository does not steer agents,
+    // accounts or anything else a profile may otherwise carry.
+    let schema = Schema::embedded();
+    for key in settings.keys() {
+        if !schema.row(key).is_some_and(theme_file::is_look) {
+            return Err(refuse(format!(
+                "{SNIPPET_MARKER}: {key} is not a look setting; a snippet sets only how cmux looks (`cmux theme schema` lists them)"
+            )));
+        }
+    }
     let mut files = BTreeMap::new();
     match header.get("files") {
         None | Some(Value::Null) => {}
@@ -378,7 +387,7 @@ fn snippet_profile(dir: &Path, header: &Value) -> Result<Profile, Error> {
     for path in files.keys() {
         if !SNIPPET_FILES.contains(&path.as_str()) {
             return Err(refuse(format!(
-                "{path}: a snippet carries only settings, stylesheets and shortcuts ({}); views and automations run code and install as an extension",
+                "{path}: a snippet carries only look settings and stylesheets ({}); views and automations run code and install as an extension",
                 SNIPPET_FILES.join(", ")
             )));
         }
@@ -396,6 +405,11 @@ fn snippet_profile(dir: &Path, header: &Value) -> Result<Profile, Error> {
             return Err(refuse(format!(
                 "{path}: larger than {} KiB",
                 MAX_SNIPPET_FILE_BYTES / 1024
+            )));
+        }
+        if let Some(why) = fetches(text) {
+            return Err(refuse(format!(
+                "{path}: {why}; a snippet's stylesheet loads nothing from the network (inline images as data: URLs)"
             )));
         }
     }
@@ -478,6 +492,39 @@ pub fn check_engines(package: &Package, release: &str) -> Result<(), Error> {
             package.id
         )))
     }
+}
+
+/// Why a stylesheet would load something: an `@import`, or a `url(...)`
+/// that is not a `data:` URL. Comments and escapes are no way around it:
+/// the text is checked with comments taken out and backslashes refused.
+pub fn fetches(css: &str) -> Option<&'static str> {
+    let mut plain = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("/*") {
+        plain.push_str(&rest[..at]);
+        plain.push(' ');
+        rest = rest[at + 2..].find("*/").map_or("", |end| &rest[at + 2 + end + 2..]);
+    }
+    plain.push_str(rest);
+    let lower = plain.to_ascii_lowercase();
+    if lower.contains('\\') {
+        return Some("it has a backslash escape");
+    }
+    if lower.contains("@import") {
+        return Some("it has an @import");
+    }
+    if lower.contains("image-set(") || lower.contains("src(") {
+        return Some("it loads an image or font by address");
+    }
+    let mut search = lower.as_str();
+    while let Some(at) = search.find("url(") {
+        let inner = search[at + 4..].trim_start().trim_start_matches(['"', '\'']).trim_start();
+        if !inner.starts_with("data:") {
+            return Some("it has a url() that is not a data: URL");
+        }
+        search = &search[at + 4..];
+    }
+    None
 }
 
 /// The one line shown before an install or update: what it is, where from,
@@ -589,6 +636,19 @@ impl Customize {
                 other.reference,
                 package.tier.name(),
                 package.id
+            )));
+        }
+        // An entry by this name that no install made is someone's own: never
+        // written over.
+        let recorded = file.installed.iter().any(|have| have.entry == receipt.entry);
+        if !recorded
+            && let Some(entry) =
+                self.library()?.entries.into_iter().find(|entry| entry.name == receipt.entry)
+            && (entry.source != package.tier.name() || entry.code.is_some())
+        {
+            return Err(refuse(format!(
+                "your library already has an entry named {}; rename or remove it first (`cmux customize library remove {}`)",
+                receipt.entry, receipt.entry
             )));
         }
         let words = vec![format!("{} {}", package.tier.name(), receipt.reference)];
