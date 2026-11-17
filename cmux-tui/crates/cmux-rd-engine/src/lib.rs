@@ -16,7 +16,6 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
-use cmux_rd_core::probe::{ProbeConfig, ProbePlanner, ProbeReason};
 pub use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
@@ -52,8 +51,6 @@ pub const MAX_STREAMS: usize = 16;
 pub const POPUP_SHARE_PERCENT: u64 = 20;
 /// Floor of one popup stream's bitrate.
 pub const MIN_POPUP_KBPS: u32 = 300;
-/// Keep idle capacity fresh without making probes a background stream.
-const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
 
 /// Limits of one media session.
 #[derive(Debug, Clone, Copy)]
@@ -355,11 +352,6 @@ pub struct MediaEngine {
     upstreams: BTreeMap<u16, Upstream>,
     /// The encoder profile every request carries.
     profile: EncodeProfile,
-    /// Bounded startup/idle capacity probes share the media transport sequence
-    /// space and the controller's departure accounting.
-    probe_planner: ProbePlanner,
-    probe_generation: Option<u64>,
-    last_probe_start_us: Option<u64>,
 }
 
 impl MediaEngine {
@@ -385,12 +377,6 @@ impl MediaEngine {
             ack_rtts: VecDeque::new(),
             upstreams: BTreeMap::new(),
             profile: EncodeProfile::Standard,
-            probe_planner: ProbePlanner::new(ProbeConfig::for_datagram(
-                cfg.stream,
-                cfg.max_datagram,
-            )),
-            probe_generation: None,
-            last_probe_start_us: None,
             cfg,
         }
     }
@@ -458,23 +444,16 @@ impl MediaEngine {
     /// A paced datagram from `encoded` really left now: the controller times it from
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
-        if let Ok((header, _)) = DatagramHeader::decode(datagram) {
-            if header.kind == DatagramKind::Probe {
-                self.probe_planner.record_departure(header.transport_seq, now_us);
-            }
-            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe)
-            {
-                self.cc.on_departed(header.transport_seq, now_us);
-            }
+        if let Ok((header, _)) = DatagramHeader::decode(datagram)
+            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        {
+            self.cc.on_departed(header.transport_seq, now_us);
         }
     }
 
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
-        // The host passes this value to the pacer. Ultra's encoder target is
-        // media-only (`EncodeRequest.target_kbps`); pacing must reserve the
-        // same held budget for media, FEC, repair, and probes.
-        self.cc.wire_budget_bps()
+        self.cc.target_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
@@ -595,7 +574,6 @@ impl MediaEngine {
 
     /// The main stream's first frame: the whole surface, an IDR.
     pub fn start(&mut self, now_us: u64) -> Option<EncodeRequest> {
-        self.start_probe(ProbeReason::Startup, now_us);
         let main = self.cfg.stream;
         self.damage(main, Rect { x: 0, y: 0, width: 0, height: 0 }, now_us)
     }
@@ -645,8 +623,6 @@ impl MediaEngine {
                     .filter(|_| self.profile.is_ultra())
                     .filter_map(|s| s.refine_due_us),
             )
-            .chain(self.probe_planner.next_deadline_us())
-            .chain(self.last_probe_start_us.map(|t| t.saturating_add(IDLE_PROBE_INTERVAL_US)))
             .min()
     }
 
@@ -782,18 +758,6 @@ impl MediaEngine {
         }
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
-        if let Some(estimate) = self.probe_planner.on_feedback(now_us, &fb.arrivals)
-            && self.probe_generation.is_some_and(|generation| {
-                self.cc.on_probe_capacity(generation, estimate.capacity_bps)
-            })
-        {
-            self.last_probe_start_us = Some(now_us);
-        }
-        if self.cc.take_outage_resume() {
-            for state in self.streams.values_mut() {
-                state.gate.clear_in_flight();
-            }
-        }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
@@ -890,16 +854,6 @@ impl MediaEngine {
             u.released_since_feedback |= !released.is_empty();
             out.upstream.extend(released.into_iter().map(|f| (stream, f)));
         }
-        self.emit_probe(now_us, &mut out);
-        if self.profile.is_ultra() && self.probe_planner.active().is_none() && self.idle(now_us) {
-            let due = self
-                .last_probe_start_us
-                .map_or(true, |started| now_us.saturating_sub(started) >= IDLE_PROBE_INTERVAL_US);
-            if due {
-                self.start_probe(ProbeReason::Idle, now_us);
-                self.emit_probe(now_us, &mut out);
-            }
-        }
         self.probe_tails(now_us, &mut out);
         let events = self.applier.tick(now_us);
         if may_inject {
@@ -908,31 +862,6 @@ impl MediaEngine {
             self.note_input(&out, now_us);
         }
         out
-    }
-
-    fn idle(&self, _now_us: u64) -> bool {
-        self.streams.values().all(|state| state.gate.in_flight() == 0 && !state.gate.has_pending())
-    }
-
-    fn start_probe(&mut self, reason: ProbeReason, now_us: u64) {
-        if !self.profile.is_ultra() || self.probe_planner.active().is_some() {
-            return;
-        }
-        if self.probe_planner.start(reason, now_us).is_some() {
-            self.probe_generation = Some(self.cc.probe_generation());
-            self.last_probe_start_us = Some(now_us);
-        }
-    }
-
-    fn emit_probe(&mut self, now_us: u64, out: &mut Output) {
-        let Some(deadline) = self.probe_planner.next_deadline_us() else { return };
-        if now_us < deadline {
-            return;
-        }
-        let seq = self.packetizer.reserve_transport_seq(1);
-        let Some(probe) = self.probe_planner.next_packet(now_us, seq) else { return };
-        self.cc.on_queued_bytes(probe.transport_seq, now_us, probe.bytes.len());
-        out.datagrams.push(probe.bytes);
     }
 
     /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
