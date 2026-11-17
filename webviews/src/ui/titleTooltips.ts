@@ -15,10 +15,13 @@
 // draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
 // which floats over the pane.
-// Text the element cuts off shows in full, wrapping in the same compact bubble.
+// Text the element cuts off shows in full, wrapping in the same compact bubble. Its lines wrap
+// balanced and the bubble narrows to the widest (ui/tooltipFit.ts); a text's own line breaks
+// ("\n") are rows (a stat list: a turn's tokens, TurnTokens.tsx).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
+import { fitTooltipWidth } from "./tooltipFit";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
@@ -287,6 +290,8 @@ export function installTooltips(
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
+    // As narrow as its lines, measured here, before it is placed or painted (ui/tooltipFit.ts).
+    fitTooltipWidth(tip, width.max);
     const requestedSide = target.getAttribute("data-tooltip-side");
     const side = requestedSide === "left" || requestedSide === "bottom" ? requestedSide : "top";
     // A rail's hint sits outside the popup rim, centered on its hovered tab.

@@ -2656,12 +2656,42 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     assert route("scripts/ci/test_execution_registry.py") is None
 
 
+def test_every_github_file_is_placed_by_the_helper_walk() -> None:
+    # #40880 added .github/single-host-fallbacks.json, whose prose names
+    # owned_pool_rescue.py. The helper walk could not place a data file, so
+    # that helper routed to every area and the route test above went red on
+    # the base branch, after the file had landed (#41268). Every tracked file
+    # under .github/ that git can search must be one the walk places, so the
+    # pull request that adds the next data file fails here instead.
+    # A Windows job's PowerShell script is a script the walk follows by name (#42833's .ps1 was unplaced).
+    assert module.referrer_role(".github/scripts/windows-step.ps1") == "script"
+    # A captured CI log quotes the commands a run printed; it runs none of them (#41545's fixtures).
+    assert module.referrer_role("tests/fixtures/base_red_excuse_step_mapping/run-head.log") == "documentation"
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".github"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    assert tracked, "git ls-files found nothing under .github/"
+    searchable = module.searchable_files(ROOT, ".github")
+    assert searchable is not None, "git grep could not search .github/"
+    unplaced = sorted(
+        path for path in tracked
+        if path in searchable and module.referrer_role(path) is None
+    )
+    assert not unplaced, (
+        "The CI helper walk (ci_helper_areas in scripts/ci/detect_ci_change_areas.py) "
+        "cannot place these files, so any helper they name routes to every area:\n  "
+        + "\n  ".join(unplaced)
+        + "\nIf nothing executes what the file names (a table a script reads, a template, "
+        "prose), add it to _NON_RUNNING_FILES there. If it runs commands, make it a script "
+        "(.py, .sh, ...) or move it under .github/workflows/ or .github/actions/."
+    )
+
+
 def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
     for path in (
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         "scripts/strip-release-bundle.sh",
     ):
         assert module.classify_files([path]) == areas(), path
@@ -2673,6 +2703,10 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
+        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
     ):
@@ -3119,7 +3153,9 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
     start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
     block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
     assert "package_route=true" in block
-    assert "cmuxnext_route=true" in block
+    # A pull request that changes CmuxNext and another package still tests the other package (hq#11644).
+    assert "!/^Packages\\/macOS\\/CmuxNext\\//" in block
+    assert "cmuxnext_route" not in block
     assert 'echo "macos=false"' in block
     assert 'echo "swift_packages=true"' in block
     assert 'echo "release_build=false"' in block

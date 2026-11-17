@@ -28,7 +28,7 @@ use base64::Engine;
 use bytes::Bytes;
 use cmux_transport::PathId;
 use cmux_wg::{
-    DueProbes, InterfaceAddress, IpNetwork, Origin, Received, UltraMode, Underlay, WgConfig, WgNet,
+    DueProbes, InterfaceAddress, IpNetwork, Origin, Received, UltraChoice, Underlay, WgConfig, WgNet,
 };
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -37,7 +37,9 @@ use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use super::turn::{TurnCarrier, TurnTransport};
-use super::{DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
+use super::{
+    DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
+};
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION};
@@ -65,7 +67,7 @@ const DIALER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
 const ANSWER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
 /// Room for TURN's ChannelData header and the paths' own headers.
 const MTU: u16 = 1280;
-const KEEPALIVE_SECONDS: u16 = 10;
+pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// A confirmed route silent this long is no longer trusted: every datagram
 /// goes on every route again until the peer confirms one. Longer than the
 /// WireGuard keepalive (10 s), shorter than the link keepalive timeout
@@ -362,7 +364,7 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
 }
 
 /// Time between "your datagrams reach me" messages while they keep arriving.
-const MARKER_INTERVAL: Duration = Duration::from_secs(3);
+pub(crate) const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 /// After a route change the `reach` message is repeated this much later
 /// (each wait after the previous one) while the peer's datagrams keep
 /// arriving: it is one UDP datagram in the tunnel, and the peer sends on
@@ -1718,14 +1720,14 @@ struct TunnelSpec<'a> {
 }
 
 /// Whether the device's network is cellular now, as the app last said
-/// ([`set_cellular_path`]). False until it says: an unknown path is not
-/// cellular, so ultra mode stays off.
+/// ([`set_cellular_path`]). False until it says (and always on the Mac): an
+/// unknown path is not metered, so Auto's repair data is not capped.
 static CELLULAR_PATH: AtomicBool = AtomicBool::new(false);
 
 /// The device's network changed: `cellular` when its preferred route is a
-/// cellular interface (iOS `NWPath.usesInterfaceType(.cellular)`). Tunnels
-/// dialed from now on pick their ultra mode with it ([`ultra_for_dial`]);
-/// a live tunnel keeps the mode it started with until its next dial.
+/// cellular interface (iOS `NWPath.usesInterfaceType(.cellular)`). Every
+/// tunnel in Auto reads it live ([`ultra_for_dial`]): on cellular its repair
+/// data stays within its data bytes, and its peer is told to keep to that.
 pub fn set_cellular_path(cellular: bool) {
     CELLULAR_PATH.store(cellular, Ordering::Relaxed);
 }
@@ -1735,13 +1737,15 @@ pub fn cellular_path() -> bool {
     CELLULAR_PATH.load(Ordering::Relaxed)
 }
 
-/// The ultra mode a tunnel dialed now asks for: [`UltraMode::SETTING`] when
-/// the person turned on "Ultra mode on cellular" and the network is
-/// cellular, else none (off, unless `CMUX_WG_ULTRA` says otherwise). Wi-Fi
-/// stays off: the setting spends cellular data, where loss is common, and
-/// keeps a home network's bytes as they are.
-pub fn ultra_for_dial(ultra_on_cellular: bool, cellular: bool) -> Option<UltraMode> {
-    (ultra_on_cellular && cellular).then_some(UltraMode::SETTING)
+/// The ultra choice a tunnel asks for (`CMUX_WG_ULTRA` still wins): Auto
+/// reads [`set_cellular_path`]'s flag live, so a link that roams onto
+/// cellular caps its repair data, and one that roams to Wi-Fi lifts the cap.
+pub fn ultra_for_dial(setting: UltraSetting) -> UltraChoice {
+    match setting {
+        UltraSetting::Off => UltraChoice::Off,
+        UltraSetting::Auto => UltraChoice::Auto { metered: Some(&CELLULAR_PATH) },
+        UltraSetting::Always => UltraChoice::ALWAYS,
+    }
 }
 
 fn start_tunnel(
@@ -1778,9 +1782,12 @@ fn start_tunnel(
         preshared_key: None,
         allowed_ips: vec![host(spec.peer_ip)],
         endpoint: None,
-        persistent_keepalive: Some(KEEPALIVE_SECONDS),
+        // Align Keepalives (phone only): the link pings on every 10 s beat
+        // (`LinkConfig::aligned`), a tunnel datagram as often as this
+        // keepalive, so the tunnel sends none of its own at another instant.
+        persistent_keepalive: (!options.aligned_keepalives).then_some(KEEPALIVE_SECONDS),
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
-        ultra: ultra_for_dial(options.ultra_on_cellular, cellular_path()),
+        ultra: ultra_for_dial(options.ultra),
     };
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
@@ -2128,14 +2135,17 @@ impl Dialer for WireGuardDialer {
 mod tests {
     use super::*;
 
-    /// "Ultra mode on cellular" turns ultra on only for a dial over cellular.
+    /// Ultra Mode is Auto by default, metered by the cellular flag.
     #[test]
-    fn ultra_is_on_only_for_the_setting_over_cellular() {
-        assert_eq!(ultra_for_dial(true, true), Some(UltraMode::SETTING));
-        assert_eq!(ultra_for_dial(true, false), None, "Wi-Fi keeps its bytes");
-        assert_eq!(ultra_for_dial(false, true), None, "off by default");
-        assert_eq!(ultra_for_dial(false, false), None);
-        assert!(!DialOptions::default().ultra_on_cellular);
+    fn ultra_is_auto_by_default_and_metered_on_cellular() {
+        assert_eq!(DialOptions::default().ultra, UltraSetting::Auto);
+        let auto = UltraChoice::Auto { metered: Some(&CELLULAR_PATH) };
+        assert_eq!(ultra_for_dial(UltraSetting::Auto), auto);
+        assert_eq!(ultra_for_dial(UltraSetting::Off), UltraChoice::Off);
+        assert_eq!(ultra_for_dial(UltraSetting::Always), UltraChoice::ALWAYS);
+        assert_eq!(UltraSetting::parse("always"), UltraSetting::Always);
+        assert_eq!(UltraSetting::parse("off"), UltraSetting::Off);
+        assert_eq!(UltraSetting::parse(""), UltraSetting::Auto, "unset is Auto");
     }
 
     /// The app's last path report is what the next dial reads.

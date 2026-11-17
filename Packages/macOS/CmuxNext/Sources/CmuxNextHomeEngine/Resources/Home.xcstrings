@@ -18566,6 +18566,138 @@
         }
       }
     },
+    "home.chief.welcome.anyApp": {
+      "comment": "Chief's welcome message: the Start Agent from Any App line in the shortcut list while its system-wide key is off, in Markdown. %1$@ is the key as a code span (`⌃⌥⌘Space`), %2$@ the action's name, %3$@ the link that turns the key on. Keep the [text](%3$@) link form.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (off until you [turn it on](%3$@))"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (متوقف حتى [تشغّله](%3$@))"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (isključeno dok ga ne [uključite](%3$@))"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (slået fra, indtil du [slår det til](%3$@))"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (aus, bis du es [einschaltest](%3$@))"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (desactivado hasta que lo [actives](%3$@))"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (désactivé tant que vous ne l’[activez](%3$@) pas)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (disattivato finché non lo [attivi](%3$@))"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@（[オンにする](%3$@)までオフです）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (បិទ រហូតដល់អ្នក[បើកវា](%3$@))"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ ([켜기](%3$@) 전까지는 꺼져 있음)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (av til du [slår den på](%3$@))"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (wyłączone, dopóki go nie [włączysz](%3$@))"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (desativado até você [ativar](%3$@))"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (выключено, пока вы его не [включите](%3$@))"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (ปิดอยู่จนกว่าคุณจะ[เปิด](%3$@))"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ ([açana](%3$@) kadar kapalı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (вимкнено, доки ви його не [увімкнете](%3$@))"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ (tắt cho đến khi bạn [bật lên](%3$@))"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@（[开启](%3$@)前处于关闭状态）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@（[開啟](%3$@)前處於關閉狀態）"
+          }
+        }
+      }
+    },
     "home.chief.welcome.chord": {
       "comment": "Chief's welcome message: a two-key shortcut in the shortcut list, in Markdown. %1$@ is the first key (⌘J), %2$@ the key pressed after it (S). Keep the ` marks.",
       "extractionState": "manual",

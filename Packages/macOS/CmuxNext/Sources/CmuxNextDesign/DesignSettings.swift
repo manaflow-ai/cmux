@@ -71,9 +71,31 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-chat-text-scale', '\(Typography.pageChatTextScale)');"
             + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
+            + composerScript
+            + "document.documentElement.style.setProperty('--cmux-row-text-scale', '\(Typography.pageRowTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-row-icon-scale', '\(Typography.pageRowIconScale)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
+    /// New Tab scales its Default page values together with one zoom.
+    private var composerScript: String {
+        let tokens = densityTokens.tokens
+        let values: [(String, String?)] = [
+            ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
+            ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
+            ("--cmux-composer-pad-block", nil),
+            ("--cmux-composer-text-size", nil),
+            ("--cmux-composer-icon-size", nil),
+            ("--cmux-composer-chip-text-size", nil),
+            ("--cmux-composer-row-radius-extra", nil),
+            ("--cmux-chat-editor-min", tokens["chatEditorMin"].map { "\(Self.cssNumber($0))px" }),
+        ]
+        return values.map { name, value in
+            "document.documentElement.style.setProperty('\(name)', '\(value ?? "")');"
+        }.joined()
+    }
+    private static func cssNumber(_ value: Double) -> String { String(format: "%g", value) }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -195,11 +217,9 @@ public final class DesignSettings {
     public var showsHoverCards: Bool { hoverCardsEnabled && calmMode.showsHoverEffects }
     /// The pointer paints a hover fill on tabs, sidebar rows and chrome buttons (off in calm mode).
     public var showsHoverFills: Bool { calmMode.showsHoverEffects }
-    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
-    /// Defaults to `HoverCardTiming.showDelay`.
+    /// `sidebar.hoverCards.delay`: pointer rest before any hover card opens (rows, rail, tabs, the
+    /// Update Ready card, Home link chips). Defaults to `HoverCardTiming.showDelay`, Chrome's 1300 ms.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
-    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
-    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
@@ -264,6 +284,10 @@ public final class DesignSettings {
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
+    /// The size in points the terminals draw at (the loaded config's `font-size`, `terminal.fontSize`
+    /// over the Ghostty config's), as last loaded (`GhosttyConfigFontFamily.recordLoad`); nil before.
+    /// The iPhone gets it (`ThemePhone`); nothing here repaints on it.
+    public var terminalFontSize: Double?
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
@@ -274,6 +298,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
+    /// launch's value (``ProcessFontSmoothing/current``).
+    public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same

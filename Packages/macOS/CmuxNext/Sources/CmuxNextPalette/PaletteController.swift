@@ -35,6 +35,10 @@ public final class PaletteController {
     /// of guessing it from the active window, which the palette's own
     /// `relativeTo:` and the key window can both disagree with.
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
+    /// Work waiting for the palette's first open (``onFirstShow(_:)``); empty after it.
+    private var firstShowWork: [@MainActor () -> Void] = []
+    /// Work for each open (``onShows(_:)``).
+    private var showWork: [@MainActor () -> Void] = []
     /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
@@ -146,6 +150,20 @@ public final class PaletteController {
     }
 
     // MARK: Warm-up
+
+    /// Runs `work` once, at the palette's first open from now on, after that open's frame is committed so the panel's
+    /// first frame is not held up: work made ahead of something a palette row may open next (the app's web overlay pages,
+    /// made on this sign of intent and not at launch, as `MenuTracking.onFirstMenu` does for menus).
+    public func onFirstShow(_ work: @escaping @MainActor () -> Void) {
+        firstShowWork.append(work)
+    }
+
+    /// Runs `work` at each palette open, after that open's frame is committed (as ``onFirstShow(_:)``): work made ahead
+    /// of something a palette row may open next that is freed again when unused (the app's web overlay pages), so `work`
+    /// makes it again or keeps it, and costs little when it is already made.
+    public func onShows(_ work: @escaping @MainActor () -> Void) {
+        showWork.append(work)
+    }
 
     /// Loads the palette's localized string tables. Pure and thread-safe:
     /// call it off the main thread at launch so the first open does not
@@ -269,8 +287,11 @@ public final class PaletteController {
         // window): hiding gives the keys back to the window, not the page.
         // `NSApplication.shared`: `NSApp` is nil in package-test processes.
         let app = NSApplication.shared
-        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
-        while let owner = parent?.parent { parent = owner }
+        var parent = topWindow(window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 })
+        // A window off every screen (the render window of a page an agent drives in the background, whose page
+        // window took the keys) is no anchor: clamped to the screen, the palette sat in its bottom-left corner.
+        if let anchor = parent, !isOnAScreen(anchor) { parent = nil }
+        if parent == nil { parent = topWindow(app.mainWindow).flatMap { isOnAScreen($0) ? $0 : nil } }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now
         presentationGeneration += 1
@@ -283,6 +304,11 @@ public final class PaletteController {
         isVisible = true
         parentWindow = parent
         onVisibilityChange?(true, parent)
+        let due = firstShowWork + showWork
+        if !due.isEmpty {
+            firstShowWork = []
+            scheduleAfterFrameCommit { due.forEach { $0() } }
+        }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
         let size = PaletteLayout.windowSize
@@ -462,4 +488,17 @@ public struct PaletteOpenTiming: Sendable {
     public var total: Duration { model + panel + present + commit }
     /// Key-down to the committed first frame: ``input`` plus ``total``.
     public var keyToFrame: Duration { input + total }
+}
+
+/// `window`'s top ancestor (a Chromium page window's document window).
+@MainActor private func topWindow(_ window: NSWindow?) -> NSWindow? {
+    var top = window
+    while let owner = top?.parent { top = owner }
+    return top
+}
+
+/// Whether `window` overlaps a screen (true with no screens: nothing to check against).
+@MainActor private func isOnAScreen(_ window: NSWindow) -> Bool {
+    let screens = NSScreen.screens
+    return screens.isEmpty || screens.contains { $0.frame.intersects(window.frame) }
 }

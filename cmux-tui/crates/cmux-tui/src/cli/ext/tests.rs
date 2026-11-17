@@ -7,6 +7,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -15,11 +16,11 @@ use super::dev::{self, Phase};
 use super::{DevOptions, Request, exit, parse, scaffold, scene, shot};
 use crate::cli::GlobalArgs;
 
-fn words(text: &str) -> Vec<String> {
+pub(super) fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_string).collect()
 }
 
-fn dev_options(dir: &Path) -> DevOptions {
+pub(super) fn dev_options(dir: &Path) -> DevOptions {
     DevOptions {
         dir: dir.to_path_buf(),
         once: true,
@@ -31,7 +32,7 @@ fn dev_options(dir: &Path) -> DevOptions {
     }
 }
 
-fn global(socket: &Path) -> GlobalArgs {
+pub(super) fn global(socket: &Path) -> GlobalArgs {
     GlobalArgs { socket: Some(socket.to_path_buf()), ..GlobalArgs::default() }
 }
 
@@ -41,11 +42,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -68,13 +74,18 @@ fn parses_new_dev_list_remove_and_help() {
     };
     assert_eq!(options.build_timeout, std::time::Duration::from_secs(5));
     assert_eq!(parse(&words("list")), Ok(Request::List));
+    assert_eq!(parse(&words("reload")), Ok(Request::Reload { app: None }));
+    assert_eq!(
+        parse(&words("reload hello")),
+        Ok(Request::Reload { app: Some("local/hello".into()) })
+    );
+    assert_eq!(parse(&words("reload acme/x")), Ok(Request::Reload { app: Some("acme/x".into()) }));
     assert_eq!(parse(&words("remove local/x")), Ok(Request::Remove { app: "local/x".into() }));
     for bad in [
         "new",
         "new Bad_Name",
         "new customize",
         "new a b",
-        "new a --kind pane",
         "new a --kind widget",
         "dev a b",
         "dev --bogus",
@@ -92,10 +103,42 @@ fn parses_new_dev_list_remove_and_help() {
         "remove local/",
         "remove local/customize",
         "list extra",
+        "reload a b",
+        "reload --all",
+        "reload local/../x",
+        "reload a/b/c",
         "frobnicate",
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn capabilities_parse_and_print_the_manifest_rows() {
+    assert_eq!(parse(&words("capabilities")), Ok(Request::Capabilities { op: None }));
+    assert_eq!(
+        parse(&words("capabilities --op net.fetch")),
+        Ok(Request::Capabilities { op: Some("net.fetch".into()) })
+    );
+    for bad in ["capabilities --op", "capabilities net.fetch", "capabilities --op a b"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+    let table = cmux_app_manifest::Capabilities::get();
+    let all = super::capabilities_table(&table.manifest_json(None).unwrap());
+    assert!(all.starts_with("OP "), "{all}");
+    let create =
+        all.lines().find(|l| l.starts_with("workspace.create ")).expect("workspace.create");
+    assert!(
+        create.contains("workspace:write") && create.contains("mutation sensitive"),
+        "{create}"
+    );
+    assert!(create.contains("with a command: workspace:execute"), "{create}");
+    let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
+    assert!(fetch.contains("refused when sandboxed"), "{fetch}");
+    assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    let never = table.never().next().unwrap();
+    let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
+    assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
 }
 
 #[test]
@@ -123,7 +166,7 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     let export = pkg.manifest["implements"]["cmux.section/1"]["export"].as_str().unwrap();
     let main = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
     let source = std::fs::read_to_string(dir.join("src/main.ts")).unwrap();
-    assert!(source.contains(&format!("export function {export}(")), "{export} in src/main.ts");
+    assert!(source.contains(&format!("export const {export} = ")), "{export} in src/main.ts");
     assert!(main.contains(&format!("{export}: () => {export}")), "{export} is packed");
     assert!(main.contains("globalThis.__cmuxAppExports"), "dist/main.js hands its exports over");
     assert!(dir.join("cmux-app.d.ts").is_file() && dir.join("README.md").is_file());
@@ -131,6 +174,58 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     let files = dev::package_files(&pkg).unwrap();
     assert_eq!(files, vec![PathBuf::from("cmux-app.json"), PathBuf::from("dist/main.js")]);
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
+}
+
+/// A folder outside a cmux checkout (a sample copied out, one a person
+/// installs) has no copy of `cmux-extension-sdk`: the packer gets the SDK the
+/// CLI carries, whole, so it builds with no install.
+#[test]
+fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
+    let packer = tempfile::tempdir().unwrap();
+    let entry = dev::write_packer(packer.path()).unwrap();
+    let index = std::fs::read_to_string(&entry).unwrap();
+    assert!(index.contains("export function section("), "the SDK's own source");
+    let relative: Vec<&str> = index
+        .lines()
+        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
+        .filter(|p| p.starts_with('.'))
+        .collect();
+    assert!(!relative.is_empty(), "the SDK imports its tables");
+    for path in relative {
+        let file = entry.parent().unwrap().join(path);
+        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    }
+    // `cmux-extension-sdk/customize`, written from this build's schema.
+    let types = entry.parent().unwrap().join("generated/customize.ts");
+    let schema = cmux_customize::schema::Schema::current();
+    assert_eq!(
+        std::fs::read_to_string(&types).ok(),
+        Some(cmux_customize::schema::typescript(&schema)),
+        "the customize types are carried with the SDK"
+    );
+
+    let Some(bun) = dev::find_bun() else {
+        eprintln!("bun is not on PATH: the build half of this test needs it");
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/main.ts"),
+        "import { section, Text } from \"cmux-extension-sdk\"\nexport const renderHello = section(() => Text(\"hi\"))\n",
+    )
+    .unwrap();
+    let pkg = dev::Package {
+        dir: dir.clone(),
+        manifest: json!({}),
+        id: "local/hello".into(),
+        name: "hello".into(),
+    };
+    dev::build(&pkg, &dev::BuildPlan::Pack(bun), dev::BUILD_TIMEOUT)
+        .unwrap_or_else(|problems| panic!("{problems:?}"));
+    let main = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
+    assert!(main.contains("var renderHello = section("), "{main}");
 }
 
 #[test]
@@ -200,14 +295,77 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
+}
+
+/// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
+/// `dist/main.js`, so the manifest check before the build does not ask for it; with nothing to
+/// build, a missing main script is still a manifest error (exit 4).
+#[test]
+fn ext_dev_builds_a_fresh_folder_before_checking_its_main() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "fresh");
+    let built = root.path().join("built-main.js");
+    std::fs::copy(dir.join("dist/main.js"), &built).unwrap();
+    std::fs::remove_dir_all(dir.join("dist")).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/fresh", false);
+
+    // `--build CMD` writes the main script.
+    let mut options = dev_options(&dir);
+    options.build = Some(format!("mkdir -p dist && cp '{}' dist/main.js", built.display()));
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.build, Some("command"));
+    assert!(local.join("fresh/dist/main.js").is_file(), "the built script is copied");
+
+    // The packer writes it from `src/main.ts` when bun is on PATH.
+    if let Some(bun) = dev::find_bun() {
+        std::fs::remove_dir_all(dir.join("dist")).unwrap();
+        let mut options = dev_options(&dir);
+        options.bun = Some(bun);
+        let outcome = dev::once(&global(&fake.socket), &options, false);
+        assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+        assert_eq!(outcome.build, Some("pack"));
+        assert!(dir.join("dist/main.js").is_file(), "the packer wrote the main script");
+    } else {
+        eprintln!("bun is not on PATH: the packer half of this test needs it");
+    }
+
+    // Nothing to build (no `--build`, and no bun for `src/main.ts`): still exit 4 at manifest,
+    // with or without a daemon.
+    std::fs::remove_dir_all(dir.join("dist")).ok();
+    for socket in [fake.socket.clone(), PathBuf::from("/nonexistent/cmux.sock")] {
+        let outcome = dev::once(&global(&socket), &dev_options(&dir), false);
+        assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+        assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+        assert_eq!(outcome.build, None);
+        let error = &outcome.errors[0];
+        assert_eq!(error.field.as_deref(), Some("/runtime/main"), "{error:?}");
+        assert!(error.message.contains("path.missing"), "{error:?}");
+    }
+    std::fs::remove_file(dir.join("src/main.ts")).unwrap();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+
+    // A build that does not write the main script fails the check after it.
+    std::fs::write(dir.join("src/main.ts"), "").unwrap();
+    let mut options = dev_options(&dir);
+    options.build = Some("true".into());
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.errors[0].field.as_deref(), Some("/runtime/main"));
 }
 
 #[test]
@@ -303,46 +461,71 @@ fn the_watch_skips_reads_dot_files_and_node_modules() {
 /// A fake daemon on a Unix socket: `apps-list` names `local_dir`; a file
 /// landing in it sends `apps-changed` (`local-reload`) for `app`, as the
 /// daemon's folder watch does; `apps-mount` answers with a scene, or with an
-/// init failure when the copied script holds `THROW_AT_INIT`.
-struct FakeDaemon {
-    socket: PathBuf,
-    requests: Arc<Mutex<Vec<Value>>>,
+/// init failure when the copied script holds `THROW_AT_INIT`. Started with
+/// `start_hosting`, a mount runs the copied `dist/main.js` in the real QuickJS
+/// app host instead (`host_scene`), so its scene is what the script renders.
+pub(super) struct FakeDaemon {
+    pub(super) socket: PathBuf,
+    pub(super) requests: Arc<Mutex<Vec<Value>>>,
+    /// The folder watch sends nothing, as a loaded Mac's file events that
+    /// come too late: only an asked reload (`apps-reload-local`) answers.
+    pub(super) watch_off: Arc<AtomicBool>,
+    /// A daemon older than `apps-reload-local`: it refuses the request and
+    /// reloads on its watch only.
+    pub(super) old: Arc<AtomicBool>,
     _watcher: notify::RecommendedWatcher,
     _dir: cmux_unix_socket::TestDir,
 }
 
 impl FakeDaemon {
-    fn start(local_dir: &Path, app: &str, installed: bool) -> Self {
+    pub(super) fn start(local_dir: &Path, app: &str, installed: bool) -> Self {
+        Self::start_with(local_dir, app, installed, false)
+    }
+
+    /// An installed app whose mounts render in the real app host.
+    pub(super) fn start_hosting(local_dir: &Path, app: &str) -> Self {
+        Self::start_with(local_dir, app, true, true)
+    }
+
+    fn start_with(local_dir: &Path, app: &str, installed: bool, hosting: bool) -> Self {
         use notify::Watcher as _;
+        let watch_off: Arc<AtomicBool> = Arc::default();
+        let old: Arc<AtomicBool> = Arc::default();
+        let muted = watch_off.clone();
         let dir = cmux_unix_socket::short_test_dir("cmux-ext");
         let socket = dir.path().join("daemon.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let clients: Arc<Mutex<Vec<UnixStream>>> = Arc::default();
+        let clients: Arc<Mutex<Vec<Writer>>> = Arc::default();
         let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
         std::fs::create_dir_all(local_dir).unwrap();
         let (watch_clients, watch_app) = (clients.clone(), app.to_string());
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else { return };
-            if matches!(event.kind, notify::EventKind::Access(_)) {
+            if matches!(event.kind, notify::EventKind::Access(_)) || muted.load(Ordering::SeqCst) {
                 return;
             }
             let line = json!({"event": "apps-changed", "transaction": "local-reload", "app": watch_app});
-            for client in watch_clients.lock().unwrap().iter_mut() {
-                let _ = writeln!(client, "{line}");
+            for client in watch_clients.lock().unwrap().iter() {
+                let _ = send_line(client, &line);
             }
         })
         .unwrap();
         watcher.watch(local_dir, notify::RecursiveMode::Recursive).unwrap();
         let (local, app, seen) = (local_dir.to_path_buf(), app.to_string(), requests.clone());
+        let serving_old = old.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
-                clients.lock().unwrap().push(stream.try_clone().unwrap());
+                let writer: Writer = Arc::new(Mutex::new(stream.try_clone().unwrap()));
+                clients.lock().unwrap().push(writer.clone());
                 let (local, app, seen) = (local.clone(), app.clone(), seen.clone());
-                std::thread::spawn(move || serve(stream, &local, &app, installed, &seen));
+                let old = serving_old.clone();
+                std::thread::spawn(move || {
+                    serve(stream, &writer, &local, &app, (installed, hosting), &seen, &old);
+                });
             }
         });
-        Self { socket, requests, _watcher: watcher, _dir: dir }
+        Self { socket, requests, watch_off, old, _watcher: watcher, _dir: dir }
     }
 
     fn cmds(&self) -> Vec<String> {
@@ -351,8 +534,27 @@ impl FakeDaemon {
     }
 }
 
-fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mutex<Vec<Value>>) {
-    let mut writer = stream.try_clone().unwrap();
+/// One client's socket, written by its `serve` thread and the folder watch.
+type Writer = Arc<Mutex<UnixStream>>;
+
+/// Writes `value` as one line in one `write_all` under the client's lock, so
+/// the watch's `apps-changed` never lands inside a reply. (Two unlocked
+/// `writeln!`s interleave serde_json's small writes; the client then drops the
+/// torn line and its call waits out `REQUEST_DEADLINE`.)
+fn send_line(writer: &Writer, value: &Value) -> std::io::Result<()> {
+    let line = format!("{value}\n");
+    writer.lock().unwrap().write_all(line.as_bytes())
+}
+
+fn serve(
+    stream: UnixStream,
+    writer: &Writer,
+    local: &Path,
+    app: &str,
+    (installed, hosting): (bool, bool),
+    seen: &Mutex<Vec<Value>>,
+    old: &AtomicBool,
+) {
     let name = app.trim_start_matches("local/");
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
@@ -366,7 +568,8 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                 let apps = if local.join(name).is_dir() {
                     vec![
                         json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
-                        "hidden": false, "available": true, "bundle_dir": local.join(name)}),
+                        "hidden": false, "available": true, "bundle_dir": local.join(name),
+                        "web_pages": served_web_pages(&local.join(name))}),
                     ]
                 } else {
                     vec![]
@@ -378,7 +581,21 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                 let mount_id = request["mount_id"].clone();
                 let script = std::fs::read_to_string(local.join(name).join("dist/main.js"))
                     .unwrap_or_default();
-                if script.contains("THROW_AT_INIT") {
+                if hosting {
+                    let manifest: Value =
+                        std::fs::read_to_string(local.join(name).join("cmux-app.json"))
+                            .ok()
+                            .and_then(|text| serde_json::from_str(&text).ok())
+                            .unwrap_or_default();
+                    let interface = request["interface"].as_str().unwrap_or("");
+                    let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    out.push(
+                        match host_scene(app, &script, export, &request["context"]) {
+                            Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
+                            Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
+                        },
+                    );
+                } else if script.contains("THROW_AT_INIT") {
                     out.push(json!({"event": "apps-mount-failed", "mount_id": mount_id,
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
                 } else {
@@ -388,14 +605,110 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                     );
                 }
             }
+            // The capability manifest, when the test put a live types file
+            // next to the local folder (`LIVE_TYPES`); else an older daemon's `{}`.
+            "apps-capabilities" => {
+                let live = local.parent().map(|state| state.join(LIVE_TYPES));
+                match live.and_then(|path| std::fs::read_to_string(path).ok()) {
+                    Some(types) => {
+                        let digest = format!(
+                            "{:x}",
+                            types.len() * 31 + types.bytes().map(usize::from).sum::<usize>()
+                        );
+                        let mut data = json!({"apiVersion": "9.9.9", "typesDigest": digest});
+                        if request["brief"] != true {
+                            data["types"] = json!(types);
+                        }
+                        out.push(reply(data));
+                    }
+                    None => out.push(reply(json!({}))),
+                }
+            }
+            // As the supervisor's `reload_local_now`: an unknown name is refused,
+            // a script that does not load is named with its init error.
+            "apps-reload" => {
+                let asked = request["app"].as_str();
+                let script = std::fs::read_to_string(local.join(name).join("dist/main.js"))
+                    .unwrap_or_default();
+                if asked == Some("local/older-daemon") {
+                    // What a daemon from before `apps-reload` answers.
+                    out.push(json!({"id": id, "ok": false, "error_code": "bad-request",
+                        "error": "unknown variant `apps-reload`, expected one of `apps-list`, `apps-set`"}));
+                } else if asked.is_some_and(|asked| asked != app) {
+                    out.push(json!({"id": id, "ok": false, "error_code": "apps.local.unknown",
+                        "error": format!("{} is not an extension in a local folder (local: {app})", asked.unwrap_or(""))}));
+                } else if script.contains("THROW_AT_INIT") {
+                    out.push(reply(json!({"reloaded": [], "removed": [], "refused": [{"app": app,
+                        "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}]})));
+                } else {
+                    out.push(reply(json!({"reloaded": [app], "refused": [], "removed": []})));
+                }
+            }
+            // The daemon's pass: its events, then the reply (`Supervisor::reload_local_apps_now`).
+            "apps-reload-local" if old.load(Ordering::SeqCst) => out.push(json!({
+                "id": id, "ok": false, "error": "unknown command", "error_code": "parse"
+            })),
+            "apps-reload-local" => {
+                if local.join(name).is_dir() {
+                    out.push(
+                        json!({"event": "apps-changed", "transaction": "local-reload", "app": app}),
+                    );
+                }
+                out.push(reply(json!({})));
+            }
             _ => out.push(reply(json!({}))),
         }
         for value in out {
-            if writeln!(writer, "{value}").is_err() {
+            if send_line(writer, &value).is_err() {
                 return;
             }
         }
     }
+}
+
+/// What the real app host renders when `export` of the script `main` mounts:
+/// QuickJS runs it as the daemon's host does, every call it makes is answered
+/// with no value, and the scene's op batches are returned in order (or the
+/// init or mount failure).
+fn host_scene(app: &str, main: &str, export: &str, context: &Value) -> Result<Value, String> {
+    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
+    let mut vm = AppVm::new(Limits::default())?;
+    vm.init(InitParams {
+        app: AppInfo { id: app.into(), version: "0.1.0".into() },
+        settings: json!({}),
+        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
+        ops: None,
+        known_ops: None,
+        locale: None,
+        strings: Value::Null,
+        main: main.into(),
+        main_name: Some("dist/main.js".into()),
+    })
+    .map_err(|e| format!("init: {e:?}"))?;
+    if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
+        return Err(refused);
+    }
+    let mut ops = Vec::new();
+    for _ in 0..32 {
+        let outbox = vm.take_outbox();
+        if outbox.is_empty() {
+            break;
+        }
+        for message in outbox {
+            match message {
+                FromHost::Scene { ops: batch, .. } => {
+                    ops.extend(batch.as_array().cloned().unwrap_or_default());
+                }
+                FromHost::Call { cb, .. } => {
+                    vm.resolve(cb, true, &json!({ "value": null }))
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
+                _ => {}
+            }
+        }
+    }
+    Ok(Value::Array(ops))
 }
 
 #[test]
@@ -461,6 +774,73 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
     // `ext remove` drops the copy it made, and only that.
     assert_eq!(dev::remove_made_folder(&copy), Ok(true));
     assert!(!copy.exists());
+}
+
+/// The live types file the fake daemon serves as `apps-capabilities`.
+const LIVE_TYPES: &str = "live-cmux-app.d.ts";
+
+/// Hot reload of the API: `ext dev` writes the running cmux's typed global
+/// into the project when it differs, on start and when the daemon's digest
+/// moves; an unchanged digest fetches nothing more, and a daemon without the
+/// manifest (older) changes nothing.
+#[test]
+fn ext_dev_writes_the_live_types_when_they_differ() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "typed");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/typed", true);
+    let options = dev_options(&dir);
+    let scaffolded = std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap();
+
+    // An older daemon: no manifest, the file stays.
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated, None);
+    assert_eq!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(), scaffolded);
+
+    // A daemon whose API differs: the file becomes its text, once.
+    // Next to the local folder, where the fake daemon looks.
+    let live = root.path().join("state/apps").join(LIVE_TYPES);
+    std::fs::write(&live, "declare const cmux: { newOp(): void }\n").unwrap();
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated.as_deref(), Some("9.9.9"));
+    assert!(outcome.line().contains("cmux-app.d.ts now matches this cmux"), "{}", outcome.line());
+    assert_eq!(outcome.to_json(&dir)["typesUpdated"], "9.9.9");
+    assert_eq!(
+        std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(),
+        "declare const cmux: { newOp(): void }\n"
+    );
+    let again = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(again.types_updated, None, "the same text is not written again");
+
+    // One session: the digest is remembered, so a reload with no API change
+    // asks only the brief answer; a moved digest (a new cmux) rewrites.
+    let (sender, wakes) = std::sync::mpsc::channel();
+    let daemon = super::daemon::Daemon::connect(&global(&fake.socket), sender, wakes).unwrap();
+    let mut session = dev::Session::new(dir.clone(), &options, daemon);
+    std::fs::write(dir.join(dev::TYPES_FILE), "stale").unwrap();
+    assert_eq!(session.reload(true).types_updated.as_deref(), Some("9.9.9"));
+    let full = |fake: &FakeDaemon| {
+        let requests = fake.requests.lock().unwrap();
+        requests.iter().filter(|r| r["cmd"] == "apps-capabilities" && r["brief"] != true).count()
+    };
+    let before = full(&fake);
+    assert_eq!(session.reload(false).types_updated, None);
+    assert_eq!(full(&fake), before, "an unchanged digest fetches no manifest");
+    std::fs::write(&live, "declare const cmux: { newerOp(): void }\n").unwrap();
+    assert_eq!(session.reload(false).types_updated.as_deref(), Some("9.9.9"));
+    assert!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap().contains("newerOp"));
+    assert!(
+        !dir.join(format!(".{}.cmux-ext-dev", dev::TYPES_FILE)).exists(),
+        "no staged file left"
+    );
+
+    // A folder that does not use the types gets none.
+    let plain = root.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert!(!dev::write_types(&plain, "x").unwrap());
+    assert!(!plain.join(dev::TYPES_FILE).exists());
 }
 
 #[test]
@@ -646,4 +1026,217 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
+/// fails the load when the daemon does not host one the manifest declares.
+#[test]
+fn ext_dev_reports_web_panes_and_fails_when_the_daemon_hosts_none() {
+    let manifest = json!({
+        "id": "local/web-pane", "runtime": { "web": { "root": "web" } },
+        "implements": { "cmux.pane/1": { "web": "web/index.html" } }
+    });
+    let page = json!({ "interface": "cmux.pane/1", "root": "web", "entry": "index.html" });
+    let served = json!({ "id": "local/web-pane", "web_pages": [page] });
+    assert_eq!(dev::web_check(&manifest, Some(&served)).unwrap(), vec![page]);
+    // A daemon older than web panes lists no `web_pages`.
+    let old = json!({ "id": "local/web-pane" });
+    let problem = dev::web_check(&manifest, Some(&old)).unwrap_err();
+    assert_eq!(problem.field.as_deref(), Some("/implements/cmux.pane~11/web"));
+    // A scene app has nothing to check.
+    let scene =
+        json!({ "id": "local/s", "implements": { "cmux.pane/1": { "export": "renderPane" } } });
+    assert!(dev::web_check(&scene, Some(&old)).unwrap().is_empty());
+}
+
+/// The sample web pane in examples/extensions passes the manifest and file
+/// checks `ext dev` runs first, and its page is one the daemon hosts.
+#[test]
+fn the_web_pane_example_is_a_valid_package() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let pkg = dev::load_package(&dir).expect("valid package");
+    assert_eq!(pkg.id, "local/web-pane");
+    let pages = cmux_app_manifest::web_pages(&pkg.manifest);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(
+        (pages[0].interface.as_str(), pages[0].root.as_str(), pages[0].entry.as_str()),
+        ("cmux.pane/1", "web", "index.html")
+    );
+}
+
+/// The `web_pages` the real daemon lists for the copied package (supervisor
+/// `entry`: cmux_app_manifest::web_pages of its manifest).
+fn served_web_pages(package: &Path) -> Vec<Value> {
+    let Ok(text) = std::fs::read_to_string(package.join("cmux-app.json")) else { return vec![] };
+    let Ok(manifest) = serde_json::from_str::<Value>(&text) else { return vec![] };
+    cmux_app_manifest::web_pages(&manifest)
+        .into_iter()
+        .map(|p| json!({ "interface": p.interface, "root": p.root, "entry": p.entry, "symbol": p.symbol }))
+        .collect()
+}
+
+/// `cmux ext dev --once --json` on the sample web pane: the files are copied
+/// to the daemon's local folder, the reload is picked up, no scene probe
+/// runs (a web pane has no export), and the result names the hosted page.
+#[test]
+fn once_loads_the_web_pane_example() {
+    let sample =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("web-pane");
+    for file in ["cmux-app.json", "web/index.html", "web/page.js", "web/page.css"] {
+        let to = dir.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(file), &to).unwrap();
+    }
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/web-pane", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert_eq!(outcome.probe, None, "a web pane has no scene to probe");
+    assert!(local.join("web-pane/web/index.html").is_file());
+    let json = outcome.to_json(&dir);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["web"][0]["interface"], "cmux.pane/1");
+    assert_eq!(json["web"][0]["entry"], "index.html");
+    assert!(outcome.line().contains("1 web pane reloads in place"), "{}", outcome.line());
+    assert!(!fake.cmds().contains(&"apps-mount".to_string()));
+}
+
+/// A copied change reloads as soon as the daemon's pass answers, with no
+/// file event at all: on a loaded Mac the watch's events came 3.6 s to past
+/// 30 s late, and `ext dev` waited for them (base red: this run waits out
+/// `PICKUP_DEADLINE` and fails "not reloaded", ask-7fc19bd861).
+#[test]
+fn a_reload_does_not_wait_for_the_file_watch() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "quick");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/quick", true);
+    fake.watch_off.store(true, Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    let cmds = fake.cmds();
+    assert!(cmds.contains(&"apps-reload-local".to_string()), "{cmds:?}");
+}
+
+/// A daemon older than `apps-reload-local` refuses it and still reloads on
+/// its watch, which `ext dev` waits for as before.
+#[test]
+fn an_older_daemon_reloads_on_its_watch() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "older");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/older", true);
+    fake.old.store(true, Ordering::SeqCst);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+}
+
+/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+#[test]
+fn a_new_tab_page_is_placed_where_the_person_picks_it() {
+    let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+    let picked = dev::NewTabPick { app: Some("local/clock".into()), native: false };
+    let placed = dev::placements(&manifest, "local/clock", true, &picked);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert_eq!(placed[0]["shown"], true, "{placed:?}");
+    assert!(
+        placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
+        "{placed:?}"
+    );
+}
+
+/// `ext reload NAME`: one `apps-reload` naming the app; a script that does
+/// not load exits 1 and names file and line, an unknown name is refused.
+#[test]
+fn reload_asks_the_daemon_and_names_a_script_that_does_not_load() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/hello", true);
+    std::fs::create_dir_all(local.join("hello/dist")).unwrap();
+    std::fs::write(local.join("hello/dist/main.js"), "var __cmuxAppExports = {};").unwrap();
+
+    let data = super::reload_call(&global(&fake.socket), Some("local/hello")).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::OK);
+    assert_eq!(super::reload_text(&data), "reloaded local/hello\n");
+    let asked = fake.requests.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(asked, json!({"id": asked["id"], "cmd": "apps-reload", "app": "local/hello"}));
+
+    std::fs::write(local.join("hello/dist/main.js"), "const a b // THROW_AT_INIT").unwrap();
+    let data = super::reload_call(&global(&fake.socket), None).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::LOAD_FAILED);
+    let text = super::reload_text(&data);
+    assert!(text.contains("local/hello did not load (the last good version stays)"), "{text}");
+    assert!(text.contains("dist/main.js:2:12"), "{text}");
+    assert!(fake.requests.lock().unwrap().last().unwrap().get("app").is_none(), "every app");
+
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/nope")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("local/nope is not an extension"), "{message}");
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/older-daemon")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("older than cmux ext reload"), "{message}");
+    let gone = super::reload_call(&global(&root.path().join("missing.sock")), None).unwrap_err();
+    assert_eq!(gone.0, exit::NO_DAEMON);
+}
+
+#[test]
+fn reload_says_when_there_is_nothing_to_reload() {
+    let none = json!({"reloaded": [], "refused": [], "removed": []});
+    assert!(super::reload_text(&none).starts_with("no extensions in a local folder"));
+    assert_eq!(super::reload_exit(&none), exit::OK);
+    let removed = json!({"reloaded": [], "refused": [], "removed": ["local/old"]});
+    assert_eq!(super::reload_text(&removed), "removed local/old (its folder is gone)\n");
+}
+
+/// An installed New Tab page the person has not picked is not reported as
+/// shown, and says the one command that picks it (base red: `shown` read the
+/// app's record only, so a Clock page in the Customize folder was reported as
+/// shown while `tabs.newTabApp` was unset and Cmd-T drew cmux's own page,
+/// ask-7fc19bd861).
+#[test]
+fn an_unpicked_new_tab_page_is_not_reported_as_shown() {
+    let manifest = json!({ "implements": {
+        "cmux.newtab/1": { "export": "renderNewTab" },
+        "cmux.section/1": { "export": "renderSection" },
+    } });
+    let id = "local/customize";
+    let cases = [
+        (dev::NewTabPick::default(), "tabs.newTabApp is unset"),
+        (dev::NewTabPick { app: Some("local/other".into()), native: false }, "names local/other"),
+        (dev::NewTabPick { app: Some(id.into()), native: true }, "tabs.nativeNewTabPage false"),
+    ];
+    for (pick, why) in cases {
+        let placed = dev::placements(&manifest, id, true, &pick);
+        let new_tab = placed.iter().find(|p| p["interface"] == "cmux.newtab/1").unwrap();
+        assert_eq!(new_tab["shown"], false, "{pick:?}: {new_tab}");
+        let text = new_tab["why"].as_str().unwrap_or_default();
+        assert!(text.contains(why), "{pick:?}: {text}");
+        if pick.app.as_deref() != Some(id) {
+            assert!(text.contains("cmux settings set tabs.newTabApp local/customize"), "{text}");
+        }
+        // Other contributions keep the record's answer.
+        let section = placed.iter().find(|p| p["interface"] == "cmux.section/1").unwrap();
+        assert_eq!(section["shown"], true, "{section}");
+    }
+}
+
+/// The pick is read the way the app reads it: nested `tabs` keys, comments allowed.
+#[test]
+fn the_new_tab_pick_reads_the_settings_file() {
+    let pick = dev::NewTabPick::of(
+        "{ // mine\n \"tabs\": { \"newTabApp\": \"local/customize\", \"nativeNewTabPage\": true } }",
+    );
+    assert_eq!(pick, dev::NewTabPick { app: Some("local/customize".into()), native: true });
+    assert_eq!(dev::NewTabPick::of("{}"), dev::NewTabPick::default());
+    assert_eq!(dev::NewTabPick::of("not json"), dev::NewTabPick::default());
 }

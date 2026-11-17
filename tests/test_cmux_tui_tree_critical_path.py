@@ -81,6 +81,8 @@ def evaluate(expression, values, cancelled=False):
         return f"__S{len(strings) - 1}__"
 
     text = re.sub(r"'[^']*'", keep, text)
+    # needs.*.result: the results of every job this one needs (drop-build-artifacts reads it).
+    text = text.replace("needs.*.result", "NEEDS_RESULTS()")
     text = re.sub(r"\b(?:github|needs|inputs|vars|steps|env)(?:\.[A-Za-z0-9_-]+)+",
                   lambda m: f"C({m.group(0)!r})", text)
     text = text.replace("&&", " and ").replace("||", " or ")
@@ -94,6 +96,7 @@ def evaluate(expression, values, cancelled=False):
         "contains_": lambda haystack, needle: needle in haystack,
         "cancelled": lambda: cancelled,
         "always": lambda: True,
+        "NEEDS_RESULTS": lambda: [values.get(f"needs.{n}.result", "") for n in values.get("__needs__", [])],
     }
     has_status = re.search(r"\b(?:always|cancelled|success|failure)\(", text)
 

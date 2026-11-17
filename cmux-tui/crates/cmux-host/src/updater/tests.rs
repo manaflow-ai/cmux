@@ -901,12 +901,12 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(resolve::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(!resolve::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -923,7 +923,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
+    resolve::guard_rollback_waits(&mut carrier, |d| {
         slept += d;
         clock.set(clock.get() + d);
     });
@@ -932,7 +932,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
@@ -2232,4 +2232,392 @@ fn a_cold_start_keeps_the_five_minute_hold() {
     gate.service_started();
     assert!(!role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS), "a rollback's restart");
     assert_eq!(gate.held_left(T0_MS + 4_000), Some(gate::CONNECT_HOLD));
+}
+
+/// The step's effects, by hand: the channel it reads, the files it downloads, and
+/// what it armed and restarted.
+#[cfg(target_os = "linux")]
+struct FirstIo {
+    read: Box<dyn FnMut() -> Result<Payload, String>>,
+    files: Vec<(String, Vec<u8>)>,
+    reads: usize,
+    armed: Vec<u64>,
+    restarted: Vec<std::path::PathBuf>,
+}
+
+#[cfg(target_os = "linux")]
+impl FirstIo {
+    fn serving(payload: Payload, files: Vec<(String, Vec<u8>)>) -> FirstIo {
+        FirstIo {
+            read: Box::new(move || Ok(payload.clone())),
+            files,
+            reads: 0,
+            armed: Vec::new(),
+            restarted: Vec::new(),
+        }
+    }
+}
+
+/// The channel build's two files, as [`FirstIo`] serves them.
+#[cfg(target_os = "linux")]
+fn first_files(tui: &str, hook: &str) -> Vec<(String, Vec<u8>)> {
+    vec![(tui.to_owned(), b"new".to_vec()), (hook.to_owned(), b"hok".to_vec())]
+}
+
+#[cfg(target_os = "linux")]
+impl first_ready::Io for FirstIo {
+    fn read_channel(&mut self) -> Result<Payload, String> {
+        self.reads += 1;
+        (self.read)()
+    }
+    fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
+        let (_, bytes) =
+            self.files.iter().find(|(sha, _)| *sha == bin.sha256).ok_or("no such file")?;
+        fs::write(to, bytes).map_err(|e| e.to_string())
+    }
+    fn arm_guard(&mut self, pending: &Pending) -> Result<(), String> {
+        self.armed.push(pending.to);
+        Ok(())
+    }
+    fn disarm_guard(&mut self) {}
+    fn restart_others(&mut self, old: &Path) {
+        self.restarted.push(old.to_owned());
+    }
+}
+
+/// A machine an image made, the image's build a roll behind the channel
+/// (2026-11-13: 7d3458da, 96db467d and 04824385 first reported, each swapped
+/// about 5 min later): the step before its first ready flips `current` to the
+/// channel's build, so the unit's command (`<current>/bin/cmux host run`), which
+/// the process execs before any role starts, is the channel's build. That is the
+/// build that binds and sends the first report (ready), and the session host its
+/// work link starts.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    // The image's store has neither binary of the channel's build: both download.
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert_eq!(first, first_ready::First::Flipped(COMMIT.to_owned()));
+    let current = store::current_generation(&paths).unwrap();
+    assert_eq!(current, 2);
+    // The unit's command, the session host's link and acpmux: the channel's build.
+    for name in ["cmux", "cmux-tui", "acpmux"] {
+        assert_eq!(store::linked_package(&paths, current, name).unwrap(), new_tui, "{name}");
+    }
+    assert_eq!(store::linked_package(&paths, current, "cmux-tui-hook").unwrap(), new_hook);
+    // The exec'd process proves it or rolls it back, as after any flip.
+    let pending = load_pending(&paths).expect("the update is pending its health check");
+    assert_eq!((pending.from, pending.to, pending.cmux_tui.as_str()), (1, 2, new_tui.as_str()));
+    assert_eq!(io.armed, vec![2]);
+    assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
+    assert!(load_state(&paths).last.unwrap().starts_with("before the first ready: updating"));
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], true);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], new_tui);
+    assert_eq!(timing["channel_commit"], COMMIT);
+    assert_eq!(timing["outcome"], "updated");
+    assert!(timing["update_ms"].as_u64().unwrap() > 0);
+    // The next process reloads the same durable observation before its first report.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)));
+    assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_current_image_reports_no_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    assert_eq!(
+        first_ready::before_ready(&paths, TARGET, deadline, &mut io),
+        first_ready::First::Current(COMMIT.to_owned())
+    );
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], false);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], OLD_TUI);
+    assert_eq!(timing["update_ms"], 0);
+    assert_eq!(timing["outcome"], "current");
+    assert!(load_pending(&paths).is_none());
+    assert!(io.restarted.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_failed_channel_is_unknown_not_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    io.read = Box::new(|| Err("unavailable".to_owned()));
+    let first = first_ready::before_ready(&paths, TARGET, std::time::Instant::now(), &mut io);
+    assert!(matches!(first, first_ready::First::OnImage(_)));
+    let report = look::report(&paths).unwrap();
+    let timing = report.get("first_ready").unwrap();
+    assert_eq!(timing["image_behind"], serde_json::Value::Null);
+    assert_eq!(timing["update_ms"], serde_json::Value::Null);
+    assert_eq!(timing["to_version"], serde_json::Value::Null);
+    assert_eq!(timing["outcome"], "on_image");
+}
+
+/// Once the step flipped, nothing flips after the ready on this path: the exec'd
+/// process (an update pending) takes no second step and reads no channel, and the
+/// updater's first check after the commit finds its build current. A machine
+/// already bound to Cloud (it may have reported ready, a claim may hold it), or one
+/// whose session host runs, never takes the step: its updater keeps its holds.
+#[cfg(target_os = "linux")]
+#[test]
+fn no_flip_after_ready_on_the_first_ready_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    let flipped = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert_eq!(flipped, first_ready::First::Flipped(COMMIT.to_owned()));
+    // The exec'd `cmux host run`: the update is pending, no second step.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)), "{again:?}");
+    assert_eq!(io.reads, 1, "the restarted process read the channel again");
+    // Its health check commits; the updater's checks after the ready find it current.
+    let pending = load_pending(&paths).unwrap();
+    clear_pending(&paths);
+    let state = State {
+        applied_commit: Some(pending.commit),
+        applied_committed_at: pending.committed_at,
+        ..load_state(&paths)
+    };
+    assert_eq!(decide(&paths, &state, &payload, TARGET).unwrap(), Decision::Current);
+
+    // A bound machine, and one with a session host from an earlier start: no step.
+    for file in [crate::cloud::wire::BOUND_FILE, crate::config::DAEMON_PID_FILE] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = image(dir.path());
+        let marker = paths.at(file);
+        fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        fs::write(&marker, "{}").unwrap();
+        let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+        let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+        assert!(matches!(first, first_ready::First::NotFirst(_)), "{file}: {first:?}");
+        assert_eq!((io.reads, store::current_generation(&paths).unwrap()), (0, 1), "{file}");
+    }
+}
+
+/// A channel that never answers (a real read through curl, to an origin that
+/// takes the connection and sends nothing): the step gives up at its bound and the
+/// machine reports ready on the image's build, with nothing pending, so the normal
+/// held updater takes the channel's build later.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_channel_read_failure_still_reports_ready_within_the_bound() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url =
+        format!("http://{}/cmux-tui/channels/cloud-machine.json", listener.local_addr().unwrap());
+    let connections = Arc::new(AtomicUsize::new(0));
+    let seen = connections.clone();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            seen.fetch_add(1, SeqCst);
+            held.push(stream);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let cache = Arc::new(std::sync::Mutex::new(channel::Cache::new()));
+    let mut io = FirstIo::serving(
+        serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap(),
+        Vec::new(),
+    );
+    io.read = Box::new(move || role::read_channel_from(&cache, &url, "=http", &keys(), 5_000));
+    let bound = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
+    let deadline = started + bound;
+    let first =
+        role::within(deadline, || first_ready::before_ready(&paths, TARGET, deadline, &mut io));
+    let took = started.elapsed();
+    eprintln!(
+        "an unanswered channel: {first:?} after {} ms (bound {} ms)",
+        took.as_millis(),
+        bound.as_millis()
+    );
+    assert!(matches!(first, first_ready::First::OnImage(_)), "{first:?}");
+    assert!(connections.load(SeqCst) >= 1, "the step never asked the channel");
+    assert!(took < bound + std::time::Duration::from_millis(1_500), "past the bound: {took:?}");
+    assert_eq!(store::current_generation(&paths).unwrap(), 1);
+    assert!(load_pending(&paths).is_none());
+}
+
+/// The added time to ready, from the production channel: the step's own cost on a
+/// machine whose image is behind (the channel read, both downloads, their sha256
+/// checks and the profile build and flip, into a temporary store), N times, and the
+/// read alone (what a machine already current adds). Run with
+/// `CMUX_FIRST_READY_RUNS=N cargo test -p cmux-host first_ready_cost -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "reads the production channel and downloads about 200 MB per run"]
+fn first_ready_cost_from_the_production_channel() {
+    struct Real;
+    impl first_ready::Io for Real {
+        fn read_channel(&mut self) -> Result<Payload, String> {
+            let cache = std::sync::Mutex::new(channel::Cache::new());
+            role::read_channel_from(
+                &cache,
+                channel::CHANNEL_URL,
+                "=https",
+                &channel::trusted_keys(),
+                role::now(),
+            )
+        }
+        fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
+            role::fetch(&bin.url, bin.size, Some(to)).map(drop)
+        }
+        fn arm_guard(&mut self, _: &Pending) -> Result<(), String> {
+            Ok(())
+        }
+        fn disarm_guard(&mut self) {}
+        fn restart_others(&mut self, _: &Path) {}
+    }
+    let runs: usize =
+        std::env::var("CMUX_FIRST_READY_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
+    let target = channel::local_target().unwrap();
+    let pct = |v: &mut Vec<u128>, p: usize| {
+        v.sort_unstable();
+        v[(v.len() * p).div_ceil(100).saturating_sub(1)]
+    };
+    let (mut behind, mut current) = (Vec::new(), Vec::new());
+    for run in 0..runs {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = image(dir.path());
+        let started = std::time::Instant::now();
+        let deadline = started + first_ready::BOUND;
+        let first = role::within(deadline, || {
+            first_ready::before_ready(&paths, target, deadline, &mut Real)
+        });
+        let ms = started.elapsed().as_millis();
+        assert!(matches!(first, first_ready::First::Flipped(_)), "run {run}: {first:?}");
+        behind.push(ms);
+        // The same machine again, now current (its update committed): the read alone.
+        clear_pending(&paths);
+        let started = std::time::Instant::now();
+        let first = role::within(deadline, || {
+            first_ready::before_ready(&paths, target, deadline, &mut Real)
+        });
+        current.push(started.elapsed().as_millis());
+        assert!(matches!(first, first_ready::First::Current(_)), "run {run} again: {first:?}");
+        eprintln!("run {run}: behind {ms} ms, current {} ms", current.last().unwrap());
+    }
+    eprintln!(
+        "first-ready step, {runs} runs: image behind p50 {} ms p90 {} ms; image current p50 {} ms p90 {} ms",
+        pct(&mut behind, 50),
+        pct(&mut behind, 90),
+        pct(&mut current, 50),
+        pct(&mut current, 90),
+    );
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable." An update's flip, inside the gate, sends its `stopping` report before it
+/// restarts the services, and a report that fails or never answers still restarts them, within
+/// the report's bound (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s
+/// later, and its chat never connected).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_flip_reports_stopping_before_it_restarts_the_services() {
+    use std::cell::RefCell;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let steps = RefCell::new(Vec::new());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            steps.borrow_mut().push("flip");
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::report_then_restart(
+                || {
+                    steps.borrow_mut().push("stopping");
+                    Ok(())
+                },
+                || steps.borrow_mut().push("restart"),
+            );
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert_eq!(*steps.borrow(), ["flip", "stopping", "restart"], "the stopping report goes first");
+
+    // A refused report is logged, and the services restart anyway.
+    let restarted = RefCell::new(false);
+    role::report_then_restart(|| Err("HTTP 503".to_owned()), || *restarted.borrow_mut() = true);
+    assert!(*restarted.borrow(), "a failed stopping report stopped the restart");
+
+    // A report that never answers holds the restart for its bound, no longer.
+    let (_hang, hung) = std::sync::mpsc::channel::<()>();
+    let started = Instant::now();
+    let restarted = RefCell::new(false);
+    role::report_then_restart(
+        || {
+            crate::cloud::role::within(Duration::from_millis(200), move || {
+                let _ = hung.recv();
+                Ok(())
+            })
+        },
+        || *restarted.borrow_mut() = true,
+    );
+    assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
+    assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
+    assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
+    );
 }

@@ -713,6 +713,9 @@ async fn forward_inner(
                 | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
+                if let Some(error) = hold_attach_peer_refusal(params) {
+                    return Err(error);
+                }
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
@@ -1044,19 +1047,26 @@ async fn forward_inner(
         }
         return Ok(Some(result));
     }
-    // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // `PEER/name` for a peer that is down (or whose list is not in yet) and lists no such session:
+    // say the peer is unreachable, not that the session does not exist. A peer daemon's
     // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
     // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some(e) = hub.peer_down_for(key)
+        && let Some(e) = hub.peer_down_for(key).or_else(|| hub.peer_unlisted_for(key))
     {
         return Err(e);
     }
     Ok(None)
+}
+
+fn hold_attach_peer_refusal(params: &Value) -> Option<RpcError> {
+    (params.get("hold") == Some(&Value::Bool(true))).then(|| {
+        RpcError::invalid_params("attach hold is local-only; peer chats retain the v1 attach")
+            .with_data(json!({"reason": "attach_hold.peer_refused"}))
+    })
 }
 
 /// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
@@ -1201,6 +1211,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_peer_hold_attach_is_refused_before_forwarding() {
+        let error = hold_attach_peer_refusal(&json!({"hold": true})).expect("refusal");
+        assert_eq!(error.data.unwrap()["reason"], "attach_hold.peer_refused");
+        assert!(hold_attach_peer_refusal(&json!({"hold": false})).is_none());
+    }
 
     /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
     /// name, so the caller's messaging token never leaves this daemon.

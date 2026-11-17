@@ -106,6 +106,13 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
                                         "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
 
+    /// The Cloud selection an app exports to its own terminals once its Cloud bootstrap resolves (AppDelegate):
+    /// the `cmux` CLI there reads them as that app's backend. A person or a script may set them on purpose to
+    /// seed a launch (`cloud env get`, docs/cmux-next/cloud-environments.md); inherited from another cmux they
+    /// are that app's selection, and a DEV build opened from a NIGHTLY terminal took the nightly's production
+    /// backend and came up signed out. `--cloud-backend NAME` is the launch override that works from anywhere.
+    public static let cloudSelectionKnobs = ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND"]
+
     /// The capture shell home (`AppEnvironment.captureShellHome`): a PR capture slot names it in the
     /// clone's `LSEnvironment`, and a DEBUG launch may pass it in its environment instead (the media
     /// tours, scripts/cmux-next/media/tour.py), so the tour's shells and machine labels name no CI Mac.
@@ -116,20 +123,42 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// scripts/measure/live-code-app.py). Only a debug, bench or live code build reads it.
     public static let liveCodeDirKey = "CMUX_LIVE_CODE_DIR"
 
+    /// A launch that ignores every customization layer for this run, editing no file: the way back
+    /// when the UI itself is broken (`open -a "cmux NIGHTLY" --args --no-customizations`, or
+    /// `CMUX_NO_CUSTOMIZATIONS=1`). Leo, 2026-11-14: "I want people to not accidentally soft lock
+    /// themselves and like have good recovery options or whatever".
+    public static let noCustomizationsKey = "CMUX_NO_CUSTOMIZATIONS"
+    public static let noCustomizationsArgument = "--no-customizations"
+
+    /// Whether this launch ignores every layer: the argument, the variable set to anything but
+    /// empty, `0`, `false` or `no`, or Option and Shift held as the app starts (`keysHeld`).
+    public static func ignoresCustomizations(arguments: [String] = ProcessInfo.processInfo.arguments,
+                                             environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             keysHeld: Bool = false) -> Bool {
+        if keysHeld || arguments.dropFirst().contains(noCustomizationsArgument) { return true }
+        guard let raw = environment[noCustomizationsKey]?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        return !["", "0", "false", "no"].contains(raw)
+    }
+
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
-    /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
+    /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
+    /// ``cloudSelectionKnobs`` go too, unless the inherited `CMUX_BUNDLE_ID`
+    /// is `bundleID`: a launcher that names this app sets them for this app.
     public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String],
+                                     bundleID: String? = nil,
                                      isDebugBuild: Bool = ControlService.isDebugBuild) -> [String] {
         let inherited = { (key: String) in processEnvironment[key].map { bundledEnvironment[key] != $0 } ?? false }
         let fromOtherCmux = otherCmuxMarkers.contains(where: inherited)
+        let namesThisApp = bundleID.map { !$0.isEmpty && processEnvironment["CMUX_BUNDLE_ID"] == $0 } ?? false
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey, !fromOtherCmux { return false }
+            if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
             guard fromOtherCmux else { return false }
@@ -164,7 +193,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         environmentGuard: ProcessEnvironmentGuard = .process
     ) -> [String] {
         let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
-                                 bundledEnvironment: bundledEnvironment(bundle))
+                                 bundledEnvironment: bundledEnvironment(bundle), bundleID: bundle.bundleIdentifier)
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
             for key in keys { unsetenv(key) }
         }

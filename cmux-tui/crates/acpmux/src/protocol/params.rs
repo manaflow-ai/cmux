@@ -293,4 +293,6 @@ keyed! {
     WarmParams: ["sessionIds", "limit"];
     /// `_acpmux/watch_take_over`.
     WatchTakeOverParams: ["sessionId", "ifLive"];
+    /// `_acpmux/release_to_watch`.
+    ReleaseToWatchParams: ["sessionId"];
 }

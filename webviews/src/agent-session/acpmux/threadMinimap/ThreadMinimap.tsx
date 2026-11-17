@@ -82,6 +82,7 @@ import {
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -154,7 +155,6 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
-  latestShadowReach = 0,
   foot,
   railBox,
   scrolls,
@@ -182,9 +182,6 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
-  /// How far the reader is from the latest-message starting point, normalized to the transcript's
-  /// edge-fade ramp. The rail uses this only for its bottom shadow; its own list fade remains separate.
-  latestShadowReach?: number;
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
@@ -1088,7 +1085,11 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     if (reveal === undefined) return;
     setReveal(undefined);
-    list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`)?.focus();
+    focusRoute(
+      list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`),
+      "system",
+      "the minimap revealed a tick",
+    );
   }, [reveal]);
 
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
@@ -1143,7 +1144,7 @@ export function ThreadMinimap({
         const row = target instanceof Element ? target.closest<HTMLElement>("[data-tick]") : null;
         if (row && row.ownerDocument.activeElement !== row) {
           pressing.current = true;
-          row.focus({ preventScroll: true });
+          focusRoute(row, "system", "the minimap's row", { preventScroll: true });
           pressing.current = false;
         }
         // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
@@ -1282,7 +1283,6 @@ export function ThreadMinimap({
       style={
         {
           "--acpmux-rail-left": `${placement.left}px`,
-          "--acpmux-minimap-latest-shadow-reach": latestShadowReach,
         } as React.CSSProperties
       }
     >
@@ -1317,7 +1317,6 @@ export function ThreadMinimap({
           id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
-          data-shadow-variant="elevation"
           style={
             {
               ...railEdge(side, edge),

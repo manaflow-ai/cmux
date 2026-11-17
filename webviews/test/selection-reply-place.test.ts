@@ -5,7 +5,7 @@
 //
 // Every shown chip is inside the visible transcript (its scroller above the composer), inside its
 // bounds (the transcript column; the pane where the column is narrower than the chip) and over no
-// unselected character; where no spot is all three, the chip hides. A selection whose spot over its
+// character, the selection's own included (user 2026-11-15); where no spot is all three, the chip hides. A selection whose spot over its
 // end is clear keeps the chip there, where it always was; one that ends its line sits the chip just
 // after its last character, centred on that line.
 //
@@ -51,8 +51,8 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
 
   type Box = { left: number; top: number; right: number; bottom: number };
   /** What the page shows for the current selection: the chip's box (none when it hides), the
-   *  selection's last character's box, the chip's bounds, the visible transcript and the unselected
-   *  characters the chip covers (more than 1 px each way). */
+   *  selection's last character's box, the chip's bounds, the visible transcript and the characters,
+   *  selected or not, the chip covers (more than 1 px each way). */
   type Read = {
     shown: boolean;
     chip: Box;
@@ -122,7 +122,6 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
                 if (!Array.from(one.getClientRects()).some((rect) => cross(rect, 1))) continue;
                 for (let at = 0; at < node.data.length; at += 1) {
                   if (/\s/.test(node.data[at]!)) continue;
-                  if (range.comparePoint(node, at) === 0 && range.comparePoint(node, at + 1) === 0) continue;
                   one.setStart(node, at);
                   one.setEnd(node, at + 1);
                   if (cross(one.getBoundingClientRect(), 1)) covered += node.data[at];
@@ -176,14 +175,15 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   };
 
   const centre = (box: Box) => (box.top + box.bottom) / 2;
-  /** What holds for every shown chip: in its bounds, in the visible transcript, over no unselected text. */
+  /** What holds for every shown chip: in its bounds, in the visible transcript, over no text at all
+   *  (the selection's own included: user 2026-11-15, the chip hid the words just selected). */
   const placedWell = ({ shown, chip, bounds, view, covered }: Read) => {
     expect(shown, "the chip shows").toBe(true);
     expect(chip.right, "the chip stays in its bounds").toBeLessThanOrEqual(bounds.right + 0.5);
     expect(chip.left, "the chip stays in its bounds").toBeGreaterThanOrEqual(bounds.left - 0.5);
     expect(chip.top, "the chip stays in the visible transcript").toBeGreaterThanOrEqual(view.top - 0.5);
     expect(chip.bottom, "the chip stays in the visible transcript").toBeLessThanOrEqual(view.bottom + 0.5);
-    expect(covered, "the chip covers no unselected text").toBe("");
+    expect(covered, "the chip covers no text, selected or not").toBe("");
   };
   /** Just after the selection's last character, centred on its line. */
   const inline = ({ chip, line }: Read) => {
@@ -195,17 +195,17 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   };
 
   for (const width of [1040, 400])
-    test(`a selection ending at a line's right edge mid-paragraph: no margin, no unselected word covered (${width} px)`, async () => {
+    test(`a selection ending at a line's right edge mid-paragraph: no margin, no word covered (${width} px)`, async () => {
       const result = await placed("chip-right-edge", width);
       expect(result.line.right, "the selection ends near the column's edge").toBeGreaterThan(result.bounds.right - 80);
       placedWell(result);
     });
 
-  test("a multi-line selection ending mid-line: the chip covers no unselected word", async () => {
+  test("a multi-line selection ending mid-line: the chip covers no word", async () => {
     placedWell(await placed("chip-multi-line", 1040));
   });
 
-  test("a mid-line selection whose spot over its end holds text: the chip covers no unselected word", async () => {
+  test("a mid-line selection whose spot over its end holds text: the chip covers no word", async () => {
     placedWell(await placed("chip-mid-line", 1040));
   });
 
@@ -230,11 +230,11 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   });
 
   for (const width of [1040, 400])
-    test(`a selection across a bold word (overlapping boxes): no unselected text covered (${width} px)`, async () => {
+    test(`a selection across a bold word (overlapping boxes): no text covered (${width} px)`, async () => {
       placedWell(await placed("chip-bold-mid", width));
     });
 
-  test("a backward multi-line drag: no unselected text covered near either end", async () => {
+  test("a backward multi-line drag: no text covered near either end", async () => {
     placedWell(await placed("chip-backward-multi-line", 1040));
   });
 
@@ -247,10 +247,17 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   });
 
   // Review on #37507 (698288c9): a selection scrolled out of the visible transcript put the chip at
-  // the edge, over other text.
+  // the edge, over other text. A paragraph's end, whose inline spot is free in any view: in a dense
+  // paragraph taller than this short view every free spot lies outside it and the chip hides.
   test("a selection scrolled out of view hides the chip; scrolled back, it shows again", async () => {
-    const page = await open("chip-short-mid", 1040, 300);
+    const page = await open("chip-paragraph-end", 1040, 300);
     try {
+      // The stage's reply is short: empty room under it lets a scroll take the selection out of view.
+      await page.evaluate(() => {
+        const room = document.createElement("div");
+        room.style.height = "800px";
+        document.querySelector(".acpmux-scroll")!.append(room);
+      });
       // The selection's last line in the middle of the visible transcript first.
       const start = await read(page);
       await scroll(
@@ -272,7 +279,7 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   });
 
   // Seeded random selections and scroll offsets over the stages: every result either hides, or is
-  // in the visible transcript, in its bounds and over no unselected character.
+  // in the visible transcript, in its bounds and over no character.
   const STAGES = ["chip-short-mid", "chip-right-edge", "chip-bold-mid", "chip-inline-code", "chip-short-prompt"];
   for (const width of [1040, 400])
     test(`invariant over seeded random selections and scrolls (${width} px)`, async () => {

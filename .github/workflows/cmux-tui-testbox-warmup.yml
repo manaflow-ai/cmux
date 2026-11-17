@@ -412,7 +412,7 @@ jobs:
           name: cmux-tui-testbox-setup-${{ github.run_id }}
           path: testbox-benchmark/setup-identity.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
       # Missing `/tmp/.testbox` means begin-testbox could not register the VM.
       # No auth token or API URL exists, so neither this workflow nor the pinned

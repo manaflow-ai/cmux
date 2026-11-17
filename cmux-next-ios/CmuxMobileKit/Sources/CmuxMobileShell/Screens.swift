@@ -87,7 +87,7 @@ struct WorkspacesScreen: View {
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
                                isLinkTarget: { live.isLinked(macID: $0) })
                 },
-                refresh: shell.live.map { live in { await live.refreshWorkspaces() } },
+                refresh: shell.live.map { live in { await live.refreshWorkspaces() } } ?? Self.rigRefresh,
                 retryLoad: { await shell.retryWorkspaces() },
                 switchTeam: { shell.switchTeam(to: $0) },
                 openAccount: {
@@ -108,6 +108,16 @@ struct WorkspacesScreen: View {
                 }
                 .cmuxMobileBanner(shell.banner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
         }
+    }
+
+    /// Mock mode has no live refresh; the pull-to-refresh rig gives the list one
+    /// (`CMUX_MOBILE_LIST_REFRESH_SECONDS`, DEBUG and Demo builds only).
+    private static var rigRefresh: (() async -> Void)? {
+        #if DEBUG
+        ListStressSettings.shared.refreshSeconds.map { seconds in { try? await Task.sleep(for: .seconds(seconds)) } }
+        #else
+        nil
+        #endif
     }
 }
 

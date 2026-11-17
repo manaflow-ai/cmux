@@ -13,7 +13,7 @@ use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, retired_reason};
+use crate::schema::{Row, accepts, replaced_by_row, retired_keys, retired_reason};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -56,7 +56,7 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
     let source = state.source.as_str();
     let (text, applied_edits) = match op {
         Op::Set { target, value, meta } => {
-            (set_text(state, source, &target, canonical(value), &meta)?, Vec::new())
+            (set_text(state, source, &target, canonical(value), &meta, true)?, Vec::new())
         }
         Op::Reset { target, meta } => (reset_text(state, source, &target, &meta)?, Vec::new()),
         Op::ResetAll { meta } => (reset_all_text(state, &meta)?, Vec::new()),
@@ -154,7 +154,7 @@ fn edit_text(
     let mut applied = Vec::new();
     for (index, edit) in edits.iter().enumerate() {
         let holds = match &edit.kind {
-            EditKind::Set(_) | EditKind::Reset => true,
+            EditKind::Set(_) | EditKind::SetExact(_) | EditKind::Reset => true,
             EditKind::SetUnset(_) => file_value(&text, &edit.target)?.is_none(),
             EditKind::ResetUnchanged(expected) => {
                 file_value(&text, &edit.target)?.map(canonical) == Some(canonical(expected.clone()))
@@ -165,7 +165,10 @@ fn edit_text(
         }
         text = match &edit.kind {
             EditKind::Set(value) | EditKind::SetUnset(value) => {
-                set_text(state, &text, &edit.target, canonical(value.clone()), meta)?
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, true)?
+            }
+            EditKind::SetExact(value) => {
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, false)?
             }
             EditKind::Reset | EditKind::ResetUnchanged(_) => {
                 reset_text(state, &text, &edit.target, meta)?
@@ -182,12 +185,15 @@ fn file_value(text: &str, target: &Target) -> Result<Option<Value>, Refusal> {
     Ok(value_at(&root, &target.path()).cloned())
 }
 
+/// `remove_default`: a schema row set to its default loses its key
+/// (`settings.set`); `set_exact` passes false and keeps it.
 fn set_text(
     state: &State,
     source: &str,
     target: &Target,
     value: Value,
     meta: &WriteMeta,
+    remove_default: bool,
 ) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
     if let Some(reason) = retired_reason(&path) {
@@ -203,14 +209,26 @@ fn set_text(
         let below = state.managed.recommended.contains_key(&row.key)
             || state.team.defaults.contains_key(&row.key)
             || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
-        if row.default.clone().map(canonical).as_ref() == Some(&value) && !below {
-            return remove_pruning(source.to_string(), &path);
+        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
+            return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
         }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
-    jsonc::set(source, &path, &value).map_err(unreadable)
+    let text = without_replaced(source.to_string(), &path)?;
+    jsonc::set(&text, &path, &value).map_err(unreadable)
+}
+
+/// `text` without the retired key the row at `path` replaced, so the old key
+/// never applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
+    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    if value_at(&root, &replaced.old).is_none() {
+        return Ok(text);
+    }
+    remove_pruning(text, &replaced.old)
 }
 
 /// Keys whose reader fills an unset key with something other than the row's default, so a written
@@ -251,10 +269,11 @@ fn reset_text(
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
     // A retired key may be removed from an old file (pruning like a row).
+    let text = without_replaced(source.to_string(), &path)?;
     if row.is_some() || retired_reason(&path).is_some() {
-        remove_pruning(source.to_string(), &path)
+        remove_pruning(text, &path)
     } else {
-        jsonc::remove(source, &path).map_err(unreadable)
+        jsonc::remove(&text, &path).map_err(unreadable)
     }
 }
 
@@ -280,6 +299,14 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
             continue;
         }
         text = remove_pruning(text, &row.path)?;
+    }
+    // Retired keys go too, as in Swift `resetAllSettings`: an old key a row
+    // replaced would apply again behind the reset.
+    for (key, _) in retired_keys() {
+        let path: Vec<String> = key.split('.').map(str::to_string).collect();
+        if removable(path.as_slice()) && !managed.contains_key(key) {
+            text = remove_pruning(text, &path)?;
+        }
     }
     let bindings = parts(&["shortcuts", "bindings"]);
     if removable(bindings.as_slice()) {

@@ -58,9 +58,7 @@
               "workspaces.freeing.enabled",
               "workspaces.freeing.idleMinutes",
               "workspaces.freeing.agents",
-              "workspaces.freeing.runningCommands",
-              "agents.hiddenChats.discard",
-              "agents.hiddenChats.discardAfterMinutes"
+              "workspaces.freeing.runningCommands"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -215,7 +213,7 @@
           "text" : "Personalization"
         },
         "trail" : [
-
+          "customizeLibrary"
         ]
       },
       {
@@ -233,6 +231,7 @@
               "appearance.customDensity",
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
+              "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.focusIndicator",
@@ -308,6 +307,11 @@
             "rows" : [
               "appearance.background",
               "appearance.backgroundRotation",
+              "appearance.backgroundLight",
+              "appearance.backgroundDark",
+              "appearance.backgroundSchedule",
+              "appearance.backgroundDynamic",
+              "appearance.backgroundLocation",
               "appearance.displayBackgrounds",
               "appearance.displayBackgroundRotations",
               "appearance.paneBackgrounds",
@@ -734,6 +738,7 @@
             "key" : "newTab.0",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.newTabApp",
               "tabs.nativeNewTabPage",
               "sidebar.showChats",
               "tabs.newTabNowPlaying"
@@ -1146,7 +1151,8 @@
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
               "browser.passwords.allowExport",
-              "browser.verificationAutofill.enabled"
+              "browser.verificationAutofill.enabled",
+              "browser.verificationAutofill.accounts"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -1368,7 +1374,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.ultraMode"
+              "remote.ultra"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -1862,6 +1868,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -1876,8 +1905,6 @@
           {
             "key" : "settings.group.phone",
             "rows" : [
-              "phone.allowConnections",
-              "phone.startSessions",
               "phone.keepAwake",
               "phone.cloudReplica",
               "phone.cloudDesktop"
@@ -2219,6 +2246,7 @@
       {
         "categories" : [
           "accounts",
+          "keys",
           "mobile",
           "devices"
         ],
@@ -4310,6 +4338,158 @@
     },
     {
       "accepts" : [
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.none",
+        "text" : "None"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabApp.help",
+        "text" : "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabApp",
+      "keywords" : [
+        "new tab",
+        "extension",
+        "app",
+        "launcher",
+        "start page",
+        "custom page",
+        "cmux.newtab"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabApp"
+      ],
+      "pattern" : "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$",
+      "placeholder" : null,
+      "refuses" : [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.tabs.newTabApp.summary",
+        "text" : "An extension's New Tab page"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.newTabApp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.newTabApp",
+        "text" : "New Tab App"
+      },
+      "validation" : "domain:app_id"
+    },
+    {
+      "accepts" : [
         "afterCurrent",
         "end",
         "start"
@@ -4672,7 +4852,7 @@
       },
       "help" : {
         "key" : "settings.tabs.plusButton.help",
-        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+        "text" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.plusButton",
@@ -12387,273 +12567,6 @@
       "title" : {
         "key" : "settings.agents.promptSuggestions",
         "text" : "Suggest Next Prompt"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.allowConnections",
-      "keywords" : [
-        "iphone",
-        "ios",
-        "mobile",
-        "remote",
-        "phone",
-        "pair",
-        "privacy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "allowConnections"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.allowConnections"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.allowConnections",
-        "text" : "Let Your Phone Use This Mac"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.startSessions.help",
-        "text" : "Off, your phone can still follow, type into and answer what's already running."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.startSessions",
-      "keywords" : [
-        "iphone",
-        "mobile",
-        "remote",
-        "workspace",
-        "terminal",
-        "start"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "startSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.startSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.startSessions",
-        "text" : "Let Your Phone Start New Workspaces"
       },
       "validation" : "portable"
     },
@@ -24375,292 +24288,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard.help",
-        "text" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discard",
-      "keywords" : [
-        "agent",
-        "chat",
-        "chats",
-        "release",
-        "discard",
-        "hidden",
-        "memory",
-        "ram",
-        "idle",
-        "saver"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discard"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discard"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard",
-        "text" : "Release Hidden Agent Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        1,
-        1440,
-        720.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 15,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help",
-        "text" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discardAfterMinutes",
-      "keywords" : [
-        "agent",
-        "chat",
-        "release",
-        "discard",
-        "hidden",
-        "minutes",
-        "timeout",
-        "memory"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discardAfterMinutes"
-      ],
-      "placeholder" : null,
-      "range" : {
-        "max" : 1440,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "minutes"
-      },
-      "refuses" : [
-        -1438,
-        2879,
-        "1"
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discardAfterMinutes"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes",
-        "text" : "Release Hidden Chats After"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -24836,7 +24463,7 @@
         },
         {
           "title" : {
-            "key" : null,
+            "key" : "settings.choice.neko",
             "text" : "Neko"
           },
           "value" : "neko"
@@ -27683,7 +27310,9 @@
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
         "file:/Users/Shared/Harbor.png",
-        "folder:/Users/Shared/Wallpapers"
+        "folder:/Users/Shared/Wallpapers",
+        "appearance",
+        "schedule"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -27701,6 +27330,20 @@
             "text" : "Shuffle Paintings"
           },
           "value" : "daily"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundFollowAppearance",
+            "text" : "Light and Dark"
+          },
+          "value" : "appearance"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundTimeOfDay",
+            "text" : "Time of Day"
+          },
+          "value" : "schedule"
         },
         {
           "title" : {
@@ -28743,7 +28386,7 @@
       },
       "help" : {
         "key" : "settings.appearance.background.help",
-        "text" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+        "text" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.background",
@@ -28878,7 +28521,10 @@
       "accepts" : [
         "15m",
         "hourly",
-        "daily"
+        "daily",
+        1,
+        1440,
+        720.5
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -28916,7 +28562,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundRotation.help",
-        "text" : "How often a shuffled background turns to its next picture."
+        "text" : "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundRotation",
@@ -28927,19 +28573,29 @@
         "wallpaper",
         "interval",
         "change picture",
-        "background"
+        "background",
+        "minutes"
       ],
-      "kind" : "choice",
+      "kind" : "choice_or_number",
       "page_hidden" : false,
       "path" : [
         "appearance",
         "backgroundRotation"
       ],
       "placeholder" : null,
+      "range" : {
+        "max" : 1440,
+        "min" : 1,
+        "placeholder" : 30,
+        "step" : 1,
+        "unit" : "minutes"
+      },
       "refuses" : [
         "__not_a_choice__",
-        1,
-        true
+        true,
+        -1438,
+        2879,
+        "1"
       ],
       "section" : "appearance",
       "summary" : {
@@ -29036,6 +28692,2838 @@
         "text" : "Change Picture"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "desktop",
+        "munch-scream",
+        "system:/System/Library/Desktop Pictures/Sonoma.heic",
+        "file:/Users/Shared/Harbor.png"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Death of Marat — Jacques-Louis David"
+          },
+          "value" : "david-death-of-marat"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
+          },
+          "value" : "velde-small-ship-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ascent of the Blessed — Hieronymus Bosch"
+          },
+          "value" : "bosch-ascent-blessed"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Witches' Flight — Francisco Goya"
+          },
+          "value" : "goya-witches-flight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pandemonium — John Martin"
+          },
+          "value" : "martin-pandemonium"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Burning of the Frigate Philadelphia — Edward Moran"
+          },
+          "value" : "moran-burning-philadelphia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Burial of the Sardine — Francisco Goya"
+          },
+          "value" : "goya-burial-sardine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wild Hunt of Odin — Peter Nicolai Arbo"
+          },
+          "value" : "arbo-wild-hunt"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
+          },
+          "value" : "altdorfer-battle-of-issus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madonna — Edvard Munch"
+          },
+          "value" : "munch-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fish Magic — Paul Klee"
+          },
+          "value" : "klee-fish-magic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
+          },
+          "value" : "friedrich-forest-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights: Paradise — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-left"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm on the Sea of Galilee — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-storm-galilee"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Manhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-manhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Scream — Edvard Munch"
+          },
+          "value" : "munch-scream"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-fall-rebel-angels"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vesuvius in Eruption — Joseph Wright of Derby"
+          },
+          "value" : "wright-vesuvius"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Markos Botsaris — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-botsaris"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joshua Commanding the Sun to Stand Still — John Martin"
+          },
+          "value" : "martin-joshua"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Gust — Willem van de Velde the Younger"
+          },
+          "value" : "velde-gale"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Niō Seizing an Evil Spirit — Kanō Hōgai"
+          },
+          "value" : "hogai-nio"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-central"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Day of His Wrath — John Martin"
+          },
+          "value" : "martin-great-day-wrath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wounded Eagle — Rosa Bonheur"
+          },
+          "value" : "bonheur-wounded-eagle"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Old Age — Thomas Cole"
+          },
+          "value" : "cole-voyage-old-age"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Abbey in the Oakwood — Caspar David Friedrich"
+          },
+          "value" : "friedrich-abbey-oakwood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sleep of Reason Produces Monsters — Francisco Goya"
+          },
+          "value" : "goya-sleep-of-reason"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights (Detail) — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-fragment"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vertigo — Léon Spilliaert"
+          },
+          "value" : "spilliaert-vertigo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Melpomene — Alexander Rothaug"
+          },
+          "value" : "rothaug-melpomene"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ship-stormy-seas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fallen Angel — Alexandre Cabanel"
+          },
+          "value" : "cabanel-fallen-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman at the Shoreline — Léon Spilliaert"
+          },
+          "value" : "spilliaert-woman-shoreline"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-prodigal-son"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Las Meninas — Diego Velázquez"
+          },
+          "value" : "velazquez-las-meninas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Stańczyk — Jan Matejko"
+          },
+          "value" : "matejko-stanczyk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame X — John Singer Sargent"
+          },
+          "value" : "sargent-madame-x"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joan of Arc — John Everett Millais"
+          },
+          "value" : "millais-joan-of-arc"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm — Pierre Auguste Cot"
+          },
+          "value" : "cot-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Night Watch — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-night-watch"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame Grand — Élisabeth Vigée Le Brun"
+          },
+          "value" : "vigee-lebrun-madame-grand"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lady of Shalott — John William Waterhouse"
+          },
+          "value" : "waterhouse-lady-shalott"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Swing — Jean-Honoré Fragonard"
+          },
+          "value" : "fragonard-swing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Miracles of St Francis Xavier — Peter Paul Rubens"
+          },
+          "value" : "rubens-st-francis-xavier"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Girl with a Pearl Earring — Johannes Vermeer"
+          },
+          "value" : "vermeer-pearl-earring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Self-Portrait — Elin Danielson-Gambogi"
+          },
+          "value" : "danielson-gambogi-self"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "His Majesty Receives — William Holbrook Beard"
+          },
+          "value" : "beard-his-majesty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Foxes — Franz Marc"
+          },
+          "value" : "marc-foxes"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer in Green — Edgar Degas"
+          },
+          "value" : "degas-green-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nude Sitting on a Divan — Amedeo Modigliani"
+          },
+          "value" : "modigliani-nude-divan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sistine Madonna — Raphael"
+          },
+          "value" : "raphael-sistine-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Virgin of the Lilies — William-Adolphe Bouguereau"
+          },
+          "value" : "bouguereau-virgin-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "American Gothic — Grant Wood"
+          },
+          "value" : "wood-american-gothic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tournée du Chat Noir — Théophile Alexandre Steinlen"
+          },
+          "value" : "steinlen-chat-noir"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blue Dancers — Edgar Degas"
+          },
+          "value" : "degas-blue-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Primavera — Sandro Botticelli"
+          },
+          "value" : "botticelli-primavera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Café Terrace at Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-cafe-terrace"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Red Room — Henri Matisse"
+          },
+          "value" : "matisse-red-room"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deepened Impulse — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-deepened-impulse"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wanderer above the Sea of Fog — Caspar David Friedrich"
+          },
+          "value" : "friedrich-wanderer"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Adele Bloch-Bauer I — Gustav Klimt"
+          },
+          "value" : "klimt-adele"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Job — Alphonse Mucha"
+          },
+          "value" : "mucha-job"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Starry Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tree of Life — Gustav Klimt"
+          },
+          "value" : "klimt-tree-of-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Kiss — Gustav Klimt"
+          },
+          "value" : "klimt-the-kiss"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Starry Night over the Rhône — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night-rhone"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Liberty Leading the People — Eugène Delacroix"
+          },
+          "value" : "delacroix-liberty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mäda Primavesi — Gustav Klimt"
+          },
+          "value" : "klimt-mada-primavesi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kneeling Woman in Orange-Red Dress — Egon Schiele"
+          },
+          "value" : "schiele-kneeling-orange"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vase with Twelve Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers-munich"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sistine Chapel Ceiling — Michelangelo"
+          },
+          "value" : "michelangelo-sistine-ceiling"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition with Large Red Plane — Piet Mondrian"
+          },
+          "value" : "mondrian-composition-red-plane"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of Hercules — François Lemoyne"
+          },
+          "value" : "lemoyne-apotheosis-hercules"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moa — Egon Schiele"
+          },
+          "value" : "schiele-moa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ninth Wave — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ninth-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Painterly Architectonic — Lyubov Popova"
+          },
+          "value" : "popova-painterly-architectonic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tower of Babel — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-tower-babel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Birth of Venus — Sandro Botticelli"
+          },
+          "value" : "botticelli-birth-of-venus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Yellow-Red-Blue — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-yellow-red-blue"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition VIII — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-composition-viii"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Unknown Woman — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-unknown-woman"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Creation of Adam — Michelangelo"
+          },
+          "value" : "michelangelo-creation-of-adam"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Wave off Kanagawa — Katsushika Hokusai"
+          },
+          "value" : "hokusai-great-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
+          },
+          "value" : "brueghel-wooden-vessel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Dresden by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-dresden-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wan-Li Vase — Ambrosius Bosschaert the Elder"
+          },
+          "value" : "bosschaert-wan-li-vase"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Springtime — Pierre Auguste Cot"
+          },
+          "value" : "cot-springtime"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Still Life with Flowers — Rachel Ruysch"
+          },
+          "value" : "ruysch-flowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowering Plum Orchard — Vincent van Gogh"
+          },
+          "value" : "van-gogh-flowering-plum"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Reluctant Bride — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-reluctant-bride"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Musical Angel — Rosso Fiorentino"
+          },
+          "value" : "rosso-musical-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blackman Street, London — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-blackman-street"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John William Waterhouse"
+          },
+          "value" : "waterhouse-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Magdalena Bay — François-Auguste Biard"
+          },
+          "value" : "biard-magdalena-bay"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Roses in a Vase — Pierre-Auguste Renoir"
+          },
+          "value" : "renoir-vase-roses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Himalayas — Nicholas Roerich"
+          },
+          "value" : "roerich-himalayas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Vessel Close-hauled — Willem van de Velde the Younger"
+          },
+          "value" : "velde-close-hauled"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flower Meadow in the North — Harald Sohlberg"
+          },
+          "value" : "sohlberg-flower-meadow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cloud Study by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-cloud-study"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Two Men Contemplating the Moon — Caspar David Friedrich"
+          },
+          "value" : "friedrich-two-men-moon"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Water-Lily Pond — Claude Monet"
+          },
+          "value" : "monet-waterlily-pond"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dusk — Otto Hesselbom"
+          },
+          "value" : "hesselbom-dusk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vanity — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-vanity"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fuji-view Teahouse at Zōshigaya — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-zoshigaya"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1906) — Claude Monet"
+          },
+          "value" : "monet-water-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1907) — Claude Monet"
+          },
+          "value" : "monet-water-lilies-1907"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Storm in the Rocky Mountains — Albert Bierstadt"
+          },
+          "value" : "bierstadt-storm-rockies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paris at Night — Konstantin Korovin"
+          },
+          "value" : "korovin-place-opera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Farm Garden with Sunflowers — Gustav Klimt"
+          },
+          "value" : "klimt-garden-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Butterflies — Odilon Redon"
+          },
+          "value" : "redon-butterflies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the Coast — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-along-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Silver Moonlight — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-silver-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies, Setting Sun — Claude Monet"
+          },
+          "value" : "monet-water-lilies-setting-sun"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Coast at Hota — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-hota-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Praying Hands — Albrecht Dürer"
+          },
+          "value" : "durer-praying-hands"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Childhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-childhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Impression, Sunrise — Claude Monet"
+          },
+          "value" : "monet-impression-sunrise"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman with a Parasol — Claude Monet"
+          },
+          "value" : "monet-woman-parasol"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cannon Shot — Willem van de Velde the Younger"
+          },
+          "value" : "velde-cannon-shot"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Pink Cloud — Henri-Edmond Cross"
+          },
+          "value" : "cross-pink-cloud"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mt. McKinley — Sydney Laurence"
+          },
+          "value" : "laurence-mckinley"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises — Vincent van Gogh"
+          },
+          "value" : "van-gogh-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Christ in the Desert — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-christ-in-the-desert"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fighting Temeraire — J. M. W. Turner"
+          },
+          "value" : "turner-temeraire"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vitruvian Man — Leonardo da Vinci"
+          },
+          "value" : "leonardo-vitruvian-man"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Hunters in the Snow — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-hunters-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Youth — Thomas Cole"
+          },
+          "value" : "cole-voyage-youth"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Monk by the Sea — Caspar David Friedrich"
+          },
+          "value" : "friedrich-monk-by-the-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses — Vincent van Gogh"
+          },
+          "value" : "van-gogh-wheat-field-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cliff Walk at Pourville — Claude Monet"
+          },
+          "value" : "monet-cliff-pourville"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Almond Blossom — Vincent van Gogh"
+          },
+          "value" : "van-gogh-almond-blossom"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fishing Boats at Saintes-Maries — Vincent van Gogh"
+          },
+          "value" : "van-gogh-fishing-boats"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Umezawa Manor in Sagami — Katsushika Hokusai"
+          },
+          "value" : "hokusai-umezawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of Satan — Gustave Doré"
+          },
+          "value" : "dore-fall-of-satan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wolves and the Sheep — Gustave Doré"
+          },
+          "value" : "dore-wolves-sheep"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Destruction of Leviathan — Gustave Doré"
+          },
+          "value" : "dore-leviathan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paradise Lost, Book VI — Gustave Doré"
+          },
+          "value" : "dore-paradise-lost-book-vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moses Breaks the Tables of the Law — Gustave Doré"
+          },
+          "value" : "dore-moses-tables"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Empyrean — Gustave Doré"
+          },
+          "value" : "dore-empyrean"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raven — Gustave Doré"
+          },
+          "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.desktopWallpaper",
+            "text" : "Desktop Wallpaper"
+          },
+          "value" : "desktop"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsDark",
+        "text" : "Same as Dark"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundLight.help",
+        "text" : "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundLight",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "light",
+        "appearance",
+        "day",
+        "auto switch"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundLight"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "none",
+        "daily",
+        "appearance",
+        "schedule",
+        "folder:/Users/Shared/Wallpapers",
+        "system:relative/path.heic",
+        "file:",
+        "__not_a_backdrop__",
+        1
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundLight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundLight",
+        "text" : "Light Picture"
+      },
+      "validation" : "domain:backdrop_picture"
+    },
+    {
+      "accepts" : [
+        "desktop",
+        "munch-scream",
+        "system:/System/Library/Desktop Pictures/Sonoma.heic",
+        "file:/Users/Shared/Harbor.png"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Death of Marat — Jacques-Louis David"
+          },
+          "value" : "david-death-of-marat"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
+          },
+          "value" : "velde-small-ship-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ascent of the Blessed — Hieronymus Bosch"
+          },
+          "value" : "bosch-ascent-blessed"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Witches' Flight — Francisco Goya"
+          },
+          "value" : "goya-witches-flight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pandemonium — John Martin"
+          },
+          "value" : "martin-pandemonium"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Burning of the Frigate Philadelphia — Edward Moran"
+          },
+          "value" : "moran-burning-philadelphia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Burial of the Sardine — Francisco Goya"
+          },
+          "value" : "goya-burial-sardine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wild Hunt of Odin — Peter Nicolai Arbo"
+          },
+          "value" : "arbo-wild-hunt"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
+          },
+          "value" : "altdorfer-battle-of-issus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madonna — Edvard Munch"
+          },
+          "value" : "munch-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fish Magic — Paul Klee"
+          },
+          "value" : "klee-fish-magic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
+          },
+          "value" : "friedrich-forest-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights: Paradise — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-left"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm on the Sea of Galilee — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-storm-galilee"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Manhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-manhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Scream — Edvard Munch"
+          },
+          "value" : "munch-scream"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-fall-rebel-angels"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vesuvius in Eruption — Joseph Wright of Derby"
+          },
+          "value" : "wright-vesuvius"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Markos Botsaris — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-botsaris"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joshua Commanding the Sun to Stand Still — John Martin"
+          },
+          "value" : "martin-joshua"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Gust — Willem van de Velde the Younger"
+          },
+          "value" : "velde-gale"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Niō Seizing an Evil Spirit — Kanō Hōgai"
+          },
+          "value" : "hogai-nio"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-central"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Day of His Wrath — John Martin"
+          },
+          "value" : "martin-great-day-wrath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wounded Eagle — Rosa Bonheur"
+          },
+          "value" : "bonheur-wounded-eagle"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Old Age — Thomas Cole"
+          },
+          "value" : "cole-voyage-old-age"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Abbey in the Oakwood — Caspar David Friedrich"
+          },
+          "value" : "friedrich-abbey-oakwood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sleep of Reason Produces Monsters — Francisco Goya"
+          },
+          "value" : "goya-sleep-of-reason"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights (Detail) — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-fragment"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vertigo — Léon Spilliaert"
+          },
+          "value" : "spilliaert-vertigo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Melpomene — Alexander Rothaug"
+          },
+          "value" : "rothaug-melpomene"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ship-stormy-seas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fallen Angel — Alexandre Cabanel"
+          },
+          "value" : "cabanel-fallen-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman at the Shoreline — Léon Spilliaert"
+          },
+          "value" : "spilliaert-woman-shoreline"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-prodigal-son"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Las Meninas — Diego Velázquez"
+          },
+          "value" : "velazquez-las-meninas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Stańczyk — Jan Matejko"
+          },
+          "value" : "matejko-stanczyk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame X — John Singer Sargent"
+          },
+          "value" : "sargent-madame-x"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joan of Arc — John Everett Millais"
+          },
+          "value" : "millais-joan-of-arc"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm — Pierre Auguste Cot"
+          },
+          "value" : "cot-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Night Watch — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-night-watch"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame Grand — Élisabeth Vigée Le Brun"
+          },
+          "value" : "vigee-lebrun-madame-grand"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lady of Shalott — John William Waterhouse"
+          },
+          "value" : "waterhouse-lady-shalott"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Swing — Jean-Honoré Fragonard"
+          },
+          "value" : "fragonard-swing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Miracles of St Francis Xavier — Peter Paul Rubens"
+          },
+          "value" : "rubens-st-francis-xavier"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Girl with a Pearl Earring — Johannes Vermeer"
+          },
+          "value" : "vermeer-pearl-earring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Self-Portrait — Elin Danielson-Gambogi"
+          },
+          "value" : "danielson-gambogi-self"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "His Majesty Receives — William Holbrook Beard"
+          },
+          "value" : "beard-his-majesty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Foxes — Franz Marc"
+          },
+          "value" : "marc-foxes"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer in Green — Edgar Degas"
+          },
+          "value" : "degas-green-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nude Sitting on a Divan — Amedeo Modigliani"
+          },
+          "value" : "modigliani-nude-divan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sistine Madonna — Raphael"
+          },
+          "value" : "raphael-sistine-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Virgin of the Lilies — William-Adolphe Bouguereau"
+          },
+          "value" : "bouguereau-virgin-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "American Gothic — Grant Wood"
+          },
+          "value" : "wood-american-gothic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tournée du Chat Noir — Théophile Alexandre Steinlen"
+          },
+          "value" : "steinlen-chat-noir"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blue Dancers — Edgar Degas"
+          },
+          "value" : "degas-blue-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Primavera — Sandro Botticelli"
+          },
+          "value" : "botticelli-primavera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Café Terrace at Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-cafe-terrace"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Red Room — Henri Matisse"
+          },
+          "value" : "matisse-red-room"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deepened Impulse — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-deepened-impulse"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wanderer above the Sea of Fog — Caspar David Friedrich"
+          },
+          "value" : "friedrich-wanderer"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Adele Bloch-Bauer I — Gustav Klimt"
+          },
+          "value" : "klimt-adele"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Job — Alphonse Mucha"
+          },
+          "value" : "mucha-job"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Starry Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tree of Life — Gustav Klimt"
+          },
+          "value" : "klimt-tree-of-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Kiss — Gustav Klimt"
+          },
+          "value" : "klimt-the-kiss"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Starry Night over the Rhône — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night-rhone"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Liberty Leading the People — Eugène Delacroix"
+          },
+          "value" : "delacroix-liberty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mäda Primavesi — Gustav Klimt"
+          },
+          "value" : "klimt-mada-primavesi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kneeling Woman in Orange-Red Dress — Egon Schiele"
+          },
+          "value" : "schiele-kneeling-orange"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vase with Twelve Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers-munich"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sistine Chapel Ceiling — Michelangelo"
+          },
+          "value" : "michelangelo-sistine-ceiling"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition with Large Red Plane — Piet Mondrian"
+          },
+          "value" : "mondrian-composition-red-plane"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of Hercules — François Lemoyne"
+          },
+          "value" : "lemoyne-apotheosis-hercules"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moa — Egon Schiele"
+          },
+          "value" : "schiele-moa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ninth Wave — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ninth-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Painterly Architectonic — Lyubov Popova"
+          },
+          "value" : "popova-painterly-architectonic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tower of Babel — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-tower-babel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Birth of Venus — Sandro Botticelli"
+          },
+          "value" : "botticelli-birth-of-venus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Yellow-Red-Blue — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-yellow-red-blue"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition VIII — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-composition-viii"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Unknown Woman — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-unknown-woman"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Creation of Adam — Michelangelo"
+          },
+          "value" : "michelangelo-creation-of-adam"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Wave off Kanagawa — Katsushika Hokusai"
+          },
+          "value" : "hokusai-great-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
+          },
+          "value" : "brueghel-wooden-vessel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Dresden by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-dresden-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wan-Li Vase — Ambrosius Bosschaert the Elder"
+          },
+          "value" : "bosschaert-wan-li-vase"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Springtime — Pierre Auguste Cot"
+          },
+          "value" : "cot-springtime"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Still Life with Flowers — Rachel Ruysch"
+          },
+          "value" : "ruysch-flowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowering Plum Orchard — Vincent van Gogh"
+          },
+          "value" : "van-gogh-flowering-plum"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Reluctant Bride — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-reluctant-bride"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Musical Angel — Rosso Fiorentino"
+          },
+          "value" : "rosso-musical-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blackman Street, London — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-blackman-street"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John William Waterhouse"
+          },
+          "value" : "waterhouse-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Magdalena Bay — François-Auguste Biard"
+          },
+          "value" : "biard-magdalena-bay"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Roses in a Vase — Pierre-Auguste Renoir"
+          },
+          "value" : "renoir-vase-roses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Himalayas — Nicholas Roerich"
+          },
+          "value" : "roerich-himalayas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Vessel Close-hauled — Willem van de Velde the Younger"
+          },
+          "value" : "velde-close-hauled"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flower Meadow in the North — Harald Sohlberg"
+          },
+          "value" : "sohlberg-flower-meadow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cloud Study by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-cloud-study"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Two Men Contemplating the Moon — Caspar David Friedrich"
+          },
+          "value" : "friedrich-two-men-moon"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Water-Lily Pond — Claude Monet"
+          },
+          "value" : "monet-waterlily-pond"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dusk — Otto Hesselbom"
+          },
+          "value" : "hesselbom-dusk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vanity — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-vanity"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fuji-view Teahouse at Zōshigaya — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-zoshigaya"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1906) — Claude Monet"
+          },
+          "value" : "monet-water-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1907) — Claude Monet"
+          },
+          "value" : "monet-water-lilies-1907"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Storm in the Rocky Mountains — Albert Bierstadt"
+          },
+          "value" : "bierstadt-storm-rockies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paris at Night — Konstantin Korovin"
+          },
+          "value" : "korovin-place-opera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Farm Garden with Sunflowers — Gustav Klimt"
+          },
+          "value" : "klimt-garden-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Butterflies — Odilon Redon"
+          },
+          "value" : "redon-butterflies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the Coast — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-along-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Silver Moonlight — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-silver-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies, Setting Sun — Claude Monet"
+          },
+          "value" : "monet-water-lilies-setting-sun"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Coast at Hota — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-hota-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Praying Hands — Albrecht Dürer"
+          },
+          "value" : "durer-praying-hands"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Childhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-childhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Impression, Sunrise — Claude Monet"
+          },
+          "value" : "monet-impression-sunrise"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman with a Parasol — Claude Monet"
+          },
+          "value" : "monet-woman-parasol"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cannon Shot — Willem van de Velde the Younger"
+          },
+          "value" : "velde-cannon-shot"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Pink Cloud — Henri-Edmond Cross"
+          },
+          "value" : "cross-pink-cloud"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mt. McKinley — Sydney Laurence"
+          },
+          "value" : "laurence-mckinley"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises — Vincent van Gogh"
+          },
+          "value" : "van-gogh-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Christ in the Desert — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-christ-in-the-desert"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fighting Temeraire — J. M. W. Turner"
+          },
+          "value" : "turner-temeraire"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vitruvian Man — Leonardo da Vinci"
+          },
+          "value" : "leonardo-vitruvian-man"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Hunters in the Snow — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-hunters-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Youth — Thomas Cole"
+          },
+          "value" : "cole-voyage-youth"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Monk by the Sea — Caspar David Friedrich"
+          },
+          "value" : "friedrich-monk-by-the-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses — Vincent van Gogh"
+          },
+          "value" : "van-gogh-wheat-field-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cliff Walk at Pourville — Claude Monet"
+          },
+          "value" : "monet-cliff-pourville"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Almond Blossom — Vincent van Gogh"
+          },
+          "value" : "van-gogh-almond-blossom"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fishing Boats at Saintes-Maries — Vincent van Gogh"
+          },
+          "value" : "van-gogh-fishing-boats"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Umezawa Manor in Sagami — Katsushika Hokusai"
+          },
+          "value" : "hokusai-umezawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of Satan — Gustave Doré"
+          },
+          "value" : "dore-fall-of-satan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wolves and the Sheep — Gustave Doré"
+          },
+          "value" : "dore-wolves-sheep"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Destruction of Leviathan — Gustave Doré"
+          },
+          "value" : "dore-leviathan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paradise Lost, Book VI — Gustave Doré"
+          },
+          "value" : "dore-paradise-lost-book-vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moses Breaks the Tables of the Law — Gustave Doré"
+          },
+          "value" : "dore-moses-tables"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Empyrean — Gustave Doré"
+          },
+          "value" : "dore-empyrean"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raven — Gustave Doré"
+          },
+          "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.desktopWallpaper",
+            "text" : "Desktop Wallpaper"
+          },
+          "value" : "desktop"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsLight",
+        "text" : "Same as Light"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundDark.help",
+        "text" : "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundDark",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "dark",
+        "appearance",
+        "night",
+        "auto switch"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundDark"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "none",
+        "daily",
+        "appearance",
+        "schedule",
+        "folder:/Users/Shared/Wallpapers",
+        "system:relative/path.heic",
+        "file:",
+        "__not_a_backdrop__",
+        1
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundDark"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundDark",
+        "text" : "Dark Picture"
+      },
+      "validation" : "domain:backdrop_picture"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "07:00" : "munch-scream",
+          "9:30" : "desktop",
+          "dawn+90m" : "desktop",
+          "dusk" : "desktop",
+          "noon" : "desktop",
+          "sunrise+1h" : "system:/System/Library/Desktop Pictures/Sonoma.heic",
+          "sunset-30m" : "file:/Users/Shared/Night.png"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundSchedule.help",
+        "text" : "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundSchedule",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "schedule",
+        "time of day",
+        "sunrise",
+        "sunset",
+        "night",
+        "auto switch"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundSchedule"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "07:00",
+        [
+
+        ],
+        {
+          "24:00" : "desktop"
+        },
+        {
+          "07:60" : "desktop"
+        },
+        {
+          "7" : "desktop"
+        },
+        {
+          "sunset-" : "desktop"
+        },
+        {
+          "sunset+30s" : "desktop"
+        },
+        {
+          "midnight" : "desktop"
+        },
+        {
+          "07:00" : "daily"
+        },
+        {
+          "07:00" : "folder:/Users/Shared/Wallpapers"
+        },
+        {
+          "07:00" : "__not_a_backdrop__"
+        },
+        {
+          "07:00" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundSchedule"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundSchedule",
+        "text" : "Time of Day Pictures"
+      },
+      "validation" : "domain:backdrop_schedule"
+    },
+    {
+      "accepts" : [
+        "appearance",
+        "time"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundFollowAppearance",
+            "text" : "Light and Dark"
+          },
+          "value" : "appearance"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundTimeOfDay",
+            "text" : "Time of Day"
+          },
+          "value" : "time"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "appearance",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundDynamic.help",
+        "text" : "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundDynamic",
+      "keywords" : [
+        "dynamic",
+        "wallpaper",
+        "sun",
+        "solar",
+        "time of day",
+        "macos"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundDynamic"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.backgroundDynamic.summary",
+        "text" : "Follow light and dark, or the sun"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundDynamic"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundDynamic",
+        "text" : "Dynamic Wallpaper"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "37.77,-122.42",
+        "-33.87, 151.21",
+        "69.65,18.96"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.fromTimeZone",
+        "text" : "From Time Zone"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundLocation.help",
+        "text" : "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundLocation",
+      "keywords" : [
+        "location",
+        "latitude",
+        "longitude",
+        "sunrise",
+        "sunset",
+        "sun"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundLocation"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "37.77,-122.42"
+      },
+      "refuses" : [
+        "",
+        "37.77",
+        "91,0",
+        "0,181",
+        "north,east",
+        "1,2,3",
+        1
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundLocation"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundLocation",
+        "text" : "Sun Location"
+      },
+      "validation" : "domain:backdrop_location"
     },
     {
       "accepts" : [
@@ -31536,6 +34024,174 @@
       "title" : {
         "key" : "settings.appearance.textSize",
         "text" : "Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "antialiased",
+        "subpixel"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingAuto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingThin",
+            "text" : "Thin"
+          },
+          "value" : "antialiased"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingSmooth",
+            "text" : "Smooth"
+          },
+          "value" : "subpixel"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.fontSmoothing.help",
+        "text" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fontSmoothing",
+      "keywords" : [
+        "AppleFontSmoothing",
+        "antialiased",
+        "antialiasing",
+        "auto",
+        "bold",
+        "crisp",
+        "font",
+        "rendering",
+        "smooth",
+        "smoothing",
+        "subpixel",
+        "system",
+        "text",
+        "thin",
+        "weight"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fontSmoothing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.fontSmoothing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.fontSmoothing",
+        "text" : "Text Smoothing"
       },
       "validation" : "portable"
     },
@@ -60791,7 +63447,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -61071,7 +63727,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -61099,7 +63755,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.minimal.summary",
-        "text" : "Rows show only icon, name and unread mark"
+        "text" : "Buttons show only on hover"
       },
       "surfaces" : {
         "cli" : {
@@ -65164,7 +67820,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 400,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66585,7 +69241,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1500,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -87605,6 +90261,160 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.accounts.help",
+        "text" : "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.accounts",
+      "keywords" : [
+        "email",
+        "gmail",
+        "mail",
+        "account",
+        "verification",
+        "code"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "accounts"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "you@example.com"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "browser",
+      "summary" : {
+        "key" : "settings.browser.verificationAutofill.accounts.summary",
+        "text" : "Addresses cmux may read codes from"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.verificationAutofill.accounts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.accounts",
+        "text" : "Email Accounts for Codes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "hosted",
         {
           "selfHosted" : "http://mini.tail1234.ts.net:7320"
@@ -102998,28 +105808,53 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "auto",
+        "always"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
         "text" : "cmux Remote"
       },
       "help" : {
-        "key" : "settings.remote.ultraMode.help",
-        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+        "key" : "settings.remote.ultra.help",
+        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
       },
       "kept_on_reset_all" : false,
-      "key" : "remote.ultraMode",
+      "key" : "remote.ultra",
       "keywords" : [
         "ultra",
+        "auto",
         "lossy",
         "packet loss",
         "bandwidth",
@@ -103029,21 +105864,21 @@
         "latency",
         "fec"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "remote",
-        "ultraMode"
+        "ultra"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.remote.ultraMode.summary",
+        "key" : "settings.remote.ultra.summary",
         "text" : "Uses more data to stay fast on lossy networks"
       },
       "surfaces" : {
@@ -103097,13 +105932,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:remote.ultraMode"
+          "row" : "setting:remote.ultra"
         },
         "socket" : {
           "aliases" : [
@@ -103130,7 +105965,7 @@
         }
       },
       "title" : {
-        "key" : "settings.remote.ultraMode",
+        "key" : "settings.remote.ultra",
         "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"

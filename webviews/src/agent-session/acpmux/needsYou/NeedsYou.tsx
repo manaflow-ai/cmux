@@ -18,6 +18,7 @@ import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { useAnswerHoldSet } from "../answerHold";
 import { Keycap } from "../Keycap";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
@@ -176,8 +177,10 @@ export function NeedsYouPanel({
 }) {
   const t = useT();
   const now = useMinuteClock();
-  // Asks answered here, hidden until acpmux's change takes them off the list.
-  const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
+  // Asks answered here, hidden until acpmux's change takes them off the list, ANSWER_HOLD_MS at most
+  // (answerHold.ts): one acpmux never took off (the chat ended, the answer was dropped) shows again,
+  // so the list and the pill's count never disagree for long and the ask can be answered.
+  const { held: sent, add: holdSent, remove: releaseSent } = useAnswerHoldSet();
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
   // y and n answer an approval as its card does: the row with focus, else the top one. The key
@@ -226,14 +229,8 @@ export function NeedsYouPanel({
               now={now}
               focused={item.id === focus}
               actions={actions}
-              onSent={() => setSent((before) => new Set(before).add(item.id))}
-              onRefused={() =>
-                setSent((before) => {
-                  const next = new Set(before);
-                  next.delete(item.id);
-                  return next;
-                })
-              }
+              onSent={() => holdSent(item.id)}
+              onRefused={() => releaseSent(item.id)}
             />
           ))}
         </ul>

@@ -26,7 +26,11 @@ pub mod host {
         Err(crate::platform::unsupported("the agent host"))
     }
 }
+#[cfg(unix)]
+pub mod custody;
 pub mod link;
+#[cfg(unix)]
+pub(crate) mod proc_table;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
@@ -108,6 +112,10 @@ pub enum ControllerFrame {
     Detach,
     /// Ask for the translator's state (Claude stream-json harnesses).
     Query { id: u64 },
+    /// The agent holder (`custody.rs`): on a connection of its own, instead of `Hello`. The
+    /// host answers with its spawn spec and dups of the harness's stdio, its output ring and
+    /// pidfd over `SCM_RIGHTS`, then closes the connection.
+    Custody { token: String },
 }
 
 /// Host to controller.
@@ -137,6 +145,10 @@ pub enum HostFrame {
     Entry {
         h: u64,
         e: Entry,
+        /// The output ring's offset after the stdout line this entry is the last of (the agent
+        /// holder, `custody.rs`): a replacement host reads the ring again from there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        o: Option<u64>,
     },
     DetachAck,
     TerminateAck,
@@ -226,6 +238,43 @@ pub struct SpawnSpec {
     /// (or a daemon that predates it).
     #[serde(default)]
     pub prompt_suggestions_managed: Option<bool>,
+    /// The agent holder (`custody.rs`): the host keeps an output ring and hands custody of the
+    /// harness's stdio to its daemon, or (`adopt`) takes over a harness whose host died. None:
+    /// neither (the holder off, or a daemon that predates it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<HolderSpec>,
+}
+
+/// `SpawnSpec::holder`: the host keeps an output ring and hands custody to its daemon.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HolderSpec {
+    /// A replacement host: the harness runs already, and its descriptors come inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopt: Option<Adopt>,
+}
+
+/// What a replacement host continues from (`custody::respawn`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Adopt {
+    pub harness_pid: u32,
+    /// The harness's start time (macOS: its identity with the pid; Linux has the pidfd).
+    #[serde(default)]
+    pub harness_start: Option<u64>,
+    pub incarnation: String,
+    pub owner_token: String,
+    #[serde(default)]
+    pub caller_token: Option<String>,
+    /// The last entry the daemon logged: the replacement numbers on after it.
+    pub last_h: u64,
+    pub max_out_id: i64,
+    /// The ring offset after the last stdout line the daemon logged.
+    pub replay_from: u64,
+    /// A pidfd comes as the fifth descriptor.
+    pub pidfd: bool,
+    /// The start nonce the harness was started with (its `HOST_MARK`): what it started is found
+    /// by it, whatever host holds it now.
+    #[serde(default)]
+    pub harness_mark: Option<String>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
@@ -244,7 +293,7 @@ pub struct OrphanExit {
     /// The MCP servers the harness's configs named just before it started, as the daemon read
     /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
     #[serde(default)]
-    pub servers: Vec<crate::hub::Sidecar>,
+    pub servers: Vec<crate::sidecar_census::Sidecar>,
     /// The harness's `PATH`, for the servers its sessions name by command.
     #[serde(default)]
     pub path: String,
@@ -285,7 +334,7 @@ fn suggestions_default() -> bool {
 impl SpawnSpec {
     /// The session's caller token in the harness env, which the host keeps in its record.
     pub fn caller_token(&self) -> Option<String> {
-        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        let key = crate::person_tokens::CALLER_TOKEN_ENV;
         self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
     }
 }
@@ -778,6 +827,7 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(path);
     written
 }
 /// Windows port: host records are owner-only files there (a later landing).
@@ -813,7 +863,12 @@ pub(crate) fn encode_frame_within<T: Serialize>(
 #[derive(Serialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub(crate) enum EntryFrame<'a> {
-    Entry { h: u64, e: &'a Entry },
+    Entry {
+        h: u64,
+        e: &'a Entry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        o: Option<u64>,
+    },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

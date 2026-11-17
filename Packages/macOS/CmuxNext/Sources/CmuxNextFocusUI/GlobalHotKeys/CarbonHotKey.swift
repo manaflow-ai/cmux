@@ -1,6 +1,18 @@
 package import Carbon.HIToolbox
 package import CmuxNextActions
 
+/// One native registration per action and physical key. Several configured
+/// spellings of the same physical key share the registration.
+package struct GlobalHotKeyBinding: Hashable {
+    package var id: ActionID
+    package var hotKey: CarbonHotKey
+
+    package init(id: ActionID, hotKey: CarbonHotKey) {
+        self.id = id
+        self.hotKey = hotKey
+    }
+}
+
 /// A system-wide hot key as Carbon takes it: a virtual key code and a
 /// Carbon modifier mask.
 package struct CarbonHotKey: Hashable, Sendable {

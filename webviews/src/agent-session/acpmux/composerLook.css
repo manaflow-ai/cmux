@@ -7,22 +7,21 @@
 
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
-   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). The plain
+   the text colour over the card's glass. A new chat's strip. The plain
    top strip (data-top-strip="plain", composerLocation.css) keeps the chat's strip bare text in this
    look too: this sheet loads after that one, so the tray's rules skip it rather than outrank it
    (:where adds no specificity, so every other rule wins or loses here as before). */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
+.acpmux-composer[data-composer-look="codex"] {
   --acpmux-tray-inset: 22px;
   --acpmux-tray-tuck: 10px;
   --text-content--line-height: calc(var(--text-content, 14px) * 20 / 14);
 }
 /* The trust stack is the composer's sibling, so it shares the active look's radius here. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"],
+.acpmux-composer[data-composer-look="codex"],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
   --grid-composer-radius: calc(22px * var(--acpmux-density));
 }
-:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
-.nt-composer[data-composer-look="codex"] > .nt-above {
+:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
   position: relative;
   z-index: var(--layer-base, 0);
   /* Its inset from the column, which the gap under the tucked hat's pill reads (subagents.css). */
@@ -37,13 +36,6 @@
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
   height: auto;
 }
-.nt-composer[data-composer-look="codex"] > .nt-above {
-  /* The chips centre in the band that shows: the composer's gap under the tray (--nt-composer-gap,
-     newtab/screen.css) and the 2 px above split evenly, so the band keeps its height (Lucas 2026-11-14). */
-  --nt-tray-room: calc((2px + var(--nt-composer-gap, 0px)) / 2);
-  padding-block: var(--nt-tray-room) var(--acpmux-tray-tuck);
-  margin-bottom: calc(var(--nt-tray-room) - var(--acpmux-tray-tuck) - var(--nt-composer-gap, 0px));
-}
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;
 }
@@ -55,7 +47,7 @@
    system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches
    neither value of prefers-reduced-transparency, so this is scoped to `not reduce`, never to
    `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
-   this leaves it alone. New Tab's tray is masked at the box edge when it tucks beneath the glass. */
+   this leaves it alone. */
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
     .acpmux-composer[data-composer-look="codex"]
@@ -63,13 +55,9 @@
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
   }
 }
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
-.nt-composer[data-composer-look="codex"] > .nt-box {
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box {
   position: relative;
   z-index: var(--layer-raised, 1);
-}
-.nt-composer[data-composer-look="codex"] > .nt-box {
-  border-radius: var(--grid-composer-radius);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
@@ -94,7 +82,9 @@
   --acpmux-codex-prompt-gap: var(--acpmux-composer-inset);
   --acpmux-codex-row-bottom: var(--acpmux-composer-inset);
   --acpmux-codex-prompt-side: calc(18px * var(--acpmux-density));
-  --acpmux-codex-editor-min: max(calc(40px * var(--acpmux-density)), var(--text-content--line-height));
+  /* A density's own editor floor (`--cmux-chat-editor-min`, DensityPreset's chatEditorMin: Comfortable 16, Spacious
+     50; Lucas 2026-11-16: the chat prompt got taller at bigger densities), else Codex's 40 px editor at the density. */
+  --acpmux-codex-editor-min: var(--cmux-chat-editor-min, max(calc(40px * var(--acpmux-density)), var(--text-content--line-height)));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid] {
   --acpmux-shell-inset-top: var(--acpmux-codex-prompt-top);
@@ -131,6 +121,8 @@
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions),
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > .acpmux-composer-actions {
   grid-row: 3;
+  align-self: end;
+  margin-top: 0;
   margin-bottom: var(--acpmux-codex-row-bottom);
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
@@ -181,55 +173,36 @@
    drawn (Composer.tsx quietActions), a soft disc and the dimmed glyph while there is nothing to send,
    the accent once there is, and Stop's square on the soft disc. Claude's look keeps the plain glyph
    (#23763). Gallery agent-pane.composer-look `codex-send-*` shows the alternates. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send {
+.acpmux-composer[data-composer-look="codex"] .acpmux-send {
   border-radius: 50%;
   background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 16%, transparent));
 }
 /* Resume uses the filled primary send surface in either composer look. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled),
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled),
 .acpmux-composer .acpmux-send.acpmux-resume {
   background: var(--agent-accent);
   color: var(--agent-accent-text, Canvas);
 }
 /* The first Esc keeps its accent (composerStates.css data-escape-armed). */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {
-  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
+  .acpmux-composer[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
     background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
   }
-  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover,
+  .acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover,
   .acpmux-composer .acpmux-send.acpmux-resume:not(:disabled):hover {
     background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
   }
 }
 
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
-:is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
+.acpmux-composer[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
-/* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
-   the page where the style switch sat (newtab/screen.css .nt-style). */
-.nt-page-dots {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  display: flex;
-  gap: 12px;
-  max-width: calc(100% - 32px);
-  transform: translateX(-50%);
-}
-.nt-page-dots > .nt-style {
-  position: relative;
-  bottom: auto;
-  left: auto;
-  max-width: none;
-  transform: none;
-}
-
-/* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),
+/* The look dots in a chat (LookSwitch.tsx) use the template switch's dots (newtab/screen.css .nt-style),
    centered on the composer, in one element that survives a look change (ComposerBox.tsx), so a look
    switch keeps the dots and their focus. In either look the element is empty height after the quiet
    row and the dots sit over the row's empty middle, out of its flow, so the row lays out as without

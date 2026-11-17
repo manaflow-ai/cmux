@@ -85,6 +85,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The stack height the transcript's bottom inset was last set from. The inset's change
+    /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
+    /// only the move carries a scrolled-up reader's view (`updateInsets`).
+    private var insetStackHeight: CGFloat?
     private var positionedInitially = false
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
@@ -489,7 +493,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             return
         }
         let old = scrollView.contentInset
-        let bottomDelta = positionedInitially ? bottom - old.bottom : 0
+        // The stack's bottom moved by this much (the keyboard); its own growth is not in it.
+        let stackGrowth = insetStackHeight.map { stackHeight - $0 } ?? 0
+        let bottomDelta = positionedInitially ? bottom - old.bottom - stackGrowth : 0
+        insetStackHeight = stackHeight
         if old.top != top || old.bottom != bottom {
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
@@ -512,6 +519,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         } else if positionedInitially {
             // A reader scrolled up keeps the bottom of what they see on the
             // stack too (Telegram): the stack rising covers the top instead.
+            // The composer growing a line (or losing one) moves nothing: the
+            // taller stack covers more of the bottom, as in Messages
+            // (user report 2026-11-12: a newline shifted the transcript).
             var offset = scrollView.contentOffset
             offset.y = min(max(-top, offset.y + bottomDelta), bottomOffset.y)
             if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
@@ -611,6 +621,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             }
         }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        insetStackHeight = stackHeight
         if scrollView.contentInset != insets {
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: headerBottom, left: 0, bottom: bottom, right: 0)

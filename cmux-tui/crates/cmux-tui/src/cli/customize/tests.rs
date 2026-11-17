@@ -359,3 +359,116 @@ fn two_asks_that_do_not_wait_share_one_chat() {
     assert_eq!(calls[0][..3], words(&["--json", "chat", "--name"])[..]);
     assert_eq!(calls[1][..6], words(&["--json", "chat", "send", "sess-9", "--on", "here"])[..]);
 }
+
+#[test]
+fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
+    let tried = |source: Option<&str>, ms: u64| {
+        Ok(Request::Try { source: source.map(str::to_owned), duration_ms: ms })
+    };
+    assert_eq!(parse(&words(&["try"])), tried(None, 600_000));
+    assert_eq!(parse(&words(&["try", "night.json"])), tried(Some("night.json"), 600_000));
+    assert_eq!(parse(&words(&["try", "night", "--minutes", "2"])), tried(Some("night"), 120_000));
+    assert_eq!(parse(&words(&["try", "-m", "0.5"])), tried(None, 30_000));
+    assert_eq!(parse(&words(&["keep"])), Ok(Request::Keep));
+    assert_eq!(parse(&words(&["revert"])), Ok(Request::Revert));
+    assert_eq!(parse(&words(&["settle", "--wait"])), Ok(Request::Settle { wait: true }));
+    for bad in [
+        &["try", "--minutes"][..],
+        &["try", "--minutes", "0"],
+        &["try", "--minutes", "soon"],
+        &["try", "a", "b"],
+        &["try", "--bogus"],
+        &["keep", "it"],
+        &["revert", "now"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?}");
+    }
+}
+
+/// A try-on from the CLI shows the time left and the two ways out, and the
+/// first verb after its time reverts it, whatever that verb is.
+#[test]
+fn a_try_on_says_its_time_and_reverts_at_the_first_look_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let recipe = dir.path().join("night.json");
+    fs::write(
+        &recipe,
+        r#"{"cmuxProfile":1,"name":"night","title":"Night","category":"look",
+            "files":{"themes/night.json":"{ \"name\": \"night\" }\n"}}"#,
+    )
+    .unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run =
+        |request: Request, now: u64| execute(&customize, request, "cli", now, &super::ask::NoChat);
+    let source = Some(recipe.display().to_string());
+    let tried = run(Request::Try { source, duration_ms: 120_000 }, 1_000).ok().unwrap();
+    let json = tried.json();
+    assert_eq!(json["try_on"]["expires_ms"], 121_000);
+    assert_eq!(json["try_on"]["revert_to"], 1);
+    let text = tried.human(1_000);
+    assert!(
+        text.starts_with("trying on: profile night (generation 2), 2 minutes left\n"),
+        "{text}"
+    );
+    assert!(text.contains("cmux customize keep") && text.contains("cmux customize revert"));
+    let status = run(Request::Status, 31_000).ok().unwrap();
+    assert!(status.human(31_000).contains("trying on: profile night, 2 minutes left"));
+    assert_eq!(status.json()["try_on"]["generation"], 2);
+    assert!(dir.path().join("config/themes/night.json").exists());
+
+    // Nothing ran at 121 s; the next verb, at 200 s, is the look that reverts.
+    let after = run(Request::Generations, 200_000).ok().unwrap();
+    assert_eq!(after.json()["current"], 1);
+    assert!(!dir.path().join("config/themes/night.json").exists());
+    let nothing = run(Request::Keep, 201_000).ok().unwrap().human(201_000);
+    assert_eq!(nothing, "nothing is being tried on\n");
+    let none = run(Request::Try { source: None, duration_ms: 60_000 }, 202_000).err().unwrap();
+    assert_eq!(none.code, "customize.nothing_to_try");
+}
+
+#[test]
+fn schema_lists_what_can_change_and_needs_no_store() {
+    use super::SchemaFormat;
+    use cmux_customize::schema::Section;
+    assert_eq!(
+        parse(&words(&["schema"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "views"])),
+        Ok(Request::Schema { section: Some(Section::Views), format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "--typescript"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::TypeScript })
+    );
+    assert!(parse(&words(&["schema", "colours"])).unwrap_err().contains("settings, theme"));
+    assert!(parse(&words(&["schema", "views", "--rust"])).is_err());
+    assert!(parse(&words(&["schema", "--yaml"])).is_err());
+
+    // The MCP path answers from this build's tables before it opens the store.
+    let views = super::run_json(&words(&["schema", "views"]), "mcp").expect("views");
+    let slots = views["views"].as_array().expect("a list of view slots");
+    assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
+    assert!(views.get("settings").is_none());
+    let all = super::run_json(&words(&["schema"]), "mcp").expect("the whole schema");
+    let accent = all["settings"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
+        .expect("appearance.accent is listed");
+    assert!(accent.get("default").is_some() && accent.get("schema").is_some());
+    let ts = super::run_json(&words(&["schema", "--typescript"]), "mcp").expect("typescript");
+    assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
+
+    let human = Answer::Schema(
+        cmux_customize::schema::Schema::current(),
+        Some(Section::Views),
+        SchemaFormat::Schema,
+    )
+    .human(0);
+    assert!(human.starts_with("View slots"), "{human}");
+    assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
+    assert!(human.contains("\nNext:\n"));
+}

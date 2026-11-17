@@ -436,6 +436,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.attach.external": self = .attachExternal
         case "attachment.sourceIcon":
             if let bundleId = params?["bundleId"] as? String, AttachmentSource.isBundleId(bundleId) { self = .attachmentSourceIcon(bundleId) }
             else { self = .unsupported(method) }
@@ -470,6 +471,9 @@ extension AgentPaneRequest {
             } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
+            else { self = .unsupported(method) }
+        case "folder.complete":
+            if let path = params?["path"] as? String, AgentPaneFolderCompletion.isWellFormed(path) { self = .completeFolder(path) }
             else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
@@ -535,6 +539,10 @@ extension AgentPaneRequest {
         case "pane.toastAvoidance":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
             else { self = .unsupported(method) }
+        case "pane.toast":
+            if let message = params?["message"] as? String, !message.isEmpty {
+                self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
+            } else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }

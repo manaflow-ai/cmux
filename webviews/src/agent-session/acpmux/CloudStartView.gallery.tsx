@@ -217,6 +217,63 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onDismiss: () => undefined,
       },
     },
+    "cloud-disabled": {
+      note: "Cloud is off in the app (cloud_disabled): a sentence, never the raw code; Run on This Mac sends the same prompt here, Not now leaves the draft.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "cloud_disabled",
+          message: "Cloud is off in this app right now, so this chat can't start on a Cloud machine.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "folder-not-open": {
+      note: "The pane refused a folder that isn't open in this tab: Pick a folder grants one and sends again, or start without a folder.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "transport.path_outside_roots",
+          refusedHere: true,
+          message: "This folder isn't open in this tab; pick it to send it to Cloud.",
+        },
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "start-failed-retry": {
+      note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
+      props: {
+        start: {
+          ...begun,
+          ...known,
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "Claude Code did not start on paint-dev.",
+          machineStartedAt: timing.startedAt,
+          machineFinishedAt: timing.finishedAt,
+          harnessStartedAt: timing.finishedAt,
+        },
+        onRetry: () => undefined,
+        onRunHere: () => undefined,
+      },
+    },
+    "chat-starting-here": {
+      note: "A chat is already starting in this tab (unavailable_now): Open a new Cloud chat carries the same prompt and folder there.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "unavailable_now",
+          refusedHere: true,
+          message: "A chat is already starting in this tab. Open a new chat to start one in Cloud.",
+        },
+        onOpenNewCloudChat: () => undefined,
+      },
+    },
     "signing-in": {
       note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
       props: { start: { ...begun, signingIn: true } },

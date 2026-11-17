@@ -61,6 +61,27 @@ describe("approved service boot images", () => {
     ] });
   });
 
+  it("lists an image's inputs_sha256 when its entry records 64 lowercase hex, and drops anything else", async () => {
+    const key64 = "c".repeat(64);
+    const keyed = { id: "cloud-native-auto-a-1", revision: "r2", displayName: "Keyed", snapshotId: SNAPSHOT, services: ["cloud-driver"], inputs_sha256: key64 };
+    const upper = { id: "cloud-native-auto-b-1", revision: "r1", displayName: "Upper", snapshotId: SNAPSHOT, services: ["cloud-driver"], inputs_sha256: "C".repeat(64) };
+    const short = { id: "cloud-native-auto-c-1", revision: "r1", displayName: "Short", snapshotId: SNAPSHOT, services: ["cloud-driver"], inputs_sha256: 42 };
+    const t = await harness({ bootImages: JSON.stringify([keyed, upper, short, ...CATALOG]) });
+    const key = await service(t);
+    expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ order: "configured", items: [
+      { id: "cloud-native-auto-a-1", revision: "r2", displayName: "Keyed", inputs_sha256: key64 },
+      { id: "cloud-native-auto-b-1", revision: "r1", displayName: "Upper" },
+      { id: "cloud-native-auto-c-1", revision: "r1", displayName: "Short" },
+      { ...IMAGE, displayName: "Cloud standard" },
+    ] });
+    // A creation receipt stays the image's id, revision and name.
+    const created = await t.request("/v1/vms", headers(key), { method: "POST", body: { image: { id: keyed.id, revision: keyed.revision }, labels: { role: "cloud" } } });
+    expect(created.status).toBe(201);
+    const body = await created.text();
+    expect(JSON.parse(body)).toMatchObject({ bootImage: { id: keyed.id, revision: keyed.revision, displayName: "Keyed" } });
+    expect(body).not.toContain("inputs_sha256");
+  });
+
   it("does not turn ordinary VM write permission into image-service authority", async () => {
     const t = await harness();
     const key = await t.addKey("team_alpha", ["vm:write"]);

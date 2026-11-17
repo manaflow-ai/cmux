@@ -410,6 +410,9 @@ mod tests {
         getrandom::fill(&mut bytes).unwrap();
         let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
         let root = std::env::temp_dir().join(format!("cmux-files-second-look-{hex}"));
+        fs::create_dir_all(&root).unwrap();
+        // The path of a top folder, as git gives it, has real folders only.
+        let root = fs::canonicalize(root).unwrap();
         fs::create_dir_all(root.join("real")).unwrap();
         fs::write(root.join("real/below.txt"), "below").unwrap();
         std::os::unix::fs::symlink("real", root.join("dir")).unwrap();

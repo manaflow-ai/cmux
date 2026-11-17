@@ -104,7 +104,7 @@ impl LocalSet {
     }
 
     /// Adds `file` as `relative`, `bytes` long, counted against the copy's limits: a
-    /// [`super::size_cap::TooLarge`] error once one is passed, and nothing more is listed.
+    /// [`super::size_cap::FileLimit`] error once its file limit is passed: nothing more is listed.
     pub(super) fn add(
         &mut self,
         relative: String,
@@ -206,8 +206,10 @@ const MAX_NAME_BYTES: usize = 255;
 const MAX_PATH_BYTES: usize = 4000;
 
 /// The files a push of `folder` sends, by `rules`, counted against `cap` (a chat's copy, see
-/// [`super::size_cap`]) as they are listed: it stops with a [`super::size_cap::TooLarge`] error the
-/// moment a limit is passed; `None` counts nothing.
+/// [`super::size_cap`]) as they are listed; `None` counts nothing. A listing past the copy's
+/// limits (stopped at its file limit, or more bytes than a copy sends whole) is sent as its first
+/// pass ([`first_pass`]), never refused (Leo, 2026-11-15: "why are you guys still blocking on
+/// these?").
 pub(super) fn collect(
     folder: &Path,
     rules: Rules,
@@ -215,9 +217,66 @@ pub(super) fn collect(
 ) -> anyhow::Result<LocalSet> {
     let mut set = LocalSet::new(Skips::new(folder));
     set.cap = cap;
+    let stopped = match list_into(&mut set, folder, rules) {
+        Ok(()) => false,
+        Err(error) if error.is::<super::size_cap::FileLimit>() => true,
+        Err(error) => return Err(error),
+    };
+    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past) {
+        first_pass(&mut set, stopped);
+    }
+    Ok(set)
+}
+
+/// Whether `relative` is a repository's own state (`.git` or inside one, at any depth).
+pub(super) fn in_history(relative: &str) -> bool {
+    relative == ".git"
+        || relative.starts_with(".git/")
+        || relative.ends_with("/.git")
+        || relative.contains("/.git/")
+}
+
+/// What a copy past its limits sends before the chat starts, out of what was listed: no
+/// repository history (`.git` at any depth: a part of one is no repository), then the smallest
+/// files first, by path among equals, until [`super::size_cap::FIRST_BYTES`] or
+/// [`super::size_cap::FIRST_FILES`]. The rest stays on this Mac, counted `left_on_mac` (with the
+/// file past the limit when the listing `stopped` there; what it never reached is not counted);
+/// the folder goes as a plain copy (no git record), whatever it is here.
+pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
+    let Some(cap) = set.cap.take() else { return };
+    let (max_bytes, max_files) = super::size_cap::first_limits();
+    let mut order: Vec<(u64, String)> = Vec::with_capacity(set.files.len());
+    let mut left = u64::from(stopped);
+    for relative in set.files.keys() {
+        if in_history(relative) {
+            left += 1;
+        } else {
+            order.push((cap.size_of(relative), relative.clone()));
+        }
+    }
+    order.sort();
+    let (mut bytes, mut files) = (0u64, 0u64);
+    let mut kept = HashSet::new();
+    for (size, relative) in order {
+        if files < max_files && bytes.saturating_add(size) <= max_bytes {
+            bytes = bytes.saturating_add(size);
+            files += 1;
+            kept.insert(relative);
+        } else {
+            left += 1;
+        }
+    }
+    set.files.retain(|relative, _| kept.contains(relative));
+    set.links.retain(|relative, _| !in_history(relative));
+    set.git = false;
+    set.skips.left_on_mac(left);
+}
+
+/// [`collect`]'s listing into `set`, ended by the first error (a cap's
+/// [`super::size_cap::FileLimit`] among them).
+fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<()> {
     let Some(git) = GitDirs::of(folder)? else {
-        walk_plain(&mut set, rules, &|_| true, folder, folder)?;
-        return Ok(set);
+        return walk_plain(set, rules, &|_| true, folder, folder);
     };
     set.git = true;
     let top = place::Dir::open(folder)?;
@@ -232,13 +291,13 @@ pub(super) fn collect(
             set.skipped += 1;
             return Ok(());
         }
-        add_working(&mut set, &top, folder, &path)
+        add_working(set, &top, folder, &path)
     })?;
     set.skipped += skipped;
     // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
     // an unreadable reflog or config never fails it.
     if rules == Rules::Share {
-        return Ok(set);
+        return Ok(());
     }
     let linked = git.own != git.common;
     let common = place::Dir::open(&git.common)?;
@@ -246,7 +305,7 @@ pub(super) fn collect(
         if linked && is_per_worktree(relative) {
             return Ok(());
         }
-        add_git(&mut set, relative, &git.common.join(relative), dir, name, entry)
+        add_git(set, relative, &git.common.join(relative), dir, name, entry)
     })?;
     if linked {
         let own = place::Dir::open(&git.own)?;
@@ -254,7 +313,7 @@ pub(super) fn collect(
             if relative == "commondir" || relative == "gitdir" {
                 return Ok(());
             }
-            add_git(&mut set, relative, &git.own.join(relative), dir, name, entry)
+            add_git(set, relative, &git.own.join(relative), dir, name, entry)
         })?;
     }
     // Borrowed objects go after the repository's own, which win a name both
@@ -275,10 +334,10 @@ pub(super) fn collect(
             if set.files.contains_key(&target) {
                 return Ok(());
             }
-            add_entry(&mut set, target, &borrowed.join(relative), dir, name, entry)
+            add_entry(set, target, &borrowed.join(relative), dir, name, entry)
         })?;
     }
-    Ok(set)
+    Ok(())
 }
 
 /// A dropped folder's own files for a one-off upload: git's ignore rules
@@ -571,7 +630,7 @@ impl GitDirs {
 
 /// Calls `each(path, untracked)` for every tracked and untracked-not-ignored
 /// path, once, as `git ls-files` prints it: the listing streams, so an error
-/// from `each` (a copy's [`super::size_cap::TooLarge`] at the first file past
+/// from `each` (a copy's [`super::size_cap::FileLimit`] at the first file past
 /// its limit) stops git there instead of after millions of names. A path that
 /// is not UTF-8 is skipped and counted.
 pub(super) fn working_files(

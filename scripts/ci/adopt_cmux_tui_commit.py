@@ -26,6 +26,17 @@ usage: adopt_cmux_tui_commit.py --sha SHA --tree-key KEY --out DIR
 exit 0: DIR holds manifest.json, source-manifest.json and every binary
 exit 1: not published yet (a 404); DIR is left empty
 exit 3: a read failure or bytes that do not match; DIR is left empty
+
+usage: adopt_cmux_tui_commit.py same-publication OURS PUBLISHED
+One commit pushed to two branches at once starts two runs that each adopt it
+(the app FFI re-pin pushes its signed commit to its staging ref, then to
+app-ffi-repin: runs 43596039910 and 43596045323, 2026-11-14). The two manifests
+differ only in attestationUrl, the run that wrote them, so the later write-once
+upload hit the earlier one, went red, and merge_hold held the re-pin PR while
+the base's FFI pin check went red past its 2 h. The later run keeps the
+earlier publication when it is the same adoption by another run of this
+repository.
+exit 0: PUBLISHED is OURS written by another run; exit 1: it is not (named)
 """
 from __future__ import annotations
 
@@ -165,7 +176,44 @@ def adopt(
     return manifest
 
 
+def same_publication(ours: dict, published: dict) -> str | None:
+    """None when `published` is `ours` as another run of the same repository wrote it, else why not."""
+    source = ours.get("sourceRepository")
+    run = re.compile(re.escape(f"{source}/actions/runs/") + r"[0-9]+")
+    attestation = published.get("attestationUrl")
+    if not isinstance(source, str) or not isinstance(attestation, str) or not run.fullmatch(attestation):
+        return f"its attestationUrl {attestation!r} is not a run of {source}"
+    if not ours.get("adoptedFrom"):
+        return "this run's manifest is not an adoption"
+    for field in sorted(set(ours) | set(published)):
+        if field != "attestationUrl" and ours.get(field) != published.get(field):
+            return f"{field} differs"
+    return None
+
+
+def main_same_publication(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print("usage: adopt_cmux_tui_commit.py same-publication OURS PUBLISHED", file=sys.stderr)
+        return 2
+    try:
+        ours, published = (json.loads(Path(path).read_text()) for path in argv)
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"could not read a manifest: {error}")
+        return 1
+    if not isinstance(ours, dict) or not isinstance(published, dict):
+        print("a manifest is not a JSON object")
+        return 1
+    reason = same_publication(ours, published)
+    if reason:
+        print(f"the published manifest is another publication: {reason}")
+        return 1
+    print(f"the published manifest is this adoption, written by {published['attestationUrl']}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["same-publication"]:
+        return main_same_publication(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--tree-key", required=True)

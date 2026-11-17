@@ -18,7 +18,8 @@ public import Foundation
 /// }
 /// ```
 public nonisolated enum AppOpenTarget: Sendable, Hashable {
-    /// The app's scene pane, rendered natively as a page tab.
+    /// The app's own pane as a page tab: its scene drawn natively, or its web page (`render: web`)
+    /// on the shared page host.
     case scenePane
     /// This URL in a browser tab of the active workspace: a web app's https URL, or a remote
     /// pane's running instance.
@@ -46,7 +47,7 @@ public nonisolated enum AppOpenTarget: Sendable, Hashable {
     /// remote pane then counts as not deployed).
     /// - Parameter manifest: The app's manifest.
     public init(_ manifest: AppManifest) {
-        if manifest.scenePane != nil {
+        if manifest.scenePane != nil || manifest.webPages.contains(where: \.isPane) {
             self = .scenePane
         } else if manifest.remotePane {
             self = .notDeployed

@@ -112,6 +112,7 @@ gap() { echo "FAIL: $*" >&2; failed=1; }
 # step|sample output|remade on a moved tip (1/0)|pr-autofix-apply.sh (1 accepts, 0 refuses, - not judged here)|generated_outputs.py row (out/none)
 rows=(
   "1|plans/cmux-next/action-surfaces.json|0|1|out"                # the Mac action export
+  "1|plans/cmux-next/action-catalog.json|0|1|out"                 # the full catalog travels with its surface report
   "1|schemas/settings/settings-schema.json|0|1|out"               # the Mac settings export
   "1b|Packages/macOS/CmuxNext/ci-target-graph.json|1|1|out"
   "1c|-"                                                          # a no-op: page strings are build output

@@ -109,9 +109,10 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
-        # iOS packages build in the iOS jobs, not with a macOS `swift build`.
-        plan = self.plan(["Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Tabs.swift"])
-        self.assertNotIn("Packages/iOS/CmuxTabsKit", plan)
+        # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
+        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
+        self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
     def test_changes_that_compile_no_test_are_an_empty_plan(self) -> None:
         self.assertEqual(self.plan(["docs/ci/merge-freeze.md", "web/app/page.tsx", "README.md"]), {})
@@ -331,7 +332,7 @@ class CompileTestsPhaseTests(unittest.TestCase):
 
 
 WORKFLOW = ROOT / ".github" / "workflows" / "fleet-test-compile.yml"
-STEP = "Compile the planned test targets on a fleet Mac"
+STEP = "Compile the planned test targets on the Linux pool"
 
 
 def step_script() -> str:
@@ -355,7 +356,7 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertNotIn("SKIP:", text)
         self.assertIn('compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > ', text)
-        # The fleet lane plans again on the Mac: it gets no skip either.
+        # The step compiles the plan's packages as they are: it skips none either.
         self.assertNotIn("--skip-package", step_script())
 
     def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
@@ -374,40 +375,69 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
 
 
 class AdvisoryVerdictTests(unittest.TestCase):
-    """fleet-test-compile.yml: red only for a test target that does not compile; anything else is no verdict."""
+    """fleet-test-compile.yml: red only for a test target that does not compile (the pool's exit 1); anything
+    else is no verdict. It compiles on the Linux pool, never as a Mac step (2026-11-15: 5 to 9 Mac
+    compile-tests steps at once held the owned minis' side-std listeners offline on CPU load)."""
 
-    def verdict(self, status: int, output: str, needed: str = "true", client: bool = True) -> subprocess.CompletedProcess:
+    def verdict(self, status: int, output: str = "", needed: str = "true", client: bool = True,
+                packages: str = "CmuxNext CmuxUpdater") -> tuple[subprocess.CompletedProcess, list[str]]:
         with tempfile.TemporaryDirectory() as scratch:
             fake = Path(scratch) / "cmux-ci"
+            argv = Path(scratch) / "argv"
             if client:
-                fake.write_text(f"#!/usr/bin/env bash\ncat <<'OUT'\n{output}\nOUT\nexit {status}\n")
+                fake.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > {argv}\n"
+                                f"cat <<'OUT'\n{output}\nOUT\nexit {status}\n")
                 fake.chmod(0o755)
             env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
-            env.update(NEEDED=needed, REF="a" * 40, BASE="b" * 40, RUNNER_TEMP=scratch, RUNNER_NAME="gateway",
+            env.update(NEEDED=needed, REF="a" * 40, PACKAGES=packages, RUNNER_TEMP=scratch, RUNNER_NAME="gateway",
                        CMUX_CI_CLIENT=str(fake))
-            return subprocess.run(["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60)
+            done = subprocess.run(["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60)
+            return done, (argv.read_text().splitlines() if argv.exists() else [])
 
     def assert_green(self, done, warned: bool) -> None:
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotIn("::error", done.stdout)
         self.assertEqual("::warning" in done.stdout, warned, done.stdout)
 
+    def test_it_compiles_each_planned_package_on_the_pool(self) -> None:
+        done, argv = self.verdict(0, "compile check CmuxNext: passed (490 s)")
+        self.assert_green(done, warned=False)
+        self.assertEqual(argv[:3], ["compile-check", "--ref", "a" * 40])
+        self.assertEqual([argv[i + 1] for i, word in enumerate(argv) if word == "--package"], ["CmuxNext", "CmuxUpdater"])
+        self.assertNotIn("run", argv)
+        self.assertNotIn("package-test-lane.sh", WORKFLOW.read_text().split("\n  compile:\n", 1)[1])
+
     def test_exit_codes_map_to_red_warning_or_green(self) -> None:
-        self.assert_green(self.verdict(0, "compile-tests: every planned test target compiled (3)"), warned=False)
-        red = self.verdict(1, f"{MARKER} (1 of 3)")
+        red, _ = self.verdict(1, "compile check CmuxNext: failed (120 s)")
         self.assertEqual(red.returncode, 1, red.stdout)
         self.assertIn("::error", red.stdout)
-        # A later setup failure ends the lane with another status after the marker: still red.
-        red = self.verdict(128, f"{MARKER}: Alpha BadTests\nfatal: not a submodule")
-        self.assertEqual(red.returncode, 1, red.stdout)
-        # No marker: the queue, a timeout, a setup failure or the client itself. A warning, never red.
-        for status in (1, 2, 3, 124, 137):
+        # No pool VM (69), a queue or setup failure (75), a timeout (124) or the client itself: a warning, never red.
+        for status in (2, 69, 75, 124, 137):
             with self.subTest(status=status):
-                self.assert_green(self.verdict(status, "error: queue timeout"), warned=True)
+                self.assert_green(self.verdict(status, "compile check CmuxNext: no verdict")[0], warned=True)
 
     def test_no_plan_or_no_client_is_green(self) -> None:
-        self.assert_green(self.verdict(1, MARKER, needed="false"), warned=False)
-        self.assert_green(self.verdict(0, "", client=False), warned=True)
+        self.assert_green(self.verdict(1, needed="false")[0], warned=False)
+        self.assert_green(self.verdict(0, client=False)[0], warned=True)
+
+    def test_a_package_name_that_is_not_a_directory_name_is_no_verdict(self) -> None:
+        for packages in ("", "../x", "Alpha;rm"):
+            with self.subTest(packages=packages):
+                done, argv = self.verdict(1, packages=packages)
+                self.assert_green(done, warned=True)
+                self.assertEqual(argv, [])
+
+    def test_the_plan_output_names_package_directories(self) -> None:
+        plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
+        self.assertIn("packages: ${{ steps.plan.outputs.packages }}", plan)
+        line = next(l.strip() for l in plan.splitlines() if l.strip().startswith('echo "packages='))
+        with tempfile.TemporaryDirectory() as scratch:
+            (Path(scratch) / "plan.txt").write_text(
+                "Packages/macOS/CmuxNext CmuxNextActionsTests\nPackages/Shared/CmuxUpdater\n\n")
+            out = Path(scratch) / "out"
+            subprocess.run(["bash", "-c", line], env={**os.environ, "RUNNER_TEMP": scratch, "GITHUB_OUTPUT": str(out)},
+                           check=True, timeout=30)
+            self.assertEqual(out.read_text(), "packages=CmuxNext CmuxUpdater\n")
 
     def test_it_never_takes_the_required_compiles_gateway(self) -> None:
         # Each gateway job holds a fleet runner while its client waits on the controller, so the advisory

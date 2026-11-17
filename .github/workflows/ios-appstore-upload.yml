@@ -594,7 +594,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-upload
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: error
           path: ${{ runner.temp }}/cmux-app-upload-marker/upload.json
 
@@ -603,7 +603,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-${{ github.sha }}
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/cmux-final-build-number.txt

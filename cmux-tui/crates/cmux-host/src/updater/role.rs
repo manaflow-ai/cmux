@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
 use super::gate::{Gate, HoldKind, Honor};
+use super::resolve::{
+    GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
+};
 use super::store::{self, STORE_DIR};
 use super::{
     DOWNLOAD_DIR, Decision, Pending, Plan, clear_pending, decide, load_pending, load_state,
@@ -43,7 +46,7 @@ const INTERVAL: Duration = Duration::from_secs(15);
 /// again this soon, so it goes within about 20 s of the machine going idle,
 /// not up to a minute after. The busy look is local (acpmux and the session
 /// host's admin channel) and runs only while an update waits.
-const BUSY_RETRY: Duration = Duration::from_secs(15);
+pub(super) const BUSY_RETRY: Duration = Duration::from_secs(15);
 /// At most this much is added to each wait, a fresh draw each time
 /// ([`next_look`]), so machines that started together (spares restored from
 /// one snapshot, a fleet that restarted into one update) do not look in step.
@@ -67,7 +70,7 @@ fn jitter_draw() -> u64 {
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+pub(super) const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The previous build's guard runs this long after the flip, past the
 /// health check, and rolls back an update that never proved itself.
 const GUARD_AFTER_SECS: u64 = 20 * 60;
@@ -77,11 +80,11 @@ const ACPMUX_UNIT: &str = "acpmux.service";
 const ACPMUX_UNIT_FILE: &str = "/home/cmux/.config/systemd/user/acpmux.service";
 const CURRENT_ACPMUX: &str = "/opt/cmux/current/bin/acpmux";
 
-fn log(line: &str) {
+pub(super) fn log(line: &str) {
     eprintln!("cmux-host: updater: {line}");
 }
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -423,6 +426,24 @@ thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
+thread_local! {
+    /// The deadline of the step this thread runs ([`within`]): a GET still running
+    /// at it is killed.
+    static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Runs `f` with every GET it makes ([`curl`]) killed at `deadline`.
+pub(super) fn within<T>(deadline: Instant, f: impl FnOnce() -> T) -> T {
+    let before = DEADLINE.with(|d| d.replace(Some(deadline)));
+    let out = f();
+    DEADLINE.with(|d| d.set(before));
+    out
+}
+
+fn past_deadline() -> bool {
+    DEADLINE.with(Cell::get).is_some_and(|at| Instant::now() >= at)
+}
+
 fn stopped() -> bool {
     WORKER_GENERATION.with(Cell::get).is_some_and(|mine| mine != GENERATION.load(Ordering::SeqCst))
 }
@@ -564,7 +585,7 @@ pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
 }
 
 /// Waits `d` or until a message: false when the role stops.
-fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
+pub(super) fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
     match rx.recv_timeout(d) {
         Ok(Msg::Check) | Err(RecvTimeoutError::Timeout) => true,
         Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => false,
@@ -651,12 +672,12 @@ impl Outcome {
 /// unlocks before it closes: a child the service forked meanwhile keeps no
 /// lock through its copy, so the next check does not fail as "another update
 /// check runs".
-struct Lock {
+pub(super) struct Lock {
     _lock: cmux_file_lock::FileLock,
 }
 
 impl Lock {
-    fn take(paths: &Paths, wait: bool) -> Option<Lock> {
+    pub(super) fn take(paths: &Paths, wait: bool) -> Option<Lock> {
         use cmux_file_lock::{FileLock, Kind};
         let dir = paths.at(super::STATE_DIR);
         fs::create_dir_all(&dir).ok()?;
@@ -697,21 +718,26 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
     let outcome = check_step(paths, looks.watch, looks.handled, &clocks, || {
         check_inner(paths, &stops, honor, &mut skipped)
     });
+    if let Some(kind) = skipped {
+        log(&format!("went past a {} hold (--skip-resume-hold): {}", kind.name(), outcome.line()));
+    }
+    save_outcome(paths, &outcome, "");
+    (outcome, skipped)
+}
+
+/// Keeps a check's outcome for `cmux host update status` and, as codes, for the
+/// machine's Cloud status report (`look.rs`); `prefix` names the step that ran it.
+pub(super) fn save_outcome(paths: &Paths, outcome: &Outcome, prefix: &str) {
     let mut state = load_state(paths);
-    let line = outcome.line();
+    let line = format!("{prefix}{}", outcome.line());
     if state.last.as_deref() != Some(line.as_str()) {
         log(&line);
     }
-    if let Some(kind) = skipped {
-        log(&format!("went past a {} hold (--skip-resume-hold): {line}", kind.name()));
-    }
     state.last = Some(line);
     state.last_at = now();
-    // The same outcome as codes, for the machine's Cloud status report (`look.rs`).
     state.look =
-        Some(super::look::Look::next(state.look.take(), super::look::seen_of(&outcome), wall_ms()));
+        Some(super::look::Look::next(state.look.take(), super::look::seen_of(outcome), wall_ms()));
     let _ = save_state(paths, &state);
-    (outcome, skipped)
 }
 
 /// Runs one check (`inner`), then the pause look over it on every way out
@@ -831,7 +857,7 @@ fn check_inner(
             short_hex(&plan.commit)
         ));
         inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
-        restart_after_flip(&store_binary(&plan.old_cmux_tui));
+        restart_after_flip(paths, &store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
     drop(commit);
@@ -934,7 +960,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         short_hex(&plan.cmux_tui.sha256),
         short_hex(&plan.commit)
     ));
-    restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    restart_after_flip(paths, &store_binary(&plan.old_cmux_tui));
     drop(commit);
     Outcome::Updating(plan.commit)
 }
@@ -1015,12 +1041,21 @@ pub(super) fn short_hex(hash: &str) -> &str {
     hash.get(..12).unwrap_or(hash)
 }
 
-fn store_binary(sha: &str) -> PathBuf {
+pub(super) fn store_binary(sha: &str) -> PathBuf {
     Path::new(STORE_DIR).join(sha).join(CMUX_TUI)
 }
 
 /// Downloads what the store lacks, each checked against the signed sha256 and size.
 fn stage(paths: &Paths, plan: &Plan) -> Result<(), String> {
+    stage_with(paths, plan, |bin, file| fetch(&bin.url, bin.size, Some(file)).map(drop))
+}
+
+/// [`stage`] with `download` (`bin` into the file) for the GET.
+pub(super) fn stage_with(
+    paths: &Paths,
+    plan: &Plan,
+    mut download: impl FnMut(&channel::Binary, &Path) -> Result<(), String>,
+) -> Result<(), String> {
     let need: Vec<_> = [(&plan.cmux_tui, CMUX_TUI), (&plan.cmux_tui_hook, CMUX_TUI_HOOK)]
         .into_iter()
         .filter(|(bin, name)| !store::has_entry(paths, &bin.sha256, name))
@@ -1036,8 +1071,7 @@ fn stage(paths: &Paths, plan: &Plan) -> Result<(), String> {
     for (bin, name) in need {
         let file = dir.join(format!("{}-{name}", bin.sha256));
         let _ = fs::remove_file(&file);
-        fetch(&bin.url, bin.size, Some(&file))
-            .map_err(|e| format!("downloading {}: {e}", bin.url))?;
+        download(bin, &file).map_err(|e| format!("downloading {}: {e}", bin.url))?;
         let size = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
         if size != bin.size {
             let _ = fs::remove_file(&file);
@@ -1068,7 +1102,7 @@ static CHANNEL_CACHE: Mutex<channel::Cache> = Mutex::new(channel::Cache::new());
 
 /// The channel's payload, verified now: a conditional GET of [`CHANNEL_URL`]
 /// against [`CHANNEL_CACHE`].
-fn read_channel() -> Result<channel::Payload, String> {
+pub(super) fn read_channel() -> Result<channel::Payload, String> {
     read_channel_from(&CHANNEL_CACHE, CHANNEL_URL, "=https", &channel::trusted_keys(), now())
 }
 
@@ -1107,7 +1141,7 @@ pub(super) fn read_channel_from(
 
 /// HTTPS GET with curl (the image has it; no redirects), at most `max`
 /// bytes; into `out`, or the body.
-fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
+pub(super) fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
     curl(url, "=https", max, max, &[], false, out)
 }
 
@@ -1163,6 +1197,11 @@ fn curl(
             let _ = child.kill();
             let _ = child.wait();
             return Err("the updater stopped".to_owned());
+        }
+        if past_deadline() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("past the step's deadline".to_owned());
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -1311,6 +1350,23 @@ fn carrier_sessions() -> Result<Vec<String>, String> {
 /// user and home the session host runs with (the layout marker), since the
 /// channel answers only its own user.
 fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
+    let stdout = connections_json_within(limit)?;
+    super::carrier::attached_sessions_in(&stdout)
+        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
+}
+
+/// The attached carrier sessions and the least input idle time among them
+/// ([`super::carrier::attached_input_idle_in`]), read within `limit`: the
+/// supervisor's look at an old-build session host it waits to replace
+/// (`crate::machine::HostLook`).
+pub(crate) fn carrier_input_idle_within(limit: Duration) -> Result<(usize, Option<u64>), String> {
+    let stdout = connections_json_within(limit).map_err(Unread::why)?;
+    super::carrier::attached_input_idle_in(&stdout)
+        .ok_or_else(|| "its connection list is unreadable".to_owned())
+}
+
+/// The session host's `remote enroll connections --json` reply, at most `limit`.
+fn connections_json_within(limit: Duration) -> Result<String, Unread> {
     let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
     let home =
         crate::cloud::daemon_noise_key::session_home(marker.as_deref()).ok_or_else(|| {
@@ -1327,8 +1383,7 @@ fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
         .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
         .arg("--json");
     let stdout = output_within(cmd, limit)?;
-    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&stdout))
-        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 /// How long past its `timeout` bound a read may run before [`output_within`]
@@ -1427,12 +1482,7 @@ fn user_unit_state(unit: &str) -> Option<String> {
 /// executable is what tells the builds apart.)
 fn healthy(paths: &Paths, pending: &Pending) -> bool {
     let new = store_binary(&pending.cmux_tui);
-    let runs_new = |pid: &str| {
-        let pid = pid.trim();
-        !pid.is_empty()
-            && pid.bytes().all(|b| b.is_ascii_digit())
-            && fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() == Some(new.as_path())
-    };
+    let runs_new = |pid: &str| exe_of(pid).as_deref() == Some(new.as_path());
     let serving = crate::cloud::role::daemon_socket(paths).is_some_and(|socket| {
         crate::cloud::role::query_identify(&socket, Duration::from_secs(2)).is_ok()
     });
@@ -1451,47 +1501,17 @@ fn healthy(paths: &Paths, pending: &Pending) -> bool {
         .is_some_and(|pid| runs_new(&pid.to_string()))
 }
 
-/// Before a rollback's restart: waits while `carrier` says carrier sessions
-/// hold it (the flip's own rule, [`carrier_busy`], with its
-/// [`CARRIER_MAX_HOLD`] bound), looking again every [`BUSY_RETRY`] through
-/// `wait`. False when `wait` says the waiter stopped.
-pub(super) fn rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    mut wait: impl FnMut(Duration) -> bool,
-) -> bool {
-    let mut logged = false;
-    while let Some(why) = carrier() {
-        if !logged {
-            log(&format!("the rollback waits: {why}"));
-            logged = true;
-        }
-        if !wait(BUSY_RETRY) {
-            return false;
-        }
+/// The executable of the one pid `pid` names (decimal, surrounding space
+/// allowed): the session host the agent's pid file names, or acpmux's
+/// daemon. An identity check of one known process, no scan: [`healthy`]
+/// and the agent's adopt (`linux::procs::runs_other_build`) tell the
+/// builds apart by it.
+pub(crate) fn exe_of(pid: &str) -> Option<PathBuf> {
+    let pid = pid.trim();
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
     }
-    true
-}
-
-/// The health timeout's rollback waits for carrier sessions, waking on the
-/// role's messages; false when the role stops (the guard still covers it).
-pub(super) fn timeout_rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    rx: &Receiver<Msg>,
-) -> bool {
-    rollback_waits(carrier, |d| wait(rx, d))
-}
-
-/// The guard's rollback (`cmux host update guard`, a oneshot unit with no
-/// start timeout) waits for carrier sessions by sleeping; `sleep` is
-/// injected for the tests.
-pub(super) fn guard_rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    mut sleep: impl FnMut(Duration),
-) {
-    rollback_waits(carrier, |d| {
-        sleep(d);
-        true
-    });
+    fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
 /// The new `cmux host run` proves the pending update or rolls it back.
@@ -1502,13 +1522,28 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
         clear_pending(paths);
         return true;
     }
-    let deadline = Instant::now() + HEALTH_TIMEOUT;
-    loop {
-        if healthy(paths, pending) {
+    let start = Instant::now();
+    let resolved = resolve_with(
+        || healthy(paths, pending),
+        || paths.at(crate::config::HOST_DEFERRED_FILE).exists(),
+        || start.elapsed(),
+        |d| wait(rx, d),
+        |step| match step {
+            GuardStep::Disarm => disarm_guard(),
+            GuardStep::Rearm => {
+                if let Err(e) = arm_guard(pending) {
+                    log(&format!("re-arming the guard after the host's replacement: {e}"));
+                }
+            }
+        },
+    );
+    match resolved {
+        Resolved::Healthy => {
             commit(paths, pending);
-            return true;
+            true
         }
-        if Instant::now() >= deadline {
+        Resolved::Stopped => false,
+        Resolved::TimedOut => {
             if !timeout_rollback_waits(&mut || rollback_carrier_busy(paths), rx) {
                 return false;
             }
@@ -1518,11 +1553,7 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
                 "the new build did not serve within ten minutes of its restart",
                 true,
             );
-            return true;
-        }
-        match rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return false,
-            _ => {}
+            true
         }
     }
 }
@@ -1537,6 +1568,7 @@ fn commit(paths: &Paths, pending: &Pending) {
     state.applied_committed_at = pending.committed_at;
     let took = now().saturating_sub(pending.started_at);
     state.last = Some(format!("updated to {} (serving {took} s after the flip)", pending.commit));
+    state.look = Some(settled_look(state.look.take(), pending, super::look::Settle::Updated));
     state.last_at = now();
     clear_pending(paths);
     disarm_guard();
@@ -1547,6 +1579,22 @@ fn commit(paths: &Paths, pending: &Pending) {
         "updated to {} (profile {}, serving {took} s after the flip); removed profiles {profiles:?}",
         pending.commit, pending.to
     ));
+}
+
+/// The look once `pending`'s flip ended as `how`, for the Cloud report: the
+/// census reads whether a build stayed on its first machine from it.
+pub(super) fn settled_look(
+    look: Option<super::look::Look>,
+    pending: &Pending,
+    how: super::look::Settle,
+) -> super::look::Look {
+    super::look::Look::settle(
+        look,
+        &pending.commit,
+        pending.started_at.saturating_mul(1000),
+        how,
+        wall_ms(),
+    )
 }
 
 /// Flips back to the previous profile and restarts what runs the new build.
@@ -1571,6 +1619,8 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         let mut state = load_state(paths);
         record_rollback(&mut state, pending);
         state.last = Some(format!("rolled back {}: {why}", pending.commit));
+        state.look =
+            Some(settled_look(state.look.take(), pending, super::look::Settle::RolledBack));
         state.last_at = now();
         let _ = save_state(paths, &state);
         clear_pending(paths);
@@ -1578,7 +1628,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
             disarm_guard();
         }
         inside.restart_queued(wall_ms());
-        restart_after_flip(&store_binary(&pending.cmux_tui));
+        restart_after_flip(paths, &store_binary(&pending.cmux_tui));
     });
 }
 
@@ -1611,7 +1661,7 @@ fn user_systemctl(args: &[&str]) -> bool {
 
 /// The previous build's `cmux host update guard --to <to>`, as a transient
 /// timer [`GUARD_AFTER_SECS`] from now.
-fn arm_guard(pending: &Pending) -> Result<(), String> {
+pub(super) fn arm_guard(pending: &Pending) -> Result<(), String> {
     arm_guard_with(pending, &store::profile_dir(&Paths::new("/"), pending.from).join("bin/cmux"))
 }
 
@@ -1642,14 +1692,79 @@ fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
 
 /// Stops the guard's timer (its service, a oneshot, has not started; the
 /// guard itself never calls this).
-fn disarm_guard() {
+pub(super) fn disarm_guard() {
     let _ = systemctl(&["stop", &format!("{GUARD_UNIT}.timer")]);
     let _ = systemctl(&["reset-failed", &format!("{GUARD_UNIT}.timer")]);
 }
 
 /// Restarts what runs `old` (the binary just replaced): the work user's
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
-fn restart_after_flip(old: &Path) {
+/// First it tells the Cloud the machine is stopping, within
+/// [`crate::cloud::role::STOPPING_REPORT_BOUND`] ([`report_then_restart`]).
+pub(super) fn restart_after_flip(paths: &Paths, old: &Path) {
+    report_then_restart(
+        || after_flip::report_stopping(paths),
+        || after_flip::restart_services(old),
+    );
+}
+
+/// [`restart_after_flip`]'s two effects. Tests swap them for a record of the calls, so a test
+/// drives the real `restart_after_flip` and never restarts a unit or reaches the Cloud.
+#[cfg(not(test))]
+mod after_flip {
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND)
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        super::restart_others(old);
+        let _ = super::systemctl(&["restart", "--no-block", super::HOST_UNIT]);
+    }
+}
+
+#[cfg(test)]
+pub(super) mod after_flip {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    thread_local! {
+        /// What [`super::restart_after_flip`] did on this thread, in order.
+        pub(in crate::updater) static CALLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        CALLS.with(|c| c.borrow_mut().push(format!("stopping {}", paths.at("/").display())));
+        Ok(())
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        CALLS.with(|c| c.borrow_mut().push(format!("restart {}", old.display())));
+    }
+}
+
+/// A restart of the services after a flip: `report` (the bounded `stopping` report, so the Cloud
+/// clears the machine's ready and hands no spare out while its services restart), then `restart`
+/// whatever the report did. A failed report is logged, never fatal.
+pub(super) fn report_then_restart(
+    report: impl FnOnce() -> Result<(), String>,
+    restart: impl FnOnce(),
+) {
+    match report() {
+        Ok(()) => log("reported stopping to the Cloud before the restart"),
+        Err(e) => log(&format!("the stopping report before the restart: {e}")),
+    }
+    restart();
+}
+
+/// [`restart_after_flip`] but `cmux-host.service`: the work user's acpmux and the
+/// other `cmux-*` system services that run `old`.
+pub(super) fn restart_others(old: &Path) {
     if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
@@ -1660,7 +1775,6 @@ fn restart_after_flip(old: &Path) {
             let _ = systemctl(&["restart", "--no-block", &unit]);
         }
     }
-    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
 }
 
 /// The system services (`/system.slice/<unit>.service`) with a process

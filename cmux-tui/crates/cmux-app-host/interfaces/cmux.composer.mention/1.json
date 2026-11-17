@@ -1,0 +1,57 @@
+{
+  "name": "cmux.composer.mention/1",
+  "version": 1,
+  "docs": "A mention provider for the agent chat composer: items the person names with @. The daemon answers completions (apps.composer.mentions {query}) from the manifest's items, ranked in Rust; picking one writes its insert text.",
+  "props": {
+    "prefix": "string",
+    "items": "ComposerMention[]"
+  },
+  "methods": {},
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["prefix", "items"],
+    "properties": {
+      "prefix": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,23}$",
+        "description": "The word that narrows @ to this provider (@ticket:)."
+      },
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "label"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "What the row shows and what a query matches."
+            },
+            "detail": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "insert": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "description": "The text written for the mention; the label when absent."
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

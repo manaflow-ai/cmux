@@ -22,6 +22,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../src/gallery/fixtures/videoPoster";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame of the sent row: its height, and the preview's and the bubble's boxes in the row's own
@@ -188,27 +189,30 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       });
     }, answers);
     await page.goto(`http://127.0.0.1:${port(pane)}/`);
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
   };
 
   /// A 1600x1000 screenshot pasted into the composer beside typed text, ready to send; answers the
   /// chip's box.
   const pasteScreenshot = async (page: Page): Promise<Box> => {
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
-    await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1600;
-      canvas.height = 1000;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#3a7bd5";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      document
-        .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
-        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    await page.locator(COMPOSER_EDITOR).click();
+    await page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1600;
+        canvas.height = 1000;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#3a7bd5";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        document
+          .querySelector(COMPOSER_EDITOR)!
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
     const chipImage = page.locator(".acpmux-composer .acpmux-attachment-image img").first();
     await chipImage.waitFor();
     await page.waitForFunction(() => {
@@ -248,7 +252,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     try {
       await openPane(page);
       // Prompts and replies before it, so the chat overflows and the send is from its latest row.
-      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      const prompt = page.locator(COMPOSER_EDITOR);
       for (const line of ["first question", "second question", "third question"]) {
         await prompt.click();
         await page.keyboard.type(line);
@@ -356,7 +360,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
         });
       }, POSTER);
       await page.goto(`http://127.0.0.1:${port(pane)}/`);
-      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.waitFor();
       await prompt.click();
       await prompt.evaluate((target) => {

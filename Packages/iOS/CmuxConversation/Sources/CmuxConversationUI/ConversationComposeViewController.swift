@@ -562,7 +562,7 @@ extension ConversationComposeViewController: ComposeRecipientFieldDelegate {
 
     func recipientFieldDidChangeHeight(_ field: ComposeRecipientField) {
         recipientHeight.constant = field.preferredHeight
-        UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
+        UIView.animateUnlessReduceMotion(withDuration: 0.2) { self.view.layoutIfNeeded() }
         // The transcript under To: starts below the field's new bottom.
         if let embeddable = existingController as? any ConversationComposeEmbeddable {
             _ = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)

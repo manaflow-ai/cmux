@@ -8,7 +8,7 @@ import Foundation
 /// connected.
 @MainActor
 public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend,
-    AgentChatsBackend, WorkspacePaneBackend {
+    AgentChatsBackend, WorkspacePaneBackend, TerminalChatBackend {
     private weak var coordinator: LiveCoordinator?
 
     public init(coordinator: LiveCoordinator) {
@@ -56,6 +56,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         on(macID)?.unavailableTabKinds(on: macID) ?? []
     }
     public func agentCatalog(on macID: String) async throws -> AgentCatalog { try await backend(macID).agentCatalog(on: macID) }
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        try backend(workspace.macID).sendTask(task, in: workspace, failed: failed)
+    }
     public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).createTab(kind, in: workspace)
     }
@@ -246,6 +249,31 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
                                  in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).launchAgentTeams(teams, beside: tab, folder: folder, in: workspace)
     }
+
+    // MARK: TerminalChatBackend
+
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { linked(macID)?.terminalChatListings(on: macID) ?? [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        try await backend(macID).openTerminalChat(harness: harness, session: session, terminalTabID: terminalTabID, on: macID)
+    }
+    public func terminalChatListedWhole(on macID: String) -> Bool { linked(macID)?.terminalChatListedWhole(on: macID) ?? false }
+
+    /// The pairings this account keeps beside its transcripts (none without an account or cache).
+    private var keptTerminalChats: (kept: KeptTerminalChats, account: String)? {
+        guard let coordinator, let cache = coordinator.transcriptCache, !coordinator.userID.isEmpty else { return nil }
+        return (cache.terminalChats, coordinator.userID)
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        guard let kept = keptTerminalChats, let key = KeptTerminalChats.key(kept.account, macID, harness, session) else { return nil }
+        return kept.kept.chat(key)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        guard let kept = keptTerminalChats, let key = KeptTerminalChats.key(kept.account, macID, harness, session) else { return }
+        kept.kept.keepChat(chat, for: key)
+    }
+    /// True with no account or cache: there is nothing to read.
+    public var keptTerminalChatsLoaded: Bool { keptTerminalChats?.kept.isLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keptTerminalChats?.kept.load() }
 
     // MARK: WorkspaceGroupBackend
 

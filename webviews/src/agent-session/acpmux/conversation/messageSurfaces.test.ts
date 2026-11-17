@@ -5,6 +5,8 @@ import { join } from "node:path";
 const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
 const agentRowCss = readFileSync(join(import.meta.dir, "AgentMessageRow.css"), "utf8");
 const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "utf8");
+const desktopCss = readFileSync(join(import.meta.dir, "../../../pages/shared/desktop.css"), "utf8");
+const noticeCss = readFileSync(join(import.meta.dir, "../../../ui/notice.css"), "utf8");
 
 test("selected message surfaces are borderless while the prompt keeps stronger glass", () => {
   expect(css).toContain("--glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);");
@@ -22,6 +24,22 @@ test("gallery keeps the bordered before arm and two borderless alternatives", ()
   expect(gallery).toContain('"message-surfaces-borderless"');
   expect(css).toContain(':root[data-message-surfaces="bordered"]');
   expect(agentRowCss).toContain(':root[data-message-surfaces="soft"]');
+});
+
+test("transient surfaces share the generated role aliases", () => {
+  for (const token of [
+    "--transient-surface-radius",
+    "--transient-surface-veil",
+    "--transient-surface-shadow",
+    "--transient-surface-gap",
+  ]) {
+    expect(desktopCss).toContain(token);
+  }
+  expect(noticeCss).toContain("border-radius: var(--transient-surface-radius);");
+  expect(css).toContain(".ui-transient-error");
+  expect(css).toContain("--glass-tint: var(--transient-surface-veil);");
+  expect(css).toContain("border-radius: var(--grid-cards-radius);");
+  expect(css).toContain("background: var(--transient-action-fill);");
 });
 
 /** Each rule's selector (comments stripped) and body, for a stylesheet's innermost rules. */

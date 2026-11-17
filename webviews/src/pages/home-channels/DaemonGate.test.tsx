@@ -161,3 +161,57 @@ test("any other final refusal is the plain sentence with Connect", async () => {
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe(userMessage(undefined));
   expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
 });
+
+/** When each credential load ran on a host whose daemon is down, at the longest jitter, for `forMs`. */
+async function askTimes(visibility: "visible" | "hidden", forMs: number): Promise<number[]> {
+  const container = installDom();
+  Object.defineProperty(dom!.window.document, "visibilityState", { value: visibility, configurable: true });
+  jest.useFakeTimers();
+  const random = Math.random;
+  Math.random = () => 1;
+  const start = Date.now();
+  const asks: number[] = [];
+  const down: DaemonSource = {
+    kind: "host",
+    load: () => {
+      asks.push(Date.now() - start);
+      return Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true));
+    },
+  };
+  try {
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(
+        <DaemonGate source={down} strings={strings}>
+          {() => null}
+        </DaemonGate>,
+      ),
+    );
+    for (let ms = 0; ms < forMs; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+  } finally {
+    Math.random = random;
+  }
+  return asks;
+}
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
+// faster/percievably load faster / whatever it takes". A shown Channels or Messages page whose daemon
+// restarts asks again at least every 2 s, so it is back within 2 s of the daemon answering; its
+// backoff went to 10 s, so a 10 s restart came back up to 5.5 s late. A hidden page keeps the 10 s step.
+test("a shown page asks again at least every 2 s while its daemon is down; a hidden one backs off to 10 s", async () => {
+  const shown = await askTimes("visible", 30_000);
+  const gaps = shown.slice(1).map((at, index) => at - shown[index]!);
+  expect(Math.max(...gaps)).toBeLessThanOrEqual(2_000);
+  // From any moment the daemon comes back, the next ask is within 2 s.
+  for (const up of [5_000, 10_000, 20_000]) {
+    expect(shown.find((at) => at >= up)! - up).toBeLessThanOrEqual(2_000);
+  }
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  jest.useRealTimers();
+  await settleReact();
+  dom?.window.close();
+  const hidden = await askTimes("hidden", 30_000);
+  const hiddenGaps = hidden.slice(1).map((at, index) => at - hidden[index]!);
+  expect(Math.max(...hiddenGaps)).toBe(10_000);
+});

@@ -114,6 +114,8 @@ export function FindPill(props: FindPillProps) {
         ref={props.inputRef}
         id={ids?.field}
         className="find-pill__field"
+        // The app holds the letters typed after Cmd-F until this field has focus (PageInputReadiness.awaitFocus).
+        data-cmux-command-focus="find"
         type="search"
         value={props.query}
         placeholder={labels.placeholder}
