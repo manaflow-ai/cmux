@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44041272323",
+  "recorded_at": "2026-11-17T08:02:47Z",
+  "reason": "cmux-tui de0da3a70ff3 changes the image's cmux-tui (pinned 7a3a4ae0d1ed)",
+  "dry_run": false,
+  "cmux_tui": "de0da3a70ff35b7ec8a743802fac0aaee66029b5",
+  "fixes": [
+    {
+      "sha": "de0da3a70ff35b7ec8a743802fac0aaee66029b5",
+      "mergedAt": "2026-11-16T23:27:07-08:00",
+      "subject": "Cloud multiplayer: shared chats, team sessions, no login on the machine, fast start (#40159)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T08:02:47Z",
+    "snapshot_id": "sh-38aa7470ff8e41dea6f4277f6ee6a5f6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44041272323): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "669cd7b94282db6617e42ebc3876ff8238648cc3",
+    "image": "cloud-native-auto-de0da3a7-44041272323-1",
+    "revision": "ci-44041272323-1",
+    "at": "2026-11-17T08:02:47Z"
+  },
+  "rolled_back": false
+}
