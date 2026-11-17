@@ -12,6 +12,7 @@ import CmuxNextDesign
 // they are back every strip under them measures again.
 extension WindowController {
     func windowWillEnterFullScreen(_ notification: Notification) {
+        services.windows.launchCapture.transitionBegan(state.id)
         services.hoverCards.dismiss(.action)
         isEnteringFullScreen = true
     }
@@ -28,6 +29,7 @@ extension WindowController {
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
+        services.windows.launchCapture.transitionBegan(state.id)
         services.hoverCards.dismiss(.action)
         (window as? ShellWindow)?.isLeavingFullScreen = true
         pagePresentationWindowWillExitFullScreen()
@@ -47,6 +49,7 @@ extension WindowController {
     /// The lights are where they rest again (or gone, in full screen): the
     /// top row and every strip under it measure once more, in this turn.
     private func fullScreenTransitionDidEnd() {
+        services.windows.launchCapture.transitionEnded(state.id)
         (window as? ShellWindow)?.isLeavingFullScreen = false
         root.applyMainPane() // a fullscreen window has no lit rim to leave room for (`Metrics.windowEdgeInset`)
         root.layoutSubtreeIfNeeded()

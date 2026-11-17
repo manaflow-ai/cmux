@@ -18,6 +18,7 @@ import {
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
+  composerCloudStartFolder,
 } from "./cloudRun";
 
 test("sign-in recovery can be reused after its card resets", async () => {
@@ -298,6 +299,11 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
     expect(cloudStartFolder(none)).toEqual({ home: true });
   // A no-project chat's private agent-home folder is never copied.
   expect(cloudStartFolder("/Users/me/Library/Application Support/cmux/agent-home/abc123")).toEqual({ home: true });
+  // Nor is Chief's own home, the folder a "No folder" tab reports.
+  expect(cloudStartFolder("/Users/me/.cmux/chief/default")).toEqual({ home: true });
+  expect(cloudStartFolder("/Users/me/.cmux/chief/com.cmuxterm.app.debug.tag/")).toEqual({ home: true });
+  // A project whose name only looks like it still copies.
+  expect(cloudStartFolder("/Users/me/src/.cmux-chief")).toEqual({ cwd: "/Users/me/src/.cmux-chief" });
 });
 
 test("a start with no project tells the host home, and never names a folder", async () => {
@@ -552,4 +558,18 @@ test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every o
   // A chat that started is wherever it runs: Cloud picked for it no longer moves its agent.
   expect(composerAgentLocal(true, "cloud", "s1")).toBe(true);
   expect(composerAgentLocal(false, "persistent", undefined)).toBe(false);
+});
+
+test("a composer's Cloud start copies only the folder its chip names, never one the host only offered", () => {
+  const local = { sessionId: "", host: "This Mac", hostKind: "local" as const };
+  // No folder on the chip: home, nothing copied, whatever folder the app or its New Tab page inherited.
+  expect(composerCloudStartFolder(local)).toEqual({ home: true });
+  expect(composerCloudStartFolder(undefined)).toEqual({ home: true });
+  expect(
+    composerCloudStartFolder({ ...local, cwd: "/Users/me/Library/Application Support/cmux/agent-home/abc" }),
+  ).toEqual({ home: true });
+  // The chat's own project (a pick folds into the summary, newtab/draftFolder.ts) is copied.
+  expect(composerCloudStartFolder({ ...local, cwd: "/Users/me/src/paint/" })).toEqual({ cwd: "/Users/me/src/paint" });
+  // A folder on another machine is not this Mac's to copy.
+  expect(composerCloudStartFolder({ ...local, peer: "build-box", cwd: "/home/me/api" })).toEqual({ home: true });
 });

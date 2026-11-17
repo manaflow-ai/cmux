@@ -392,7 +392,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowWillStartLiveResize(_ notification: Notification) { services.windows.launchCapture.transitionBegan(state.id) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.launchCapture.transitionEnded(state.id); services.windows.recordSaver.geometryDidChange(state) }
     /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
     /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
     func windowDidResize(_ notification: Notification) {
@@ -404,7 +405,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         BackdropImageStore.shared.desktop.windowDidChange()
     }
     /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now, and tabs an agent drove off screen come back.
-    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        BackdropImageStore.shared.desktop.windowDidChange()
+        if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window); services.windows.launchCapture.visibilityChanged(state.id, window) }
+    }
 
     var sidebarObservation: Task<Void, Never>?
 

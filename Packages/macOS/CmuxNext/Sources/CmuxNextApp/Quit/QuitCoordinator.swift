@@ -152,6 +152,7 @@ final class QuitCoordinator {
         let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
+                services.windows.launchCapture.captureForQuit() // beside the saves; nothing waits for it
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
@@ -199,6 +200,7 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                await services.windows.recordSaver.launchRecord.flush()
                 guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.

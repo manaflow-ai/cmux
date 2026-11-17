@@ -42,10 +42,11 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
-  LibraryListing,
+  KeysState,
   SharesState,
   TailnetState,
-  KeysState,
+  ModelsState,
+  LibraryListing,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -75,6 +76,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
+  /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
+  models?: ModelsState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello

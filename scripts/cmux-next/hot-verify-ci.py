@@ -439,8 +439,11 @@ def comment_listing(pr: int, repo: str = REPO) -> str:
 
 
 def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
-    live = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".head.sha").strip()
-    if live != head:
+    # A look at a merged PR's merge commit (cmux-next-hot-verify.yml after the merge) posts too: the PR names that
+    # commit as its merge_commit_sha. Any other head the PR is not at is an older look's.
+    live, _, merge = gh("api", f"repos/{repo}/pulls/{pr}", "--jq",
+                        '.head.sha + " " + (if .merged_at then (.merge_commit_sha // "") else "" end)').strip().partition(" ")
+    if head not in (live, merge.strip()):
         return f"#{pr} moved to {live[:12]}; its own run comments"
     listing = comment_listing(pr, repo)
     existing = our_comment(listing)

@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextLaunchCapture
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
@@ -41,6 +42,8 @@ final class WindowManager {
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
     lazy var recordSaver = WindowRecordSaver(manager: self)
+    /// Each window's last frame for the next launch's first frame.
+    lazy var launchCapture = LaunchWindowCapture(host: services, work: services.work, bundleID: services.environment.launch.bundleID)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -211,7 +214,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
-        state.onProfileChange = { [weak self] in self?.spaceDidChange() }
+        state.onProfileChange = { [weak self] in self?.registry.spaceEntered(windowID); self?.spaceDidChange() }
         states[windowID] = state
         return state
     }
@@ -283,7 +286,7 @@ final class WindowManager {
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil {
             let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
-            state.onProfileChange = { [weak self] in self?.spaceDidChange() }
+            state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
             states[record.id] = state
         }
         rememberMachines(of: document)
@@ -498,6 +501,7 @@ final class WindowManager {
         contentWaiters[id] = nil
         restacking.remove(id)
         controller.teardown()
+        if !isTerminating { launchCapture.windowClosed(id, keepImages: programmaticCloses.contains(id) || id == launchWindowID) }
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
             // The unregistered launch window: nothing to hand over. It often wears the saved front

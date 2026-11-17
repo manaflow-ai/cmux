@@ -27,13 +27,23 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+        public var fallbackCode: String?
+        /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+        public var installURL: String?
+        /// `seed_refused`: the bytes a copy of the folder would send; nil when cmux-tui could not read its size.
+        public var copyBytes: Int64?
+        /// `link seed fetch --find-root`: the machine's repository root the chat's folder is in.
+        public var remoteRoot: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
-                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
+                    fallbackCode: String? = nil, installURL: String? = nil, copyBytes: Int64? = nil) {
             (self.ok, self.errorCode, self.error, self.sessionID, self.transferID) = (ok, errorCode, error, sessionID, transferID)
             (self.conflicts, self.side, self.updated, self.build, self.notOlder) = (conflicts, side, updated, build, notOlder)
             (self.seedState, self.seedPhase, self.seedStartedAt, self.seedFinishedAt) = (seedState, seedPhase, seedStartedAt, seedFinishedAt)
+            (self.fallbackCode, self.installURL, self.copyBytes) = (fallbackCode, installURL, copyBytes)
         }
 
         /// `link machine update`: whether the machine's daemon may have restarted in the run that gave this
@@ -176,6 +186,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
         try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
     }
 
+    /// `cmux link seed fetch --find-root`: the first copy of the machine's folder of a chat at `remote` (its
+    /// repository root, when it is in one) in the new or empty folder `local` (Transfer to This Mac). `adopt` (the
+    /// chat moves here) keeps the sync records on both sides, so the move's pull and Bring Back build on it.
+    public func transferFetch(socket: String, local: String, remote: String, adopt: Bool) async throws -> Answer {
+        struct Call: Encodable { var verb = "transfer-fetch"; var socket: String, local: String, remote: String, adopt: Bool }
+        return try await run(Call(socket: socket, local: local, remote: remote, adopt: adopt)).answer
+    }
+
     /// `cmux link seed pull --or-copy` (Bring Back Local).
     public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote]).answer
@@ -199,10 +217,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
     /// `toBundled` whenever it runs another build, with `ifOlder` only when that build is older than this app's.
-    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+    /// `within`: the run ends (its process killed) after this at most, and answers ``machineUpdateAbandoned``: a chat start's own
+    /// update, which a machine whose updater never takes an older build than it applied kept waiting for its 25-minute outcome while
+    /// the start, and every later update in the app's one queue, waited behind it (2026-11-16).
+    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false, within: Duration? = nil) async throws -> Answer {
         struct Call: Encodable { var verb = "machine-update"; var socket: String, toBundled: Bool, ifOlder: Bool }
-        return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update").answer
+        do {
+            return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update", limit: within).answer
+        } catch let error as DaemonError {
+            guard case .timedOut = error, let within else { throw error }
+            return Answer(ok: false, errorCode: Self.machineUpdateAbandoned, error: "the update did not finish within \(within)")
+        }
     }
+
+    /// The error code of a ``machineUpdate(socket:toBundled:ifOlder:within:)`` run ended at its `within` bound: how the update
+    /// ended is unknown, and the machine may still be on its own build.
+    public static let machineUpdateAbandoned = "machine_update_abandoned"
 
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
@@ -359,17 +389,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine `socket` reaches, under the
     /// first of `workRoots` it can write, unless this send's copy already finished there. With the cmux `access` token
     /// (on stdin) it goes through the content-addressed store. The chat's folder there, whether it copied now, and
-    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here.
+    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here. `onSeedRefusal` says what it does
+    /// when the machine can't clone the folder from its git remote.
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil, onSeedRefusal: SeedRefusal = .copy,
                               stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
-        struct Call: Encodable {
-            var verb = "start-chat-copy"
-            var key: String, account: String, machine: String, socket: String, local: String, subpath: String
-            var workRoots: [String], acpmuxHome: String?, store: Bool
-        }
-        let call = Call(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath, workRoots: workRoots,
-                        acpmuxHome: acpmuxHome, store: access != nil)
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: access != nil, onSeedRefusal: onSeedRefusal)
         let read = try await run(call, reading: "start-chat-copy", stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let copy = read.copy
         return (read.answer, (copy?.chat ?? "", copy?.folder ?? "", copy?.copied ?? false, copy?.sourceTrusted ?? false))
@@ -381,6 +407,49 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatTrust(folder: String, acpmuxHome: String) async -> String? {
         struct Call: Encodable { var verb = "start-chat-trust"; var folder: String, acpmuxHome: String }
         return try? await run(Call(folder: folder, acpmuxHome: acpmuxHome), reading: "start-chat-trust").trust?.level
+    }
+
+    /// What a start copy does when the machine can't clone the folder from its git remote
+    /// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+    /// would send, and copies nothing; `copy` copies the folder instead.
+    public enum SeedRefusal: String, Sendable, Encodable {
+        case ask, copy
+    }
+
+    /// `link start-chat copy`'s arguments, as Rust names them (`store`: the cmux access token is on stdin).
+    public static func startChatCopyArguments(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
+                                              workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: store, onSeedRefusal: onSeedRefusal)
+        return Self.withSeedRefusal(CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? [], call)
+    }
+
+    /// TRANSITIONAL until CCmuxAppFFI is repinned past cmux-cloud-start-core's `on_seed_refusal`: the pinned release
+    /// names no `--on-seed-refusal`, so the copy's own rule is added here. A library that names it is left as it said.
+    private static func withSeedRefusal<Call: Encodable>(_ args: [String], _ call: Call) -> [String] {
+        guard let copy = call as? StartChatCopyCall, !args.isEmpty, !args.contains("--on-seed-refusal") else { return args }
+        return args + ["--on-seed-refusal", copy.onSeedRefusal.rawValue]
+    }
+
+    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code`,
+    /// `install_url` and `copy_bytes`, so they come from the answer's own JSON line when Rust left them out.
+    private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
+        guard answer.fallbackCode == nil || answer.copyBytes == nil else { return answer }
+        struct Fields: Decodable {
+            var fallbackCode: String?, installURL: String?, copyBytes: Int64?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes" }
+        }
+        let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
+        guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
+        var answer = answer
+        (answer.fallbackCode, answer.installURL, answer.copyBytes) = (answer.fallbackCode ?? fields.fallbackCode, answer.installURL ?? fields.installURL, answer.copyBytes ?? fields.copyBytes)
+        return answer
+    }
+
+    private struct StartChatCopyCall: Encodable {
+        var verb = "start-chat-copy"
+        var key: String, account: String, machine: String, socket: String, local: String, subpath: String
+        var workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal
     }
 
     /// What Rust read of one run.
@@ -413,20 +482,25 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// How Rust says to run a call.
     private struct Invocation: Decodable { var args: [String], timeoutSeconds: Int?, minTimeoutSeconds: Int? }
 
-    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
+    /// `bound`: a caller's shorter limit for this one run (``machineUpdate(socket:toBundled:ifOlder:within:)``).
+    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil,
+                                         bound: Duration? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
-        let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        let own = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
+        let limit = bound.map { min($0, own) } ?? own
+        return try await ProcessRunner.run(executable: binary, arguments: Self.withSeedRefusal(invocation.args, call), environment: nil, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
-                                      stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Read {
-        let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
+                                      stderrLine: (@Sendable (String) -> Void)? = nil, limit: Duration? = nil) async throws -> Read {
+        let result = try await output(call, stdin: stdin, stderrLine: stderrLine, bound: limit)
         let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
-        return CloudMoveCore().call("cli_read", request, as: Read.self)
+        var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
+        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        return read
     }
 }
 

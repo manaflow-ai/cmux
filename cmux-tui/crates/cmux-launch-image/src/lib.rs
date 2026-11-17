@@ -5,7 +5,8 @@
 //!
 //! The macOS app captures a window and encodes it as PNG; everything else is
 //! here: where a window's image lives, its atomic publish, the caps, pruning,
-//! and when a capture is due ([`schedule`]).
+//! when a capture is due ([`schedule`]), and whether a page's cached image may fill its region of
+//! a capture ([`region`]).
 //!
 //! # Files
 //!
@@ -41,7 +42,9 @@
 //! an error at launch.
 
 pub mod ffi;
+pub mod key;
 mod png;
+pub mod region;
 pub mod schedule;
 
 use std::fs::{self, File, OpenOptions};
@@ -50,6 +53,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub use key::{build_name, record_key};
 pub use png::png_pixel_size;
 
 /// The image file's extension.

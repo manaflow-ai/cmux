@@ -15,12 +15,18 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_LAUNCH_IMAGE_ABI_VERSION 2
+#define CMUX_LAUNCH_IMAGE_ABI_VERSION 4
 
 /*
  The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
  */
 #define CMUX_LAUNCH_IMAGE_PATH_CAPACITY 1025
+
+/*
+ The size `cmux_launch_image_record_key` needs at most, NUL included (a 128-byte build, a 66-byte
+ window key, a 20-digit generation and two `/`).
+ */
+#define CMUX_LAUNCH_IMAGE_KEY_CAPACITY 256
 
 /*
  The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
@@ -31,6 +37,18 @@
  `cmux_launch_image_schedule_note`'s reply when no capture is due.
  */
 #define CMUX_LAUNCH_IMAGE_NOT_DUE -1
+
+/*
+ The most a page image may lag the composite it is painted into (`crate::region`).
+ */
+#define CMUX_LAUNCH_IMAGE_MAX_PAGE_IMAGE_LAG_MS 120000
+
+/*
+ `cmux_launch_image_page_region`: paint the page's cached image. Every other reply paints the
+ region plain: 1 no image, 2 the page's version moved, 3 the page changed after the image, 4 the
+ image is too old, 5 the image is newer than the composite.
+ */
+#define CMUX_LAUNCH_IMAGE_REGION_IMAGE 0
 
 /*
  One window's capture schedule.
@@ -50,6 +68,22 @@ typedef struct {
      */
     char path[CMUX_LAUNCH_IMAGE_PATH_CAPACITY];
 } CmuxLaunchImage;
+
+/*
+ One page region of a window at capture time (`crate::region::PageRegion`): times in one monotonic
+ clock's milliseconds, versions the page's picture version. A `has_*` false means the value is
+ unknown.
+ */
+typedef struct {
+    bool has_image;
+    uint64_t image_taken_ms;
+    bool has_image_version;
+    uint64_t image_version;
+    uint64_t page_version;
+    bool has_page_changed;
+    uint64_t page_changed_ms;
+    uint64_t composite_ms;
+} CmuxLaunchImagePageRegion;
 
 /*
  Writes `png` (`len` bytes) as window `window_id`'s newest image in folder `dir` (made when
@@ -174,5 +208,32 @@ uint64_t cmux_launch_image_schedule_epoch(const CmuxLaunchImageSchedule *schedul
  As `cmux_launch_image_schedule_note`.
  */
 bool cmux_launch_image_schedule_is_current(const CmuxLaunchImageSchedule *schedule, uint64_t epoch);
+
+/*
+ Whether a page's cached image may fill its region of a capture: `CMUX_LAUNCH_IMAGE_REGION_IMAGE`
+ paints it; any other reply (see that constant) paints the region plain. Null gives 1 (no image).
+
+ # Safety
+ `region` is null or valid for reads of one `CmuxLaunchImagePageRegion`.
+ */
+uint8_t cmux_launch_image_page_region(const CmuxLaunchImagePageRegion *region);
+
+/*
+ Writes the launch record's `image_key` for image `generation` of window `window_id` into `out`
+ (`cap` bytes, NUL-terminated): `<build>/<window key>/<generation>`, the build from the bundle's
+ `version` (`CFBundleVersion`) and `commit` (`CMUXCommit`), either null when the bundle has none
+ (`crate::key::build_name`). False, and `out[0]` 0, when `window_id` is null, empty or not UTF-8, or
+ the key does not fit `cap` (`CMUX_LAUNCH_IMAGE_KEY_CAPACITY` always fits). Does no I/O.
+
+ # Safety
+ `version`, `commit` and `window_id` are null or NUL-terminated strings; `out` is null or valid for
+ writes of `cap` bytes.
+ */
+bool cmux_launch_image_record_key(const char *version,
+                                  const char *commit,
+                                  const char *window_id,
+                                  uint64_t generation,
+                                  char *out,
+                                  size_t cap);
 
 #endif  /* CMUX_LAUNCH_IMAGE_H */
