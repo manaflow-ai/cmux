@@ -282,6 +282,7 @@ struct TerminalLoadBench {
         var wide: Int
         var steps = 1
         var reached = true
+        var note = ""
     }
 
     struct Mark {
@@ -406,6 +407,8 @@ struct TerminalLoadBench {
                             mainMs: mainThreadCPU() - start.cpu, wide: rig.page.wideFrames - start.wide)
         sample.steps = steps
         sample.reached = rig.daemon.historyRowsOmitted == 0
+        if !sample.reached { sample.ms = (CFAbsoluteTimeGetCurrent() - start.wall) * 1000 }
+        sample.note = " (attaches \(rig.mac.attaches - start.attaches), replays \(rig.mac.vtStates - start.replays), rows still on the Mac \(rig.daemon.historyRowsOmitted), allowance \(rig.daemon.historyAllowance.map(String.init) ?? "all"))"
         return sample
     }
 
@@ -443,7 +446,7 @@ struct TerminalLoadBench {
 
     static func describe(_ sample: Sample) -> String {
         let reached = sample.reached ? "" : " (NOT reached)"
-        return String(format: "%.0f ms, %ld bytes, main %.0f ms, wide frames %ld, steps %ld", sample.ms, sample.bytes, sample.mainMs, sample.wide, sample.steps) + reached
+        return String(format: "%.0f ms, %ld bytes, main %.0f ms, wide frames %ld, steps %ld", sample.ms, sample.bytes, sample.mainMs, sample.wide, sample.steps) + reached + sample.note
     }
 
     @Test func loadingATerminalTab() async throws {
