@@ -11,14 +11,16 @@ extension CmuxRemoteService {
     /// cmux Remote's app side (docs/cmux-remote.md), when this build embeds it: Computer Use
     /// runs as its worker; the hub is made with the Screen Sharing worker's device identity and
     /// reads the worker's one User DO socket, and the worker is anchored while signed in. The app
-    /// serves Mac Screen and shows approvals while attached. Nil (and nothing changes) in
-    /// a build without the bundle.
+    /// keeps Mac Screen's tickets, signaling and approvals while attached; the worker captures,
+    /// encodes and injects input for them (``attach(_:)``), so only cmux Remote holds Screen
+    /// Recording and Accessibility. Nil (and nothing changes) in a build without the bundle.
     public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
         // In every build: without cmux Remote (Release, NIGHTLY) the app's own grants are the ones that count.
         followAppPermissions(activation: pages.systemShortcuts)
         guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
         markStarted()
+        attach(pages)
         let devices = CmuxRemoteDevices(open: { [weak self] in
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
@@ -47,10 +49,11 @@ extension CmuxRemoteService {
         }
         deviceHub.hubChanged = { [weak self, weak pages] hub, user, url in
             guard let self else { return }
-            // The app owns the current `cmux.rd/1` host while it is running. The worker's host
-            // path speaks the older ScreenStreamHost protocol, so its app channel is explicitly
-            // relay-only; it retains identity, signing and push delivery, and can host again only
-            // after every app channel closes.
+            // The app owns the current `cmux.rd/1` ticket while it is running and serves it
+            // through the worker's attached sessions (cmux.rd/1 and WebRTC, ``attach(_:)``). The
+            // worker's own unattached host speaks only WebRTC, so its app channel is explicitly
+            // relay-only; it retains identity, signing and push delivery, and hosts on its own
+            // again only after every app channel closes.
             let usesRemoteIdentity = hub != nil && hub === remoteHub
             followHub(usesRemoteIdentity ? hub : nil, userID: user, hubURL: url, devices: devices)
             pages?.remoteHosted = false

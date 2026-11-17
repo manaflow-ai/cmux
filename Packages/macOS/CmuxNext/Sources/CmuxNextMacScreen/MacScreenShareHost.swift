@@ -8,7 +8,10 @@ import SystemConfiguration
 
 /// The permissions this Mac needs to share its screen through the device
 /// hub ("Allow Mac Screen on this Mac", `MacScreenHubHost`): Screen
-/// Recording (the picture) and Accessibility (the input). They belong to the
+/// Recording (the picture) and Accessibility (the input). Where cmux Remote
+/// serves this app's capture (``remoteGrants``, docs/cmux-remote.md) they are
+/// cmux Remote's: read by its probe and asked for with `remote-host request`, so
+/// macOS prompts for and lists cmux Remote. Otherwise they belong to the
 /// Screen Sharing helper (``MacScreenHelper``, plans/cmux-next/screen-sharing-helper.md),
 /// which serves every session: the reads and the requests run in a fresh helper
 /// process, so macOS prompts for, lists and restarts the helper, and a grant
@@ -20,9 +23,9 @@ import SystemConfiguration
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
-    /// The name System Settings lists the two grants under: the helper's
-    /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
-    /// without the helper (then they are this app's own).
+    /// The name System Settings lists the two grants under: cmux Remote's
+    /// ("cmux Remote"), the helper's ("cmux NIGHTLY Screen Sharing"), or nil while
+    /// unknown and in a build with neither (then they are this app's own).
     public private(set) var grantHolderName: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     /// A build without the helper: a fresh child reads TCC under this app's responsibility, just like
@@ -33,6 +36,9 @@ public final class MacScreenShareHost {
     }
     /// This build's Screen Sharing helper (a disk lookup, run on the system lane); tests replace it.
     @ObservationIgnored var helper: @Sendable () -> MacScreenHelper? = { MacScreenHelper.bundled() }
+    /// cmux Remote's grants, when its worker serves this app's capture (``CmuxRemoteService`` sets
+    /// it); its answer wins over the helper's and this app's.
+    @ObservationIgnored var remoteGrants: MacScreenRemoteGrants?
     /// The helper once found; a build never gains or loses it.
     @ObservationIgnored private var found: MacScreenHelper?
     @ObservationIgnored private let work: BackgroundWork
@@ -71,6 +77,13 @@ public final class MacScreenShareHost {
         reads &+= 1
         let read = reads
         let helper = helper, readPermissions = readPermissions
+        if let remote = await remoteGrants?.read() {
+            guard read == reads, !Task.isCancelled else { return }
+            grantHolderName = remote.name
+            screenRecordingGranted = remote.screenRecording
+            accessibilityGranted = remote.accessibility
+            return
+        }
         // Shown on the Mac Screen page and in Settings: userVisible.
         let holder = await lookUpHelper(helper)
         let granted: (screen: Bool, control: Bool)?
@@ -111,10 +124,15 @@ public final class MacScreenShareHost {
     }
 
     private func request(screenRecording: Bool) {
-        let helper = helper
+        let helper = helper, remote = remoteGrants
         // task-owner: one request; it ends with the helper's answer
         Task { [weak self] in
             guard let self else { return }
+            // cmux Remote asks macOS itself (and opens System Settings when macOS no longer prompts).
+            if let remote, await remote.request(screenRecording) {
+                await refreshPermissions()
+                return
+            }
             guard let found = await lookUpHelper(helper) else {
                 requestInApp(screenRecording: screenRecording)
                 return

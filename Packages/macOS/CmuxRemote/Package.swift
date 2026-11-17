@@ -10,7 +10,8 @@ import PackageDescription
 //   CmuxRemoteWire           -> JSON lines, process stamps, peer checks (no AppKit)
 //   CmuxRemoteHost           -> Wire, AppKit (supervisor link, worker supervision, permissions, app socket)
 //   CmuxRemoteComputerUse    -> Wire, CmuxCuaHelperCore (the Computer Use worker: upstream Cua Driver)
-//   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner)
+//   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner,
+//                               and the attached app's capture: cmux.rd/1 host child, WebRTC relay)
 //   cmux-remote              -> all of them (the executable in "cmux Remote.app")
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
@@ -66,6 +67,7 @@ let package = Package(
             dependencies: [
                 "cmux-remote", "CmuxRemoteWire", "CmuxRemoteHost", "CmuxRemoteScreenSharing",
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
+                .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
             ],
             swiftSettings: swiftSettings
         ),

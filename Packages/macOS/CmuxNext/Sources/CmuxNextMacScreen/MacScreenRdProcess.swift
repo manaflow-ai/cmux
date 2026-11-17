@@ -1,6 +1,8 @@
 import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextRemoteView
+import CmuxScreenKit
+import Darwin
 import Foundation
 import os
 
@@ -45,6 +47,9 @@ nonisolated final class MacScreenRdProcess: Sendable {
         var process: Process?
         /// The Screen Sharing helper's pid, while it serves (``SignedHelperLaunch`` reaps it).
         var helperPID: pid_t?
+        /// The cmux Remote channel that is the host's stdio (``startRemote(_:)``), until it ends.
+        var remoteSocket: Int32?
+        var startedRemote = false
         var stdin: FileHandle?
         var stderrTail = Data()
     }
@@ -76,6 +81,80 @@ nonisolated final class MacScreenRdProcess: Sendable {
         state.withLock { state in
             state.helperPID = pid
             state.stdin = stdin.fileHandleForWriting
+        }
+    }
+
+    /// Starts the host in cmux Remote's Screen Sharing worker (docs/cmux-remote.md, "Attached
+    /// capture"): `open` gives a fresh `screen-sharing` channel, which becomes the host's stdin
+    /// and stdout once the worker answers `screen.rd_serve`. The host is the worker's child, so
+    /// macOS checks cmux Remote's Screen Recording and Accessibility, never this app's. Throws
+    /// when cmux Remote refuses or is gone. Off the caller's actor: the opening exchange blocks.
+    @concurrent func startRemote(_ open: @Sendable () async throws -> Int32) async throws {
+        let socket = try await open()
+        do { try Self.requestRemoteServe(socket) } catch {
+            Darwin.close(socket)
+            throw error
+        }
+        state.withLock { state in
+            state.remoteSocket = socket
+            state.startedRemote = true
+            state.stdin = FileHandle(fileDescriptor: socket, closeOnDealloc: false)
+        }
+        followRemote(socket)
+        logger.info("cmux rd: serving from cmux Remote's Screen Sharing worker")
+    }
+
+    /// `screen.rd_serve` and its answer; the channel carries only the host's lines after it.
+    private static func requestRemoteServe(_ socket: Int32) throws {
+        let request: [String: Any] = ["id": 1, "method": AttachedScreenHost.rdServe, "params": [String: String]()]
+        guard var line = try? JSONSerialization.data(withJSONObject: request) else { throw CocoaError(.coderInvalidValue) }
+        line.append(UInt8(ascii: "\n"))
+        guard RemoteSocket.writeAll(socket, line), let reply = RemoteSocket.readLine(socket),
+              let answer = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any] else {
+            throw CmuxRemoteError.refused("cmux Remote closed the screen channel")
+        }
+        guard answer["ok"] as? Bool == true else {
+            throw CmuxRemoteError.refused((answer["error"] as? [String: Any])?["message"] as? String ?? "refused")
+        }
+    }
+
+    /// Reads the remote host's lines (the channel) into ``lines``; at its end the channel closes
+    /// after every queued write ran, so no write reaches a reused descriptor.
+    private func followRemote(_ socket: Int32) {
+        let continuation = continuation
+        guard let reader = RemoteRdLineReader() else {
+            continuation.finish()
+            closeRemote()
+            return
+        }
+        let lines = MacScreenRdLineSink(reader: reader)
+        let handle = FileHandle(fileDescriptor: socket, closeOnDealloc: false)
+        handle.readabilityHandler = { [weak self] handle in
+            // concurrency-allow: readabilityHandler runs on Foundation's queue, never main; data is ready.
+            let data = handle.blockingAvailableData()
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                continuation.finish()
+                self?.closeRemote()
+                return
+            }
+            for line in lines.push(data) {
+                continuation.yield(line)
+            }
+        }
+    }
+
+    private func closeRemote() {
+        writes.async { [weak self] in
+            guard let self else { return }
+            let socket = state.withLock { state -> Int32? in
+                defer {
+                    state.remoteSocket = nil
+                    state.stdin = nil
+                }
+                return state.remoteSocket
+            }
+            if let socket { Darwin.close(socket) }
         }
     }
 
@@ -142,24 +221,36 @@ nonisolated final class MacScreenRdProcess: Sendable {
     func send(_ value: some Encodable) {
         guard var line = try? JSONEncoder().encode(value) else { return }
         line.append(UInt8(ascii: "\n"))
-        let handle = state.withLock { $0.stdin }
-        guard let handle else { return }
-        writes.async { try? handle.write(contentsOf: line) }
+        guard state.withLock({ $0.stdin != nil }) else { return }
+        // The handle is read when the write runs: a cmux Remote channel may have closed meanwhile.
+        writes.async { [weak self] in
+            guard let handle = self?.state.withLock({ $0.stdin }) else { return }
+            try? handle.write(contentsOf: line)
+        }
     }
 
-    /// Whether `start` or `startServe` launched the process.
-    var started: Bool { state.withLock { $0.process != nil || $0.helperPID != nil } }
+    /// Whether `start`, `startServe` or `startRemote` launched the process.
+    var started: Bool { state.withLock { $0.process != nil || $0.helperPID != nil || $0.startedRemote } }
 
-    /// The last stderr bytes, for an error message.
+    /// The last stderr bytes, for an error message (none for a host in cmux Remote: it logs them).
     var stderrTail: String { state.withLock { String(data: $0.stderrTail, encoding: .utf8) ?? "" } }
 
-    /// Ends the process: `stop`, then stdin closes (the process stops on end of file).
+    /// Ends the process: `stop`, then stdin closes (the process stops on end of file). A host in
+    /// cmux Remote reads end of file when this side of its channel shuts; the worker then ends
+    /// the channel, and its end closes the descriptor (``followRemote(_:)``).
     func stop() {
         send(["stop": true])
-        let handle = state.withLock { state -> FileHandle? in
-            defer { state.stdin = nil }
-            return state.stdin
+        writes.async { [weak self] in
+            guard let self else { return }
+            let (handle, socket) = state.withLock { state -> (FileHandle?, Int32?) in
+                defer { state.stdin = nil }
+                return (state.stdin, state.remoteSocket)
+            }
+            if let socket {
+                _ = shutdown(socket, SHUT_WR)
+            } else {
+                try? handle?.close()
+            }
         }
-        writes.async { try? handle?.close() }
     }
 }

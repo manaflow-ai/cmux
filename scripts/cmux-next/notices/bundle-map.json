@@ -63,6 +63,11 @@
       "notices": ["first-party", "section:manual-swift-package-dependencies", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
     },
     {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-screen-sharing",
+      "what": "the cmux.rd/1 host cmux Remote's Screen Sharing worker runs for the attached app (docs/cmux-remote.md, Attached capture): the same cmux-tui/crates/cmux-rd-host cmux-rd with only the link feature as the Screen Sharing helper below, built by build-screen-sharing-helper.sh into build-cmux-remote-dev.sh's bundle",
+      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
+    },
+    {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib",
       "what": "the same libwebrtc M154 as Contents/Frameworks/WebRTC.framework (stasel/WebRTC 154.0.0), shipped in cmux Remote as a plain dylib (build-cmux-remote-dev.sh); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
       "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]

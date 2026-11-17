@@ -49,7 +49,11 @@ final class ScreenWorkerSupervisor: Sendable {
     var pid: pid_t? { state.withLock { $0.child?.pid } }
     var startedAt: Date? { state.withLock { $0.startedAt } }
     var restarts: Int { state.withLock { $0.restarts } }
-    var busy: Bool { (status?["session"] as? [String: Any]) != nil }
+    /// A session runs: the worker's own, or one it serves for the attached app (`attached`).
+    var busy: Bool {
+        let status = status
+        return (status?["session"] as? [String: Any]) != nil || (status?["attached"] as? Int ?? 0) > 0
+    }
     /// Called (any thread) when the worker's status changes or it stops.
     let onChange: @Sendable () -> Void
 

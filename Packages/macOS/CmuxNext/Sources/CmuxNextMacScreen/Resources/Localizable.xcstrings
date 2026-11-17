@@ -36812,6 +36812,137 @@
         }
       }
     },
+    "macScreen.setup.screen.bodyNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج macOS إلى إذن تسجيل الشاشة ليتمكن %@ من مشاركة شاشتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi %@ dijelio vaš ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS skal give %@ tilladelse til skærmoptagelse, så din skærm kan deles."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung für %@, damit dein Bildschirm geteilt werden kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS needs Screen Recording permission for %@ to share your display."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS necesita permiso de grabación de pantalla para que %@ comparta tu pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que %@ partage votre écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché %@ possa condividere lo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で画面を共有するには、macOSの画面収録の許可が必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យ %@ ចែករំលែកអេក្រង់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS trenger tillatelse til skjermopptak for at %@ skal kunne dele skjermen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby %@ mógł udostępniać ekran."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS precisa da permissão Gravação de Tela para que %@ compartilhe sua tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы %@ мог делиться вашим экраном, macOS требуется разрешение на запись экрана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้ %@ แชร์หน้าจอของคุณได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS потрібен дозвіл на запис екрана, щоб %@ міг надавати доступ до вашого екрана."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS cần quyền Ghi màn hình để %@ chia sẻ màn hình của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 macOS 的屏幕录制权限才能共享你的显示屏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
+          }
+        }
+      }
+    },
     "macScreen.setup.screen.settings": {
       "extractionState": "manual",
       "localizations": {
@@ -36939,6 +37070,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 macOS 權限提示或系統設定中允許 cmux，然後返回此處再次檢查。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.screen.settingsNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسمح لـ %@ في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvolite %@ u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad %@ i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaube %@ im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow %@ in the macOS permission prompt or System Settings, then return here and check again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite %@ en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisez %@ dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti a %@ nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOSの許可ダイアログまたはシステム設定で%@を許可し、ここに戻ってもう一度確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាត %@ ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 권한 메시지나 시스템 설정에서 %@을(를) 허용한 다음 여기로 돌아와 다시 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat %@ i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na %@ w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permita o %@ no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешите %@ в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาต %@ ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS izin isteminde veya Sistem Ayarları’nda %@ uygulamasına izin verin, ardından buraya dönüp tekrar kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозвольте %@ у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép %@ trong lời nhắc cấp quyền của macOS hoặc Cài đặt hệ thống, sau đó quay lại đây và kiểm tra lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 macOS 权限提示或系统设置中允许 %@，然后回到这里再次检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 macOS 權限提示或系統設定中允許 %@，然後回到這裡再次檢查。"
           }
         }
       }

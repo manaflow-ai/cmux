@@ -18,6 +18,8 @@ private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "screen-
 public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     let layout: RemoteHostLayout
     let agent: DeviceAgent
+    /// The cmux app's attached sessions: their capture, encoding and input run here.
+    let attached: AttachedScreenSessions
     private let control = LineChannel(read: STDIN_FILENO, write: STDOUT_FILENO)
     private var statusQueued = false
     private(set) var appChannels = 0
@@ -27,8 +29,13 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     public init(layout: RemoteHostLayout, stateDirectory: String, keychainScope: String, headless: Bool) {
         self.layout = layout
         agent = DeviceAgent(keychainScope: keychainScope, statePath: stateDirectory + "/screen-sharing.json", headless: headless)
+        attached = AttachedScreenSessions(logPath: layout.log)
         super.init()
         agent.changed = { [weak self] in self?.queueStatus() }
+        // A session starting or ending changes the status, on the session's own thread.
+        attached.onChange = { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.queueStatus() } } // main-proof: DispatchQueue.main
+        }
     }
 
     /// Never returns.
@@ -78,14 +85,24 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             statusQueued = false
-            control.write(RemoteWire.event("status", ["status": agent.status]))
+            control.write(RemoteWire.event("status", ["status": status]))
         }
+    }
+
+    /// The device agent's status, plus what this worker serves for the attached app (`serves`)
+    /// and how many of those sessions run (`attached`; the host counts them as busy).
+    var status: [String: Any] {
+        var fields = agent.status
+        fields["serves"] = attached.serves
+        let serving = attached.serving
+        if serving > 0 { fields["attached"] = serving }
+        return fields
     }
 
     func handle(_ method: String, _ params: [String: Any], id: Any?) async -> Data {
         switch method {
         case "status":
-            return RemoteWire.answer(id: id, result: agent.status)
+            return RemoteWire.answer(id: id, result: status)
         case "share":
             guard params["on"] as? Bool == false else {
                 return RemoteWire.failure(id: id, code: "needs_app", message: "Share This Mac on is confirmed in cmux (palette: Share This Mac)")
@@ -122,9 +139,13 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             logger.error("worker socket: \(String(describing: error), privacy: .public)")
             return
         }
+        let attached = attached
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
+            guard let first = channel.readObject() else { return channel.close() }
+            // An attached session owns its channel (and this thread) until it ends.
+            if attached.take(first, channel: channel) { return }
             // The reader stays off the main actor, while one actor task owns this
             // channel's registration, request order, and teardown. This prevents
             // a queued request from racing appChannelClosed and re-enabling worker
@@ -144,7 +165,9 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
                 appChannelClosed()
                 channel.close()
             }
-            while let object = channel.readObject() {
+            var next: [String: Any]? = first
+            while let object = next ?? channel.readObject() {
+                next = nil
                 if case .dropped = stream.continuation.yield(WorkerRequest(object)) {
                     // A peer that outruns the actor is failed closed rather than
                     // silently dropping a control request.

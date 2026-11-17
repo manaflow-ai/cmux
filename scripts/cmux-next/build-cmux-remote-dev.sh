@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds the UNSIGNED "cmux Remote (dev).app" (bundle id com.cmuxterm.remote.dev;
 # docs/cmux-remote.md): the cmux-remote executable (Packages/macOS/CmuxRemote:
-# host, Computer Use worker, Screen Sharing worker), the pinned upstream
+# host, Computer Use worker, Screen Sharing worker), the cmux.rd/1 host the
+# Screen Sharing worker runs for the attached app (Contents/MacOS/cmux-screen-sharing:
+# cmux-rd from cmux-tui/crates/cmux-rd-host, built by build-screen-sharing-helper.sh;
+# docs/cmux-remote.md, "Attached capture"), the pinned upstream
 # libcua_driver_sdk.dylib (cua-driver-sdk.pin.json), WebRTC.framework, the
 # SwiftPM resource bundles and the cmux Remote icon (Resources/CmuxRemote.icon,
-# exported with Icon Composer's ictool). Run on a fleet Mac with Xcode, never
+# exported with Icon Composer's ictool). Run on a fleet Mac with Xcode and Rust, never
 # on a laptop. sign-cmux-remote-dev.sh signs it with Apple Development.
 #
 #   build-cmux-remote-dev.sh [--out DIR]   (default $NX_ARTIFACTS or ./out)
@@ -36,15 +39,25 @@ cmp -s "$sdk/include/cua_driver_abi.h" "$repo_root/Packages/macOS/CmuxComputerUs
 (cd "$package" && swift build -c release --arch arm64 --product "$EXECUTABLE")
 bin_dir="$(cd "$package" && swift build -c release --arch arm64 --show-bin-path)"
 CMUX_SWIFT_BIN_PATH="$bin_dir" "$SCRIPT_DIR/compile-string-catalogs.sh"
+# The cmux.rd/1 host (arm64, like the rest of the bundle): built on a cache miss (CI and the
+# fleet only), else reused. Its cache key covers cmux-rd-host and every crate it reaches.
+CMUX_NEXT_SCREEN_HELPER_ARCHS=arm64 "$SCRIPT_DIR/build-screen-sharing-helper.sh" >&2
+rd_host="$(CMUX_NEXT_SCREEN_HELPER_ARCHS=arm64 "$SCRIPT_DIR/build-screen-sharing-helper.sh" --cached-only --print-path)"
+rd_key="$(sed -n 's/^key=//p' "$rd_host.ref")"
+[[ -x "$rd_host" && -n "$rd_key" ]] || { echo "error: no cmux.rd/1 host build (build-screen-sharing-helper.sh)" >&2; exit 1; }
 
-source_tree="$(cd "$repo_root" && { find Packages/macOS/CmuxRemote Packages/macOS/CmuxComputerUseHelper Packages/Shared/CmuxDeviceHub \
+# The Swift sources by content, then the cmux.rd/1 host's source key.
+source_tree="$(cd "$repo_root" && { { find Packages/macOS/CmuxRemote Packages/macOS/CmuxComputerUseHelper Packages/Shared/CmuxDeviceHub \
   Packages/Shared/CmuxVNCWebRTC Packages/Shared/CmuxVNC Resources/CmuxRemote.icon -type f -not -path '*/.build/*' -not -path '*/.swiftpm/*'; } |
-  LC_ALL=C sort | while IFS= read -r f; do printf '%s\n' "$f"; shasum -a 256 "$f" | awk '{print $1}'; done | shasum -a 256 | awk '{print $1}')"
+  LC_ALL=C sort | while IFS= read -r f; do printf '%s\n' "$f"; shasum -a 256 "$f" | awk '{print $1}'; done
+  printf 'cmux-rd-host\n%s\n' "$rd_key"; } | shasum -a 256 | awk '{print $1}')"
 sdk_sha="$(shasum -a 256 "$sdk_tar" | awk '{print $1}')"
 version="1.0.${source_tree:0:7}"
 app="$work/$APP_NAME.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources/Licenses"
 cp "$bin_dir/$EXECUTABLE" "$app/Contents/MacOS/$EXECUTABLE"
+cp "$rd_host" "$app/Contents/MacOS/cmux-screen-sharing"
+chmod 755 "$app/Contents/MacOS/cmux-screen-sharing"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/$EXECUTABLE" 2>/dev/null || true
 for bundle in "$bin_dir"/*.bundle; do cp -R "$bundle" "$app/Contents/Resources/"; done
 cp "$sdk/lib/libcua_driver_sdk.dylib" "$app/Contents/Frameworks/"
@@ -94,6 +107,9 @@ cmux Remote (dev) is free software: its code (https://github.com/manaflow-ai/cmu
 Packages/macOS/CmuxRemote and the packages it uses, source sha256 $source_tree)
 is licensed under the GNU General Public License, version 3 or later.
 
+It runs the cmux.rd/1 host (cmux-tui/crates/cmux-rd-host in the same repository,
+GPL-3.0-or-later; host key $rd_key) as its Screen Sharing worker's child.
+
 It loads Cua Driver (libcua_driver_sdk.dylib, https://github.com/trycua/cua),
 MIT licensed: see LICENSE-cua* and THIRD_PARTY_NOTICES*, and WebRTC
 (https://webrtc.org, BSD-3-Clause, built by github.com/stasel/WebRTC).
@@ -120,6 +136,7 @@ plistlib.dump({
 PY
 codesign --force --sign - "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
 codesign --force --sign - "$app/Contents/Frameworks/libWebRTC.dylib"
+codesign --force --sign - "$app/Contents/MacOS/cmux-screen-sharing"
 codesign --force --sign - "$app"
 mkdir -p "$out"
 asset="cmux-remote-dev-unsigned-macos-arm64.zip"

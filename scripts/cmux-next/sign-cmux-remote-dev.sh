@@ -46,6 +46,8 @@ app="$work/cmux Remote (dev).app"
 sign() { codesign --force --options runtime "$timestamp" ${keychain[@]+"${keychain[@]}"} --sign "$identity" "$@"; }
 sign "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
 sign "$app/Contents/Frameworks/libWebRTC.dylib"
+# The cmux.rd/1 host the Screen Sharing worker runs for the attached app (docs/cmux-remote.md).
+[[ ! -e "$app/Contents/MacOS/cmux-screen-sharing" ]] || sign "$app/Contents/MacOS/cmux-screen-sharing"
 sign "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 codesign --verify --strict --deep -R="identifier \"com.cmuxterm.remote.dev\" and anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$app"

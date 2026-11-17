@@ -8,10 +8,13 @@ import os
 /// This Mac serving one approved device hub session on cmux.rd/1
 /// (plans/cmux-next/remote-desktop-mac-host.md section 7): `cmux rd serve`
 /// captures, encodes and injects input, and holds the secure link; this object
-/// carries its offer, answer and candidates over the session's signaling. The
-/// host runs in the Screen Sharing helper (``MacScreenHelper``), its own
-/// responsible process, so the Screen Recording and Accessibility grants it
-/// uses are the helper's and a grant never relaunches this app.
+/// carries its offer, answer and candidates over the session's signaling. Where
+/// cmux Remote runs and serves the attached app (``MacScreenRemoteCapture``,
+/// docs/cmux-remote.md), the host is its Screen Sharing worker's child and a
+/// WebRTC viewer is served by the worker, so the grants are cmux Remote's.
+/// Otherwise the host runs in the Screen Sharing helper (``MacScreenHelper``),
+/// its own responsible process, so the Screen Recording and Accessibility
+/// grants it uses are the helper's and a grant never relaunches this app.
 ///
 /// The viewer chooses the protocol with its offer. A viewer that offers WebRTC
 /// (the iPhone's Screen Sharing viewer, or a Mac from before cmux.rd/1) is served
@@ -40,6 +43,10 @@ nonisolated final class MacScreenRdHost: Sendable {
     private let process = MacScreenRdProcess()
     /// The WebRTC host when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
     private let webRTC = Mutex<ScreenStreamHost?>(nil)
+    /// cmux Remote's worker, when it serves this app's sessions (nil: the helper or this app serves).
+    private let remote: MacScreenRemoteCapture?
+    /// The worker's channel of a WebRTC session it serves, until Stop.
+    private let remoteChannel = Mutex<MacScreenRemoteLines?>(nil)
     /// Reads the process's lines until it ends; outlives `serve` (a connected session outlives its
     /// signaling), cancelled by `disconnectViewer`.
     private let output = Mutex<Task<Void, Never>?>(nil)
@@ -49,9 +56,17 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
     private let webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)?
 
-    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil) {
+    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil,
+         remote: MacScreenRemoteCapture? = nil) {
         self.session = session
         self.webRTCServer = webRTCServer
+        self.remote = remote
+    }
+
+    /// Whether cmux Remote's worker serves `kind` now (asked once per session).
+    private func remoteServes(_ kind: String) async -> Bool {
+        guard let remote else { return false }
+        return await remote.serves().contains(kind)
     }
 
     /// Whether the rd process was started (a WebRTC viewer never starts it).
@@ -146,7 +161,13 @@ nonisolated final class MacScreenRdHost: Sendable {
                 let server = webRTCServer
                 // task-owner: the WebRTC session; serve awaits it, and it ends with the signaling or disconnectViewer
                 webRTCServe = Task { [self] in
-                    if let server { try await server(forwarded) } else { try await serveWebRTC(forwarded) }
+                    if let server {
+                        try await server(forwarded)
+                    } else if let remote, await remoteServes(AttachedScreenHost.webRTCKind) {
+                        try await serveRemoteWebRTC(forwarded, remote: remote)
+                    } else {
+                        try await serveWebRTC(forwarded)
+                    }
                 }
             case let .offer(text):
                 guard !started, let offer = MacScreenRdDocument(text: text) else {
@@ -155,7 +176,13 @@ nonisolated final class MacScreenRdHost: Sendable {
                 }
                 logger.info("cmux rd: offer received (\(offer.candidates.count, privacy: .public) candidates); starting the host")
                 started = true
-                do { try await process.startServe() } catch {
+                do {
+                    if let remote, await remoteServes(AttachedScreenHost.rdKind) {
+                        try await process.startRemote(remote.open)
+                    } else {
+                        try await process.startServe()
+                    }
+                } catch {
                     emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))
                     return
                 }
@@ -198,9 +225,17 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await host.serve(signaling)
     }
 
+    /// Serves a WebRTC viewer in cmux Remote's worker, with this session's signaling relayed.
+    private func serveRemoteWebRTC(_ signaling: MacScreenForwardedSignaling, remote: MacScreenRemoteCapture) async throws {
+        logger.info("serving a WebRTC viewer from cmux Remote's Screen Sharing worker")
+        try await remote.serveWebRTC(signaling, session: session, emit: { [weak self] event in self?.emit(event) },
+                                     register: { [weak self] channel in self?.remoteChannel.withLock { $0 = channel } })
+    }
+
     /// Stop: the host stops its session (the viewer sees the link close) and exits.
     func disconnectViewer() {
         process.stop()
+        remoteChannel.withLock { $0 }?.close()
         output.withLock { $0 }?.cancel()
         // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
         if let host = webRTC.withLock({ $0 }) { Task.detached(priority: WorkPriority.userVisible.taskPriority) { host.disconnectViewer() } }

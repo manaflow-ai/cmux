@@ -12,7 +12,9 @@ import os
 /// `MacScreenRdHost` (cmux.rd/1; View Only sessions apply no input) over the
 /// ticket's signaling; a revocation or end closes it at once. One session at a time:
 /// a newer one replaces the older. Permissions (Screen Recording,
-/// Accessibility) are checked by `MacScreenShareHost`.
+/// Accessibility) are checked by `MacScreenShareHost`. Where cmux Remote serves
+/// the attached app (``remoteCapture``), the capture runs in its Screen Sharing
+/// worker and this object keeps the ticket, signaling and approval.
 @MainActor @Observable
 public final class MacScreenHubHost {
     /// The session this Mac serves now.
@@ -37,8 +39,13 @@ public final class MacScreenHubHost {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
-    /// Makes the host for one session; tests replace it.
-    @ObservationIgnored var makeHost: (MacScreenRdHost.Session) -> MacScreenRdHost = { MacScreenRdHost(session: $0) }
+    /// cmux Remote's Screen Sharing worker as this app's capture (docs/cmux-remote.md, "Attached
+    /// capture"); nil in a build without cmux Remote. ``CmuxRemoteService`` sets it.
+    @ObservationIgnored var remoteCapture: MacScreenRemoteCapture?
+    /// Makes the host for one session, with ``remoteCapture``; tests replace it.
+    @ObservationIgnored var makeHost: (MacScreenRdHost.Session, MacScreenRemoteCapture?) -> MacScreenRdHost = {
+        MacScreenRdHost(session: $0, remote: $1)
+    }
     /// The hub calls the host's controls make; tests replace them.
     @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
         try? await hub.endSession(id, reason: reason)
@@ -152,7 +159,8 @@ public final class MacScreenHubHost {
             return
         }
         let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
-                                                    servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))))
+                                                    servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))),
+                            remoteCapture)
         let (events, sink) = AsyncStream.makeStream(of: MacScreenRdHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { event in sink.yield(event) }
         self.host = host
