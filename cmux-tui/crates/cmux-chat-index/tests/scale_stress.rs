@@ -78,13 +78,16 @@ fn codex_prompt(i: usize, text: &str) -> String {
 fn write_claude(projects: &Path, i: usize) {
     let mut body = String::new();
     // Unicode prompts and duplicate titles too: every 7th chat asks the same thing.
-    let prompt =
-        if i % 7 == 0 { "fix the build".to_owned() } else { format!("chat {i} über ✓ build") };
+    let prompt = if i.is_multiple_of(7) {
+        "fix the build".to_owned()
+    } else {
+        format!("chat {i} über ✓ build")
+    };
     body += &claude_line(i, "user", &prompt);
     body.push('\n');
     body += &claude_line(i, "assistant", &format!("answer {i} {}", "lorem ipsum ".repeat(30)));
     body.push('\n');
-    if i % LONG_EVERY == 0 {
+    if i.is_multiple_of(LONG_EVERY) {
         let filler = claude_line(i, "assistant", &"x".repeat(2_000));
         for _ in 0..100 {
             body += &filler;
@@ -134,7 +137,7 @@ impl Corpus {
         let mut names = String::new();
         for i in 0..codex_chats {
             write_codex(&codex, i);
-            if i % 3 == 0 {
+            if i.is_multiple_of(3) {
                 names += &json!({"id": codex_id(i), "thread_name": format!("named {i}"),
                     "updated_at": clock(i)})
                 .to_string();
