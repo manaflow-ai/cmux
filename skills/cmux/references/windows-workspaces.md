@@ -22,7 +22,7 @@ Windows exist only in the app; their ids are the lowercase UUIDs `cmux window li
 
 ## Context-menu actions
 
-Workspace right-click actions are app actions. List them with `cmux action list --noun workspace` and check arguments with `cmux action describe "workspace set-color"`.
+Workspace right-click actions are app actions. List them with `cmux action list --noun workspace` and check arguments with `cmux action describe "workspace set-color"`. Each verb also takes its object first (`cmux workspace ws_… set-color --color blue` is `--target ws_…`), and `cmux workspace ws_… pin` / `unpin` set the pin.
 
 ```bash
 cmux workspace set-color --target ws_… --color blue
@@ -55,7 +55,7 @@ Each thing a person does to a workspace or group in the sidebar has a verb. Orde
 | Drag a workspace above or below another row (into its group, or out of a group) | `cmux workspace move-above --target ws_… --anchor ws_…`, `move-below` |
 | Move a workspace to the top or bottom of its group or the loose rows | `cmux workspace move-to-top --target ws_…`, `move-to-bottom` |
 | Move a workspace one row up or down | `cmux workspace move-up --target ws_…`, `move-down` |
-| Pin or unpin a workspace | `cmux workspace pin-unpin --target ws_… [--pinned true\|false]` (without `--pinned` it toggles) |
+| Pin or unpin a workspace | `cmux workspace ws_… pin`, `cmux workspace ws_… unpin` (same as `cmux workspace pin-unpin --target ws_… --pinned true\|false`; without `--pinned` it toggles) |
 | Add to or remove from Top | `cmux workspace toggle-top --target ws_…` |
 | New group, or a group from workspaces | `cmux workspace-group create --target ws_… [--name …]`, `cmux workspace move-to-new-group --target ws_…` |
 | Move a workspace into or out of a group | `cmux workspace-group add-workspace --target ws_… --group <group>`, `remove-workspace --target ws_…` |

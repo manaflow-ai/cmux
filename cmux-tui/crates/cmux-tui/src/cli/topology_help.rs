@@ -16,6 +16,7 @@ USAGE
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
+  cmux workspace <ws_id> pin|unpin
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon] [--description <text>|--clear-description]
     [--task-status todo|working|needs-attention|review|done|--clear-task-status]
@@ -72,11 +73,13 @@ starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. --top puts the new workspace first in
 the sidebar (below Home), whatever workspaces.newPlacement says. move
 --index <n> moves a workspace to place n of list (the sidebar order) and
-in the session order; it stays in its section and group. Workspace groups and rooms are
-personal: they live in this Mac's home session. --remote makes a remote
-group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
-user@host) and its new workspaces run there. --parent makes a group inside
-<group>. A group or room is named by
+in the session order; it stays in its section and group. pin and unpin
+set a workspace's pin the way its sidebar row does (the app's `workspace
+pin-unpin --pinned true|false`); they need the cmux app. Workspace groups
+and rooms are personal: they live in this Mac's home session. --remote
+makes a remote group: it connects <host> (an ~/.ssh/config alias, a
+Tailscale name or user@host) and its new workspaces run there. --parent
+makes a group inside <group>. A group or room is named by
 its id or exact name. list --name <name> keeps the workspaces named exactly
 <name>; list --cwd <path> keeps those with a terminal in <path> or a folder
 inside it (relative to the current folder; links resolved too). Both together

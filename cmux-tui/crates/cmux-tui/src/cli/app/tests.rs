@@ -2330,6 +2330,25 @@ fn workspace_pin_and_unpin_run_the_pin_action_with_its_state() {
     }
 }
 
+/// `workspace-group pin` is the group's Toggle Pin with `pinned` set, and a word that names
+/// no state (`workspace archive`, a name instead of an id) is left to the grammar's usage error.
+#[test]
+fn state_words_name_their_toggle_and_other_words_keep_their_path() {
+    let (name, flags) =
+        super::super::verb_spelling::action(&args(&["workspace-group", "pin"])).unwrap();
+    assert_eq!((name.as_str(), flags), ("workspace-group toggle-pin", args(&["--pinned", "true"])));
+    for words in [
+        &["workspace", "archive"][..],
+        &["workspace", "current", "pin"][..],
+        &["workspace", "my-work", "pin"][..],
+        &["workspace", "ws_1", "pin", "--target", "ws_2"][..],
+        &["workspace", "ws_1", "frobnicate"][..],
+        &["workspace", "pin-unpin", "--target", "ws_1"][..],
+    ] {
+        assert_eq!(super::super::verb_spelling::action(&args(words)), None, "{words:?}");
+    }
+}
+
 /// `cmux action run pin-unpin` (cmux#44937) said only "unknown action": a verb several nouns
 /// share now names each action it could mean, and an id or full CLI name runs as before.
 #[test]

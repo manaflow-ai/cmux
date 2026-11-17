@@ -77,7 +77,8 @@ pub(super) fn section(scope: &str) -> Option<String> {
     let width = width.unwrap_or(VERB_COLUMN);
     let mut text = format!(
         "APP ACTIONS\n  The cmux app runs these: cmux {scope} <verb> [--<argument> <value>]...\n  \
-         `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n"
+         `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n  \
+         Object first works too: cmux {scope} <id> <verb> is --target <id>.\n"
     );
     for (verb, title) in verbs {
         if title.is_empty() {
