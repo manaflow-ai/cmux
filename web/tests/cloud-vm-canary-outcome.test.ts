@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
   classifyCodexCanaryOutcome,
   edgeCanaryProblems,
+  edgeFailureStage,
   guestAliasWaitCommand,
   parseGuestAliasWait,
 } from "../scripts/cloud-vm/canaryOutcome.mjs";
+
+// The guest exec API runs commands with /bin/sh (dash on ubuntu:24.04), not bash.
+const GUEST_SHELL = existsSync("/usr/bin/dash") ? "/usr/bin/dash" : "sh";
 
 describe("classifyCodexCanaryOutcome", () => {
   test("accepts the legacy no-account response", () => {
@@ -74,7 +78,7 @@ describe("guest alias wait", () => {
       // /etc/hosts block lands a second or two after the first exec.
       writeFileSync(path.join(dir, "getent"), `#!/bin/bash\nn=$(cat "${dir}/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${dir}/count"; [ "$n" -ge 3 ]\n`);
       chmodSync(path.join(dir, "getent"), 0o755);
-      const out = execFileSync("bash", ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 10)!], {
+      const out = execFileSync(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 10)!], {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
         encoding: "utf8",
       });
@@ -88,16 +92,25 @@ describe("guest alias wait", () => {
     }
   });
 
-  test.skipIf(process.platform !== "linux")("reports an alias that never resolves within the budget", () => {
+  test.skipIf(process.platform !== "linux")("stops at its budget under /bin/sh when the alias never resolves", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "canary-alias-"));
     try {
-      writeFileSync(path.join(dir, "getent"), "#!/bin/bash\nexit 2\n");
+      writeFileSync(path.join(dir, "getent"), "#!/bin/sh\nexit 2\n");
       chmodSync(path.join(dir, "getent"), 0o755);
-      const out = execFileSync("bash", ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 1)!], {
+      const startedAt = Date.now();
+      // A wait that ignores its budget is killed here, well short of the
+      // guest exec's 120 s, and the test fails with ETIMEDOUT.
+      const out = execFileSync(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 2)!], {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
         encoding: "utf8",
+        timeout: 8_000,
       });
-      expect(parseGuestAliasWait(out).aliasResolved).toBe(false);
+      const elapsedMs = Date.now() - startedAt;
+      const report = parseGuestAliasWait(out);
+      expect(report.aliasResolved).toBe(false);
+      expect(report.aliasWaitMs).toBeGreaterThanOrEqual(1_000);
+      expect(report.aliasWaitMs).toBeLessThan(4_000);
+      expect(elapsedMs).toBeLessThan(5_000);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -122,5 +135,20 @@ describe("guest alias wait", () => {
 
   test("parses nothing from an empty report", () => {
     expect(parseGuestAliasWait("")).toEqual({ aliasResolved: null, aliasWaitMs: null, guestUptimeS: null, hostsBlocks: null });
+  });
+});
+
+describe("edgeFailureStage", () => {
+  test("an alias the guest never resolved is the edge's failure, not coderouter's", () => {
+    expect(edgeFailureStage({ aliasResolved: false, modelsStatus: "000", codexOutcome: "failed", claudeCheck: false })).toBe("edge");
+  });
+
+  test("a resolved alias whose request failed is coderouter's", () => {
+    expect(edgeFailureStage({ aliasResolved: true, modelsStatus: "503", codexOutcome: "failed", claudeCheck: false })).toBe("coderouter");
+    expect(edgeFailureStage({ aliasResolved: true, modelsStatus: "200", codexOutcome: "no_account", claudeCheck: true, claudeOutcome: "failed" })).toBe("coderouter");
+  });
+
+  test("a passing edge keeps the edge stage", () => {
+    expect(edgeFailureStage({ aliasResolved: true, modelsStatus: "200", codexOutcome: "no_account", claudeCheck: false })).toBe("edge");
   });
 });
