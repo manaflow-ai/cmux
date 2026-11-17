@@ -5,7 +5,7 @@
 //! exact grid, zoomed and panned ([`crate::zoom`]). A real resize (the phone
 //! claims its grid, "fit to phone") is the exception, and it happens on its
 //! own, never as a chore (Leo, 2026-11-17: "Surely we can just calculate a
-//! fucking terminal and resize whatever needs exceptions when it comes / Fall
+//! f***ing terminal and resize whatever needs exceptions when it comes / Fall
 //! back if need be"):
 //!
 //! - **Typing into a TUI fits it.** A TUI is the alternate screen, or an

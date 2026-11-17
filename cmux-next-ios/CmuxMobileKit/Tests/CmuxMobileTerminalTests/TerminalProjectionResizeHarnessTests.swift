@@ -148,7 +148,7 @@ import Testing
         #expect(resets["another tab and back"] == 0)
     }
 
-    /// Leo, 2026-11-17: "Surely we can just calculate a fucking terminal and
+    /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
     /// resize whatever needs exceptions when it comes / Fall back if need be".
     ///
     /// htop already running in a Mac pane of 120x40: the phone attaches into

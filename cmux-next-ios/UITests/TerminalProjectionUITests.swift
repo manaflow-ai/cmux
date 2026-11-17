@@ -74,7 +74,7 @@ final class TerminalProjectionUITests: XCTestCase {
         run(macGrid: "39x26", name: "39x26")
     }
 
-    /// Leo, 2026-11-17: "Surely we can just calculate a fucking terminal and
+    /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
     /// resize whatever needs exceptions when it comes / Fall back if need be".
     ///
     /// The demo's `altproj` phase: htop already running in a Mac pane of
