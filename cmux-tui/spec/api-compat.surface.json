@@ -11441,6 +11441,32 @@
         "nullable": true
       }
     },
+    "request:quick-terminal": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/screen": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
     "request:read-screen": {
       "/surface": {
         "ty": "uint64",
@@ -19742,6 +19768,12 @@
       }
     },
     "response:put-session": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:quick-terminal": {
       "/data": {
         "ty": "json",
         "required": true
