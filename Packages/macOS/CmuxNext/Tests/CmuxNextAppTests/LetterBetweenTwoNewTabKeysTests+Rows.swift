@@ -325,6 +325,10 @@ extension LetterBetweenTwoNewTabKeysTests {
         try await Self.withScene(pages: [:]) { scene in
             // On a machine with a screen the window is on it, as a person's window is.
             if !NSScreen.screens.isEmpty { scene.window.orderFrontRegardless() }
+            // Print only: the app's input journal has the focus messages of the pages from here on.
+            let journalWasOn = InputJournal.shared.isEnabled
+            if !journalWasOn { InputJournal.shared.configure(InputJournalPolicy(enabled: true, recordsCharacters: false)) }
+            let mark = InputJournal.shared.entries(last: 1).last?.seq ?? 0
             let tab1 = try scene.newTab()
             await Self.frame(scene.services)
             let page1 = try #require(scene.pane.existingContent(for: tab1)?.inputReadiness,
@@ -353,7 +357,7 @@ extension LetterBetweenTwoNewTabKeysTests {
             let process = "window on screen: \(scene.window.isVisible), key window: \(scene.window.isKeyWindow), app active: \(NSApp.isActive)"
 
             // The app types into the first page, by its own call, and the test reads the field of the page.
-            var landed = false, text: String?, reason = "not read"
+            var landed = false, text: String?, reason = "not read", fields = "not read"
             if hidden != nil {
                 let appCount = page1.focusEpoch
                 landed = await page1.insert("x", expectedEpoch: page1.focusEpoch)
@@ -371,13 +375,34 @@ extension LetterBetweenTwoNewTabKeysTests {
                         """
                     let pageState = (try? await view1.callPageScript(state)).flatMap { $0 as? String } ?? "not read"
                     reason = "the app's focus count at the call: \(appCount), after it: \(page1.focusEpoch); the page after the call: \(pageState)"
+                    // Print only: which elements of the document can take text now: for each one its field (the New
+                    // Tab field, or the composer of the chat view that takes the page's place when the host fails),
+                    // the classes of its parents and its text.
+                    let list = """
+                        const chain = (el) => { const parts = []; for (let at = el, i = 0; at && at !== document.body && i < 5; at = at.parentElement, i += 1) { parts.push((at.tagName || '?').toLowerCase() + (typeof at.className === 'string' && at.className ? '.' + at.className.split(' ').filter(Boolean).slice(0, 3).join('.') : '')); } return parts.join(' < '); };
+                        const kind = (el) => { const field = el && el.closest ? el.closest('.acpmux-md-field') : null; if (!field) { return 'no Markdown field'; } if (field.classList.contains('nt-field')) { return 'THE NEW TAB FIELD (nt-field)'; } if (field.classList.contains('acpmux-newtab-field')) { return 'THE FIELD OF THE CLASSIC NEW TAB PAGE (acpmux-newtab-field)'; } return field.closest('.acpmux-composer') ? 'THE CHAT COMPOSER (acpmux-composer), not a New Tab field' : 'another Markdown field'; };
+                        const all = Array.from(document.querySelectorAll('[contenteditable], textarea, input')).filter((el) => el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+                        return 'the focused element is in ' + kind(document.activeElement) + '; ' + String(all.length) + ' in the document: ' + all.slice(0, 6).map((el) => (el === document.activeElement ? 'FOCUSED ' : '') + kind(el) + ' [' + chain(el) + '] text ' + JSON.stringify(String(el.value !== undefined ? el.value : el.textContent).slice(0, 12))).join(' | ');
+                        """
+                    fields = (try? await view1.callPageScript(list)).flatMap { $0 as? String } ?? "not read"
                 }
+            }
+            // Print only: the focus messages of the 2 pages in the order of the app's journal (a Debug build names
+            // the element of each one), with the time from the first of them.
+            var journal: [String] = [], first: UInt64?
+            for record in InputJournal.shared.entries() where record.seq > mark {
+                guard case .content(tab: let tab, event: let event) = record.kind, tab == "readiness" else { continue }
+                let start = first ?? record.uptimeNanos
+                first = start
+                journal.append("+\((record.uptimeNanos &- start) / 1_000_000) ms \(event.prefix(110))")
             }
             print("""
                 LetterBetweenTwoNewTabKeysTests: the real New Tab page: the field of the page that the pane no longer shows \
                 reported ready \(words(hidden)) from the second New Tab key; the field of the page that the pane shows reported \
                 \(words(shown)); the app keeps text for a page for 2 s. The app's call typed into the first page: \(landed); its \
-                field has the text: \(text ?? "not read"). For the reason of a refusal: \(reason). \(place); \(process)
+                field has the text: \(text ?? "not read"). For the reason of a refusal: \(reason). \(place); \(process). \
+                The elements of the first page that can take text, after the call: \(fields). The focus messages of the 2 pages \
+                in the app's journal (it was on before the row: \(journalWasOn)): \(journal.suffix(24).joined(separator: " | "))
                 """)
             if hidden == nil {
                 try #require(shown != nil, "setup: no New Tab page reported its field ready in 20 s in this test process (\(process)): the row gives no verdict")
