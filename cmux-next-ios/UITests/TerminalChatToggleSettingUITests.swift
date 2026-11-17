@@ -59,7 +59,10 @@ final class TerminalChatToggleSettingUITests: XCTestCase {
         XCTAssertTrue(showChat.waitForExistence(timeout: 5), "Show Chat in the page menu\n\(app.debugDescription)")
         attach(app, "swap-2-menu-show-chat")
         showChat.tap()
-        XCTAssertTrue(field.waitForNonExistence(timeout: 5), "the terminal face is gone\n\(app.debugDescription)")
+        // Both faces stay built (a swap is a flag flip), so the terminal's field stays in the
+        // tree; it is no longer on screen to tap.
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == false"), object: field)
+        XCTAssertEqual(XCTWaiter().wait(for: [hidden], timeout: 5), .completed, "the terminal face is hidden\n\(app.debugDescription)")
         Thread.sleep(forTimeInterval: 1.0)
         attach(app, "swap-3-chat")
 
@@ -68,7 +71,8 @@ final class TerminalChatToggleSettingUITests: XCTestCase {
         XCTAssertTrue(showTerminal.waitForExistence(timeout: 5), "Show Terminal in the chat's page menu\n\(app.debugDescription)")
         attach(app, "swap-4-menu-show-terminal")
         showTerminal.tap()
-        XCTAssertTrue(field.waitForExistence(timeout: 5), "back on its terminal\n\(app.debugDescription)")
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: field)
+        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 5), .completed, "back on its terminal\n\(app.debugDescription)")
         Thread.sleep(forTimeInterval: 0.5)
         attach(app, "swap-5-terminal-again")
     }
