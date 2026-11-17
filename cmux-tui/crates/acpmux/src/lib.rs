@@ -37,6 +37,9 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
+// PR1b wires these shutdown-aware workers into request paths; the simulation feature
+// currently has no such path, so keep its staged helper available without a dead-code red.
+#[cfg_attr(feature = "sim", allow(dead_code))]
 pub(crate) mod blocking;
 #[path = "cli/bounded_child.rs"]
 pub(crate) mod bounded_child;
