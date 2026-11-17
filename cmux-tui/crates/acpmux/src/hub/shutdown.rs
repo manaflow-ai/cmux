@@ -501,8 +501,7 @@ const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 /// How long the shutdown waits for the cost ledger's writer to drain.
 const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
-pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+pub use crate::recovery::SHUTTING_DOWN;
 
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {

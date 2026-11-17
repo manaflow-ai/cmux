@@ -8,15 +8,20 @@
                   a long Codex exec in acpmux's log (27,564 updates for 223 calls, about 5 KB each)
   "subagents: K"  a turn that starts K subagents (subagent_spawned), each with a thought, eight
                   tool calls with output and a reply of its own, then ends them all (completed)
+  "rows: N"       a turn of N transcript rows (a tool call and a short reply, in turn): seeds a 100k-row chat in
+                  ten prompts (tab_switch_frames.py chat-100k)
+  "live: S C L"   a reply streaming C text chunks a second and a tool call growing by L output lines a second,
+                  for S seconds or until session/cancel (tab_switch_frames.py L1, L3, L5)
   "edit: DIR"     a turn that edits DIR/src/file0.py .. file2.py (completed `edit` tool calls with a
                   diff each), so the chat's header shows Changes (App.tsx lastEditTurn)
 
-Every other prompt is fake_agent.py's. Nothing here waits on a timer: each turn answers as fast
+Every other prompt is fake_agent.py's. Nothing but live: waits on a timer: each turn answers as fast
 as acpmux reads it, so seeding thousands of turns costs only acpmux's own time.
 """
 import importlib.util
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -101,10 +106,66 @@ def bloat(sid, calls, updates, kib):
     text(sid, "Every command finished.")
 
 
+def rows(sid, count):
+    """`count` transcript rows in one turn: a finished tool call and a short reply, in turn, so each is a row of its
+    own (tab_switch_frames.py's 100k-row chat, ten turns of 10,000 rows)."""
+    batch = []
+    for i in range(count // 2):
+        call = f"r{i}"
+        batch.append({"sessionUpdate": "tool_call", "toolCallId": call, "title": f"rg -n row{i}", "kind": "execute",
+                      "status": "completed", "rawInput": {"command": f"rg -n row{i}"}})
+        batch.append({"sessionUpdate": "agent_message_chunk",
+                      "content": {"type": "text", "text": f"Row {i}: the anchor stays put while history loads.\n\n"}})
+        if len(batch) >= 400:
+            fake.send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}}
+                           for u in batch])
+            batch = []
+    for u in batch:
+        fake.update(sid, u)
+
+
+def live(rid, sid, seconds, chunks_per_s, lines_per_s):
+    """A reply streaming `chunks_per_s` text chunks a second and, when `lines_per_s`, a running tool call whose output
+    grows by `lines_per_s` lines a second (sent 20 times a second, the newest 2,000 lines each time), for `seconds`
+    (at most 3600) or until session/cancel: the focused chat of the harness's L1, L3 and L5 loads."""
+    seconds = min(seconds, 3600.0)
+    tick = 1 / max(chunks_per_s, 1.0)
+    deadline, n, lines, next_flood = time.monotonic() + seconds, 0, [], time.monotonic()
+    if lines_per_s:
+        fake.update(sid, {"sessionUpdate": "tool_call", "toolCallId": "live-flood", "title": "cargo test --workspace",
+                          "kind": "execute", "status": "in_progress", "rawInput": {"command": "cargo test --workspace"}})
+    stop = "end_turn"
+    while time.monotonic() < deadline:
+        if sid in fake.cancelled:
+            fake.cancelled.discard(sid)
+            stop = "cancelled"
+            break
+        text(sid, f"word{n} ")
+        n += 1
+        now = time.monotonic()
+        if lines_per_s and now >= next_flood:
+            lines += [f"test part{len(lines) + k}::case ... ok" for k in range(int(lines_per_s / 20))]
+            del lines[:-2000]
+            fake.update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "live-flood", "status": "in_progress",
+                              "content": [{"type": "content", "content": {"type": "text", "text": "\n".join(lines)}}]})
+            next_flood = now + 0.05
+        time.sleep(tick)
+    fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
-    said = "".join(block.get("text", "") for block in params.get("prompt", [])).strip()
-    if said.startswith("turn:"):
+    # The prompt as fake_agent.py matches its own commands: without the sender line acpmux puts ahead of a program's
+    # prompt or the context it adds to a first turn. Joining every block hid "subagents: 5" behind the sender line,
+    # so each seeded subagent chat spawned none (2026-11-16).
+    said = fake.prompt_text(params).strip()
+    if said.startswith("live:"):
+        words = [float(v) for v in said[5:].split()] + [60.0, 60.0, 0.0]
+        live(rid, sid, words[0], words[1], words[2])
+        return
+    if said.startswith("rows:"):
+        rows(sid, int(said[5:].strip() or "10000"))
+    elif said.startswith("turn:"):
         turn(sid, said[5:].strip())
     elif said.startswith("bloat:"):
         calls, updates, kib = (int(v) for v in said[6:].split())

@@ -56,6 +56,8 @@ parser.add_argument("--variants", default="",
 parser.add_argument("--floor-frames", default="",
                     help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("sidebar-rows-perf-release")  # it posts real input (CGEventPost): never on a person's Mac
 if opts.b_app and not opts.b_tag:
     parser.error("--b-app needs --b-tag")
 
