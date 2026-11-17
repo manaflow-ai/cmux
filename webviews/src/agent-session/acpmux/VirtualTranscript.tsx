@@ -141,6 +141,7 @@ import {
   notePlacement,
 } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
+import { drawnOpenStateHolds, rowOpenState } from "./conversation/rowOpenState";
 import {
   captureTurnEnd,
   endsTurn,
@@ -293,19 +294,31 @@ type DrawnHeight = {
   actions?: boolean;
   /// model.ts `statusEdge` when it was drawn: the room under the row depends on it.
   status?: string;
+  /// What of the row was open when it was drawn (conversation/rowOpenState.ts): a height drawn in
+  /// one open state never places an unmounted row in another (rowOpenState.ts `drawnOpenStateHolds`).
+  open?: string;
 };
 
-/// `height` is undefined for a row the page has not laid out (drawnHeightOf).
+/// `height` is undefined for a row the page has not laid out (drawnHeightOf). `row`: the row drawn,
+/// whose open state the height is kept with (`DrawnHeight.open`).
 type ReportDrawn = (
   id: string,
   version: number,
   height: number | undefined,
   actions?: boolean,
   status?: string,
+  row?: AcpmuxRow,
 ) => void;
 
 /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
-type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
+type QueueDrawn = (
+  node: HTMLElement,
+  id: string,
+  version: number,
+  actions?: boolean,
+  status?: string,
+  row?: AcpmuxRow,
+) => () => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -367,6 +380,7 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.width === entry.width &&
     old.height === entry.height &&
     Boolean(old.actions) === Boolean(entry.actions) &&
+    (old.open ?? "") === (entry.open ?? "") &&
     old.status === entry.status
   );
 }
@@ -617,7 +631,7 @@ const RowFrame = React.memo(function RowFrame({
   }, []);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
+    if (node) return queueDrawn(node, row.id, row.version, replyActions, status, row);
   }, [
     row.id,
     row.version,
@@ -2808,24 +2822,27 @@ function TranscriptView({
   const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
   useEffect(() => () => olderRows.disconnect(), [olderRows]);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight, actions, status) => {
+    (id, version, drawnHeight, actions, status, row) => {
       // A flowing drag's rows are at a width they were not placed at: nothing is read until it holds.
       if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
-      if (drawnHeight !== undefined)
-        pendingDrawn.current.set(id, {
-          sessionId,
-          version,
-          width: rowWidthRef.current,
-          height: drawnHeight,
-          ...(actions ? { actions } : {}),
-          ...(status ? { status } : {}),
-        });
+      if (drawnHeight === undefined) return;
+      // Read with the height, from the stores the row drew from (rowOpenState.ts).
+      const open = row ? rowOpenState(sessionId, row) : undefined;
+      pendingDrawn.current.set(id, {
+        sessionId,
+        version,
+        width: rowWidthRef.current,
+        height: drawnHeight,
+        ...(actions ? { actions } : {}),
+        ...(status ? { status } : {}),
+        ...(open ? { open } : {}),
+      });
     },
     [sessionId],
   );
   const queueDrawn = useCallback<QueueDrawn>(
-    (node, id, version, actions, status) => {
+    (node, id, version, actions, status, row) => {
       const measure = () => {
         if (!node.isConnected || node.dataset.rowId !== id) return;
         reportDrawn(
@@ -2834,6 +2851,7 @@ function TranscriptView({
           acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
           actions,
           status,
+          row,
         );
       };
       pendingMeasures.current.set(node, measure);
@@ -3020,6 +3038,7 @@ function TranscriptView({
           drawnHeightOf(target),
           keepsReplyRoom(row, nextDrawnRow(shown, index)),
           statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
+          row,
         );
     },
     [reportDrawn],
@@ -3036,6 +3055,27 @@ function TranscriptView({
   // The ride lives across renders; it reports through the current session's `reportRow`.
   const reportRowRef = useRef(reportRow);
   reportRowRef.current = reportRow;
+  /// Every row motion ends here (cmuxterm-hq docs/design/transcript-motion-model.md: the list is the
+  /// only thing that places rows, and every motion ends with a re-placement in the same frame): a
+  /// disclosure's height fold (FoldRide's `finish`, an input landing it), a "Worked for" fold and a
+  /// turn's end fold. It reads every MOUNTED row (O(mounted), never O(chat)) at the height it is drawn
+  /// at now, in the state it is drawn in, and places them before the frame paints when any changed,
+  /// which also takes a ride's translates off (`flushDrawn`). Reading only the rows that folded left
+  /// a row whose height changed under the fold (one the observer reported while the ride held the
+  /// placement, or one whose drawn height was taken in another open state) placed at its old height:
+  /// a hole between activity rows (Leo, 2026-11-17: "why is there this big gap when i have shit
+  /// expanded").
+  /// The layout-stability watcher's declared move (layoutWatch.ts `expect`, once it exports one)
+  /// belongs here: this is the one place a motion's end re-places rows.
+  const settleMotion = useCallback(() => {
+    const threadNode = thread.current;
+    if (threadNode)
+      for (const row of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row")) reportRowRef.current(row);
+    if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
+    else pendingDrawn.current = new Map();
+  }, [flushDrawn]);
+  const settleMotionRef = useRef(settleMotion);
+  settleMotionRef.current = settleMotion;
   // The rows leave the flow and are placed at the width that holds, measured before the frame
   // paints, in this one task: no frame draws them at their old places at the new width.
   /// Reads every mounted row at the committed width, placing again only for a height that changed.
@@ -3112,11 +3152,8 @@ function TranscriptView({
     height: drawnHeightOf,
     drawn: () => drawnRef.current,
     held: () => (foldHolding(foldAnchor.current) ? foldAnchor.current : undefined),
-    finish: (rows) => {
-      for (const row of rows) reportRowRef.current(row);
-      if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
-      else pendingDrawn.current = new Map();
-    },
+    // Every mounted row, not only the ones that folded (`settleMotion`).
+    finish: () => settleMotionRef.current(),
   });
   // Another chat's rows ride nothing of this one's.
   useEffect(() => () => foldRide.current?.reset(), [sessionId]);
@@ -4014,6 +4051,15 @@ function TranscriptView({
                 known.status !== statusEdge(row, next, prevDrawnRow(rows, index))
               )
                 return undefined;
+              // Drawn in another open state while out of the mounted range: its estimate, which reads
+              // the same open state (model.ts `runLineChoice`, `messageOpened`), places it.
+              const mounted =
+                last !== undefined &&
+                last.sessionId === sessionId &&
+                index >= last.first &&
+                index < last.last &&
+                last.rows[index]?.id === row.id;
+              if (!drawnOpenStateHolds(known, sessionId, row, mounted)) return undefined;
               return known.height;
             },
             last && kept > 0 ? { layout: last.layout, kept, from: rowsKept, changed: changedAt } : undefined,
@@ -5275,6 +5321,8 @@ function TranscriptView({
     // `settleTurnEnd`, the reader scrolled up mid-glide with the live line still in view).
     else tailGlide.current?.stop();
     turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+    // Its end re-places the mounted rows too (`settleMotion`).
+    if (turnEnd.current) turnEnd.current.ended = () => queueMicrotask(() => settleMotionRef.current());
     // The reply's last lines still revealing after the turn ended chase while the fold plays: the
     // chase reads the fold's move on its own frames and keeps each frame of the two together to the
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
@@ -5409,6 +5457,10 @@ function TranscriptView({
       if (fold && host)
         watchTurnFold(fold, host, read, foldGhosts.current, () => {
           if (turnFold.current === fold) turnFold.current = undefined;
+          // The fold measured nothing while it slid the rows: they are placed again at the heights
+          // they are drawn at now, before the frame paints (a microtask: the end can come from a
+          // commit's layout effect, where no render may run).
+          queueMicrotask(() => settleMotionRef.current());
         });
       onToggleActivity(id, foldCovers(clicked));
     },
