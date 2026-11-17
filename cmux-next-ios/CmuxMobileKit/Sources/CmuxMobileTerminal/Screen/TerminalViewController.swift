@@ -668,8 +668,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiBelowCover.topAnchor.constraint(equalTo: tuiHost.bottomAnchor),
             tuiBelowCover.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
             tuiBelowCover.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
-            tuiBelowCover.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
-            prioritized(tuiBelowCover.bottomAnchor.constraint(equalTo: tuiClip.bottomAnchor), .defaultHigh),
+            // As tall as the page, clipped by `tuiClip`: tied to the clip's
+            // bottom, a host taller than the clip (a shell's keyboard-down
+            // rows with the keyboard up) pushed the clip, and the composer
+            // under it, down outside the keyboard's animation.
+            tuiBelowCover.heightAnchor.constraint(equalTo: view.heightAnchor),
 
             scrollToBottomButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             scrollToBottomButton.bottomAnchor.constraint(equalTo: bottomStack.topAnchor, constant: -10),
