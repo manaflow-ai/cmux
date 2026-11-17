@@ -279,7 +279,7 @@ case "$cmd" in
     install_and_launch; echo relaunched ;;
 
   shot)  # shot OUT.png (read-only)
-    out="${1:-$root/shot.png}"; ensure_device; simctl io "$udid" screenshot "$out" >/dev/null; echo "$out" ;;
+    out="${1:-$root/shot.png}"; ensure_device; simctl io "$udid" screenshot "$out" >/dev/null 2>&1; echo "$out" ;;
 
   tree)  # the accessibility tree (read-only; needs AXe)
     ensure_device; command -v axe >/dev/null || die "no axe on this host (brew install cameroncooke/axe/axe)"
@@ -291,7 +291,7 @@ case "$cmd" in
   udid) ensure_device; echo "$udid"; echo "set: $sims" ;;
   status)
     echo "host: $(hostname -s)  root: $root"
-    cat "$root/state.json" 2>/dev/null || echo '{"state": "not up"}'
+    cat "$root/state.json" 2>/dev/null || echo '{"state": "not up"}'; echo
     echo "lease: $(lease show)"
     simctl list devices | grep -F "$device_name" || echo "no device" ;;
   *) die "unknown command $cmd" ;;

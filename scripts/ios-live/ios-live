@@ -27,7 +27,15 @@ remote_root='~/ios-live'
 die() { echo "ios-live: $*" >&2; exit 1; }
 quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
 on_host() { reach "$host" "$@" 2> >(quiet); }
-host_sh() { on_host "bash $remote_root/bin/host.sh $(printf '%q ' "$@")"; }
+# reach does not always pass the remote exit status back (the hop through cmux-lawrence answers 0),
+# so the host prints it as the last line and this reads it.
+host_sh() {
+  local out rc
+  out="$(on_host "bash $remote_root/bin/host.sh $(printf '%q ' "$@"); echo __ios_live_rc=\$?")" || true
+  rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
+  grep -v '^__ios_live_rc=' <<<"$out" || true
+  return "${rc:-70}"
+}
 
 install_host() {
   on_host "mkdir -p $remote_root/bin $remote_root/incoming"
