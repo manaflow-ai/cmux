@@ -66,7 +66,7 @@ struct DensityPlaygroundView: View {
         VStack(alignment: .leading, spacing: Size.gap) {
             HStack(spacing: Size.gap) {
                 Text(DensityPlaygroundStrings.density)
-                Menu(model.name(model.draft)) {
+                Menu {
                     // Inline, so the density in use has its checkmark.
                     Picker(DensityPlaygroundStrings.density, selection: Binding(get: { model.draft.id }, set: { model.select(id: $0) })) {
                         ForEach(model.densities) { density in
@@ -74,7 +74,16 @@ struct DensityPlaygroundView: View {
                         }
                     }
                     .pickerStyle(.inline).labelsHidden()
+                } label: {
+                    // The header buttons' look, in every window state (a native pop-up draws dimmed in this panel).
+                    HStack(spacing: 4) {
+                        Text(model.name(model.draft)).lineLimit(1)
+                        Icon(.controlPopup, size: 10).foregroundStyle(SettingsStyle.secondary)
+                    }
                 }
+                .menuStyle(.button)
+                .buttonStyle(SettingsButtonStyle())
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .accessibilityLabel(DensityPlaygroundStrings.density)
                 .accessibilityIdentifier("cmux.densityPlayground.picker")

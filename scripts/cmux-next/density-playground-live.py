@@ -81,7 +81,9 @@ def keys(*strokes, gap=30):
         steps += [{"key_code": m, "down": True, "after_ms": gap} for m in held]
         steps += [{"key_code": code, "down": True, "after_ms": gap}, {"key_code": code, "down": False, "after_ms": gap}]
         steps += [{"key_code": m, "down": False, "after_ms": gap} for m in reversed(held)]
-    # The panel is made key for the keys without activating the app (`key_window`: its identifier).
+    # The GUI host is shared: another run's app may have taken activation, and a panel takes keys only in the
+    # active app. Activate again, then make the panel key (`key_window`: its identifier).
+    subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)
     reply = rpc("debug.key", {"sequence": steps, "key_window": "cmux.densityPlayground"})
     time.sleep(len(steps) * gap / 1000 + 0.6)  # capture harness: the sequence plays, then the change draws
     return reply
