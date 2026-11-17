@@ -64,6 +64,7 @@ type PermissionFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize
 type CaptureAppsFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8, usize, *mut usize) -> i32;
 type PersonEventsFn = unsafe extern "C" fn(*mut std::ffi::c_void) -> i64;
 type PersonKeysEpochFn = unsafe extern "C" fn(*mut std::ffi::c_void) -> i64;
+type PreviewFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -83,6 +84,9 @@ pub struct CmuxCuHost {
     /// Added with person_events' key coverage: read only when `struct_size`
     /// covers it; absent means the count does not cover keys.
     pub person_keys_epoch: Option<PersonKeysEpochFn>,
+    /// The live preview's window streams: read only when `struct_size`
+    /// covers it; absent means no preview.
+    pub preview: Option<PreviewFn>,
 }
 
 impl CmuxCuHost {
@@ -263,6 +267,16 @@ impl CursorSink for Host {
     }
 }
 
+impl cmux_computer_use::preview::PreviewSource for Host {
+    fn stream(&self, windows: &[String], long_side: u32, fps: u32) {
+        if let Some(f) = self.0.preview {
+            let text = json!({"windows": windows, "long_side": long_side, "fps": fps}).to_string();
+            // SAFETY: valid for the call; the host returns at once (header contract).
+            unsafe { f(self.0.context, text.as_ptr(), text.len()) };
+        }
+    }
+}
+
 impl Approver for Host {
     fn ask(&self, q: &Question) -> Answer {
         let Some(f) = self.0.ask else { return Answer::Unavailable };
@@ -393,6 +407,7 @@ pub unsafe extern "C" fn cmux_cu_engine_create(
     parts.state_dir = (!dir.is_empty()).then(|| std::path::PathBuf::from(dir));
     parts.cursor = host_arc.clone();
     parts.approver = host_arc.clone();
+    parts.preview = host_arc.clone();
     parts.takeover = host_arc;
     // SAFETY: header contract.
     parts.machine_name = unsafe { text(machine_name, machine_name_len) }.to_string();
@@ -490,6 +505,34 @@ pub unsafe extern "C" fn cmux_cu_engine_end_session(
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_engine_preview_frame(
+    engine: *mut CmuxCuEngine,
+    window: *const u8,
+    window_len: usize,
+    jpeg: *const u8,
+    jpeg_len: usize,
+) {
+    // SAFETY: from create / header contract.
+    if let Some(engine) = unsafe { engine.as_ref() } {
+        let window = unsafe { text(window, window_len) };
+        let jpeg = unsafe { bytes(jpeg, jpeg_len) };
+        engine.engine.preview().frame(window, jpeg);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_engine_preview_closed(
+    engine: *mut CmuxCuEngine,
+    window: *const u8,
+    window_len: usize,
+) {
+    // SAFETY: from create / header contract.
+    if let Some(engine) = unsafe { engine.as_ref() } {
+        engine.engine.preview().window_closed(unsafe { text(window, window_len) });
+    }
+}
+
 /// The person's Stop and Resume for one agent session (the cmux menu bar):
 /// `action` is "stop" or "resume"; `label` names the agent on the cursor's
 /// red Stopped chip. Returns 0 when the session's state changed, 2 when it
@@ -546,7 +589,7 @@ pub unsafe extern "C" fn cmux_cu_engine_edit_approvals(
         "forget" => sessions.update_saved(|s| s.forget(&app)),
         "always" => sessions.update_saved(|s| s.set_always(&app)),
         "never" => sessions.update_saved(|s| s.set_never(&app)),
-        "revoke_sessions" => sessions.revoke_all(None),
+        "revoke_sessions" => engine.engine.revoke_sessions(),
         _ => return 1,
     }
     0

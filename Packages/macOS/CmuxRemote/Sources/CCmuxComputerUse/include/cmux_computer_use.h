@@ -87,6 +87,14 @@ typedef struct CmuxCuHost {
     // Monitoring, Secure Event Input on). Two equal readings mean every key was counted between
     // them. Optional: read only when struct_size covers it; absent means -1.
     int64_t (*person_keys_epoch)(void *context);
+    // The live preview's window streams (preview.rs): request_json is
+    // {"windows":["<CGWindowID>",...],"long_side":N,"fps":N}, the exact set to stream from now
+    // on (an empty list stops them all). Each new frame of a window goes to
+    // cmux_cu_engine_preview_frame as JPEG at most long_side pixels on its long side, at most
+    // fps per second, none while the window does not change; a stream whose window closed
+    // goes to cmux_cu_engine_preview_closed. Must return at once (never wait on a stream).
+    // Optional: read only when struct_size covers it; absent means no preview.
+    void (*preview)(void *context, const uint8_t *request_json, size_t request_len);
 } CmuxCuHost;
 
 typedef struct CmuxCuEngine CmuxCuEngine;
@@ -113,6 +121,12 @@ CmuxCuBuffer cmux_cu_engine_call(CmuxCuEngine *engine, const uint8_t *request_js
                                  size_t request_len);
 
 void cmux_cu_engine_end_session(CmuxCuEngine *engine, const uint8_t *session, size_t session_len);
+
+// A new frame of a window the host's preview streams (JPEG). Any thread.
+void cmux_cu_engine_preview_frame(CmuxCuEngine *engine, const uint8_t *window, size_t window_len,
+                                  const uint8_t *jpeg, size_t jpeg_len);
+// The stream of a window ended because the window closed. Any thread.
+void cmux_cu_engine_preview_closed(CmuxCuEngine *engine, const uint8_t *window, size_t window_len);
 
 // The person's Stop or Resume of one agent session (action "stop" | "resume").
 // A stopped session's in-flight call ends at its next checkpoint and every

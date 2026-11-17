@@ -216,6 +216,13 @@ pub enum MuxEvent {
     /// `subscribe` sends it to the person's own local connections, never a page
     /// relay or a remote device.
     ComputerUseActivity(Arc<Value>),
+    /// One change of Computer Use's live preview (`computer-use-preview`,
+    /// computer_use_lifecycle.rs): `{event, session, surface: {terminal} |
+    /// {chat}, card: {...} | null}`, the card of the window an agent drives
+    /// for the surface the agent runs in. Delivered like
+    /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections
+    /// only.
+    ComputerUsePreview(Arc<Value>),
     /// Every workspace is gone.
     Empty,
 }

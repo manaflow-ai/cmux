@@ -67,7 +67,7 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
+  cursor: zoom-in;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -89,6 +89,18 @@
 }
 .acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
   opacity: 0.4;
+}
+/* Enlarged (a click on the card, as the Codex app enlarges its preview): up to 560px wide or 60% of
+   the pane, over the chat's top right (a choice the person made; the column keeps only the small
+   card's room). A second click shrinks it back. */
+.acpmux-cu-preview[data-expanded] {
+  max-width: min(560px, 60vw);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__frame > img {
+  max-height: min(420px, 60vh);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__open {
+  cursor: zoom-out;
 }
 
 /* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's

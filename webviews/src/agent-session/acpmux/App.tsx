@@ -12453,7 +12453,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
-                  onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (

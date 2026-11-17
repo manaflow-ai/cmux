@@ -38,6 +38,8 @@ struct FakeWorker {
     seen: Arc<Mutex<Vec<Value>>>,
     /// Calls it ran (a call id runs once).
     ran: Arc<AtomicUsize>,
+    /// The `session/attach` lines it read; their connections stay open.
+    attaches: Arc<Mutex<Vec<Value>>>,
 }
 
 impl FakeWorker {
@@ -54,8 +56,11 @@ impl FakeWorker {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let ran = Arc::new(AtomicUsize::new(0));
         let (s, seen2, ran2) = (secret.clone(), seen.clone(), ran.clone());
+        let attaches = Arc::new(Mutex::new(Vec::new()));
+        let attaches2 = attaches.clone();
         std::thread::spawn(move || {
             let crashed: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+            let mut held = Vec::new();
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { break };
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -83,6 +88,13 @@ impl FakeWorker {
                     continue;
                 }
                 let request: Value = serde_json::from_str(&line).unwrap();
+                if request["method"] == "session/attach" {
+                    attaches2.lock().unwrap().push(request.clone());
+                    let _ =
+                        writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": {}}));
+                    held.push(out);
+                    continue;
+                }
                 seen2.lock().unwrap().push(request.clone());
                 if request["method"] != "tools/call" {
                     let _ =
@@ -115,7 +127,7 @@ impl FakeWorker {
                     writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": result}));
             }
         });
-        Self { socket, secret, seen, ran }
+        Self { socket, secret, seen, ran, attaches }
     }
 
     fn ready(&self) -> Value {
@@ -491,4 +503,27 @@ async fn a_primary_server_gives_codex_the_normal_instructions() {
         replies[&1]
     );
     assert_eq!(replies[&2]["result"], super::super::mcp::tools_list(false));
+}
+
+/// The bridge holds one presence connection per worker for its session, so a
+/// crashed agent's session ends with its process (no `session/end` needed);
+/// a relayed call's session belongs to the other machine and holds none.
+#[test]
+fn a_session_attaches_once_and_a_relayed_one_never() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    let caller = caller(FakeDaemon::new(vec![Ok(worker.ready())]));
+    for id in ["c1", "c2", "c3"] {
+        assert!(matches!(caller.call("list_windows", &json!({}), id), Outcome::Output(_)));
+    }
+    let attaches = worker.attaches.lock().unwrap().clone();
+    assert_eq!(attaches.len(), 1, "{attaches:?}");
+    assert_eq!(attaches[0]["session"], "s-1");
+    assert_eq!(worker.seen.lock().unwrap().len(), 3);
+
+    let relayed_worker = FakeWorker::start(dir.path(), "r", Behavior::Answer, Arc::default());
+    let origin = json!({"kind": "remote", "machine": "laptop", "same_account": true});
+    let relayed = caller(FakeDaemon::new(vec![Ok(relayed_worker.ready())])).with_origin(origin);
+    assert!(matches!(relayed.call("status", &json!({}), "c"), Outcome::Output(_)));
+    assert!(relayed_worker.attaches.lock().unwrap().is_empty());
 }

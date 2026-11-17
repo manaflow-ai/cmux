@@ -25,6 +25,11 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
                                         UnsafeMutablePointer<CmuxCuBuffer>?) -> UnsafeMutableRawPointer?
     /// `void cmux_cu_serve_stop(void *handle)`: stops serving and frees the handle.
     typealias ServeStopFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    /// `cmux_cu_engine_preview_frame(engine, window, len, jpeg, len)` and
+    /// `cmux_cu_engine_preview_closed(engine, window, len)`: the live preview's frames back to the
+    /// engine. Optional: an older library has neither, and then no preview streams start.
+    typealias PreviewFrameFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Void
+    typealias PreviewClosedFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> Void
 
     enum LoadError: Error, CustomStringConvertible, Equatable {
         case open(String)
@@ -49,6 +54,8 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     let free: FreeFn
     let serve: ServeFn
     let serveStop: ServeStopFn
+    let previewFrame: PreviewFrameFn?
+    let previewClosed: PreviewClosedFn?
 
     /// The library in this bundle's Frameworks (a plain dylib, never a nested .framework).
     static func bundledPath(bundle: Bundle = .main) -> String {
@@ -74,6 +81,8 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
         free = try symbol("cmux_cu_buffer_free", FreeFn.self)
         serve = try symbol("cmux_cu_serve", ServeFn.self)
         serveStop = try symbol("cmux_cu_serve_stop", ServeStopFn.self)
+        previewFrame = try? symbol("cmux_cu_engine_preview_frame", PreviewFrameFn.self)
+        previewClosed = try? symbol("cmux_cu_engine_preview_closed", PreviewClosedFn.self)
     }
 
     /// A library buffer as a string, freed.
@@ -166,6 +175,23 @@ final class ComputerUseEngine: @unchecked Sendable { // crash-allow: the handle 
             throw Failure(description: message.isEmpty ? "cmux_cu_serve failed" : message)
         }
         return ServerHandle(raw: handle)
+    }
+
+    /// Whether the library takes preview frames (``previewFrame(window:jpeg:)``).
+    var takesPreview: Bool { library.previewFrame != nil && library.previewClosed != nil }
+
+    /// A new live preview frame of `window` (any thread).
+    func previewFrame(window: String, jpeg: Data) {
+        guard let send = library.previewFrame else { return }
+        Array(window.utf8).withUnsafeBufferPointer { id in
+            jpeg.withBytes { bytes in send(handle, id.baseAddress, id.count, bytes.baseAddress, bytes.count) }
+        }
+    }
+
+    /// `window`'s preview stream ended because the window closed (any thread).
+    func previewClosed(window: String) {
+        guard let send = library.previewClosed else { return }
+        Array(window.utf8).withUnsafeBufferPointer { send(handle, $0.baseAddress, $0.count) }
     }
 
     func stopServing(_ server: ServerHandle) {

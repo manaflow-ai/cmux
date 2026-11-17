@@ -336,7 +336,7 @@ pub(super) fn subscribe_command(
                 // Only the Tasks page hears its owner's changes.
                 MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
                 // What agents do with the person's apps: their own local connections only.
-                MuxEvent::ComputerUseActivity(_)
+                MuxEvent::ComputerUseActivity(_) | MuxEvent::ComputerUsePreview(_)
                     if !trusted_pairing_client || page_events.is_some() =>
                 {
                     continue;
@@ -610,7 +610,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
-        MuxEvent::ComputerUseActivity(payload) => payload.as_ref().clone(),
+        MuxEvent::ComputerUseActivity(payload) | MuxEvent::ComputerUsePreview(payload) => {
+            payload.as_ref().clone()
+        }
         MuxEvent::Empty => json!({"event": "empty"}),
     }
 }

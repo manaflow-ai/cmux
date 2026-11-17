@@ -28,8 +28,14 @@ import QuartzCore
 /// and macOS Reduce Motion: with animation off every change applies at once and nothing pulses.
 @MainActor
 final class AgentCursorOverlay {
-    /// cursor.rs `IDLE_HIDE`.
-    static let idleHide: TimeInterval = 4
+    /// As in Codex, a cursor stays while its session's Computer Use is active, however long the
+    /// agent thinks between actions: only the engine's `hide` (the turn, session or process ended,
+    /// a grant was revoked) or a refusal that ends the session (the person's Stop) takes it away
+    /// (cursor.rs `Lifecycle`). These are only display times of a cursor that already ended:
+    /// the Stopped caption, then the fade.
+    static let endedCaptionHold: TimeInterval = 2.4
+    /// How long Show Cursor shows the cursor of a session that already ended.
+    static let spotlightHold: TimeInterval = 4
     /// #0A84FF, cursor.rs `CMUX_BLUE`.
     static let blue = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1)
     /// The pointer's deeper tone (the bottom of its gradient).
@@ -83,11 +89,17 @@ final class AgentCursorOverlay {
         // re-checks the switches and Reduce Motion, so a change applies on the next step.
         cursor.runTail(animated: animated, speed: motion.speed)
         if let tip = cursor.currentTip { lastSeen[event.session] = (tip, event.label) }
-        armIdleHide(cursor, session: event.session)
+        // Any event of an active session keeps its cursor up (a pending hide is a session that
+        // ended and came back); a refusal that ends the session shows its caption, then hides.
+        if event.ends {
+            armHide(cursor, session: event.session, after: Self.endedCaptionHold)
+        } else {
+            cursor.cancelHide()
+        }
     }
 
-    private func armIdleHide(_ cursor: SessionCursor, session: String) {
-        cursor.armIdleHide(after: Self.idleHide) { [weak self] in
+    private func armHide(_ cursor: SessionCursor, session: String, after seconds: TimeInterval) {
+        cursor.armHide(after: seconds) { [weak self] in
             guard let self, self.cursors[session] === cursor else { return }
             self.cursors.removeValue(forKey: session)?.close(animated: self.animates, speed: self.motion.speed)
         }
@@ -99,9 +111,11 @@ final class AgentCursorOverlay {
     func spotlight(session: String) -> Bool {
         guard enabled else { return false }
         let cursor: SessionCursor
+        var ended = false
         if let shown = cursors[session] {
             cursor = shown
         } else if let last = lastSeen[session] {
+            ended = true
             cursor = makeCursor(session: session)
             cursor.label = last.label
             cursor.glide(to: last.tip, animated: false, speed: motion.speed)
@@ -111,7 +125,8 @@ final class AgentCursorOverlay {
         }
         cursor.spotlight(animated: animates, speed: motion.speed)
         cursor.runTail(animated: animates, speed: motion.speed)
-        armIdleHide(cursor, session: session)
+        // A live session's cursor stays; one that ended shows only for the spotlight.
+        if ended { armHide(cursor, session: session, after: Self.spotlightHold) }
         return true
     }
 
@@ -1329,9 +1344,14 @@ private final class SessionCursor {
 
     // MARK: Lifetime
 
-    func armIdleHide(after seconds: TimeInterval, _ hide: @escaping @MainActor () -> Void) {
+    func cancelHide() {
         hideTimer?.invalidate()
-        // cursor.rs IDLE_HIDE: one-shot, replaced by every event.
+        hideTimer = nil
+    }
+
+    func armHide(after seconds: TimeInterval, _ hide: @escaping @MainActor () -> Void) {
+        hideTimer?.invalidate()
+        // The display time of a cursor whose session ended (its caption, a spotlight): one-shot.
         hideTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
             MainActor.assumeIsolated { hide() }
         }

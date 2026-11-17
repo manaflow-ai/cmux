@@ -252,6 +252,8 @@ extension AppServices {
             self?.menuBarExtra.computerUseActive = acting
             self?.menuBarExtra.computerUseSessionsChanged()
         }
+        // The window each agent drives, live, in that agent's own chat or terminal pane.
+        computerUsePreviews.follow(daemon.store)
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

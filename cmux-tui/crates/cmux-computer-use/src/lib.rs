@@ -21,6 +21,8 @@
 //! - [`platform`]: the macOS, Windows and Linux (X11, Wayland, headless)
 //!   desktops, behind the `desktop` feature.
 
+#[cfg(unix)]
+pub mod client;
 pub mod cursor;
 pub mod desktop;
 pub mod engine;
@@ -30,6 +32,7 @@ pub mod menus;
 pub mod observe;
 pub mod outcome;
 pub mod policy;
+pub mod preview;
 pub mod session;
 pub mod stop;
 pub mod tools;

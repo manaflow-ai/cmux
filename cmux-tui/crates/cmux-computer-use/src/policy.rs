@@ -116,6 +116,9 @@ pub struct PolicyConfig {
     /// Whether background calls may open a target app's menus
     /// (`computerUse.menus`, [`crate::menus`]).
     pub menus: crate::menus::MenuMode,
+    /// Show a live view of the window an agent drives in its cmux surface
+    /// (`computerUse.livePreview`, [`crate::preview`]).
+    pub live_preview: bool,
 }
 
 impl Default for PolicyConfig {
@@ -130,6 +133,7 @@ impl Default for PolicyConfig {
             cloud_vm: false,
             settle: SettleMode::Adaptive,
             menus: crate::menus::MenuMode::Open,
+            live_preview: true,
         }
     }
 }
@@ -148,6 +152,7 @@ impl PolicyConfig {
             cloud_vm: true,
             settle: SettleMode::Adaptive,
             menus: crate::menus::MenuMode::Open,
+            live_preview: true,
         }
     }
 }
