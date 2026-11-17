@@ -355,7 +355,8 @@ pub(super) fn handoff_prompt(app: &str, args: &Value) -> Result<String, String> 
             while !recent.is_char_boundary(start) {
                 start += 1;
             }
-            let kept = &recent[start..];
+            // `start` is on a character boundary (the loop above); `get` keeps it panic-free.
+            let kept = recent.get(start..).unwrap_or_default();
             (kept, cut_note(kept.len()))
         };
         if !kept.is_empty() {
