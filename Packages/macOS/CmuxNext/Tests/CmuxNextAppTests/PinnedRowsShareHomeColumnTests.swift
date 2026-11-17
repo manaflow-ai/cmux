@@ -115,32 +115,6 @@ import Testing
         }
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/42431: every pinned row's leading glyph, its pin, centers on Home's
-    /// glyph's center line. A left-edge check passed while the pin, taller than it is wide, hugged the column's left
-    /// edge with its middle 3 pt left of the house's, the globe's and the app icons'.
-    @Test(arguments: cases, DensityPreset.allCases)
-    func everyPinnedRowsLeadingGlyphCentersUnderHomes(_ c: Case, preset: DensityPreset) throws {
-        try Self.at(c, preset: preset) {
-            let (list, window) = Self.list(scale: c.scale)
-            defer { window.close() }
-            let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            // The optical glyph square every row glyph centers in starts on the icon column's edge and fits in it: the
-            // tuned glyph size (SidebarRowTuning.glyphSize) is 1 to 2 pt under the column's width, so the
-            // center line is the square's, not the column's (a pinned group's pin keeps it too, below).
-            #expect(SidebarStyle.rowGlyphOpticalSide <= SidebarStyle.iconColumnBox + 0.5,
-                    "\(c.testDescription): the optical glyph square is \(SidebarStyle.rowGlyphOpticalSide), wider than the icon column \(SidebarStyle.iconColumnBox)")
-            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
-            let tolerance = 1 / c.scale
-            for item in Self.pins {
-                let row = try HomePinnedRowAlignmentTests.item(list, item.id)
-                let ink = list.convert(try #require(row.leadingInkFrame, "\(item.id.rawValue) draws nothing in the leading column"), from: row)
-                #expect(abs(ink.midX - homeInk.midX) <= tolerance,
-                        "\(c.testDescription): \(item.id.rawValue)'s leading glyph centers at \(ink.midX), Home's at \(homeInk.midX)")
-            }
-        }
-    }
-
-    /// The pin's ink is as large as the house's along its longer side, so it reads as one size with it, not 4 pt smaller.
     /// A pinned group's pin draws on the same line and at the same size as a pinned workspace row's: centered under Home's
     /// glyph, its ink as large as the house's. It centered on the icon column's middle, which (glyphs 1 to 2 pt
     /// under the column's width) sits 1 pt right of the line Home and the pinned rows share.
@@ -165,24 +139,13 @@ import Testing
         }
     }
 
-    @Test(arguments: cases, DensityPreset.allCases)
-    func thePinDrawsAsLargeAsHomesGlyph(_ c: Case, preset: DensityPreset) throws {
-        try Self.at(c, preset: preset) {
-            let (list, window) = Self.list(scale: c.scale)
-            defer { window.close() }
-            let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            let plain = try HomePinnedRowAlignmentTests.item(list, Self.plain.id)
-            let pin = try #require(plain.pinInkFrame, "the text-only pinned row draws no pin")
-            let house = try #require(home.glyphInkFrame, "Home drew no glyph")
-            #expect(abs(SidebarOpticalGlyph.fittedExtent(pin.size) - SidebarOpticalGlyph.fittedExtent(house.size)) <= 1,
-                    "\(c.testDescription): the pin's ink is \(pin.width) x \(pin.height) pt, Home's \(house.width) x \(house.height) pt")
-        }
-    }
-
     /// https://github.com/manaflow-ai/cmux/issues/42431 (2026-11-16): a pinned row with its own icon (a site favicon such
     /// as Spotify's, an emoji, a color dot) drew that icon in the pin's place and no pin, so it did not read as pinned.
     /// Every pinned row draws its pin under Home's glyph; its own icon centers one column after the pin, and its title
-    /// starts one column after Home's label. A text-only pinned row's title starts at Home's label x.
+    /// starts one column after Home's label. A text-only pinned row's title starts at Home's label x. The pin centers on
+    /// Home's glyph's center line (a left-edge check passed while the pin, taller than it is wide, hugged the column's
+    /// left edge 3 pt left of the house's middle) and draws as large as the house. One test per layout keeps the
+    /// suite inside the package lane's 900 s budget.
     @Test(arguments: cases, DensityPreset.allCases)
     func everyPinnedRowShowsItsPinThenItsOwnIcon(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
@@ -194,6 +157,10 @@ import Testing
             // One column step: from Home's icon column to its label, as from the pin's column to the next one.
             let step = homeX - list.convert(home.leadingColumnFrame, from: home).minX
             let tolerance = 1 / c.scale
+            // The optical glyph square every row glyph centers in starts on the icon column's edge and fits in it (the
+            // tuned glyph size, SidebarRowTuning.glyphSize, is 1 to 2 pt under the column's width).
+            #expect(SidebarStyle.rowGlyphOpticalSide <= SidebarStyle.iconColumnBox + 0.5,
+                    "\(c.testDescription): the optical glyph square is \(SidebarStyle.rowGlyphOpticalSide), wider than the icon column \(SidebarStyle.iconColumnBox)")
             var iconMids: [(String, CGFloat)] = [], titles: [(String, CGFloat)] = []
             for item in Self.pins {
                 let name = item.id.rawValue
@@ -201,6 +168,9 @@ import Testing
                 let pin = list.convert(try #require(row.pinInkFrame, "\(c.testDescription): \(name) draws no pin"), from: row)
                 #expect(abs(pin.midX - homeInk.midX) <= tolerance,
                         "\(c.testDescription): \(name)'s pin centers at \(pin.midX), Home's glyph at \(homeInk.midX)")
+                // The pin's ink is as large as the house's along its longer side, so it reads as one size with it.
+                #expect(abs(SidebarOpticalGlyph.fittedExtent(pin.size) - SidebarOpticalGlyph.fittedExtent(homeInk.size)) <= 1,
+                        "\(c.testDescription): \(name)'s pin ink is \(pin.width) x \(pin.height) pt, Home's \(homeInk.width) x \(homeInk.height) pt")
                 let title = list.convert(row.titleFrame, from: row).minX
                 guard item.id != Self.plain.id else {
                     #expect(row.ownIconInkFrame == nil, "\(c.testDescription): the text-only pinned row draws an icon")
