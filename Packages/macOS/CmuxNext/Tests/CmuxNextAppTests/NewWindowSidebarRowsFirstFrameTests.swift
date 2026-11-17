@@ -26,8 +26,9 @@ import Testing
     static let spaces = [ProfileID.defaultProfile.rawValue, work.rawValue]
 
     /// The app over a session with one open workspace and two spaces. It orders no window in.
-    static func app() throws -> AppServices {
-        let services = try NewWindowSidebarFirstFrameTests.app()
+    /// `hidesTheBandsWorkspaces` is that of `NewWindowSidebarFirstFrameTests.app`.
+    static func app(hidesTheBandsWorkspaces: Bool = false) throws -> AppServices {
+        let services = try NewWindowSidebarFirstFrameTests.app(hidesTheBandsWorkspaces: hidesTheBandsWorkspaces)
         services.machines.local.store.profiles = [ProfileModel(ProfileSnapshot(id: .defaultProfile, name: "Home")),
                                                   ProfileModel(ProfileSnapshot(id: work, name: "Work", index: 1))]
         services.windows.ordersWindowsIn = false
@@ -60,11 +61,18 @@ import Testing
         var textWithTheSelection: String { "\(text) selection_patches=\(selectionPatches)" }
     }
 
-    /// Why the seed of a new window does not list the workspace that the window shows at its making.
+    /// The state of the workspace that a new window shows at its making. The type's name is from a read that a run
+    /// of 2026-11-17 showed wrong for the first case: the seed lists that workspace.
     enum Unlisted: String {
         /// The band pins the workspace (the band of `NewWindowSidebarFirstFrameTests` as it is): the workspace draws
-        /// as an item of the band, and the list has no row for it.
+        /// as an item of the band. By that run the seed of the window lists the workspace's row too. By a read, not
+        /// by a run, why: this fixture's layout service has no daemon behind it, and the list then takes no
+        /// workspace of the band out (the older projection, `SidebarTopProjection.legacy`).
         case pinnedInTheBand = "pinned_in_the_band"
+        /// The band pins the workspace, and the list's projection is the layout's (`app(hidesTheBandsWorkspaces:)`):
+        /// the workspace is an item of the band and has no row in the list. By a read, not by a run, this is the
+        /// state of a pinned workspace in the app with the daemon's layout.
+        case hiddenByTheBand = "hidden_by_the_band"
         /// The workspace is pinned to the space `work`, and no item of the band names it. A new window starts at the
         /// space `default`: the window manager enters the workspace's space after the window's making.
         case ofAnotherSpace = "of_another_space"
@@ -91,9 +99,9 @@ import Testing
     /// `creating` is the key of a create in flight into the window: its row is in `PendingWorkspaceRows` under the
     /// window's id in front of the window's making, as a new window with a new workspace has it from the press. The
     /// caller takes the row out again (`PendingWorkspaceRows.remove`): the rows are the process's. `unlisted` gives
-    /// the window the session's open workspace in a state where the window's seed does not list it.
+    /// the window the session's open workspace in one of the states of `Unlisted`.
     static func window(_ id: String, listsTheWorkspace: Bool = false, creating: String? = nil, unlisted: Unlisted? = nil) throws -> Made {
-        let services = try app()
+        let services = try app(hidesTheBandsWorkspaces: unlisted == .hiddenByTheBand)
         if listsTheWorkspace {
             services.sidebarLayout.docLayout = NewWindowSidebarFirstFrameTests.document(pins: [])
             services.windows.registry.provisional[id] = ["k-open"]
@@ -181,42 +189,67 @@ import Testing
         #expect(work.rebuilds >= 1, "the rows pass of the window did not run in the hops (\(work.text))")
     }
 
-    /// A new window for a workspace that its seed does not list (a workspace moved to a window of its own). The
-    /// content swap of the window's making runs the rows pass in the making's turn (`WindowController.show`), so the
-    /// first run of the window's rows pass, the run that shows at once, is in the swap and is not a task's. The swap
-    /// then runs the selection pass and draws the sidebar. That run's show must add no draw of the list to the swap
-    /// (decision of 2026-11-16): the call that makes the window runs one rows pass, reloads the list in full the two
-    /// times of each window's making (`theMakingOfAWindowRunsNoRowsPass`), and draws no selection on the list's rows
-    /// after the reloads (`selection_patches`). A third reload, or a selection patch, is a draw of the list for the
-    /// selection after the run's show drew it without the selection. The work is in the printed line
-    /// `NEW-WINDOW-WORK-IN-THE-SWAP` with the case's name. The first assert says that the swap ran the rows pass:
-    /// without it the seed listed the workspace and the line is of another path. A draw of the band's own items
-    /// has no counter and is not read here.
-    static func expectTheSwapAddsNoDrawOfTheList(_ made: Made, _ unlisted: Unlisted) throws {
+    /// A new window for a workspace that exists (a workspace moved to a window of its own). The content swap of the
+    /// window's making (`WindowController.show`) runs the rows pass in the making's turn when the model does not
+    /// list the workspace or lists another space than the window's. That run is then the first run of the window's
+    /// rows pass, the run that shows at once, and it is not a task's; the swap then runs the selection pass and
+    /// draws the sidebar. The swap must add no draw of the list (decision of 2026-11-16): the call that makes the
+    /// window reloads the list in full the two times of each window's making (`theMakingOfAWindowRunsNoRowsPass`)
+    /// and draws no selection on the list's rows after the reloads (`selection_patches`). A third reload, or a
+    /// selection patch, is a draw of the list for the selection after the run's show drew it without the selection.
+    /// `rowsPasses` is the count of rows passes that the swap runs in the case, as a run of 2026-11-17 showed it
+    /// (one run of the suite, on one Mac): the first assert says with it which path the printed line is of. The
+    /// work is in the printed line `NEW-WINDOW-WORK-IN-THE-SWAP` with the case's name. A draw of the band's own
+    /// items has no counter and is not read here.
+    static func expectTheSwapAddsNoDrawOfTheList(_ made: Made, _ unlisted: Unlisted, rowsPasses: Int) throws {
         let work = made.work
         print("NEW-WINDOW-WORK-IN-THE-SWAP \(unlisted.rawValue) \(work.textWithTheSelection)")
-        try #require(work.rebuilds == 1, "the fixture is wrong: the content swap of the window's making did not run the rows pass one time (\(work.textWithTheSelection))")
+        try #require(work.rebuilds == rowsPasses,
+                     "the fixture is wrong: the content swap of the window's making did not run \(rowsPasses) rows passes (\(work.textWithTheSelection))")
         #expect(work.listReloads == 2, "the content swap of a new window's making did not reload the list two times (\(work.textWithTheSelection))")
         #expect(work.selectionPatches == 0, "the content swap of a new window's making drew the list again for the selection (\(work.textWithTheSelection))")
     }
 
-    /// The workspace is an item of the band: the swap's selection is that item, written by the selection pass after
-    /// the rows pass.
+    /// The workspace is an item of the band, and the swap's selection is that item. By the run of 2026-11-17 the
+    /// swap runs NO rows pass here: the seed listed the workspace's row, so the swap draws what the model has, and
+    /// the counts are those of a window's plain making. The two checks in front say that state of the fixture. By
+    /// a read, not by a run: with the daemon's layout a workspace of the band leaves the list, and the swap of its
+    /// new window then runs the rows pass and selects the band's item. The next test makes that window with the
+    /// test's own layout service.
     @Test func theSwapOfANewWindowForAWorkspaceOfTheBandAddsNoDrawOfTheList() throws {
         let made = try Self.window("rows-first-frame-swap-band", unlisted: .pinnedInTheBand)
         defer { made.close() }
+        try #require(!made.model.sections.flatMap(\.workspaces).isEmpty, "the fixture is wrong: the seed listed no row, so the swap runs the rows pass")
         try #require(made.model.selectedItem == SidebarItem.topItem(NewWindowSidebarFirstFrameTests.open.id),
-                     "the fixture is wrong: the swap did not select the band's item of the workspace, so no draw of a selection can follow the rows pass")
-        try Self.expectTheSwapAddsNoDrawOfTheList(made, .pinnedInTheBand)
+                     "the fixture is wrong: the swap did not select the band's item of the workspace")
+        try Self.expectTheSwapAddsNoDrawOfTheList(made, .pinnedInTheBand, rowsPasses: 0)
     }
 
-    /// The workspace is in another space than the window's first one: the rows pass in the swap lists the rows of
-    /// the space `default`, as the seed did, and the selection has no row and no item of the band.
+    /// The workspace is an item of the band and the list has no row for it (the layout's projection, from the
+    /// test's own layout service: no daemon). By a read, not by a run at the time of this test's writing
+    /// (2026-11-17): the swap then runs ONE rows pass, the first run of the window's rows pass, and after it the
+    /// selection pass selects the band's item. This test is a print with a check of its fixture, and it gives the
+    /// swap's draws of the list no bound (decision of 2026-11-17): the two checks say that the window is in that
+    /// state and that the swap ran the rows pass one time; the line `NEW-WINDOW-WORK-IN-THE-SWAP hidden_by_the_band`
+    /// has the counts of that swap and says if the selection is the band's item. A `list_reloads` over 2 or a
+    /// `selection_patches` over 0 in that line is a draw of the list that the swap adds in this case.
+    @Test func theSwapOfANewWindowForAWorkspaceThatTheBandHidesPrintsItsDrawsOfTheList() throws {
+        let made = try Self.window("rows-first-frame-swap-hidden", unlisted: .hiddenByTheBand)
+        defer { made.close() }
+        let selectsTheBandsItem = made.model.selectedItem == SidebarItem.topItem(NewWindowSidebarFirstFrameTests.open.id)
+        print("NEW-WINDOW-WORK-IN-THE-SWAP \(Unlisted.hiddenByTheBand.rawValue) \(made.work.textWithTheSelection) selects_the_bands_item=\(selectsTheBandsItem)")
+        try #require(made.model.sections.flatMap(\.workspaces).isEmpty, "the fixture is wrong: the list keeps the row of the band's workspace")
+        try #require(made.work.rebuilds == 1, "the fixture is wrong: the content swap of the window's making did not run one rows pass (\(made.work.textWithTheSelection))")
+    }
+
+    /// The workspace is in another space than the window's first one. By the run of 2026-11-17 the swap runs ONE
+    /// rows pass, the first run of the window's rows pass: it lists the rows of the space `default`, as the seed
+    /// did, and the selection has no row and no item of the band.
     @Test func theSwapOfANewWindowForAWorkspaceOfAnotherSpaceAddsNoDrawOfTheList() throws {
         let made = try Self.window("rows-first-frame-swap-space", unlisted: .ofAnotherSpace)
         defer { made.close() }
         try #require(made.model.sections.flatMap(\.workspaces).isEmpty, "the fixture is wrong: the space `default` lists the workspace that is pinned to another space")
-        try Self.expectTheSwapAddsNoDrawOfTheList(made, .ofAnotherSpace)
+        try Self.expectTheSwapAddsNoDrawOfTheList(made, .ofAnotherSpace, rowsPasses: 1)
     }
 
     /// A create in flight into a new window, with the pointer over the window's rows. The seed lists the window's
@@ -243,6 +276,31 @@ import Testing
         made.controller.sidebar.sameTurn.syncNow(rows: false) // no rows pass: it draws what the model has
         try #require(lists(), "the fixture is wrong: the rows pass did not list the create's row in the hops")
         #expect(!list.holdsModelChange, "the first rows pass of a new window left its rows to wait for the pointer to leave the list")
+        #expect(list.displayed.row(for: .workspace(CmuxNextSidebar.WorkspaceID(created))) != nil,
+                "a new window's list does not draw the create's row while the pointer is over its rows")
+    }
+
+    /// The same create and the same pointer, with the first run of the rows pass inside a draw of the turn
+    /// (`syncNow(rows: true)`, the call of a window's content swap) and not in a task. A guard that was not red
+    /// first: by a read the run shows its rows at once there too (`SidebarView.showRowsOfTheMaking`, called by the
+    /// run itself), so the list draws the create's row under the pointer and holds no change back. The test calls
+    /// `syncNow` itself: no row here makes a window whose content swap runs that first run with a create in flight.
+    @Test func theFirstRowsPassInsideADrawOfTheTurnShowsACreatesRowUnderThePointer() throws {
+        let created = "rows-first-frame-created-in-turn"
+        let made = try Self.window("rows-first-frame-pointer-in-turn", listsTheWorkspace: true, creating: created)
+        defer {
+            made.close()
+            PendingWorkspaceRows.shared.remove(created)
+        }
+        let model = made.model, list = made.controller.sidebar.container.sidebarView.list
+        let lists = { model.sections.flatMap(\.workspaces).contains { $0.id.rawValue == created } }
+        try #require(!list.displayed.rows.isEmpty, "the fixture is wrong: the window's first draw lists no row")
+        try #require(!lists(), "the fixture is wrong: the seed listed the create's row, so the rows pass adds no row")
+        try #require(made.work.rebuilds == 0, "the fixture is wrong: a rows pass ran in the window's making, so the next run is not the first")
+        list.pointerIsOverList = { _ in true }
+        made.controller.sidebar.sameTurn.syncNow(rows: true) // the first run of the rows pass, the selection pass, the draw
+        try #require(lists(), "the fixture is wrong: the rows pass did not list the create's row")
+        #expect(!list.holdsModelChange, "the first rows pass of a new window, run with a draw of its turn, left its rows to wait for the pointer to leave the list")
         #expect(list.displayed.row(for: .workspace(CmuxNextSidebar.WorkspaceID(created))) != nil,
                 "a new window's list does not draw the create's row while the pointer is over its rows")
     }
