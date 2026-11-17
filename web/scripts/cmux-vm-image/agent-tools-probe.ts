@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
+import { ensureOutputFile, harnessEnsureScript, harnessGate, pickerHarnesses } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
 
 const PROBE_DIR = "/tmp/cmux-agent-tools-probe";
@@ -515,6 +516,26 @@ async function agentStep(vm: Vm, check: Checker, result: ProbeResult, outDir: st
   await pngCheck(vm, check, result, outDir, "agent-cua");
 }
 
+/**
+ * The image roll's harness gate (harness-gate.ts): `acp ensure` for every harness the Cloud chat picker offers, in a
+ * terminal of the machine's own daemon with the guest's own acpmux, one check per harness. A failure names the
+ * harness and its ensure output, here and as a workflow error, and fails the probe: the roll promotes nothing.
+ */
+async function harnessEnsureChecks(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<void> {
+  const harnesses = await pickerHarnesses();
+  const guestOut = `${PROBE_DIR}/harness-ensure`;
+  const body = harnessEnsureScript({ cmux: `${CURRENT_BIN}/cmux-tui`, cwd: WORK_DIR, outDir: guestOut, harnesses });
+  result.timings.harnessEnsureMs = await inTerminal(vm, "harness-ensure", terminalScript("harness-ensure", body), harnesses.length * 160 + 60);
+  const outputs: Record<string, string | undefined> = {};
+  for (const h of harnesses) {
+    outputs[h] = await readGuest(vm, ensureOutputFile(guestOut, h)).catch(() => undefined);
+    writeFileSync(path.join(outDir, `harness-ensure-${h}.txt`), outputs[h] ?? "");
+  }
+  const gate = harnessGate(harnesses, outputs);
+  for (const h of harnesses) check(`harness-ensure-${h}`, gate.results[h]!.ok, gate.results[h]!.detail);
+  for (const f of gate.failures) console.log(`::error title=Image harness gate (${f.harness})::${f.detail.replace(/[\r\n%]/g, " ")}`);
+}
+
 export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<ProbeResult> {
   const result: ProbeResult = { checks: {}, timings: {}, files: [] };
   const check: Checker = (name, ok, detail) => {
@@ -525,6 +546,7 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<Pr
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
   await desktopChecks(vm, check);
+  await harnessEnsureChecks(vm, check, result, options.outDir);
   const plan = agentStepPlan(options);
   if (plan.run) await agentStep(vm, check, result, options.outDir);
   else {
