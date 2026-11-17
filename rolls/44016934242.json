@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44016934242",
+  "recorded_at": "2026-11-17T04:34:11Z",
+  "reason": "image inputs changed in a5e855889634d22876eaa1acb7b8755ddd7e8845..40613749104d0cb68dbccf14821ae2c51b0a22ab",
+  "dry_run": false,
+  "cmux_tui": "cecb7d7fba9478071089ee66089f3451c27eebae",
+  "fixes": [
+    {
+      "sha": "40613749104d0cb68dbccf14821ae2c51b0a22ab",
+      "mergedAt": "2026-11-17T04:24:07Z",
+      "subject": "Cloud VM image roll: the harness gate blocks only regressions against the live image (#44754)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T04:34:11Z",
+    "snapshot_id": "sh-e0f9bde519d3458b9bdec80eddca3e30",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44016934242): 29 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-cecb7d7f-44016934242-1",
+    "revision": "ci-44016934242-1",
+    "at": null
+  },
+  "rolled_back": false
+}
