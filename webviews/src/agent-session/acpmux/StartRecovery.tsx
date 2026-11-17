@@ -14,6 +14,9 @@ import type { StartRecoveryReason } from "./startRecoveryReason";
 /// Dismiss (or Escape inside the view) hands focus back to the composer, where the person was.
 export type StartRecoveryLook = "side" | "centered" | "card";
 
+/// The picture's size per look: beside the text it stays within the notice's two lines.
+const PICTURE_SIZE: Record<StartRecoveryLook, number> = { side: 36, centered: 48, card: 64 };
+
 export type StartRecoveryProps = {
   reason: StartRecoveryReason;
   /// The one sentence: why the chat did not start, in plain words.
@@ -56,6 +59,7 @@ export function StartRecovery({
     ? () => {
         onDismiss();
         const back = before.current;
+        // focus-route: the person pressed Dismiss or Escape; focus returns to where they were (the composer).
         if (back instanceof HTMLElement && back.isConnected) back.focus();
       }
     : undefined;
@@ -74,7 +78,7 @@ export function StartRecovery({
       }}
     >
       <div className="acpmux-host-error-card acpmux-start-recovery-card">
-        <RecoveryPicture reason={reason} />
+        <RecoveryPicture reason={reason} size={PICTURE_SIZE[look]} />
         <div className="acpmux-start-recovery-body">
           {/* The spinner trails the text, so a step starting or ending never moves the words. */}
           <p className="acpmux-host-error-message">
@@ -105,9 +109,9 @@ export function StartRecovery({
 
 /// The reason, drawn in the theme's own colors (currentColor and the accent), so it reads in every
 /// theme and in light and dark with no image assets. Decorative: the sentence says the same.
-function RecoveryPicture({ reason }: { reason: StartRecoveryReason }) {
+function RecoveryPicture({ reason, size }: { reason: StartRecoveryReason; size: number }) {
   return (
-    <svg className="acpmux-start-recovery-picture" viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
+    <svg className="acpmux-start-recovery-picture" viewBox="0 0 48 48" width={size} height={size} aria-hidden="true">
       <rect x="4" y="8" width="40" height="30" rx="6" className="acpmux-start-recovery-frame" />
       {reason === "missing-harness" && (
         <>
