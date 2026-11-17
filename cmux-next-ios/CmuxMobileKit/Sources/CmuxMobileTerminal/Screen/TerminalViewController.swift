@@ -3698,11 +3698,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The keyboard starts to move (will-show, will-hide), and UIKit has
     /// already laid the stack out at its end (the dock follows will-change,
     /// which UIKit posts first). A full-screen app's rows for that end go to
-    /// the Mac now, a short settle later (`TerminalResizeSettle.keyboardSettle`),
-    /// not after did-show plus the layout settle: its redraw lands about when
-    /// the keyboard stops (R1-1). Did-show and did-hide settle again from the
-    /// laid-out stack, which normally asks for the same rows. A target that a
-    /// newer toggle reverts within the settle sends nothing; the newest wins.
+    /// the Mac now (`TerminalResizeSettle.claim`), not after did-show plus the
+    /// layout settle: its redraw lands about when the keyboard stops (R1-1).
+    /// Rows our own key already claimed send nothing again. Did-show and
+    /// did-hide (and the keyboard's stop) claim from the laid-out stack,
+    /// which normally asks for the same rows. Every new target is sent at
+    /// once, so the newest claim is always the last one sent.
     private func keyboardWillMove(_ note: Notification) {
         let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
         keyboardMovement &+= 1
