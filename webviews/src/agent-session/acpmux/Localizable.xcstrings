@@ -37231,128 +37231,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يرى الوكيل كلمة مرورك أبدًا."
+            "state": "translated",
+            "value": "تذهب كلمة المرور إلى sudo على هذا الجهاز فقط، ولا يراها الوكيل أبدًا. وهي لهذا الأمر وحده."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent nikad ne vidi vašu lozinku."
+            "state": "translated",
+            "value": "Lozinka ide samo do sudo na ovom računaru; agent je nikad ne vidi. Važi samo za ovu jednu naredbu."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenten ser aldrig din adgangskode."
+            "state": "translated",
+            "value": "Din adgangskode går kun til sudo på denne maskine; agenten ser den aldrig. Den gælder kun denne ene kommando."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Agent sieht dein Passwort nie."
+            "state": "translated",
+            "value": "Dein Passwort geht nur an sudo auf diesem Rechner; der Agent sieht es nie. Es gilt nur für diesen einen Befehl."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent never sees your password."
+            "value": "Your password goes only to sudo on this machine; the agent never sees it. It covers this one command."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "El agente nunca ve tu contraseña."
+            "state": "translated",
+            "value": "Tu contraseña va solo a sudo en esta máquina; el agente nunca la ve. Sirve solo para este comando."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "L’agent ne voit jamais votre mot de passe."
+            "state": "translated",
+            "value": "Votre mot de passe va uniquement à sudo sur cette machine ; l’agent ne le voit jamais. Il ne vaut que pour cette commande."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "L’agente non vede mai la tua password."
+            "state": "translated",
+            "value": "La password va solo a sudo su questa macchina; l’agente non la vede mai. Vale solo per questo comando."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェントにパスワードが見えることはありません。"
+            "state": "translated",
+            "value": "パスワードはこのマシンの sudo にだけ渡され、エージェントには見えません。このコマンド1回だけに使われます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារមិនដែលឃើញពាក្យសម្ងាត់របស់អ្នកទេ។"
+            "state": "translated",
+            "value": "ពាក្យសម្ងាត់របស់អ្នកទៅតែ sudo នៅលើម៉ាស៊ីននេះ ហើយភ្នាក់ងារមិនដែលឃើញវាទេ។ វាសម្រាប់តែពាក្យបញ្ជានេះមួយប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트는 암호를 볼 수 없습니다."
+            "state": "translated",
+            "value": "비밀번호는 이 컴퓨터의 sudo에만 전달되며 에이전트는 볼 수 없습니다. 이 명령 하나에만 쓰입니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenten ser aldri passordet ditt."
+            "state": "translated",
+            "value": "Passordet går bare til sudo på denne maskinen; agenten ser det aldri. Det gjelder bare denne ene kommandoen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent nigdy nie widzi Twojego hasła."
+            "state": "translated",
+            "value": "Hasło trafia tylko do sudo na tym komputerze; agent nigdy go nie widzi. Dotyczy tylko tego jednego polecenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O agente nunca vê sua senha."
+            "state": "translated",
+            "value": "Sua senha vai só para o sudo nesta máquina; o agente nunca a vê. Ela vale só para este comando."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент никогда не видит ваш пароль."
+            "state": "translated",
+            "value": "Пароль уходит только в sudo на этой машине; агент его не видит. Он действует только для этой команды."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์ไม่เห็นรหัสผ่านของคุณ"
+            "state": "translated",
+            "value": "รหัสผ่านจะส่งไปยัง sudo บนเครื่องนี้เท่านั้น เอเจนต์จะไม่เห็นเลย และใช้กับคำสั่งนี้คำสั่งเดียว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan parolanızı asla görmez."
+            "state": "translated",
+            "value": "Parolanız yalnızca bu makinedeki sudo'ya gider; ajan onu asla görmez. Yalnızca bu tek komut için geçerlidir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент ніколи не бачить ваш пароль."
+            "state": "translated",
+            "value": "Пароль іде лише до sudo на цій машині; агент його не бачить. Він діє лише для цієї команди."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tác tử không bao giờ thấy mật khẩu của bạn."
+            "state": "translated",
+            "value": "Mật khẩu chỉ được gửi tới sudo trên máy này; tác tử không bao giờ thấy nó. Nó chỉ dùng cho đúng lệnh này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理永远看不到你的密码。"
+            "state": "translated",
+            "value": "密码只交给这台机器上的 sudo，代理永远看不到。它只用于这一条命令。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理程式永遠看不到你的密碼。"
+            "state": "translated",
+            "value": "密碼只交給這台機器上的 sudo，代理永遠看不到。它只用於這一條指令。"
           }
         }
       }
@@ -138660,127 +138660,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن إلا رفض هذا الطلب."
+            "value": "لا يوجد لعنصر خيار موافقة لمرة واحدة. يمكن رفض هذه المجموعة فقط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj zahtjev se može samo odbiti."
+            "value": "Stavka nema opciju jednokratnog odobrenja. Ova grupa se može samo odbiti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne anmodning kan kun afvises."
+            "value": "Et element har ingen mulighed for engangsgodkendelse. Denne gruppe kan kun afvises."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Anfrage kann nur abgelehnt werden."
+            "value": "Ein Eintrag hat keine Option für eine einmalige Genehmigung. Diese Gruppe kann nur abgelehnt werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request can only be denied."
+            "value": "An item has no single-use approval option. This group can only be denied."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta solicitud solo se puede rechazar."
+            "value": "Un elemento no tiene opción de aprobación de un solo uso. Este grupo solo se puede denegar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette demande ne peut être que refusée."
+            "value": "Un élément n'a pas d'option d'approbation unique. Ce groupe ne peut qu'être refusé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa richiesta può solo essere rifiutata."
+            "value": "Un elemento non ha un'opzione di approvazione singola. Questo gruppo può solo essere rifiutato."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "このリクエストは拒否のみできます。"
+            "state": "translated",
+            "value": "1 回限りの承認ができない項目があります。このグループは拒否のみ可能です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សំណើនេះអាចត្រូវបានបដិសេធតែប៉ុណ្ណោះ។"
+            "value": "ធាតុមួយមិនមានជម្រើសអនុម័តតែម្តងទេ។ ក្រុមនេះអាចបដិសេធបានតែប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 요청은 거부만 할 수 있습니다."
+            "value": "일회용 승인 옵션이 없는 항목이 있습니다. 이 그룹은 거부만 할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne forespørselen kan bare avslås."
+            "value": "Ett element har ikke noe alternativ for engangsgodkjenning. Denne gruppen kan bare avslås."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tę prośbę można tylko odrzucić."
+            "value": "Jeden z elementów nie ma opcji jednorazowego zatwierdzenia. Tę grupę można tylko odrzucić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta solicitação só pode ser negada."
+            "value": "Um item não tem opção de aprovação única. Este grupo só pode ser negado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот запрос можно только отклонить."
+            "value": "У одного из элементов нет варианта разового одобрения. Эту группу можно только запретить."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คำขอนี้ปฏิเสธได้เท่านั้น"
+            "value": "บางรายการไม่มีตัวเลือกอนุมัติครั้งเดียว กลุ่มนี้ปฏิเสธได้เท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu istek yalnızca reddedilebilir."
+            "value": "Bir öğenin tek kullanımlık onay seçeneği yok. Bu grup yalnızca reddedilebilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей запит можна лише відхилити."
+            "value": "Елемент не має варіанта одноразового схвалення. Цю групу можна лише заборонити."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yêu cầu này chỉ có thể bị từ chối."
+            "value": "Một mục không có tùy chọn duyệt một lần. Nhóm này chỉ có thể bị từ chối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此请求只能拒绝。"
+            "value": "某个项目没有单次批准选项。此组只能被拒绝。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此請求只能拒絕。"
+            "value": "某個項目沒有單次核准選項。此群組只能被拒絕。"
           }
         }
       }
@@ -156118,127 +156118,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "وافق على هذا على جهاز Mac الذي يشغّل هذه المحادثة."
+            "value": "لا يمكن الموافقة على هذا إلا من تطبيق cmux. وافق عليه في cmux على جهاز Mac الذي يشغّل هذه المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odobrite ovo na Macu na kojem radi ovaj chat."
+            "value": "Ovo se može odobriti samo u aplikaciji cmux. Odobrite to u cmuxu na Macu na kojem radi ovaj chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Godkend dette på den Mac, der kører denne chat."
+            "value": "Kun cmux-appen kan godkende dette. Godkend det i cmux på den Mac, der kører denne chat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genehmige das auf dem Mac, auf dem dieser Chat läuft."
+            "value": "Nur die cmux-App kann das genehmigen. Genehmige es in cmux auf dem Mac, auf dem dieser Chat läuft."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve this on the Mac that runs this chat."
+            "value": "Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apruébalo en el Mac que ejecuta este chat."
+            "value": "Solo la app cmux puede aprobar esto. Apruébalo en cmux en el Mac que ejecuta este chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Approuvez-le sur le Mac qui exécute cette discussion."
+            "value": "Seule l’app cmux peut approuver ceci. Approuvez-le dans cmux sur le Mac qui exécute ce chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Approvalo sul Mac che esegue questa chat."
+            "value": "Solo l’app cmux può approvarlo. Approvalo in cmux sul Mac che esegue questa chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このチャットを実行している Mac で承認してください。"
+            "value": "これを承認できるのは cmux アプリだけです。このチャットを実行している Mac の cmux で承認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុម័តវានៅលើ Mac ដែលកំពុងដំណើរការការជជែកនេះ។"
+            "value": "មានតែកម្មវិធី cmux ទេដែលអាចអនុម័តការនេះបាន។ សូមអនុម័តវានៅក្នុង cmux លើ Mac ដែលដំណើរការការជជែកនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅을 실행하는 Mac에서 승인하세요."
+            "value": "이 항목은 cmux 앱에서만 승인할 수 있습니다. 이 채팅을 실행하는 Mac의 cmux에서 승인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Godkjenn dette på Macen som kjører denne chatten."
+            "value": "Bare cmux-appen kan godkjenne dette. Godkjenn det i cmux på Macen som kjører denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatwierdź to na Macu, na którym działa ten czat."
+            "value": "Tylko aplikacja cmux może to zatwierdzić. Zatwierdź to w cmux na Macu, na którym działa ten czat."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aprove isto no Mac que executa este chat."
+            "value": "Só o app cmux pode aprovar isto. Aprove no cmux no Mac que executa este chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Одобрите это на Mac, на котором работает этот чат."
+            "value": "Одобрить это можно только в приложении cmux. Одобрите в cmux на Mac, где работает этот чат."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุมัติสิ่งนี้บน Mac ที่รันแชทนี้"
+            "value": "มีเพียงแอป cmux เท่านั้นที่อนุมัติสิ่งนี้ได้ อนุมัติใน cmux บน Mac ที่เรียกใช้แชทนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bunu, bu sohbeti çalıştıran Mac'te onaylayın."
+            "value": "Bunu yalnızca cmux uygulaması onaylayabilir. Bu sohbeti çalıştıran Mac'teki cmux'ta onaylayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Схваліть це на Mac, на якому працює цей чат."
+            "value": "Схвалити це можна лише в застосунку cmux. Схваліть у cmux на Mac, де працює цей чат."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phê duyệt việc này trên máy Mac đang chạy cuộc trò chuyện này."
+            "value": "Chỉ ứng dụng cmux mới có thể phê duyệt việc này. Hãy phê duyệt trong cmux trên máy Mac đang chạy cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请在运行此聊天的 Mac 上批准。"
+            "value": "只有 cmux 应用可以批准此操作。请在运行此聊天的 Mac 上的 cmux 中批准。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請在執行此聊天的 Mac 上核准。"
+            "value": "只有 cmux App 可以核准此操作。請在執行此聊天的 Mac 上的 cmux 中核准。"
           }
         }
       }
@@ -213118,127 +213118,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حدّث cmux على الجهاز الذي يشغّل هذه المحادثة لترسل من هنا"
+            "value": "حدّث cmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ažurirajte cmux na računaru na kojem radi ovaj chat da biste slali odavde"
+            "value": "Ažurirajte cmux da biste slali odavde: ne navodi odakle dolazi ova veza"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opdater cmux på den maskine, der kører denne chat, for at sende herfra"
+            "value": "Opdater cmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktualisiere cmux auf dem Rechner, auf dem dieser Chat läuft, um von hier zu senden"
+            "value": "Aktualisiere cmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update cmux on the machine that runs this chat to send from here"
+            "value": "Update cmux to send from here: it does not say where this connection comes from"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Actualiza cmux en la máquina que ejecuta este chat para enviar desde aquí"
+            "value": "Actualiza cmux para enviar desde aquí: no indica de dónde viene esta conexión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mettez à jour cmux sur la machine qui exécute cette discussion pour envoyer d’ici"
+            "value": "Mettez cmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiorna cmux sulla macchina che esegue questa chat per inviare da qui"
+            "value": "Aggiorna cmux per inviare da qui: non indica da dove proviene questa connessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ここから送信するには、このチャットを実行しているマシンの cmux をアップデートしてください"
+            "value": "ここから送信するには cmux を更新してください：この接続の送信元が示されていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើម៉ាស៊ីនដែលកំពុងដំណើរការការជជែកនេះ ដើម្បីផ្ញើពីទីនេះ"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "여기서 보내려면 이 채팅을 실행하는 컴퓨터의 cmux를 업데이트하세요"
+            "value": "여기에서 보내려면 cmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppdater cmux på maskinen som kjører denne chatten for å sende herfra"
+            "value": "Oppdater cmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaktualizuj cmux na komputerze, na którym działa ten czat, aby wysyłać stąd"
+            "value": "Zaktualizuj cmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Atualize o cmux na máquina que executa este chat para enviar daqui"
+            "value": "Atualize o cmux para enviar daqui: ele não informa de onde vem esta conexão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Обновите cmux на машине, где работает этот чат, чтобы отправлять отсюда"
+            "value": "Обновите cmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อัปเดต cmux บนเครื่องที่รันแชทนี้เพื่อส่งจากที่นี่"
+            "value": "อัปเดต cmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Buradan göndermek için bu sohbeti çalıştıran makinedeki cmux'u güncelleyin"
+            "value": "Buradan göndermek için cmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Оновіть cmux на машині, де працює цей чат, щоб надсилати звідси"
+            "value": "Оновіть cmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cập nhật cmux trên máy đang chạy cuộc trò chuyện này để gửi từ đây"
+            "value": "Cập nhật cmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请更新运行此聊天的机器上的 cmux，以便从这里发送"
+            "value": "请更新 cmux 以从这里发送：它没有说明此连接来自何处"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請更新執行此聊天的機器上的 cmux，以便從這裡傳送"
+            "value": "請更新 cmux 以從這裡傳送：它沒有說明此連線來自何處"
           }
         }
       }
@@ -213250,127 +213250,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أرسل إلى هذه المحادثة من جهاز Mac الذي يشغّلها"
+            "value": "غير متاح من هنا: لا يملك هذا الوكيل وضعًا يطلب الإذن قبل كل تغيير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pošaljite u ovaj chat s Maca na kojem radi"
+            "value": "Nije dostupno odavde: ovaj agent nema način rada koji pita prije svake promjene"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send til denne chat fra den Mac, der kører den"
+            "value": "Ikke tilgængelig herfra: denne agent har ingen tilstand, der spørger før hver ændring"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sende an diesen Chat von dem Mac, auf dem er läuft"
+            "value": "Von hier aus nicht verfügbar: Dieser Agent hat keinen Modus, der vor jeder Änderung fragt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to this chat from the Mac that runs it"
+            "value": "Not available from here: this agent has no mode that asks before each change"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Envía a este chat desde el Mac que lo ejecuta"
+            "value": "No disponible desde aquí: este agente no tiene un modo que pregunte antes de cada cambio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Envoyez à cette discussion depuis le Mac qui l’exécute"
+            "value": "Indisponible depuis ici : cet agent n’a aucun mode qui demande avant chaque changement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Invia a questa chat dal Mac che la esegue"
+            "value": "Non disponibile da qui: questo agente non ha una modalità che chieda prima di ogni modifica"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このチャットを実行している Mac から送信してください"
+            "value": "ここからは利用できません：このエージェントには、変更のたびに確認するモードがありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ញើទៅការជជែកនេះពី Mac ដែលកំពុងដំណើរការវា"
+            "value": "មិនអាចប្រើពីទីនេះបានទេ៖ ភ្នាក់ងារនេះគ្មានរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅을 실행하는 Mac에서 보내세요"
+            "value": "여기에서는 사용할 수 없습니다: 이 에이전트에는 변경할 때마다 확인하는 모드가 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send til denne chatten fra Macen som kjører den"
+            "value": "Ikke tilgjengelig herfra: denne agenten har ingen modus som spør før hver endring"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wysyłaj do tego czatu z Maca, na którym działa"
+            "value": "Niedostępne stąd: ten agent nie ma trybu, który pyta przed każdą zmianą"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Envie para este chat pelo Mac que o executa"
+            "value": "Indisponível daqui: este agente não tem um modo que pergunte antes de cada alteração"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отправляйте в этот чат с Mac, на котором он работает"
+            "value": "Недоступно отсюда: у этого агента нет режима, который спрашивает перед каждым изменением"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่งถึงแชทนี้จาก Mac ที่รันแชทนี้"
+            "value": "ใช้จากที่นี่ไม่ได้: เอเจนต์นี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbete, onu çalıştıran Mac'ten gönderin"
+            "value": "Buradan kullanılamaz: bu ajanın her değişiklikten önce soran bir modu yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Надсилайте в цей чат з Mac, на якому він працює"
+            "value": "Недоступно звідси: цей агент не має режиму, який питає перед кожною зміною"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gửi tới cuộc trò chuyện này từ máy Mac đang chạy nó"
+            "value": "Không dùng được từ đây: tác tử này không có chế độ hỏi trước mỗi thay đổi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请从运行此聊天的 Mac 发送"
+            "value": "无法从这里使用：此代理没有在每次更改前都会询问的模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請從執行此聊天的 Mac 傳送"
+            "value": "無法從這裡使用：此代理沒有在每次變更前都會詢問的模式"
           }
         }
       }
@@ -298162,127 +298162,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إعدادات OpenCode الخاصة تحدد ما يسأل عنه، لذا لا أثر لـ «{policy}»"
+            "value": "لا يمكن لـ OpenCode الالتزام بسياسة الأذونات لهذه الدردشة ({policy}): إعداداته الخاصة تحدد ما يسأل عنه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode o pitanjima odlučuje prema vlastitim postavkama, pa „{policy}” nema učinka"
+            "value": "OpenCode ne može poštovati pravila dozvola ovog chata ({policy}): njegove vlastite postavke određuju šta pita"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCodes egne indstillinger bestemmer, hvad den spørger om, så “{policy}” har ingen virkning"
+            "value": "OpenCode kan ikke overholde denne chats tilladelsespolitik ({policy}): dens egne indstillinger afgør, hvad den spørger om"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCodes eigene Einstellungen bestimmen, was es fragt, daher hat „{policy}“ keine Wirkung"
+            "value": "OpenCode kann die Berechtigungsrichtlinie dieses Chats ({policy}) nicht einhalten: Seine eigenen Einstellungen bestimmen, was es fragt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode's own settings decide what it asks, so “{policy}” has no effect"
+            "value": "OpenCode can't keep this chat's permission policy ({policy}): its own settings decide what it asks"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La configuración propia de OpenCode decide qué pregunta, así que «{policy}» no tiene efecto"
+            "value": "OpenCode no puede mantener la política de permisos de este chat ({policy}): su propia configuración decide qué pregunta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les réglages propres d’OpenCode décident de ce qu’il demande, donc « {policy} » n’a aucun effet"
+            "value": "OpenCode ne peut pas respecter la politique d’autorisations de ce chat ({policy}) : ses propres réglages décident de ce qu’il demande"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le impostazioni di OpenCode decidono cosa chiede, quindi «{policy}» non ha effetto"
+            "value": "OpenCode non può rispettare il criterio di autorizzazione di questa chat ({policy}): sono le sue impostazioni a decidere cosa chiede"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode は自身の設定で確認内容を決めるため、「{policy}」は適用されません"
+            "value": "OpenCode はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかはそれ自身の設定で決まります"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការកំណត់ផ្ទាល់របស់ OpenCode សម្រេចថាវាសួរអ្វី ដូច្នេះ “{policy}” គ្មានប្រសិទ្ធភាព"
+            "value": "OpenCode មិនអាចរក្សាគោលការណ៍សិទ្ធិរបស់ការជជែកនេះ ({policy}) បានទេ៖ ការកំណត់ផ្ទាល់ខ្លួនរបស់វាសម្រេចថាវាសួរអ្វី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode는 자체 설정에 따라 묻기 때문에 “{policy}”는 적용되지 않습니다"
+            "value": "OpenCode은(는) 이 채팅의 권한 정책({policy})을 지킬 수 없음: 무엇을 물을지는 자체 설정이 정함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCodes egne innstillinger avgjør hva den spør om, så «{policy}» har ingen virkning"
+            "value": "OpenCode kan ikke overholde tillatelsespolicyen for denne chatten ({policy}): dens egne innstillinger avgjør hva den spør om"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode pyta według własnych ustawień, więc „{policy}” nie działa"
+            "value": "OpenCode nie może przestrzegać zasad uprawnień tego czatu ({policy}): o tym, o co pyta, decydują jego własne ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As configurações do próprio OpenCode decidem o que ele pergunta, então “{policy}” não tem efeito"
+            "value": "OpenCode não consegue manter a política de permissões deste chat ({policy}): as próprias configurações dele decidem o que ele pergunta"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode решает, о чём спрашивать, по своим настройкам, поэтому «{policy}» не действует"
+            "value": "OpenCode не может соблюдать политику разрешений этого чата ({policy}): что спрашивать, решают его собственные настройки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การตั้งค่าของ OpenCode เองเป็นตัวกำหนดว่าจะถามอะไร ดังนั้น “{policy}” จึงไม่มีผล"
+            "value": "OpenCode ไม่สามารถทำตามนโยบายสิทธิ์ของแชทนี้ ({policy}) ได้: การตั้งค่าของตัวเองเป็นตัวกำหนดว่าจะถามอะไร"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode neyi soracağına kendi ayarlarıyla karar verir, bu yüzden “{policy}” etkisizdir"
+            "value": "OpenCode bu sohbetin izin politikasını ({policy}) uygulayamıyor: neyi soracağına kendi ayarları karar veriyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode вирішує, про що питати, за власними налаштуваннями, тому «{policy}» не діє"
+            "value": "OpenCode не може дотримуватися політики дозволів цього чату ({policy}): що питати, вирішують його власні налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài đặt riêng của OpenCode quyết định nó hỏi gì, nên “{policy}” không có tác dụng"
+            "value": "OpenCode không thể giữ chính sách quyền của cuộc trò chuyện này ({policy}): cài đặt riêng của nó quyết định nó hỏi gì"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode 按自身设置决定询问什么，因此“{policy}”不起作用"
+            "value": "OpenCode 无法遵守此聊天的权限策略（{policy}）：它问什么由它自己的设置决定"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "OpenCode 依自身設定決定詢問什麼，因此「{policy}」不起作用"
+            "value": "OpenCode 無法遵守此聊天的權限原則（{policy}）：它問什麼由它自己的設定決定"
           }
         }
       }
@@ -298294,127 +298294,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هذا الوكيل لا يسأل أبدًا قبل أي تغيير، لذا لا أثر لـ «{policy}»"
+            "value": "لا يملك وكيل هذه الدردشة وضعًا يسأل قبل كل تغيير، لذا لا يمكنه الالتزام بسياسة الأذونات ({policy})"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj agent nikad ne pita prije promjene, pa „{policy}” nema učinka"
+            "value": "Agent ovog chata nema način rada koji pita prije svake promjene, pa ne može poštovati pravila dozvola ({policy})"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne agent spørger aldrig før en ændring, så “{policy}” har ingen virkning"
+            "value": "Denne chats agent har ingen tilstand, der spørger før hver ændring, så den kan ikke overholde tilladelsespolitikken ({policy})"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Agent fragt nie vor einer Änderung, daher hat „{policy}“ keine Wirkung"
+            "value": "Der Agent dieses Chats hat keinen Modus, der vor jeder Änderung fragt, und kann die Berechtigungsrichtlinie ({policy}) daher nicht einhalten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This agent never asks before a change, so “{policy}” has no effect"
+            "value": "This chat's agent has no mode that asks before each change, so it can't keep the permission policy ({policy})"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este agente nunca pregunta antes de un cambio, así que «{policy}» no tiene efecto"
+            "value": "El agente de este chat no tiene un modo que pregunte antes de cada cambio, así que no puede mantener la política de permisos ({policy})"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cet agent ne demande jamais avant une modification, donc « {policy} » n’a aucun effet"
+            "value": "L’agent de ce chat n’a aucun mode qui demande avant chaque modification : il ne peut donc pas respecter la politique d’autorisations ({policy})"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo agente non chiede mai prima di una modifica, quindi «{policy}» non ha effetto"
+            "value": "L’agente di questa chat non ha una modalità che chieda prima di ogni modifica, quindi non può rispettare il criterio di autorizzazione ({policy})"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このエージェントは変更前に確認しないため、「{policy}」は適用されません"
+            "value": "このチャットのエージェントには変更のたびに確認するモードがないため、権限ポリシー（{policy}）を守れません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារនេះមិនដែលសួរមុនពេលផ្លាស់ប្តូរទេ ដូច្នេះ “{policy}” គ្មានប្រសិទ្ធភាព"
+            "value": "ភ្នាក់ងាររបស់ការជជែកនេះគ្មានរបៀបដែលសួរមុនរាល់ការផ្លាស់ប្ដូរទេ ដូច្នេះវាមិនអាចរក្សាគោលការណ៍សិទ្ធិ ({policy}) បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 에이전트는 변경 전에 묻지 않으므로 “{policy}”는 적용되지 않습니다"
+            "value": "이 채팅의 에이전트에는 변경할 때마다 묻는 모드가 없어 권한 정책({policy})을 지킬 수 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne agenten spør aldri før en endring, så «{policy}» har ingen virkning"
+            "value": "Agenten i denne chatten har ingen modus som spør før hver endring, så den kan ikke overholde tillatelsespolicyen ({policy})"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten agent nigdy nie pyta przed zmianą, więc „{policy}” nie działa"
+            "value": "Agent tego czatu nie ma trybu, który pyta przed każdą zmianą, więc nie może przestrzegać zasad uprawnień ({policy})"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este agente nunca pergunta antes de uma alteração, então “{policy}” não tem efeito"
+            "value": "O agente deste chat não tem um modo que pergunte antes de cada alteração, então não consegue manter a política de permissões ({policy})"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот агент никогда не спрашивает перед изменением, поэтому «{policy}» не действует"
+            "value": "У агента этого чата нет режима, который спрашивает перед каждым изменением, поэтому он не может соблюдать политику разрешений ({policy})"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์นี้ไม่เคยถามก่อนเปลี่ยนแปลง ดังนั้น “{policy}” จึงไม่มีผล"
+            "value": "เอเจนต์ของแชทนี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงแต่ละครั้ง จึงทำตามนโยบายสิทธิ์ ({policy}) ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu ajan bir değişiklikten önce asla sormaz, bu yüzden “{policy}” etkisizdir"
+            "value": "Bu sohbetin ajanının her değişiklikten önce soran bir modu yok, bu yüzden izin politikasını ({policy}) uygulayamıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей агент ніколи не питає перед зміною, тому «{policy}» не діє"
+            "value": "Агент цього чату не має режиму, який питає перед кожною зміною, тому не може дотримуватися політики дозволів ({policy})"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tác tử này không bao giờ hỏi trước khi thay đổi, nên “{policy}” không có tác dụng"
+            "value": "Tác nhân của cuộc trò chuyện này không có chế độ hỏi trước mỗi thay đổi, nên không thể giữ chính sách quyền ({policy})"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此代理在更改前从不询问，因此“{policy}”不起作用"
+            "value": "此聊天的代理没有在每次更改前询问的模式，因此无法遵守权限策略（{policy}）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此代理程式在變更前從不詢問，因此「{policy}」不起作用"
+            "value": "此聊天的代理沒有在每次變更前詢問的模式，因此無法遵守權限原則（{policy}）"
           }
         }
       }
@@ -304114,127 +304114,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "رفض الوكيل هذا الوضع"
+            "value": "غير مسموح به على هذا الـMac: رفض الوكيل أو إعدادات مؤسستك هذا الوضع"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent je odbio ovaj način rada"
+            "value": "Nije dozvoljeno na ovom Macu: agent ili postavke vaše organizacije odbili su ovaj način"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenten afviste denne tilstand"
+            "value": "Ikke tilladt på denne Mac: agenten eller din organisations indstillinger afviste denne tilstand"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Agent hat diesen Modus abgelehnt"
+            "value": "Auf diesem Mac nicht erlaubt: Der Agent oder die Einstellungen deiner Organisation haben diesen Modus abgelehnt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent refused this mode"
+            "value": "Not allowed on this Mac: the agent or your organization’s settings refused this mode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El agente rechazó este modo"
+            "value": "No permitido en este Mac: el agente o la configuración de tu organización rechazó este modo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’agent a refusé ce mode"
+            "value": "Non autorisé sur ce Mac : l’agent ou les réglages de votre organisation ont refusé ce mode"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’agente ha rifiutato questa modalità"
+            "value": "Non consentito su questo Mac: l’agente o le impostazioni della tua organizzazione hanno rifiutato questa modalità"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントがこのモードを拒否しました"
+            "value": "このMacでは使用できません：エージェントまたは組織の設定がこのモードを拒否しました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារបានបដិសេធរបៀបនេះ"
+            "value": "មិនត្រូវបានអនុញ្ញាតនៅលើ Mac នេះទេ៖ ភ្នាក់ងារ ឬការកំណត់របស់ស្ថាប័នអ្នកបានបដិសេធរបៀបនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 이 모드를 거부했습니다"
+            "value": "이 Mac에서 허용되지 않음: 에이전트 또는 조직 설정이 이 모드를 거부했습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenten avslo denne modusen"
+            "value": "Ikke tillatt på denne Macen: agenten eller organisasjonens innstillinger avviste denne modusen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent odrzucił ten tryb"
+            "value": "Niedozwolone na tym Macu: agent lub ustawienia Twojej organizacji odrzuciły ten tryb"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O agente recusou este modo"
+            "value": "Não permitido neste Mac: o agente ou as configurações da sua organização recusaram este modo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Агент отклонил этот режим"
+            "value": "Не разрешено на этом Mac: агент или настройки вашей организации отклонили этот режим"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์ปฏิเสธโหมดนี้"
+            "value": "ไม่อนุญาตบน Mac เครื่องนี้: เอเจนต์หรือการตั้งค่าขององค์กรของคุณปฏิเสธโหมดนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan bu modu reddetti"
+            "value": "Bu Mac'te izin verilmiyor: ajan veya kuruluşunuzun ayarları bu modu reddetti"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Агент відхилив цей режим"
+            "value": "Не дозволено на цьому Mac: агент або налаштування вашої організації відхилили цей режим"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tác tử đã từ chối chế độ này"
+            "value": "Không được phép trên máy Mac này: tác tử hoặc cài đặt của tổ chức bạn đã từ chối chế độ này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理拒绝了此模式"
+            "value": "此 Mac 不允许：智能体或你所在组织的设置拒绝了此模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理程式拒絕了此模式"
+            "value": "此 Mac 不允許：代理或你所屬組織的設定拒絕了此模式"
           }
         }
       }
