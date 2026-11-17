@@ -153,7 +153,9 @@ struct DeviceHubStartupRecoveryTests {
             makeAppHub: { _, _, _, _, _ in
                 await withCheckedContinuation { load = $0; reportStart.yield() }
             })
-        defer { service.willSignOut(); reportStart.finish() }
+        let (installed, reportInstall) = AsyncStream<Void>.makeStream()
+        service.hubChanged = { made, _, _ in if made != nil { reportInstall.yield() } }
+        defer { service.willSignOut(); reportStart.finish(); reportInstall.finish() }
         service.start(settings: settings())
         var starts = started.makeAsyncIterator()
         _ = await starts.next()
@@ -163,8 +165,11 @@ struct DeviceHubStartupRecoveryTests {
         #expect(service.settingsModel.state.status.text == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
         let hub = makeHub()
         try #require(load).resume(returning: hub)
-        for await installed in ObservationStream({ pages.hub != nil }) where installed { break }
+        // `pages.hub` is a plain property (not observed): wait for the service's own install callback.
+        var installs = installed.makeAsyncIterator()
+        _ = await installs.next()
         #expect(pages.hub === hub)
+        #expect(!pages.hubConnecting)
     }
 
     @Observable @MainActor final class AccountState {
