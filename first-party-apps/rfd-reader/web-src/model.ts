@@ -122,10 +122,36 @@ export interface Block {
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
 
-/** A renderer that never passes raw HTML through: the page shows what the file says. */
+/**
+ * Whether a link in a file may be followed: http(s), mailto, an in-page anchor or a relative path.
+ * Anything else (`javascript:`, `data:`, `file:`, `vbscript:` ...) is shown as text and never opened.
+ */
+export function isSafeHref(href: string): boolean {
+  // Browsers drop control characters and whitespace before reading a scheme ("java\tscript:").
+  const h = href.replace(/[\u0000- \u007f]/g, "")
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(h)
+  return scheme ? ["http", "https", "mailto"].includes(scheme[1]!.toLowerCase()) : true
+}
+
+/** A link's absolute URL, resolved against `base`, if it is one the reader may open in a browser tab. */
+export function openableUrl(href: string, base: string): string | null {
+  if (!isSafeHref(href)) return null
+  try {
+    const url = new URL(href, base)
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+/** A renderer that never passes raw HTML or an active link through: the page shows what the file says. */
 function safeRenderer(): Renderer {
   const r = new Renderer()
   r.html = ({ text }: Tokens.HTML | Tokens.Tag) => escapeHtml(text)
+  const link = r.link.bind(r)
+  r.link = (t: Tokens.Link) => (isSafeHref(t.href) ? link(t) : r.parser.parseInline(t.tokens))
+  const image = r.image.bind(r)
+  r.image = (t: Tokens.Image) => (isSafeHref(t.href) ? image(t) : escapeHtml(t.text))
   return r
 }
 
@@ -235,7 +261,8 @@ export interface Hit {
 
 const plain = (md: string) =>
   md
-    .replace(/```[\s\S]*?```/g, " ")
+    // Fences go, their code stays: a command or name in an example is searchable too.
+    .replace(/^```.*$/gm, " ")
     .replace(/`([^`]*)`/g, "$1")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[#>*_|~-]+/g, " ")

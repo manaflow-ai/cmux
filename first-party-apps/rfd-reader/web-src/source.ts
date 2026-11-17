@@ -45,6 +45,17 @@ function decodeBase64(b64: string): string {
   return new TextDecoder().decode(bytes)
 }
 
+/** Pages of a GitHub list read until a short page; at most `max` pages (100 items each). */
+async function pages<T>(host: Host, path: string, max = 10): Promise<T[]> {
+  const out: T[] = []
+  for (let page = 1; page <= max; page++) {
+    const items = await host.get<T[]>(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`)
+    out.push(...items)
+    if (items.length < 100) break
+  }
+  return out
+}
+
 const isNotFound = (e: unknown) => /not.?found|404/i.test(String((e as { code?: string })?.code ?? "") + String(e))
 
 export class Source {
@@ -98,10 +109,11 @@ export class Source {
       })
     const onBase = files.filter((f) => f.type === "file" && parseRfdName(f.name))
 
-    const pulls = await this.host.get<Pull[]>(this.repoPath("pulls?state=open&per_page=100"))
+    const pulls = await pages<Pull>(this.host, this.repoPath("pulls?state=open"))
     const rfdPulls = pulls.filter((p) => /\bRFD\b/i.test(p.title) || (p.body ?? "").includes(`${dir}/`))
     const pullFiles = await each(rfdPulls, 4, async (p) => {
-      const changed = await this.host.get<PullFile[]>(this.repoPath(`pulls/${p.number}/files?per_page=100`)).catch(() => [] as PullFile[])
+      // A failed read fails the refresh, which keeps the last list, rather than saving one without this PR.
+      const changed = await pages<PullFile>(this.host, this.repoPath(`pulls/${p.number}/files`), 30)
       return changed
         .filter((f) => f.status !== "removed" && f.filename.startsWith(`${dir}/`) && parseRfdName(f.filename.slice(dir.length + 1)))
         .map((f) => ({ path: f.filename, sha: f.sha, pr: { number: p.number, url: p.html_url, head: p.head.ref, updatedAt: p.updated_at } }))
@@ -149,7 +161,7 @@ export class Source {
   async comments(r: RfdMeta): Promise<{ pr: number | null; comments: ReviewComment[] }> {
     const pr = this.prOf(r)
     if (pr === null) return { pr, comments: [] }
-    const comments = await this.host.get<ReviewComment[]>(this.repoPath(`pulls/${pr}/comments?per_page=100`))
+    const comments = await pages<ReviewComment>(this.host, this.repoPath(`pulls/${pr}/comments`))
     return { pr, comments }
   }
 

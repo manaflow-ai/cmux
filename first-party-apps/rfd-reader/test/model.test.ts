@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { blockForLine, byUpdated, jump, linkKind, newFileUrl, newRfdText, nextNumber, templateBody, toc, TEMPLATE_BODY, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd } from "../web-src/model"
+import { blockForLine, byUpdated, isSafeHref, jump, linkKind, newFileUrl, openableUrl, newRfdText, nextNumber, templateBody, toc, TEMPLATE_BODY, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd } from "../web-src/model"
 import { Source, type Host } from "../web-src/source"
 import { COMMENTS, FILES, PR_FILE, TEMPLATE, answer } from "../preview/fixtures"
 
@@ -183,5 +183,66 @@ describe("the header and contents (RFD 26's shape)", () => {
     const r = toRfd("docs/rfd/0005-t.md", "x", text)!
     expect(r.access).toBe("internal")
     expect(toc(renderBlocks(r)).filter((c) => c.depth === 2).length).toBe(5)
+  })
+})
+
+describe("review fixes", () => {
+  test("links and images with active schemes render as text and never open", () => {
+    const body = "[a](javascript:alert(1)) [b](JaVa\tScRiPt:alert(1)) [c](data:text/html,x) ![d](javascript:x) [ok](https://example.com/x) [rel](0003-x.md) [frag](#goals)\n"
+    const html = renderBlocks({ body, bodyLineOffset: 0 }).map((b) => b.html).join("")
+    expect(html.toLowerCase()).not.toContain("javascript")
+    expect(html).not.toContain("data:text")
+    expect(html).toContain('href="https://example.com/x"')
+    expect(html).toContain('href="0003-x.md"')
+    expect(html).toContain('href="#goals"')
+    expect(isSafeHref("mailto:a@b.c")).toBe(true)
+    expect(isSafeHref(" javascript:x")).toBe(false)
+    expect(openableUrl("javascript:alert(1)", "https://github.com/")).toBeNull()
+    expect(openableUrl("data:text/html,x", "https://github.com/")).toBeNull()
+    expect(openableUrl("mailto:a@b.c", "https://github.com/")).toBeNull()
+    expect(openableUrl("../x.md", "https://github.com/o/r/blob/main/docs/rfd/")).toBe("https://github.com/o/r/blob/main/docs/x.md")
+  })
+
+  test("search finds text that is only in a code block", () => {
+    const r = toRfd("docs/rfd/0009-c.md", "c", "---\nstate: ideation\n---\n\n# RFD 0009: Code\n\nProse.\n\n```sh\ncmux frobnicate --now\n```\n")!
+    expect(search([r], "frobnicate").map((h) => h.number)).toEqual([9])
+  })
+
+  const pagedHost = (pullFiles: (page: number) => unknown) => {
+    const reads: string[] = []
+    const store = new Map<string, unknown>()
+    const h: Host = {
+      async get<T>(path: string) {
+        reads.push(path)
+        const page = Number(/[?&]page=(\d+)/.exec(path)?.[1] ?? 1)
+        if (path.includes("/pulls?")) return (page === 1 ? Array.from({ length: 100 }, (_, i) => ({ number: 90000 + i, title: "x", body: "", html_url: "", updated_at: "", head: { ref: "", sha: "" } })) : [{ number: 12392, title: "RFD 0002", body: "", html_url: "u", updated_at: "2026-11-17T08:12:00Z", head: { ref: "h", sha: "s" } }]) as T
+        if (path.includes("/pulls/12392/files")) return pullFiles(page) as T
+        return structuredClone(answer(path)) as T
+      },
+      async load<T>(k: string) {
+        return (store.get(k) as T) ?? null
+      },
+      async save(k, v) {
+        store.set(k, v)
+      },
+    }
+    return { h, reads, store }
+  }
+  const config = { repo: "manaflow-ai/cmuxterm-hq", dir: "docs/rfd", branch: "main" }
+
+  test("list reads follow pages: a pull request past the first hundred is found", async () => {
+    const { h, reads } = pagedHost(() => [{ filename: PR_FILE.path, sha: PR_FILE.sha, status: "added" }])
+    const { rfds } = await new Source(h, config).index()
+    expect(reads.filter((p) => p.includes("/pulls?")).length).toBe(2)
+    expect(rfds.find((r) => r.number === 2)!.pr?.number).toBe(12392)
+  })
+
+  test("a failed pull request read fails the refresh and keeps the last list", async () => {
+    const { h, store } = pagedHost(() => {
+      throw new Error("rate limited")
+    })
+    store.set(`${config.repo}:${config.dir}:index`, [{ number: 7 }])
+    await expect(new Source(h, config).index()).rejects.toThrow("rate limited")
+    expect(store.get(`${config.repo}:${config.dir}:index`)).toEqual([{ number: 7 }])
   })
 })

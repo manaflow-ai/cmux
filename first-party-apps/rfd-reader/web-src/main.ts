@@ -17,6 +17,7 @@ import {
   pad,
   relTime,
   renderBlocks,
+  openableUrl,
   rfdOfHref,
   search,
   threads,
@@ -38,7 +39,7 @@ type Variant = (typeof VARIANTS)[number]["id"]
 
 const previewHost = (globalThis as { __RFD_PREVIEW_HOST__?: Host & { open(url: string): void } }).__RFD_PREVIEW_HOST__
 
-const host: Host & { open(url: string): Promise<void> } = previewHost
+const rawHost: Host & { open(url: string): Promise<void> } = previewHost
   ? { ...previewHost, open: async (url) => previewHost.open(url) }
   : {
       get: <T>(path: string) => call<T>("integration.request", { provider: "github", method: "GET", path }),
@@ -46,6 +47,15 @@ const host: Host & { open(url: string): Promise<void> } = previewHost
       save: async (key, value) => void (await call("app.storage.set", { key, value })),
       open: async (url) => void (await call("tab.create_browser", { url })),
     }
+
+// Every browser tab the reader opens goes through here: only http(s) URLs, whatever a file says.
+const host: typeof rawHost = {
+  ...rawHost,
+  open: async (url) => {
+    const safe = openableUrl(url, "https://github.com/")
+    if (safe) await rawHost.open(safe)
+  },
+}
 
 const source = new Source(host, DEFAULT_CONFIG)
 
@@ -242,7 +252,9 @@ function decorateLinks(root: HTMLElement) {
     } else if (href.startsWith("#")) {
       // in-page anchor
     } else {
-      a.onclick = (e) => (e.preventDefault(), void host.open(new URL(href, `https://github.com/${source.config.repo}/blob/${source.config.branch}/${source.config.dir}/`).href))
+      const url = openableUrl(href, `https://github.com/${source.config.repo}/blob/${source.config.branch}/${source.config.dir}/`)
+      if (url) a.onclick = (e) => (e.preventDefault(), void host.open(url))
+      else a.removeAttribute("href")
     }
   }
   // `RFD 12` in plain text becomes a reference too.
@@ -397,19 +409,30 @@ function listKeys(input: HTMLInputElement, list: HTMLOListElement, onPick: (n: n
 }
 
 const loaded = new Map<number, Rfd>()
-async function allBodies(): Promise<Rfd[]> {
-  await Promise.all(
+let bodiesInFlight: Promise<Rfd[]> | null = null
+
+/** Every RFD's text; keystrokes during a read share it instead of reading the blobs again. */
+function allBodies(): Promise<Rfd[]> {
+  bodiesInFlight ??= Promise.all(
     rfds.map(async (r) => {
       if (!loaded.has(r.number) || loaded.get(r.number)!.sha !== r.sha) loaded.set(r.number, await source.rfd(r))
     }),
   )
-  return [...loaded.values()]
+    .then(() => [...loaded.values()])
+    .finally(() => (bodiesInFlight = null))
+  return bodiesInFlight
 }
 
+let searchRun = 0
+
 async function runSearch() {
+  const run = ++searchRun
   const q = $<HTMLInputElement>("search-input").value
   const list = $<HTMLOListElement>("search-results")
-  const hits = search(await allBodies(), q)
+  const bodies = await allBodies()
+  // A newer keystroke started its own run while this one read bodies: let that one answer.
+  if (run !== searchRun) return
+  const hits = search(bodies, q)
   list.replaceChildren(
     ...hits.map((h, i) => {
       const r = rfds.find((x) => x.number === h.number)!
