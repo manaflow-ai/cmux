@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxScreenKit
 import Darwin
 import Foundation
@@ -32,7 +33,7 @@ nonisolated struct MacScreenRemoteCapture: Sendable {
         guard channel.write(request) else { throw CmuxRemoteError.refused("cmux Remote closed the screen channel") }
         let (states, state) = AsyncStream.makeStream(of: RelayState.self, bufferingPolicy: .bufferingOldest(8))
         // task-owner: the channel's reader; it ends with the channel (the session's end or Stop).
-        Task.detached {
+        Task.detached(priority: WorkPriority.userVisible.taskPriority) {
             var answered = false
             for await line in channel.lines {
                 guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
@@ -61,7 +62,7 @@ nonisolated struct MacScreenRemoteCapture: Sendable {
             switch next {
             case .opened:
                 // task-owner: the app's signals to the worker; ends with the signaling or this serve.
-                upstream = Task.detached {
+                upstream = Task.detached(priority: WorkPriority.userVisible.taskPriority) {
                     do {
                         for try await signal in signaling.messages() { _ = channel.write(AttachedScreenHost.line(signal)) }
                     } catch {}
