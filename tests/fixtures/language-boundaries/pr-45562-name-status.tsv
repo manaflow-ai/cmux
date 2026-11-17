@@ -1,0 +1,9 @@
+M	webviews/src/agent-session/acpmux/App.tsx
+M	webviews/src/agent-session/acpmux/Localizable.xcstrings
+D	webviews/src/agent-session/acpmux/PlanScopeDriftNotice.gallery.tsx
+D	webviews/src/agent-session/acpmux/PlanScopeDriftNotice.tsx
+M	webviews/src/agent-session/acpmux/direct.ts
+M	webviews/src/agent-session/acpmux/pageHost.ts
+D	webviews/src/agent-session/acpmux/planScopeDriftStore.test.ts
+D	webviews/src/agent-session/acpmux/planScopeDriftStore.ts
+M	webviews/test/gallery-coverage.allowlist.json

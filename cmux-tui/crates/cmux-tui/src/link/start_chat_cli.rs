@@ -324,6 +324,19 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
+    /// The size a new machine needs for the chat's folder (`preflight`'s `needed_size`: `md`, `lg`, `xl`); none or
+    /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
+    #[serde(default)]
+    size: Option<String>,
+    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal
+    /// and a disk grown past the size's own (`disk_gib`).
+    #[serde(default)]
+    bytes: Option<u64>,
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`): with it a
+    /// size grows its disk (`disk_gib`, at most the plan's largest disk); none or a size off the ladder: not known, and
+    /// nothing grows.
+    #[serde(default)]
+    plan_max: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -355,7 +368,7 @@ fn plan_with_calls(
     ensure: EnsureCall<'_>,
     reservation: reservations::Transport<'_>,
 ) -> Value {
-    let request: PlanRequest = match serde_json::from_str(request) {
+    let mut request: PlanRequest = match serde_json::from_str(request) {
         Ok(request) => request,
         Err(error) => return refused("bad_request", error),
     };
@@ -364,6 +377,20 @@ fn plan_with_calls(
     }
     if !valid_account(&request.account) {
         return refused("bad_request", "the account is too long or has control characters");
+    }
+    if request
+        .size
+        .as_deref()
+        .is_some_and(|size| !matches!(size, "sm" | "md" | "lg" | "xl" | "2xl"))
+    {
+        return refused(
+            "bad_request",
+            "the size is not a Cloud machine size (sm, md, lg, xl, 2xl)",
+        );
+    }
+    // A machine larger than the chat size is never a warm spare (every spare is `sm`): no reservation goes for it.
+    if larger_than_chat(request.size.as_deref()) {
+        request.reservation_key = None;
     }
     let workspace = request.workspace.as_deref();
     if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
@@ -431,6 +458,20 @@ fn plan_with_calls(
                 Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
+            // A pinned machine whose disk the App's list names smaller than the size asked: nothing goes there.
+            let listed = request.machines.iter().find(|machine| machine.id == id);
+            let machine = preflight::Machine {
+                id: &id,
+                title: listed.map_or(id.as_str(), |machine| machine.title.as_str()),
+                disk_bytes: listed
+                    .and_then(|machine| u64::try_from(machine.disk_mb?).ok())
+                    .map(|mb| mb.saturating_mul(1024 * 1024)),
+            };
+            if let Some(refusal) =
+                preflight::too_small(request.size.as_deref(), request.bytes, &machine)
+            {
+                return refusal;
+            }
             json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
@@ -453,6 +494,13 @@ fn plan_with_calls(
                     .reservation_key
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
+                size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
+                // Sent only with a size above the chat size (`body`).
+                disk_gib: preflight::grown_disk_gib(
+                    request.size.as_deref(),
+                    request.bytes,
+                    request.plan_max.as_deref(),
+                ),
             };
             let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
@@ -461,6 +509,11 @@ fn plan_with_calls(
             };
             match answer {
                 Ok(body) => {
+                    let disk = preflight::ensured_disk_bytes(&body);
+                    let body_title = ["/machine/name", "/machine/title", "/machine/slug"]
+                        .iter()
+                        .find_map(|pointer| body.pointer(pointer).and_then(Value::as_str))
+                        .map(str::to_owned);
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
@@ -471,6 +524,34 @@ fn plan_with_calls(
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
+                    }
+                    // The platform answers the workspace's machine at whatever size it is: one smaller than the size
+                    // asked takes no clone or copy (pinned above, so a retry reaches the same machine, never another).
+                    // The platform's answer names no machine: its name is the App's list's, else the id.
+                    let listed = request.machines.iter().find(|machine| machine.id == id);
+                    let machine = preflight::Machine {
+                        id,
+                        title: body_title
+                            .as_deref()
+                            .or(listed.map(|machine| machine.title.as_str()))
+                            .unwrap_or(id),
+                        disk_bytes: disk,
+                    };
+                    // The plan's largest size asked grown for a folder no size within the plan holds, made at a
+                    // disk below its floor (a platform that ignores `disk_gib`): the plan's size refusal, with its
+                    // upgrade, as a start past the plan's sizes gets from the platform.
+                    if let Some(refusal) = preflight::outgrown_plan(
+                        ask.size.as_deref(),
+                        request.bytes,
+                        request.plan_max.as_deref(),
+                        &machine,
+                    ) {
+                        return refusal;
+                    }
+                    if let Some(refusal) =
+                        preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
+                    {
+                        return refusal;
                     }
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
@@ -551,6 +632,11 @@ fn reservation_destination(
         return refused("ledger_failed", format!("{error:#}"));
     }
     json!({"ok": true, "machine": machine})
+}
+
+/// Whether `size` asks for more than the platform's chat size (`sm`, also what no size means).
+fn larger_than_chat(size: Option<&str>) -> bool {
+    size.is_some_and(|size| size != "sm")
 }
 
 /// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
@@ -705,7 +791,18 @@ pub(super) struct Ensure {
     platform: Option<String>,
     reservation_key: Option<String>,
     reservation_send_key: Option<String>,
+    /// The ladder size the chat's folder needs, sent only above the chat size ([`ENSURE_SIZE_FIELD`]).
+    size: Option<String>,
+    /// The disk in GiB the folder needs past that size's own ([`preflight::grown_disk_gib`], [`ENSURE_DISK_FIELD`]).
+    disk_gib: Option<u64>,
 }
+
+/// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
+pub(super) const ENSURE_SIZE_FIELD: &str = "size";
+/// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve, and is otherwise
+/// the plan's size refusal, [`preflight::outgrown_plan`]).
+pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {
     fn of(flags: &Flags) -> Option<Self> {
@@ -745,6 +842,8 @@ impl Ensure {
             platform: optional("--platform")?,
             reservation_key: None,
             reservation_send_key: None,
+            size: None,
+            disk_gib: None,
         })
     }
 
@@ -766,6 +865,12 @@ impl Ensure {
         }
         if let Some(environment) = &self.environment {
             body.set("environment", json!(environment));
+        }
+        if let Some(size) = &self.size {
+            body.set(ENSURE_SIZE_FIELD, json!(size));
+            if let Some(disk_gib) = self.disk_gib {
+                body.set(ENSURE_DISK_FIELD, json!(disk_gib));
+            }
         }
         body
     }
@@ -945,6 +1050,21 @@ pub(super) fn with_handling(
     use cmux_cloud_machine::refusals::{self, Handling};
     let facts = facts.unwrap_or_default();
     let Value::Object(object) = line else { return };
+    // A size the plan does not give: the size asked, the largest the plan gives and the plan that lifts it, for the
+    // App's start card (`cloud_size_locked`).
+    if code == "cloud.size.locked" {
+        // Only what the platform said: an absent `upgrade_plan` is not `nothing`.
+        let sizes = [
+            ("needed", facts.needed.map(|size| json!(size))),
+            ("allowed", facts.allowed.map(|size| json!(size))),
+            ("upgrade_plan", facts.upgrade_plan.map(|plan| json!(plan))),
+        ];
+        let sizes: serde_json::Map<String, Value> = sizes
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value)))
+            .collect();
+        object.insert("size_locked".into(), Value::Object(sizes));
+    }
     if refusals::platform(code).is_none() && facts.retryable.is_none() {
         return;
     }
