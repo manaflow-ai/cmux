@@ -3,7 +3,7 @@
 // above the ended turn's reply, which answered something else (Leo, 2026-11-12, on a "No change."
 // to a background notice drawn under his "hm? what happened here").
 // l10n-allow-file: synthetic prompts and replies used by a behavioral regression.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
 
@@ -458,8 +458,8 @@ test("a call still running at a steer stays below the steer once the turn ends, 
     });
     await live.until(() => live.rows().some((row) => row.kind === "activity"));
     await live.steer("and the flicker?", "p-steer");
-    // The call ends after the steer went, a clock tick later.
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The call ends after the steer went: the clock moves on a second (no fixed wait).
+    setSystemTime(new Date(Date.now() + 1000));
     live.emit({ mux: "steer_read", msg: { promptId: "p-steer", turnId: "t-1" } });
     live.emit({ update: { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed" } });
     live.say("On the flicker.");
@@ -472,6 +472,7 @@ test("a call still running at a steer stays below the steer once the turn ends, 
     expect(order.indexOf(steered.id)).toBeGreaterThan(-1);
     expect(order.indexOf(steered.id)).toBeLessThan(call);
   } finally {
+    setSystemTime();
     live.client.close?.();
   }
 });
