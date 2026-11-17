@@ -53,6 +53,7 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 mod kinds;
 mod rows;
@@ -101,7 +102,9 @@ pub struct LayoutState {
     pub panes: BTreeMap<PaneId, Vec<TabId>>,
     /// Every tab and its content.
     pub tabs: BTreeMap<TabId, TabContent>,
-    index: LayoutIndex,
+    /// Shared by copies until one writes it: a copy that a rejected op
+    /// leaves alone never copies the index.
+    index: Arc<LayoutIndex>,
 }
 
 /// Where tabs and panes are: the pane of each tab and the workspace of each
@@ -830,7 +833,7 @@ impl LayoutState {
         panes: BTreeMap<PaneId, Vec<TabId>>,
         tabs: BTreeMap<TabId, TabContent>,
     ) -> Self {
-        let mut state = Self { workspaces, panes, tabs, index: LayoutIndex::default() };
+        let mut state = Self { workspaces, panes, tabs, index: Arc::default() };
         state.reindex();
         state
     }
@@ -847,7 +850,7 @@ impl LayoutState {
                 }
             }
         }
-        self.index = index;
+        self.index = Arc::new(index);
     }
 
     /// The pane that holds `tab`.
