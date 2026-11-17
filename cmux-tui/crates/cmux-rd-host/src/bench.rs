@@ -61,6 +61,9 @@ enum Arrived {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     Closed(String),
+    /// The link's measured round trip changed (as the app viewer reads it).
+    #[cfg_attr(not(feature = "link"), allow(dead_code))]
+    PathRtt(Option<u64>),
 }
 
 impl ViewerIo {
@@ -148,6 +151,7 @@ impl ViewerIo {
                                 "{}",
                                 json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
                             );
+                            out.push(Arrived::PathRtt(rtt_us));
                         }
                         _ => {}
                     }
@@ -455,6 +459,10 @@ impl Viewer {
                 }
                 Arrived::Closed(reason) => {
                     self.ended.get_or_insert(reason);
+                    continue;
+                }
+                Arrived::PathRtt(rtt_us) => {
+                    self.reassembler.set_path_rtt_us(rtt_us);
                     continue;
                 }
                 Arrived::Control(payload) => payload,

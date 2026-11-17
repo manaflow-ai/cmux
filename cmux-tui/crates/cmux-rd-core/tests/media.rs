@@ -259,6 +259,88 @@ fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
     assert!(!r.need_recovery());
 }
 
+/// Delivers frame `frame` at `at` without its first shard, takes the NACK
+/// after the reorder grace and returns the missing shard.
+fn lose_first_shard(p: &mut Packetizer, r: &mut Reassembler, frame: u32, at: u64) -> Vec<u8> {
+    let out = p.packetize(frame, 0, &body(frame, 5000, frame == 1), 0).expect("packetize");
+    for d in out.datagrams.iter().skip(1) {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert!(r.push(&h, payload, at).is_empty());
+    }
+    let nacks = r.take_nacks(at + 5_000);
+    assert_eq!(nacks.len(), 1);
+    assert_eq!((nacks[0].frame, nacks[0].indexes.clone()), (frame, vec![0]));
+    out.datagrams[0].clone()
+}
+
+fn repair(r: &mut Reassembler, shard: &[u8], at: u64) {
+    let (h, payload) = DatagramHeader::decode(shard).expect("decode");
+    assert_eq!(r.push(&h, payload, at).len(), 1, "the repair releases the frame");
+}
+
+/// Frames 1-3 lose a shard each and its repair comes 8 ms after the NACK.
+/// Returns when frame 4 is due.
+fn three_repairs_of_8_ms(p: &mut Packetizer, r: &mut Reassembler) -> u64 {
+    for frame in 1..=3u32 {
+        let at = u64::from(frame - 1) * 20_000;
+        let shard = lose_first_shard(p, r, frame, at);
+        repair(r, &shard, at + 13_000);
+    }
+    60_000
+}
+
+/// The tail the fixed 50 ms retry left: a shard whose first NACK (or its
+/// repair) is lost is requested again after the measured repair round trip,
+/// SRTT + 4 RTTVAR = 8 + 4 * 2.25 = 17 ms here, not after 50 ms (or a repair
+/// window floored at two frame intervals, 40 ms at these 20 ms frames).
+#[test]
+fn a_lost_nack_is_retried_after_the_measured_repair_round_trip() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200_000);
+    let at = three_repairs_of_8_ms(&mut p, &mut r);
+    let shard = lose_first_shard(&mut p, &mut r, 4, at);
+    assert_eq!(r.retry_us(), 17_000);
+    assert_eq!(r.next_nack_us(), Some(at + 5_000 + 17_000));
+    let retry = r.take_nacks(at + 22_000);
+    assert_eq!((retry[0].frame, retry[0].indexes.clone()), (4, vec![0]));
+    repair(&mut r, &shard, at + 30_000);
+    assert!(!r.need_recovery());
+}
+
+/// Karn's rule: a repair that answers a retry is not timed from the first
+/// request (that would size the next retry by the lost request's wait). The
+/// interval doubles until a repair answers a single request again, then
+/// returns to the measured round trip.
+#[test]
+fn a_repair_after_a_retry_does_not_lengthen_the_next_retry() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200_000);
+    let mut at = three_repairs_of_8_ms(&mut p, &mut r);
+    // Frame 4's first request is lost; the retry 17 ms later is answered.
+    let shard = lose_first_shard(&mut p, &mut r, 4, at);
+    assert_eq!(r.take_nacks(at + 22_000).len(), 1);
+    repair(&mut r, &shard, at + 30_000);
+    assert_eq!(r.retry_us(), 34_000, "backed off once, not timed at 25 ms");
+    // Frame 5's request is answered in 8 ms: back to the round trip.
+    at += 40_000;
+    let shard = lose_first_shard(&mut p, &mut r, 5, at);
+    repair(&mut r, &shard, at + 13_000);
+    assert_eq!(r.retry_us(), 8_000 + 4 * 1_687);
+}
+
+/// A short measured round trip still waits a few milliseconds before a retry.
+#[test]
+fn the_retry_is_floored_on_a_short_path() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200_000);
+    for frame in 1..=3u32 {
+        let at = u64::from(frame - 1) * 20_000;
+        let shard = lose_first_shard(&mut p, &mut r, frame, at);
+        repair(&mut r, &shard, at + 5_500);
+    }
+    assert_eq!(r.retry_us(), cmux_rd_core::reassembly::NACK_RETRY_MIN_US);
+}
+
 #[test]
 fn parity_scales_with_loss() {
     assert_eq!(parity_for(10, 0.0, true), 0);

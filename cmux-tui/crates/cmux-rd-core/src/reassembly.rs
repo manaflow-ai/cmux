@@ -82,6 +82,14 @@ pub struct Reassembler {
     path_rtt_us: Option<u64>,
     /// NACK-to-repair times, smoothed: the round trip a repair actually takes.
     repair_rtt: RttEstimator,
+    /// The same, from shards requested once only (Karn's rule): a repair that
+    /// answers a retry cannot say which request it answers, and timing it from
+    /// the first one would size the next retry by the lost request's wait.
+    retry_rtt: RttEstimator,
+    /// Doublings of the retry interval since the last unambiguous repair
+    /// (RFC 6298 5.5 and 5.7): a retry that keeps going out before its repair
+    /// lengthens the interval until a repair answers a single request again.
+    retry_backoff: u32,
     /// Recent gaps between the first shards of new frames (the frame interval).
     frame_gaps: VecDeque<u64>,
     /// The newest frame seen so far and when its first shard arrived.
@@ -133,6 +141,13 @@ pub const REPAIR_WINDOWS: u64 = 2;
 /// before the first repair could arrive: a duplicate shard costs less than
 /// a lost request waiting a whole window.
 pub const NACK_RETRY_MAX_US: u64 = 50_000;
+
+/// The shortest retry interval, however short the measured round trip.
+pub const NACK_RETRY_MIN_US: u64 = 5_000;
+
+/// The most doublings of the retry interval (it is capped at
+/// [`NACK_RETRY_MAX_US`] well before).
+const MAX_RETRY_BACKOFF: u32 = 4;
 
 /// The frame interval assumed until frames arrive (60 fps).
 pub const DEFAULT_FRAME_INTERVAL_US: u64 = 16_667;
@@ -217,6 +232,8 @@ impl Reassembler {
             nack_after_us,
             path_rtt_us: None,
             repair_rtt: RttEstimator::default(),
+            retry_rtt: RttEstimator::default(),
+            retry_backoff: 0,
             frame_gaps: VecDeque::new(),
             newest_started: None,
             pending: BTreeMap::new(),
@@ -258,11 +275,22 @@ impl Reassembler {
         repair_window_us(self.rtt_us(), self.frame_interval_us(), self.deadline_us)
     }
 
-    /// How long after a NACK an unanswered shard is requested again: one
-    /// repair window, at most [`NACK_RETRY_MAX_US`] (that, while no round
-    /// trip is known); never past the deadline.
+    /// How long after a NACK an unanswered shard is requested again: the
+    /// measured repair round trip (SRTT + 4 RTTVAR of repairs that answered a
+    /// single request, at least the path's round trip), doubled for each retry
+    /// since the last such repair. Before any, the path's round trip plus
+    /// [`REPAIR_MARGIN_US`]. Between [`NACK_RETRY_MIN_US`] and
+    /// [`NACK_RETRY_MAX_US`] (that, while no round trip is known); never past
+    /// the deadline.
     pub fn retry_us(&self) -> u64 {
-        self.repair_window_us().min(NACK_RETRY_MAX_US).min(self.deadline_us)
+        let base = match self.retry_rtt.estimate_us(1) {
+            Some(repair) => Some(repair.max(self.path_rtt_us.unwrap_or(0))),
+            None => self.rtt_us().map(|rtt| rtt.saturating_add(REPAIR_MARGIN_US)),
+        };
+        base.map_or(NACK_RETRY_MAX_US, |b| {
+            b.saturating_mul(1 << self.retry_backoff).clamp(NACK_RETRY_MIN_US, NACK_RETRY_MAX_US)
+        })
+        .min(self.deadline_us)
     }
 
     /// Newest frame released to the decoder (the feedback `acked_frame`).
@@ -339,9 +367,14 @@ impl Reassembler {
         {
             entry.shard_len = Some(payload.len());
             // A requested shard arriving times the repair round trip.
-            if let Some(&Some(nacked_at)) = entry.first_requested_us.get(usize::from(header.index))
-            {
-                self.repair_rtt.sample(now_us.saturating_sub(nacked_at));
+            let index = usize::from(header.index);
+            if let Some(&Some(nacked_at)) = entry.first_requested_us.get(index) {
+                let rtt = now_us.saturating_sub(nacked_at);
+                self.repair_rtt.sample(rtt);
+                if entry.requested.get(index) == Some(&1) {
+                    self.retry_rtt.sample(rtt);
+                    self.retry_backoff = 0;
+                }
             }
             entry.last_seen_us = now_us;
             entry.highest_index = entry.highest_index.max(header.index);
@@ -451,7 +484,9 @@ impl Reassembler {
     /// frames disappear from this schedule as soon as their data is complete.
     pub fn take_nacks(&mut self, now_us: u64) -> Vec<Nack> {
         let t = self.timing();
-        self.pending
+        let mut retried = false;
+        let nacks: Vec<Nack> = self
+            .pending
             .iter_mut()
             .filter(|(_, p)| {
                 !Self::decodable(p) && Self::nack_at(p, &t).is_some_and(|at| now_us >= at)
@@ -479,6 +514,7 @@ impl Reassembler {
                 for &i in &indexes {
                     let i = usize::from(i);
                     if let Some(n) = p.requested.get_mut(i) {
+                        retried |= *n > 0;
                         *n = n.saturating_add(1);
                     }
                     if let Some(at) = p.first_requested_us.get_mut(i) {
@@ -488,7 +524,11 @@ impl Reassembler {
                 p.last_nack_us = Some(now_us);
                 Some(Nack { frame, indexes })
             })
-            .collect()
+            .collect();
+        if retried {
+            self.retry_backoff = (self.retry_backoff + 1).min(MAX_RETRY_BACKOFF);
+        }
+        nacks
     }
 
     /// The earliest time at which [`Self::tick`] drops an incomplete frame,
