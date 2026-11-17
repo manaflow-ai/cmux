@@ -269,12 +269,19 @@ impl Mux {
             None,
             None,
             |state, registry| {
-                // The move takes the entry of the pane out of the list of the
-                // screen that it leaves: the frame is read before the move.
-                let (source, frame) = state
+                // The source is a screen of the workspace of `screen`: a
+                // screen that went to another workspace after the plan gets
+                // no pane of the workspace that it left.
+                let workspace = state
                     .workspaces
                     .iter()
-                    .flat_map(|workspace| &workspace.screens)
+                    .find(|workspace| workspace.screens.iter().any(|item| item.id == screen))
+                    .ok_or(FloatPaneError::ScreenNotFound { screen })?;
+                // The move takes the entry of the pane out of the list of the
+                // screen that it leaves: the frame is read before the move.
+                let (source, frame) = workspace
+                    .screens
+                    .iter()
                     .find_map(|item| {
                         let (quick, _) = item.quick_terminal()?;
                         let list = item.floating_panes();
