@@ -1,0 +1,33 @@
+/* Gallery stand-in for the widget host's tile; the shipped tile is the cmux.widget/1 host's frame. */
+.gallery-clock-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+}
+.gallery-clock-widget-row {
+  display: flex;
+  gap: 24px;
+}
+.gallery-clock-widget-tile {
+  box-sizing: border-box;
+  display: flex;
+  width: 170px;
+  height: 170px;
+  border-radius: 22px;
+  background: var(--agent-control);
+  color: var(--agent-text);
+  overflow: hidden;
+}
+.gallery-clock-widget-tile[data-size="medium"] {
+  width: 364px;
+}
+.gallery-clock-widget-tile[data-size="large"] {
+  width: 364px;
+  height: 382px;
+}
+.gallery-clock-widget-tile > * {
+  flex: 1;
+  min-width: 0;
+}
