@@ -182,7 +182,7 @@ async fn a_send_to_a_down_peers_session_is_kept_here_and_relayed_by_its_session_
 #[tokio::test]
 async fn what_the_relay_cannot_carry_or_the_hub_does_not_take_stays_queued_for_the_peer() {
     let (hub, fake) = setup(FakeHub::default());
-    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let shot = crate::attach::block("shot.png", &crate::model_copies::tests::halves(8, 8));
     let mut attached = request("huge-blue/lane", "prompt-keep-attach");
     attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
     let mut keyed = request("huge-blue/lane", "prompt-keep-supersede");
@@ -318,7 +318,7 @@ async fn the_pin_of_an_attempt_that_reached_nothing(rules: u8) -> Option<crate::
                      "updatedAt": 5, "createdAt": 5});
     hub.seed_down_peer("huge-blue", vec![row]);
     assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_none(), "no client before");
-    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let shot = crate::attach::block("shot.png", &crate::model_copies::tests::halves(8, 8));
     let mut attached = request("huge-blue/lane", "prompt-pin");
     attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
     let id = queue(&hub, attached).await;
@@ -353,7 +353,7 @@ async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     hub.outbox.open(&path);
     std::fs::create_dir_all(&path).unwrap();
     std::fs::create_dir_all(crate::hub::outbox::journal_path(&path)).unwrap();
-    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let shot = crate::attach::block("shot.png", &crate::model_copies::tests::halves(8, 8));
     let mut params = request("huge-blue/lane", "prompt-not-saved");
     params["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
     let error = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap_err();

@@ -1032,8 +1032,9 @@ pub(super) async fn handle_request(
     // A message's class is checked here, before a peer's prompt is forwarded: an older peer
     // ignores the field, and a send queued for later would fail only once it is delivered.
     // A picture's metadata (EXIF, GPS, PNG text) goes before the outbox keeps the prompt, a peer
-    // gets it or the chat's log names its images (`image_privacy.rs`).
-    crate::image_privacy::sanitize_prompt(m, &mut params).await;
+    // gets it or the chat's log names its images (`image_privacy.rs`); a picture it cannot clean,
+    // or cannot fit to the model, refuses the prompt.
+    crate::image_privacy::sanitize_prompt(m, &mut params).await?;
     match m {
         method::SESSION_PROMPT => {
             crate::prompt_class::declared(&params)?;

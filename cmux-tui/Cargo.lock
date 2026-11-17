@@ -66,6 +66,7 @@ dependencies = [
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
+ "crc32fast",
  "crossterm",
  "dhat",
  "dirs",

@@ -203,11 +203,20 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
                 .is_ok_and(|n| n <= INLINE_IMAGE_BYTES && n.div_ceil(3) * 4 <= inline_left);
         let web_proof =
             web.then(|| crate::hub::file_uploads::web::resolved_proof(session, id, name)).flatten();
-        *block = if inline {
+        // Without the person's metadata, as a picture inline from the composer
+        // (`image_privacy.rs`). One it cannot clean goes by its path instead, never inline as it is.
+        let cleaned = if inline {
             let mut bytes = head;
             file.read_to_end(&mut bytes).map_err(unreadable)?;
-            // Without the person's metadata, as a picture inline from the composer (`image_privacy.rs`).
-            let bytes = crate::image_privacy::sanitize(&bytes).unwrap_or(bytes);
+            match crate::image_privacy::sanitize(&bytes) {
+                Ok(clean) => Some(clean.unwrap_or(bytes)),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        let inline = cleaned.is_some();
+        *block = if let Some(bytes) = cleaned {
             let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
             inline_left = inline_left.saturating_sub(data.len());
             json!({"type": "image", "mimeType": mime, "name": name, "data": data})

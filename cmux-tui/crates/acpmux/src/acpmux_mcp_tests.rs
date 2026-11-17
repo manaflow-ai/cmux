@@ -401,9 +401,8 @@ async fn an_attached_image_reaches_the_receiver_as_an_image() {
     let lane = session(&client, "attach-lane").await;
     let dir = tempfile::tempdir().unwrap();
     let shot = dir.path().join("shot.png");
-    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    png.resize(4096, 7);
-    std::fs::write(&shot, &png).unwrap();
+    // A whole PNG: acpmux reads a sent picture for its metadata (`image_privacy.rs`).
+    std::fs::write(&shot, crate::model_copies::tests::halves(32, 32)).unwrap();
     let args = json!({"to": "attach-lane", "text": "the broken card", "attach": [shot]});
     let r = call(&client, &tool("send", args)).await;
     assert_eq!(r["isError"], false, "{r}");

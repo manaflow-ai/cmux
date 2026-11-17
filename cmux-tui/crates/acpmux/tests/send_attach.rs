@@ -7,6 +7,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/png_fixture.rs"]
+mod png_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -138,11 +140,10 @@ impl Client {
     }
 }
 
-/// A PNG's bytes (its signature is what the type is read from), `n` long.
+/// A whole PNG, `n` bytes long: acpmux reads a sent picture for its metadata
+/// (`image_privacy.rs`).
 fn png(n: usize) -> Vec<u8> {
-    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    bytes.resize(n.max(bytes.len()), 7);
-    bytes
+    png_fixture::png_of_len(n, 7)
 }
 
 fn b64(bytes: &[u8]) -> String {

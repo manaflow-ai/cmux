@@ -17,6 +17,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/png_fixture.rs"]
+mod png_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -157,11 +159,10 @@ fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// Bytes unique to chat `n` that read as a PNG (`prompt_images::sniffed_type`).
+/// A whole PNG unique to chat `n` (acpmux reads a sent picture for its metadata,
+/// `image_privacy.rs`).
 fn png(n: usize) -> Vec<u8> {
-    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    bytes.extend_from_slice(format!("chat {n}").as_bytes());
-    bytes
+    png_fixture::png_of_len(256 + n, n as u8)
 }
 
 /// One chat's life, by `n`: deleted at once, mid-turn, after a plain turn, or after a turn that

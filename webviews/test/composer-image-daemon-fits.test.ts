@@ -210,3 +210,25 @@ test("the composer sends own bytes only to an acpmux that lists fitsImages", asy
   expect((await connected(["promptUploads"]))?.daemonFitsImages).toBeUndefined();
   expect((await connected([]))?.daemonFitsImages).toBeUndefined();
 });
+
+/// #45031 review: a picture with no uploaded original (a paste on the new tab page, whose paste
+/// uploads nothing) has no link to fall back on when the prompt is over its budget, so the page
+/// fits it as before, within IMAGE_BUDGET_BYTES. With an upload, it goes as its own file.
+test("a picture pasted with no uploaded original is fitted on the page, not sent at full size", async () => {
+  const { intakeFiles } = await import("../src/agent-session/acpmux/composer/intakeFiles");
+  const { IMAGE_BUDGET_BYTES } = await import("../src/agent-session/acpmux/composer/imageWork");
+  const drawn = installEngine(5120, 2880);
+  const { file, bytes } = picture("Screenshot.png", "image/png", PNG, 15 * 1024 * 1024);
+  const pasted = await intakeFiles([file], { allowImages: true, daemonFitsImages: true });
+  const chip = pasted.attachments[0]!;
+  expect(chip.data).not.toBe(asBase64(bytes));
+  expect(Buffer.from(chip.data!, "base64").length).toBeLessThanOrEqual(IMAGE_BUDGET_BYTES);
+  expect(drawn.some((d) => d.scaled)).toBe(true);
+  // The composer's paste uploads the original: its own bytes go, and acpmux fits them.
+  const uploaded = await intakeFiles([file], {
+    allowImages: true,
+    daemonFitsImages: true,
+    upload: async (files) => ({ paths: files.map((f) => `/uploads/${f.name}`) }),
+  });
+  expect(uploaded.attachments[0]!.data).toBe(asBase64(bytes));
+});

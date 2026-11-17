@@ -8,6 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/jpeg_fixture.rs"]
+mod jpeg_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -159,12 +161,35 @@ async fn whole_log(c: &mut Client, session: &str) -> String {
     }
 }
 
-/// A PNG's bytes (its signature is what the type is read from), `n` long, distinct per `seed`.
+/// A PNG's bytes, distinct per `seed`. Within the inline image size, a real PNG of grey noise of
+/// up to about `n` bytes: one that goes inline is read for its metadata, and a PNG that cannot be
+/// read is never sent inline (`image_privacy.rs`). Past it, `n` bytes of which only the signature
+/// and header name are real (the type is read from them): it goes by path, and no copy of it is
+/// made.
 fn png(n: usize, seed: u8) -> Vec<u8> {
-    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    bytes.push(seed);
-    bytes.resize(n.max(bytes.len()), seed);
-    bytes
+    if n > acpmux::prompt_uploads::INLINE_IMAGE_BYTES {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        bytes.push(seed);
+        bytes.resize(n, seed);
+        return bytes;
+    }
+    let side = ((n.saturating_sub(2048) as f64).sqrt() as u32).max(1);
+    let mut state = 0x2545_f491_4f6c_dd1du64 ^ u64::from(seed);
+    let data: Vec<u8> = (0..side * side)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, side, side);
+    e.set_color(png::ColorType::Grayscale);
+    e.set_depth(png::BitDepth::Eight);
+    e.set_compression(png::Compression::Fast);
+    e.write_header().unwrap().write_image_data(&data).unwrap();
+    out
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -923,7 +948,7 @@ async fn a_pasted_photos_gps_reaches_neither_the_agent_nor_the_log() {
     let logged = whole_log(&mut c, &session).await;
     // The prompt was written to the agent and logged, its image with it.
     assert!(logged.contains(r#""kind":"session/prompt""#), "{logged:.2000}");
-    let clean = acpmux::image_privacy::sanitize(&photo).unwrap();
+    let clean = acpmux::image_privacy::sanitize(&photo).unwrap().unwrap();
     assert!(logged.contains(&b64(&clean)), "{logged:.3000}");
     for fragment in secret_in_base64() {
         assert!(!logged.contains(&fragment), "the GPS reached the log: {logged:.3000}");
@@ -1016,4 +1041,267 @@ async fn an_older_peer_gets_the_picture_fitted_and_a_newer_one_as_pasted() {
         let jpeg = bytes(2);
         assert!(!jpeg.windows(SECRET.len()).any(|w| w == SECRET), "the GPS reached the peer");
     }
+}
+
+// #45031 review follow-ups: the cleaning fails closed, a queued prompt's edit is cleaned, the
+// pictures the daemon cannot fit are refused, the fit always converges, and a link after another
+// picture still gets its copy. Each test below goes through the daemon's public API, so it runs on
+// #45031's head too, where it fails.
+
+/// A JPEG segment: marker, length, body.
+fn jpeg_segment(marker: u8, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![0xff, marker];
+    out.extend(u16::try_from(body.len() + 2).unwrap().to_be_bytes());
+    out.extend(body);
+    out
+}
+
+/// A PNG chunk with its CRC.
+fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    let mut out = u32::try_from(data.len()).unwrap().to_be_bytes().to_vec();
+    out.extend(kind);
+    out.extend(data);
+    let mut crc = !0u32;
+    for byte in out.get(4..).unwrap() {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+        }
+    }
+    out.extend((!crc).to_be_bytes());
+    out
+}
+
+/// Sends `bytes` as the one picture of a prompt to a new chat: the daemon's reply, and its log.
+async fn send_picture(name: &str, bytes: &[u8], mime: &str) -> (Value, String) {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session(name).await;
+    let p = prompt(&session, &v7(), "see", vec![inline(bytes, mime)]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    let logged = whole_log(&mut c, &session).await;
+    (reply, logged)
+}
+
+fn assert_no_secret(what: &str, logged: &str) {
+    for fragment in secret_in_base64() {
+        assert!(!logged.contains(&fragment), "{what}: the GPS reached the log: {logged:.3000}");
+    }
+}
+
+/// F1: a decoder skips bytes between a JPEG's segments that are not a marker; the cleaning read
+/// them the same way, or the EXIF went on.
+#[tokio::test]
+async fn a_jpeg_with_stray_bytes_between_segments_loses_its_gps() {
+    let photo = phone_jpeg();
+    let mut odd = photo[..2].to_vec();
+    odd.extend([0x00, 0x13, 0x37, 0xff, 0xff]);
+    odd.extend(&photo[2..]);
+    let (reply, logged) = send_picture("junk-jpeg", &odd, "image/jpeg").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(logged.contains(r#""kind":"session/prompt""#), "{logged:.2000}");
+    assert_no_secret("stray bytes", &logged);
+}
+
+/// F2: a progressive JPEG's segments between its scans are read too: a comment there goes, and a
+/// table whose bytes hold FF D9 does not end the picture.
+#[tokio::test]
+async fn a_progressive_jpegs_comment_between_scans_goes() {
+    let mut photo = vec![0xff, 0xd8];
+    photo.extend(jpeg_segment(0xdb, &[0; 65]));
+    photo.extend(jpeg_segment(0xc2, &[8, 0, 16, 0, 16, 1, 1, 0x11, 0]));
+    photo.extend(jpeg_segment(0xda, &[1, 1, 0, 0, 0, 0]));
+    photo.extend([0x12, 0xff, 0x00, 0x34]);
+    photo.extend(jpeg_segment(0xfe, SECRET));
+    photo.extend(jpeg_segment(0xc4, &[0x10, 0xff, 0xd9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    photo.extend(jpeg_segment(0xda, &[1, 1, 0, 1, 63, 0]));
+    photo.extend([0x56, 0xff, 0xd0, 0x78, 0xff, 0xd9]);
+    let (reply, logged) = send_picture("progressive", &photo, "image/jpeg").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_no_secret("between scans", &logged);
+    // The second scan's data is still there.
+    assert!(logged.contains(r#""kind":"session/prompt""#), "{logged:.2000}");
+}
+
+/// F1: a PNG that ends without IEND after its pixels (a decoder draws it) loses its text.
+#[tokio::test]
+async fn a_png_without_iend_loses_its_text() {
+    let plain = checker_png(16);
+    let mut shot = plain[..33].to_vec();
+    let mut text = b"Comment\0".to_vec();
+    text.extend(SECRET);
+    shot.extend(png_chunk(b"tEXt", &text));
+    shot.extend(&plain[33..plain.len() - 12]);
+    shot.extend(png_chunk(b"tEXt", &text));
+    let (reply, logged) = send_picture("no-iend", &shot, "image/png").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_no_secret("no IEND", &logged);
+}
+
+/// F1: a PNG or JPEG cut short where its metadata is cannot be cleaned: it is refused with a
+/// message the composer shows, never sent as it is.
+#[tokio::test]
+async fn a_picture_that_cannot_be_read_is_refused_not_sent_as_it_is() {
+    let photo = phone_jpeg();
+    let plain = checker_png(16);
+    let mut shot = plain[..33].to_vec();
+    let mut text = b"Comment\0".to_vec();
+    text.extend(SECRET);
+    // A length past the end, before the pixels.
+    let mut chunk = png_chunk(b"tEXt", &text);
+    chunk[..4].copy_from_slice(&1_000_000u32.to_be_bytes());
+    shot.extend(chunk);
+    for (bytes, mime) in [(&photo[..30], "image/jpeg"), (&shot[..], "image/png")] {
+        let (reply, logged) = send_picture("cut-short", bytes, mime).await;
+        assert_eq!(reply["error"]["data"]["reason"], "image.unreadable", "{reply}");
+        assert!(reply["error"]["message"].as_str().unwrap().contains("location"), "{reply}");
+        assert_no_secret("cut short", &logged);
+    }
+}
+
+/// A JPEG of `w`x`h` whose frame is `sof` (one 8-bit component), `n` bytes of scan data long.
+fn big_jpeg(sof: u8, w: u16, h: u16, n: usize) -> Vec<u8> {
+    let mut out = vec![0xff, 0xd8];
+    let (h, w) = (h.to_be_bytes(), w.to_be_bytes());
+    out.extend(jpeg_segment(sof, &[8, h[0], h[1], w[0], w[1], 1, 1, 0x11, 0]));
+    out.extend(jpeg_segment(0xda, &[1, 1, 0, 0, 63, 0]));
+    out.extend(std::iter::repeat_n(0x5a, n));
+    out.extend([0xff, 0xd9]);
+    out
+}
+
+/// F4: past the model's bytes, a picture the daemon cannot scale (arithmetic coding, or over
+/// 100 MP) would reach the model at full size and fail the turn; it is refused as it is sent.
+#[tokio::test]
+async fn a_picture_too_large_to_fit_here_is_refused_as_it_is_sent() {
+    let past = acpmux::prompt_uploads::INLINE_IMAGE_BYTES + 1024;
+    for photo in [big_jpeg(0xc9, 4000, 3000, past), big_jpeg(0xc0, 20_000, 10_000, past)] {
+        let (reply, _) = send_picture("too-large", &photo, "image/jpeg").await;
+        assert_eq!(reply["error"]["data"]["reason"], "image.tooLarge", "{reply}");
+    }
+    // Within the model's bytes it goes, as before.
+    let (reply, _) =
+        send_picture("small-arith", &big_jpeg(0xc9, 400, 300, 4096), "image/jpeg").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+}
+
+/// An `n`x`n` grey interlaced (Adam7) PNG of a 1 px black and white checkerboard, its data in
+/// stored deflate blocks (the png crate does not write interlaced files).
+fn interlaced_checker(n: u32) -> Vec<u8> {
+    const PASSES: [(u32, u32, u32, u32); 7] = [
+        (0, 0, 8, 8),
+        (4, 0, 8, 8),
+        (0, 4, 4, 8),
+        (2, 0, 4, 4),
+        (0, 2, 2, 4),
+        (1, 0, 2, 2),
+        (0, 1, 1, 2),
+    ];
+    let mut raw = Vec::new();
+    for (x0, y0, dx, dy) in PASSES {
+        if x0 >= n || y0 >= n {
+            continue;
+        }
+        for y in (y0..n).step_by(dy as usize) {
+            raw.push(0);
+            for x in (x0..n).step_by(dx as usize) {
+                raw.push(if (x + y) % 2 == 0 { 255 } else { 0 });
+            }
+        }
+    }
+    let mut z = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
+    for (i, block) in blocks.iter().enumerate() {
+        z.push(u8::from(i + 1 == blocks.len()));
+        let len = u16::try_from(block.len()).unwrap();
+        z.extend(len.to_le_bytes());
+        z.extend((!len).to_le_bytes());
+        z.extend(*block);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for byte in &raw {
+        a = (a + u32::from(*byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    z.extend(((b << 16) | a).to_be_bytes());
+    let mut ihdr = n.to_be_bytes().to_vec();
+    ihdr.extend(n.to_be_bytes());
+    ihdr.extend([8, 0, 0, 0, 1]);
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    out.extend(png_chunk(b"IHDR", &ihdr));
+    out.extend(png_chunk(b"IDAT", &z));
+    out.extend(png_chunk(b"IEND", &[]));
+    out
+}
+
+/// F4: an interlaced PNG is fitted too, in linear light, where it went at full size.
+#[test]
+fn an_interlaced_png_is_fitted_in_linear_light() {
+    let shot = interlaced_checker(3136);
+    assert!(shot.len() > acpmux::prompt_uploads::INLINE_IMAGE_BYTES);
+    let limits = acpmux::model_copies::limits(Some("claude"));
+    let (copy, w, h) = acpmux::model_copies::fitted(&shot, limits).expect("fitted");
+    assert_eq!((w, h), (1568, 1568));
+    let mut reader = png::Decoder::new(std::io::Cursor::new(&copy)).read_info().unwrap();
+    let mut px = vec![0; reader.output_buffer_size()];
+    reader.next_frame(&mut px).unwrap();
+    let off: Vec<u8> = px.iter().copied().filter(|v| !(187..=188).contains(v)).take(4).collect();
+    assert!(off.is_empty(), "not half its light: {off:?}");
+}
+
+/// F4: a picture whose copy stays past the bytes after six tries is still fitted: the loop goes
+/// on, smaller, until it fits.
+#[test]
+fn the_fit_always_ends_within_the_bytes() {
+    let noise = noise_png(1200, 1200);
+    let limits = acpmux::model_copies::Limits { max_edge: 2048, max_bytes: 4096 };
+    let (copy, w, h) = acpmux::model_copies::fitted(&noise, limits).expect("fitted");
+    assert!(copy.len() <= 4096, "{} bytes", copy.len());
+    assert!(w == h && w > 1, "{w}x{h}");
+}
+
+/// F3: a waiting prompt's edit that writes new blocks is cleaned as a prompt is.
+#[tokio::test]
+async fn a_queued_prompts_edit_loses_its_pictures_gps() {
+    let photo = phone_jpeg();
+    let mut params = json!({"sessionId": "s", "promptId": "p", "op": "update",
+                            "prompt": [{"type": "text", "text": "x"}, inline(&photo, "image/jpeg")]});
+    let _ = acpmux::image_privacy::sanitize_prompt(method::MUX_QUEUE_EDIT, &mut params).await;
+    assert_no_secret("queue edit", &params.to_string());
+    assert_eq!(params["prompt"][0]["text"], "x");
+}
+
+/// F6: the composer's link to a picture's original is skipped only after that same picture; a
+/// link that follows another picture still gets its model copy.
+#[tokio::test]
+async fn a_link_after_another_picture_still_gets_its_copy() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-link-after-other").await;
+    let big = noise_png(2400, 1200);
+    let id = c.upload(&session, "shot.png", &big).await;
+    let path = home().join("uploads").join(&session).join(&id).join("shot.png");
+    let uri = reqwest::Url::from_file_path(&path).unwrap().to_string();
+    let other = json!({"type": "image", "mimeType": "image/png", "name": "other.png",
+                       "data": b64(&checker_png(8))});
+    let link = json!({"type": "resource_link", "uri": uri, "name": "shot.png"});
+    let reply =
+        c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "see", vec![other, link])).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let copies: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".model-"))
+        .collect();
+    assert!(!copies.is_empty(), "no copy for a link after another picture: {}", c.text);
+}
+
+/// #45031 review at fa139e4: a JPEG wider than 16384 px (a phone's panorama) is fitted. zune-jpeg's
+/// header reader refused it by default, so it went to the model at full size and was refused there.
+#[test]
+fn a_panorama_wider_than_16k_is_fitted() {
+    let wide = jpeg_fixture::checker_jpeg_of(17_024, 64);
+    let limits = acpmux::model_copies::limits(Some("claude"));
+    let (_, w, h) = acpmux::model_copies::fitted(&wide, limits).expect("a panorama is fitted");
+    assert_eq!((w, h), (1568, 6));
 }

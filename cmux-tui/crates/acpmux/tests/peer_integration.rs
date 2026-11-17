@@ -3,6 +3,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/png_fixture.rs"]
+mod png_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -4360,14 +4362,8 @@ async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
         .await
         .unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
-    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    while bytes.len() < 1_500_000 {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        bytes.extend_from_slice(&x.to_le_bytes());
-    }
+    // A whole PNG (acpmux reads a sent picture for its metadata, `image_privacy.rs`).
+    let bytes = png_fixture::png_of_len(1_500_000, 0x5a);
     let image = base64::engine::general_purpose::STANDARD.encode(&bytes);
     cb.call(
         "session/prompt",

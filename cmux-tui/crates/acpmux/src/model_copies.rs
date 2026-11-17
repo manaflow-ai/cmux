@@ -16,8 +16,10 @@
 //! - The PNG is read a row at a time and scaled by area averaging, so the original is never held
 //!   in memory whatever its size.
 //! - Only a finished upload of the prompt's own chat is read (`file_uploads::open_finished`).
-//! - An image that cannot be copied (another type, a bad or interlaced PNG, no room) keeps only its
-//!   link, as before. That is never a refusal.
+//! - An image that cannot be copied (another type, a bad PNG, no room) keeps only its link, as
+//!   before. That is never a refusal. An interlaced PNG is decoded whole, within
+//!   [`INTERLACED_FRAME_BYTES`]; a JPEG upload is read whole only once its header says a copy can
+//!   be made of it, and within [`MAX_JPEG_FILE_BYTES`].
 //!
 //!
 //! An image sent inline (the composer's pasted or dropped picture, at its full size: Leo,
@@ -57,6 +59,14 @@ const OMITTED: &str = "(acpmux model-sized copy, not logged)";
 /// goes whatever its size.
 const MAX_SOURCE_PIXELS: u64 = 100_000_000;
 
+/// The most bytes an interlaced PNG is decoded into: its rows come in seven passes, so the frame is
+/// decoded whole (about 64 MP of RGBA).
+const INTERLACED_FRAME_BYTES: usize = 256 << 20;
+
+/// The largest JPEG upload read for its copy. It is decoded whole (zune-jpeg has no row reader):
+/// a 100 MP photo ([`MAX_SOURCE_PIXELS`]) at a high quality is about 50 MB.
+const MAX_JPEG_FILE_BYTES: u64 = 128 << 20;
+
 /// What a harness's model takes as one inline image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -83,7 +93,10 @@ pub fn limits(family: Option<&str>) -> Limits {
 /// model-sized copy after each large PNG link to one of the chat's uploads (module docs).
 /// Never fails. A block that gets no copy stays as it was.
 pub async fn add(session: &str, family: Option<&str>, blocks: &[Value]) -> Vec<Value> {
-    if !blocks.iter().any(|b| upload_png(session, b).is_some()) {
+    // Which links are uploads is read from the files ([`upload_png`]), so even that check runs off
+    // the runtime; a prompt with no link at all does not leave it.
+    let link = |b: &Value| b.get("type").and_then(Value::as_str) == Some("resource_link");
+    if !blocks.iter().any(link) {
         return blocks.to_vec();
     }
     let (session, limits, owned) = (session.to_owned(), limits(family), blocks.to_vec());
@@ -143,20 +156,57 @@ pub fn fitted(bytes: &[u8], limits: Limits) -> Option<(Vec<u8>, u32, u32)> {
     if w.max(h) <= limits.max_edge && bytes.len() <= limits.max_bytes && turn == 1 {
         return None;
     }
-    let mut edge = limits.max_edge;
-    // A copy past `max_bytes` is made again, smaller, a few times.
-    for _ in 0..6 {
-        let made = if jpeg {
-            downscale_jpeg(bytes, edge)?
-        } else {
-            downscale_oriented(std::io::Cursor::new(bytes), edge, turn)?
-        };
-        if made.0.len() <= limits.max_bytes {
-            return Some(made);
+    let made = if jpeg {
+        downscale_jpeg(bytes, limits.max_edge)?
+    } else {
+        downscale_oriented(std::io::Cursor::new(bytes), limits.max_edge, turn)?
+    };
+    within_bytes(made, limits.max_bytes)
+}
+
+/// Whether the daemon makes a copy of PNG or JPEG `bytes` ([`fitted`]), read from their header:
+/// within [`MAX_SOURCE_PIXELS`], an interlaced PNG within [`INTERLACED_FRAME_BYTES`], and a JPEG
+/// that zune-jpeg decodes (Huffman-coded, 8-bit). Any other type: true, it goes as it did. A
+/// prompt is refused for a picture past the model's bytes that this says no to
+/// (`image_privacy::sanitize_blocks`; #45031 review F4).
+pub fn daemon_fits(bytes: &[u8]) -> bool {
+    match crate::hub::prompt_images::sniffed_type(bytes) {
+        Some("image/png") => {
+            let Ok(reader) = png::Decoder::new(std::io::Cursor::new(bytes)).read_info() else {
+                return false;
+            };
+            let (w, h) = (reader.info().width, reader.info().height);
+            copyable(w, h)
+                && (!reader.info().interlaced
+                    || reader.output_buffer_size() <= INTERLACED_FRAME_BYTES)
         }
-        edge = edge.min(made.1.max(made.2)) * 3 / 4;
+        Some("image/jpeg") => jpeg_decodes(bytes),
+        _ => true,
     }
-    None
+}
+
+/// Whether a JPEG's header (`head`, its first bytes or more) says zune-jpeg decodes it and a copy
+/// is made of it: a baseline, extended or progressive Huffman frame of 8-bit samples, within
+/// [`MAX_SOURCE_PIXELS`]. Arithmetic coding, 12-bit samples and lossless frames are not decoded.
+fn jpeg_decodes(head: &[u8]) -> bool {
+    crate::image_privacy::jpeg_frame(head).is_some_and(|(marker, precision, w, h)| {
+        matches!(marker, 0xc0..=0xc2) && precision == 8 && copyable(w, h)
+    })
+}
+
+/// `made` (a copy: an encoded PNG and its size) made again from itself, each time 3/4 of its long
+/// edge, until it is within `max_bytes`. It always ends: the copy of a noisy picture shrinks by
+/// about half each time, to a few dozen bytes at one pixel. Scaling the copy, not the original,
+/// keeps each try cheap (#45031 review F4: six tries from the original could all miss).
+fn within_bytes(mut made: (Vec<u8>, u32, u32), max_bytes: usize) -> Option<(Vec<u8>, u32, u32)> {
+    while made.0.len() > max_bytes {
+        let edge = made.1.max(made.2);
+        if edge <= 1 {
+            return None;
+        }
+        made = downscale(std::io::Cursor::new(&made.0), (edge * 3 / 4).max(1))?;
+    }
+    Some(made)
 }
 
 /// [`add`], blocking.
@@ -175,9 +225,10 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
     let mut left = prompt_room.saturating_sub(inline).min(room);
     let mut out: Vec<Value> = Vec::with_capacity(blocks.len());
     for block in blocks {
-        // The composer's link to the original of the picture it sent just before: the model has
-        // that picture already.
-        let after_image = out.last().is_some_and(|b| inline_image(b).is_some());
+        // The composer's link to the original of the picture it sent just before (the image block
+        // right before it, of the same name): the model has that picture already. A link after
+        // another picture gets its copy (#45031 review F6).
+        let after_image = out.last().is_some_and(|b| same_picture(b, &block));
         let copy = upload_png(session, &block).filter(|_| !after_image).and_then(|path| {
             // The note and the image block's own JSON are counted below, as written.
             let budget = limits.max_bytes.min(left.saturating_sub(4 << 10) / 4 * 3);
@@ -201,6 +252,15 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
         out.extend(copy.into_iter().flatten());
     }
     out
+}
+
+/// Whether `link` is the composer's link to the original of inline image `image`: the composer
+/// writes the two with the file's name (webviews `attachments.ts` `attachmentBlocks`).
+fn same_picture(image: &Value, link: &Value) -> bool {
+    fn name(block: &Value) -> Option<&str> {
+        block.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())
+    }
+    inline_image(image).is_some() && name(image).is_some() && name(image) == name(link)
 }
 
 /// `record` (what acpmux wrote to an agent, before it is logged) with the base64 of every
@@ -288,42 +348,50 @@ fn file_uri_path(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf8(out).ok()?))
 }
 
-/// The copy of the PNG at `path` scaled to fit `max_edge` and `max_bytes` (an encoded PNG and its
-/// size), from its saved copy if there is one. None when it cannot be made within them. Blocking.
+/// The copy of the PNG or JPEG at `path` scaled to fit `max_edge` and `max_bytes` (an encoded PNG
+/// and its size), from its saved copy if there is one. None when it cannot be made within them.
+/// Blocking.
 fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32, u32)> {
-    let dir = path.parent()?;
-    let mut edge = max_edge;
-    // A copy past `max_bytes` is made again, smaller, a few times.
-    for _ in 0..6 {
-        let saved = dir.join(format!(".model-{edge}.png"));
-        let made = match std::fs::read(&saved) {
-            Ok(bytes) => png_size(&bytes).map(|(w, h)| (bytes, w, h)),
-            Err(_) => {
-                use std::io::Read as _;
-                let mut head = Vec::new();
-                let mut file = file_uploads::open_finished(path).ok()?;
-                (&mut file).take(ORIENTATION_HEAD).read_to_end(&mut head).ok()?;
-                let made = if crate::hub::prompt_images::sniffed_type(&head) == Some("image/jpeg") {
-                    // A JPEG decodes whole (`downscale_jpeg`), within `MAX_SOURCE_PIXELS`.
-                    file.read_to_end(&mut head).ok()?;
-                    downscale_jpeg(&head, edge)?
-                } else {
-                    let turn = crate::image_privacy::orientation(&head);
-                    let file = file_uploads::open_finished(path).ok()?;
-                    downscale_oriented(BufReader::new(file), edge, turn)?
-                };
-                save(&saved, &made.0);
-                Some(made)
-            }
-        };
-        let (bytes, w, h) = made?;
-        if bytes.len() <= max_bytes {
-            return Some((bytes, w, h));
+    let saved = path.parent()?.join(format!(".model-{max_edge}.png"));
+    let made = match std::fs::read(&saved) {
+        Ok(bytes) => png_size(&bytes).map(|(w, h)| (bytes, w, h))?,
+        Err(_) => {
+            use std::io::Read as _;
+            let mut head = Vec::new();
+            let mut file = file_uploads::open_finished(path).ok()?;
+            (&mut file).take(ORIENTATION_HEAD).read_to_end(&mut head).ok()?;
+            let made = if crate::hub::prompt_images::sniffed_type(&head) == Some("image/jpeg") {
+                downscale_jpeg(&jpeg_upload(file, head)?, max_edge)?
+            } else {
+                let turn = crate::image_privacy::orientation(&head);
+                let file = file_uploads::open_finished(path).ok()?;
+                downscale_oriented(BufReader::new(file), max_edge, turn)?
+            };
+            save(&saved, &made.0);
+            made
         }
-        // Past the bytes (a noisy image, or one already within the edge): smaller again.
-        edge = edge.min(w.max(h)) * 3 / 4;
+    };
+    // Past the bytes (a noisy image, or one already within the edge): smaller again, saved too.
+    let first_edge = made.1.max(made.2);
+    let fitted = within_bytes(made, max_bytes)?;
+    let edge = fitted.1.max(fitted.2);
+    if edge != first_edge {
+        save(&saved.with_file_name(format!(".model-{edge}.png")), &fitted.0);
     }
-    None
+    Some(fitted)
+}
+
+/// The whole JPEG upload whose first bytes are `head`, the rest read from `file`, when its header
+/// says a copy is made of it ([`jpeg_decodes`]) and it is within [`MAX_JPEG_FILE_BYTES`]: one
+/// that is not is never read whole (#45031 review F5).
+fn jpeg_upload(mut file: std::fs::File, mut head: Vec<u8>) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    if !jpeg_decodes(&head) || file.metadata().ok()?.len() > MAX_JPEG_FILE_BYTES {
+        return None;
+    }
+    let left = MAX_JPEG_FILE_BYTES.saturating_sub(head.len() as u64);
+    (&mut file).take(left).read_to_end(&mut head).ok()?;
+    Some(head)
 }
 
 /// Writes `bytes` to `path` whole or not at all ([`crate::config::write_atomic_unsynced`]: a
@@ -349,7 +417,7 @@ fn copyable(w: u32, h: u32) -> bool {
 /// The PNG read from `input` scaled down (never up) so its long edge is at most `max_edge`, by
 /// area averaging in linear light, a row at a time, encoded as an 8-bit PNG (RGB, or RGBA when
 /// it has alpha).
-/// None for a PNG that is not valid or is interlaced (its rows come in passes).
+/// None for a PNG that is not valid, and an interlaced one past [`INTERLACED_FRAME_BYTES`].
 pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
     downscale_oriented(input, max_edge, 1)
 }
@@ -366,7 +434,7 @@ fn downscale_oriented(
     decoder.set_limits(png::Limits { bytes: 256 << 20 });
     let mut reader = decoder.read_info().ok()?;
     let (w, h) = (reader.info().width, reader.info().height);
-    if reader.info().interlaced || !copyable(w, h) {
+    if !copyable(w, h) {
         return None;
     }
     let (color, _) = reader.output_color_type();
@@ -382,26 +450,45 @@ fn downscale_oriented(
     // instead of going darker. Colour is weighted by alpha, so a transparent pixel's colour,
     // which nobody sees, does not tint the opaque ones next to it.
     let mut scaler = cmux_image_linear::Downscaler::new(w, h, out_w, out_h, alpha);
-    for _ in 0..h {
-        let row = reader.next_row().ok()??;
-        // `chunks_exact(channels)` gives only slices of `channels` bytes.
-        scaler.push_row(row.data().chunks_exact(channels).take(w as usize).map(|px| match px {
-            [g] => [*g, *g, *g, 255],
-            [g, a] => [*g, *g, *g, *a],
-            [r, g, b] => [*r, *g, *b, 255],
-            [r, g, b, a] => [*r, *g, *b, *a],
-            _ => [0; 4],
-        }));
+    if reader.info().interlaced {
+        // Its rows come in seven passes (Adam7): the frame is decoded whole, within a bound.
+        let size = reader.output_buffer_size();
+        if size > INTERLACED_FRAME_BYTES {
+            return None;
+        }
+        let mut frame = vec![0; size];
+        let info = reader.next_frame(&mut frame).ok()?;
+        for row in frame.chunks_exact(info.line_size.max(1)).take(h as usize) {
+            scaler.push_row(rgba(row, channels, w));
+        }
+    } else {
+        for _ in 0..h {
+            let row = reader.next_row().ok()??;
+            scaler.push_row(rgba(row.data(), channels, w));
+        }
     }
     encode(scaler.finish(), out_w, out_h, alpha, turn)
 }
 
-/// A JPEG's width and height from its frame header.
+/// The first `w` pixels of a decoded PNG row of `channels` per pixel, as RGBA.
+fn rgba(row: &[u8], channels: usize, w: u32) -> impl Iterator<Item = [u8; 4]> + '_ {
+    // `chunks_exact(channels)` gives only slices of `channels` bytes.
+    row.chunks_exact(channels).take(w as usize).map(|px| match px {
+        [g] => [*g, *g, *g, 255],
+        [g, a] => [*g, *g, *g, *a],
+        [r, g, b] => [*r, *g, *b, 255],
+        [r, g, b, a] => [*r, *g, *b, *a],
+        _ => [0; 4],
+    })
+}
+
+/// A JPEG's width and height from its frame header, read here: zune-jpeg's header reader refuses
+/// a side past 16384 px by default, and a phone's panorama is wider (#45031 review). The area
+/// bound ([`copyable`]) is what limits a copy.
 fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    let mut decoder = zune_jpeg::JpegDecoder::new(zune_core::bytestream::ZCursor::new(bytes));
-    decoder.decode_headers().ok()?;
-    let info = decoder.info()?;
-    Some((u32::from(info.width), u32::from(info.height)))
+    crate::image_privacy::jpeg_frame(bytes)
+        .map(|(_, _, w, h)| (w, h))
+        .filter(|&(w, h)| w > 0 && h > 0)
 }
 
 /// The JPEG `bytes` scaled down (never up) so its long edge is at most `max_edge`, by area
@@ -410,7 +497,7 @@ fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// that does not decode.
 pub fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
     let (w, h) = jpeg_size(bytes)?;
-    if !copyable(w, h) {
+    if !copyable(w, h) || !jpeg_decodes(bytes) {
         return None;
     }
     let options = zune_core::options::DecoderOptions::default()
@@ -548,6 +635,11 @@ pub(crate) mod tests {
     /// block is flat and is its DC term alone (quantizer 1, the standard DC table, AC all EOB).
     /// No JPEG encoder is a dependency; this one writes only what the test needs.
     pub(crate) fn checker_jpeg(n: u32) -> Vec<u8> {
+        checker_jpeg_of(n, n)
+    }
+
+    /// [`checker_jpeg`], `w`x`h` (each a multiple of 8).
+    pub(crate) fn checker_jpeg_of(w: u32, h: u32) -> Vec<u8> {
         let mut out = vec![0xff, 0xd8];
         let segment = |out: &mut Vec<u8>, marker: u8, body: &[u8]| {
             out.extend([0xff, marker]);
@@ -557,9 +649,9 @@ pub(crate) mod tests {
         let mut dqt = vec![0u8];
         dqt.extend([1u8; 64]);
         segment(&mut out, 0xdb, &dqt);
-        let (h, w) =
-            (u16::try_from(n).unwrap().to_be_bytes(), u16::try_from(n).unwrap().to_be_bytes());
-        segment(&mut out, 0xc0, &[8, h[0], h[1], w[0], w[1], 1, 1, 0x11, 0]);
+        let (hb, wb) =
+            (u16::try_from(h).unwrap().to_be_bytes(), u16::try_from(w).unwrap().to_be_bytes());
+        segment(&mut out, 0xc0, &[8, hb[0], hb[1], wb[0], wb[1], 1, 1, 0x11, 0]);
         let mut dht = vec![0x00, 0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
         dht.extend(0..=11u8);
         segment(&mut out, 0xc4, &dht);
@@ -595,8 +687,8 @@ pub(crate) mod tests {
             }
         };
         let mut previous = 0i32;
-        for by in 0..n / 8 {
-            for bx in 0..n / 8 {
+        for by in 0..h / 8 {
+            for bx in 0..w / 8 {
                 let dc = if (bx + by).is_multiple_of(2) { 8 * 127 } else { -8 * 128 };
                 let diff = dc - previous;
                 previous = dc;
@@ -761,7 +853,7 @@ pub(crate) mod tests {
         let shot_block = inline_block(&png_bytes, "image/png");
         let (m, b) = time(&|| {
             let mut blocks = vec![shot_block.clone()];
-            crate::image_privacy::sanitize_blocks(&mut blocks);
+            crate::image_privacy::sanitize_blocks(&mut blocks).unwrap();
             std::hint::black_box(blocks);
         });
         println!(
@@ -771,7 +863,7 @@ pub(crate) mod tests {
         let photo_block = inline_block(&photo, "image/jpeg");
         let (m, b) = time(&|| {
             let mut blocks = vec![photo_block.clone()];
-            crate::image_privacy::sanitize_blocks(&mut blocks);
+            crate::image_privacy::sanitize_blocks(&mut blocks).unwrap();
             std::hint::black_box(blocks);
         });
         println!(
@@ -855,6 +947,41 @@ pub(crate) mod tests {
         assert_eq!(acp["params"]["prompt"][1]["data"], other);
         assert_eq!(claude["message"]["content"][0]["source"]["data"], OMITTED);
         assert!(!is_copy("iVBORw0KGgo") && !is_copy("not base64 at all, long enough to be read"));
+    }
+
+    /// #45031 review F5: a JPEG upload is read whole only when its header says a copy is made of
+    /// it, and within [`MAX_JPEG_FILE_BYTES`].
+    #[test]
+    fn a_jpeg_upload_is_read_whole_only_when_a_copy_is_made_of_it() {
+        use std::io::Read as _;
+        let dir = tempfile::tempdir().unwrap();
+        let open = |name: &str, bytes: &[u8], len: Option<u64>| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            if let Some(len) = len {
+                std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_len(len).unwrap();
+            }
+            let mut file = std::fs::File::open(&path).unwrap();
+            let mut head = Vec::new();
+            (&mut file).take(ORIENTATION_HEAD).read_to_end(&mut head).unwrap();
+            (file, head)
+        };
+        let photo = checker_jpeg(64);
+        let (file, head) = open("ok.jpg", &photo, None);
+        assert_eq!(jpeg_upload(file, head).as_deref(), Some(photo.as_slice()));
+        // Past the file bound (sparse: nothing is written or read).
+        let (file, head) = open("long.jpg", &photo, Some(MAX_JPEG_FILE_BYTES + 1));
+        assert!(jpeg_upload(file, head).is_none());
+        // 200 MP by its frame header, or arithmetic-coded: not read past its head.
+        let mut huge = photo.clone();
+        let sof = huge.windows(2).position(|w| w == [0xff, 0xc0]).unwrap();
+        huge[sof + 5..sof + 9].copy_from_slice(&[0x27, 0x10, 0x4e, 0x20]);
+        let (file, head) = open("huge.jpg", &huge, Some(8 << 20));
+        assert!(jpeg_upload(file, head).is_none());
+        let mut arith = photo.clone();
+        arith[sof + 1] = 0xc9;
+        assert!(!jpeg_decodes(&arith) && jpeg_decodes(&photo) && !jpeg_decodes(&huge));
+        assert!(!daemon_fits(&arith) && daemon_fits(&photo));
     }
 
     #[test]

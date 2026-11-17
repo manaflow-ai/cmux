@@ -18,7 +18,8 @@ import type { UploadCancelled, UploadProgressReport, UploadResult } from "../clo
 
 export type IntakeOptions = {
   allowImages: boolean;
-  /// The daemon cleans and fits a prompt's pictures (snapshot `daemonFitsImages`, imageWork.ts).
+  /// The daemon cleans and fits a prompt's pictures (snapshot `daemonFitsImages`, imageWork.ts):
+  /// with `upload`, a PNG or JPEG goes as its own file; without one it is fitted on the page.
   daemonFitsImages?: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
@@ -82,6 +83,12 @@ export async function intakeFiles(
         items?.length === files.length ? items : undefined,
       )
     : Promise.resolve(undefined);
+  // The daemon fits a picture sent as its own file only when the picture also uploads its original:
+  // the prompt's budget (promptBudget.ts) sends such a picture by that link when it would not fit
+  // inline. One with no original (a paste on the new tab page, a chat's shell mode) is fitted here,
+  // within IMAGE_BUDGET_BYTES, as before (#45031 review: a full-size paste there pushed the first
+  // prompt toward the 31 MB message limit).
+  const daemonFits = options.daemonFitsImages === true && options.upload !== undefined;
   const images: (ComposerAttachment | undefined)[] = [];
   const links: (ComposerAttachment | undefined)[] = [];
   let error: IntakeError | undefined;
@@ -101,7 +108,7 @@ export async function intakeFiles(
     const videoShape = isVideoName(file.name) ? ((await videoShapeOf(file)) ?? 1) : undefined;
     const result = isImageFile(file)
       ? await readAttachment(file, options.allowImages, undefined, {
-          daemonFits: options.daemonFitsImages === true,
+          daemonFits,
         }).catch(() => undefined)
       : undefined;
     const image = result && !("reason" in result) ? result : undefined;

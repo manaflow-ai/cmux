@@ -64,7 +64,7 @@ fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
     let mut out = u32::try_from(data.len()).unwrap().to_be_bytes().to_vec();
     out.extend(kind);
     out.extend(data);
-    let crc = crc32(&out[4..]);
+    let crc = crc32fast::hash(&out[4..]);
     out.extend(crc.to_be_bytes());
     out
 }
@@ -90,7 +90,7 @@ fn tagged_png(w: u32, h: u32, turn: u16) -> Vec<u8> {
 fn a_phone_jpeg_loses_its_gps_xmp_iptc_comment_and_appended_picture() {
     let sent = phone_jpeg(6);
     assert!(has(&sent, SECRET));
-    let clean = sanitize(&sent).unwrap();
+    let clean = sanitize(&sent).unwrap().unwrap();
     assert!(!has(&clean, SECRET), "the secret survived");
     assert!(!has(&clean, b"http://ns.adobe.com"), "XMP survived");
     // One picture: one start and one end.
@@ -110,7 +110,7 @@ fn a_phone_jpeg_loses_its_gps_xmp_iptc_comment_and_appended_picture() {
 
 #[test]
 fn an_upright_jpeg_keeps_no_exif_at_all() {
-    let clean = sanitize(&phone_jpeg(1)).unwrap();
+    let clean = sanitize(&phone_jpeg(1)).unwrap().unwrap();
     assert!(!has(&clean, SECRET));
     assert!(!has(&clean, b"Exif\0\0"));
     assert_eq!(orientation(&clean), 1);
@@ -119,21 +119,21 @@ fn an_upright_jpeg_keeps_no_exif_at_all() {
 #[test]
 fn a_png_loses_its_text_time_and_exif_but_not_a_pixel() {
     let sent = tagged_png(40, 20, 6);
-    let clean = sanitize(&sent).unwrap();
+    let clean = sanitize(&sent).unwrap().unwrap();
     assert!(!has(&clean, SECRET), "the secret survived");
     assert!(!has(&clean, b"tEXt") && !has(&clean, b"iTXt") && !has(&clean, b"tIME"));
     assert_eq!(orientation(&clean), 6);
     assert_eq!(pixels(&clean), pixels(&halves(40, 20)));
     // Upright and without a tag, only the text goes.
-    let upright = sanitize(&tagged_png(40, 20, 1)).unwrap();
+    let upright = sanitize(&tagged_png(40, 20, 1)).unwrap().unwrap();
     assert!(!has(&upright, b"eXIf"));
     assert_eq!(pixels(&upright), pixels(&halves(40, 20)));
 }
 
 #[test]
 fn a_clean_png_is_left_as_it_is() {
-    assert_eq!(sanitize(&halves(8, 8)), None);
-    assert_eq!(sanitize(b"GIF89a not ours"), None);
+    assert_eq!(sanitize(&halves(8, 8)), Ok(None));
+    assert_eq!(sanitize(b"GIF89a not ours"), Ok(None));
 }
 
 /// The daemon takes a prompt (`server/requests.rs`) and cleans it before the outbox, a peer or
@@ -156,7 +156,7 @@ async fn a_prompt_and_a_queued_send_reach_nothing_with_their_metadata() {
             "/request/prompt",
         ),
     ] {
-        sanitize_prompt(m, &mut params).await;
+        sanitize_prompt(m, &mut params).await.unwrap();
         let out = params.pointer(pointer).unwrap().as_array().unwrap();
         assert_eq!(out[0]["text"], "look");
         for block in &out[1..] {
@@ -193,7 +193,8 @@ fn each_orientation_draws_the_picture_as_it_is_seen() {
 fn a_turned_picture_reaches_the_model_upright() {
     let limits = crate::model_copies::limits(Some("claude"));
     let (copy, w, h) =
-        crate::model_copies::fitted(&sanitize(&tagged_png(40, 20, 6)).unwrap(), limits).unwrap();
+        crate::model_copies::fitted(&sanitize(&tagged_png(40, 20, 6)).unwrap().unwrap(), limits)
+            .unwrap();
     assert_eq!((w, h), (20, 40));
     let (pw, ph, px) = pixels(&copy);
     assert_eq!((pw, ph), (20, 40));
@@ -203,4 +204,109 @@ fn a_turned_picture_reaches_the_model_upright() {
     assert_eq!(&px[px.len() - 3..], &[0, 0, 255]);
     let (_, jw, jh) = crate::model_copies::fitted(&phone_jpeg(6), limits).unwrap();
     assert_eq!((jw, jh), (32, 32));
+}
+
+/// The picture cleaned, or why it is refused, checked never to hold [`SECRET`]: what goes on (the
+/// cleaned bytes, or the bytes as sent when there was nothing to drop) has no secret in it.
+fn checked(bytes: &[u8]) -> Result<Vec<u8>, Refusal> {
+    let out = sanitize(bytes)?;
+    let sent = out.unwrap_or_else(|| bytes.to_vec());
+    assert!(!has(&sent, SECRET), "the secret went on from {} bytes", bytes.len());
+    Ok(sent)
+}
+
+/// Fuzz (#45031 review F1, F2): every truncation of a phone's JPEG and a tagged PNG, and a few
+/// thousand with random bytes put between their segments or chunks (some also cut short),
+/// neither panic nor let the planted GPS text through.
+#[test]
+fn malformed_pictures_never_panic_or_leak_their_gps() {
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let jpeg = phone_jpeg(6);
+    let png = tagged_png(40, 20, 6);
+    for sent in [&jpeg, &png] {
+        for n in 0..sent.len() {
+            let _ = checked(&sent[..n]);
+        }
+    }
+    // Where segments and chunks begin: a JPEG's markers before its scan, and its end; a PNG's
+    // chunks.
+    let scan = jpeg.windows(2).position(|w| w == [0xff, 0xda]).unwrap();
+    let mut jpeg_at: Vec<usize> = (2..scan).filter(|&i| jpeg[i] == 0xff).collect();
+    jpeg_at.push(jpeg.windows(2).position(|w| w == [0xff, 0xd9]).unwrap());
+    let mut png_at = vec![8];
+    while let Some(&at) = png_at.last().filter(|&&at| at + 8 <= png.len()) {
+        let len = u32::from_be_bytes(png[at..at + 4].try_into().unwrap()) as usize;
+        png_at.push(at + 12 + len);
+    }
+    let (mut cleaned, mut refused) = (0, 0);
+    for round in 0..4000 {
+        let (sent, at) = if round % 2 == 0 { (&jpeg, &jpeg_at) } else { (&png, &png_at) };
+        let at = at[next() as usize % at.len()].min(sent.len());
+        let junk: Vec<u8> = (0..1 + next() % 16)
+            .map(|_| next() as u8)
+            // A decoder reads 0xFF as a marker; between segments a stray byte is anything else.
+            .map(|b| if round % 2 == 0 && b == 0xff { 0x00 } else { b })
+            .collect();
+        let mut odd = sent[..at].to_vec();
+        odd.extend(&junk);
+        odd.extend(&sent[at..]);
+        if next() % 3 == 0 {
+            odd.truncate(next() as usize % odd.len());
+        }
+        match checked(&odd) {
+            Ok(_) => cleaned += 1,
+            Err(_) => refused += 1,
+        }
+    }
+    println!("fuzz: {cleaned} cleaned, {refused} refused");
+    assert!(cleaned > 1000, "{cleaned} cleaned, {refused} refused");
+}
+
+/// F7: a panic while cleaning refuses the prompt; it neither goes on as sent nor empties.
+#[tokio::test]
+async fn a_panic_while_cleaning_refuses_the_prompt() {
+    let blocks = vec![json!({"type": "text", "text": "look"})];
+    let e = cleaned_off_runtime(blocks, |_| panic!("cleaning failed")).await.unwrap_err();
+    assert_eq!(e.data.unwrap()["reason"], "image.cleanFailed");
+}
+
+#[test]
+fn a_png_with_a_critical_chunk_no_decoder_reads_is_refused() {
+    let plain = halves(8, 8);
+    let mut odd = plain[..33].to_vec();
+    odd.extend(png_chunk(b"ABCD", SECRET));
+    odd.extend(&plain[33..]);
+    assert_eq!(sanitize(&odd), Err(Refusal::Unreadable));
+    // A critical chunk whose CRC is wrong stops a decoder too.
+    let mut bad = plain.clone();
+    bad[29] ^= 1;
+    assert_eq!(sanitize(&bad), Err(Refusal::Unreadable));
+    // An ancillary chunk whose CRC is wrong is skipped by a decoder, and dropped here.
+    let mut text = png_chunk(b"tEXt", SECRET);
+    let n = text.len();
+    text[n - 1] ^= 1;
+    let mut skipped = plain[..33].to_vec();
+    skipped.extend(text);
+    skipped.extend(&plain[33..]);
+    assert_eq!(sanitize(&skipped).unwrap().unwrap(), plain);
+}
+
+#[test]
+fn a_jfif_thumbnail_goes() {
+    let plain = checker_jpeg(16);
+    let mut jfif = b"JFIF\0\x01\x01\0\0\x01\0\x01\x02\x02".to_vec();
+    jfif.extend(SECRET.iter().cycle().take(12));
+    let mut sent = plain[..2].to_vec();
+    sent.extend(segment(0xe0, &jfif));
+    sent.extend(segment(0xe0, &[b"JFXX\0\x10".as_slice(), SECRET].concat()));
+    sent.extend(&plain[2..]);
+    let clean = sanitize(&sent).unwrap().unwrap();
+    assert!(!has(&clean, SECRET) && !has(&clean, b"JFXX"));
+    assert!(has(&clean, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
 }
