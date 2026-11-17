@@ -244,7 +244,10 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// the picture (Petal's telepointers: cursors as metadata, never pixels).
     /// An older viewer never says it and keeps the cursor in the picture.
     public static let telepointersCapability = "telepointers"
+}
 
+// In an extension: an init in the struct's body would replace its memberwise init.
+extension ScreenHostMessage {
     /// `t` of the host's ``ScreenSourceState`` (in `s`), sent when it changes.
     public static let sourceType = "source"
 
