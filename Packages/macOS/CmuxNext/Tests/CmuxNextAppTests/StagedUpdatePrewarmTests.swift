@@ -109,8 +109,27 @@ import Testing
         #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
                         "cmux Helper (GPU) --version", "cmux Helper --version", "app \(StagedUpdatePrewarm.chromiumArgument)"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.contains("Frameworks read 2 files, 2 pages"), "the two helpers' executables, after they ran: \(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
+    }
+
+    /// The helpers' --version runs none of the framework's code, so the pre-warm reads every page of every regular
+    /// file under Contents/Frameworks once: empty files and symbolic links are skipped, a file one byte past three
+    /// pages is four pages.
+    @Test func readPagesReadsEachPageOfEachRegularFileOnce() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let page = Int(getpagesize()), files = FileManager.default
+        let framework = root.appending(path: "Frameworks/Chromium Embedded Framework.framework/Resources")
+        try files.createDirectory(at: framework, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 3 * page + 1).write(to: framework.appending(path: "resources.pak"))
+        try Data([1]).write(to: root.appending(path: "Frameworks/libone.dylib"))
+        try Data().write(to: root.appending(path: "Frameworks/empty"))
+        try files.createSymbolicLink(at: root.appending(path: "Frameworks/link.pak"), withDestinationURL: framework.appending(path: "resources.pak"))
+        let pages = StagedUpdatePrewarm.readPages(under: root.appending(path: "Frameworks"))
+        #expect(pages.files == 2 && pages.pages == 5, "\(pages)")
+        #expect(StagedUpdatePrewarm.readPages(under: root.appending(path: "missing")) == StagedUpdatePrewarm.Pages())
     }
 
     /// A pre-warm that ran leaves its build for that build's first launch, which consumes it (`cmux app launch-times`'

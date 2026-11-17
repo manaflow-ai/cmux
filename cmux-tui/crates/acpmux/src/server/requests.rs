@@ -1254,22 +1254,28 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RESOLVE => {
             let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
-            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
-                hub.locate_exact(
-                    str_param(&params, "sessionId")
-                        .or_else(|| str_param(&params, "query"))
-                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
-                    names_hosts,
-                )
+            let exact = params.get("exactSessionId").and_then(Value::as_bool) == Some(true);
+            let query = if exact {
+                str_param(&params, "sessionId")
+                    .or_else(|| str_param(&params, "query"))
+                    .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?
             } else {
-                hub.locate(
-                    str_param(&params, "query")
-                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-                    params.get("bead").and_then(Value::as_bool) == Some(true),
-                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-                    names_hosts,
-                )
+                str_param(&params, "query")
+                    .ok_or_else(|| RpcError::invalid_params("query is required"))?
+            };
+            let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
+            // A peer request is always owner-only: it cannot ask this daemon to transit a
+            // selector to a third machine. Local callers stay on v1 until cut E removes the
+            // watched table; this additive cut must not change what a local reader sees.
+            if conn.origin == Origin::Peer {
+                let query = Hub::validate_owner_selector(query)?;
+                hub.locate_owner(query, bead_only, exact, names_hosts)
+            } else {
+                if exact {
+                    hub.locate_exact(query, names_hosts)
+                } else {
+                    hub.locate(query, bead_only, names_hosts)
+                }
             }
         }
         method::INITIALIZE => {
@@ -2646,10 +2652,13 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
-        // Names every machine and its numbers: this machine's own clients only.
-        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
-            "_acpmux/place answers on this machine's unix socket only",
-        )),
+        // Names every machine and its numbers: this machine's own clients only, its unix socket
+        // and the app's own pane (the composer's Auto row and busy chip), never the Web or a peer.
+        "_acpmux/place" if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
@@ -3607,6 +3616,10 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
+                &shutdown_reason(&params),
+                params.get("restart").and_then(Value::as_bool) == Some(true),
+            ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

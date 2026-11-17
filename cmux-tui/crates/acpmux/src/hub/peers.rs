@@ -852,14 +852,12 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
+                // Whether a name missing from its rows is final, and messages waiting for the
+                // peer go now (`hub/no_session.rs`).
+                PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
-                    // Its list came before this notice and is applied: a name it lacks is no
-                    // session there (`hub/no_session.rs`).
-                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
-                        p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
-                        p.note_rows_applied();
-                    }
+                    self.peer_ready_rows(&peer, generation);
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).

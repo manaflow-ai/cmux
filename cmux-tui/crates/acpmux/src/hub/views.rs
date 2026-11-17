@@ -1136,6 +1136,9 @@ impl Hub {
             "personKey": self.person.has_key(),
             "personInstance": self.person.instance(),
             "home": crate::config::home(),
+            // The supervisor contract's health: this daemon's owner record, today's stops and
+            // their causes, and `restart-budget-exceeded` past the budget (`daemon/supervision.rs`).
+            "supervisor": crate::daemon::supervision::status(&crate::config::home()),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,

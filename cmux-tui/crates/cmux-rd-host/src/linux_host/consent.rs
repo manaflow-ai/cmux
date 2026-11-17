@@ -5,8 +5,8 @@
 //! `cmux-rd linux-host approve|deny` answers it. This desktop's own consent (`consent.json`,
 //! set at `enable`) may further refuse control, as the Mac's local consent does.
 
-use super::identity::{read_private, write_private};
 use crate::Res;
+use cmux_hub_host::identity::{read_private, write_private};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -124,7 +124,7 @@ impl<'a> Pending<'a> {
 }
 
 /// Why `--scope full` is refused on a host whose capture applies no input.
-const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which applies no input: it is shared view only (approve with --scope view)";
+const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which has no keyboard and pointer grant (`cmux-rd linux-host grant --control` asks for it once): it is shared view only (approve with --scope view)";
 
 /// The person's answer to a request, checked before it reaches the hub: only a recorded
 /// request, a scope at most the requested one (`full` may be lowered to `view`, never

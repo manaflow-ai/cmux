@@ -77,6 +77,19 @@ hook "$direct/pre-push" "'$own/pre-push' || exit 1"
 set_hooks "$direct"
 runs || fail "a pre-push that calls cmux-git-hooks/pre-push directly was refused"
 
+# The same call with the clone named through a symlink (macOS's /var/folders is /private/var/folders; a symlinked
+# ~/fun): git reports the real path, so a text match refused it. It is the same folder: it passes.
+ln -s "$repo" "$tmp/repo-link"
+hook "$direct/pre-push" "'$tmp/repo-link/.git/cmux-git-hooks/pre-push' || exit 1"
+runs || fail "a pre-push that calls cmux-git-hooks/pre-push through a symlinked path was refused"
+
+# Another clone's cmux-git-hooks is not this clone's gate.
+mkdir -p "$tmp/other/.git/cmux-git-hooks"
+hook "$tmp/other/.git/cmux-git-hooks/pre-push" "$gate_line"
+hook "$direct/pre-push" "'$tmp/other/.git/cmux-git-hooks/pre-push' || exit 1"
+runs && fail "a pre-push that calls another clone's cmux-git-hooks/pre-push passed"
+hook "$direct/pre-push" "'$own/pre-push' || exit 1"
+
 # A symlink to cmux-git-hooks is that folder.
 ln -s "$own" "$tmp/own-link"
 set_hooks "$tmp/own-link"
