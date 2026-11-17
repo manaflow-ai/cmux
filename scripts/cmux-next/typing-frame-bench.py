@@ -235,17 +235,40 @@ def chat_stream(pane):
     return Streamer(step, 3.0)
 
 
+def focus_chat_composer(pane):
+    """Re-assert the composer's focus right before the keys, and read both halves of what focus means.
+
+    `surface_chat` already calls `focus_composer` and refuses to measure unless it reports `focused: true`,
+    and the first two fleet runs passed that check and still saw the page count 0 keys. So page focus alone
+    does not decide the path. `composer_focused` reports two different things and only one of them was read:
+    `focused` is the page's caret (`document.activeElement` is the composer's field) and `native` is
+    `debugHoldsKeyboard`, whether that pane's view holds the keyboard natively. The key router's type-ahead
+    claims a printable key when the screen's primary input claims it and no text input "has the keyboard"
+    (`KeyRouter+TypeAhead.typesIntoPrimaryInput`), which is a native question, not a DOM one: a page caret
+    with no native keyboard still routes to `beginTyping`, which is what `handled_by: "app"` with an empty
+    trace and 0 page keys describes.
+
+    Reads both, right before the keys, and returns them so a round says which focus it measured under.
+    """
+    focused = rpc("debug.agent_pane", {"action": "focus_composer", "pane": pane}, timeout=20) or {}
+    state = rpc("debug.agent_pane", {"action": "composer_focused", "pane": pane}, timeout=20) or {}
+    note(f"chat: focus_composer {json.dumps(focused)[:160]}; composer_focused {json.dumps(state)[:160]}")
+    return {"focused": state.get("focused") is True, "native": state.get("native") is True,
+            "focus_reply": focused, "state": state}
+
+
 def chat_key_route(pane):
     """The `debug.key` route whose key the chat's composer actually gets, proven before the measure.
 
-    A key sent to the shell window is taken by the key router before AppKit's dispatch (`debug.key` reports
-    `handled_by: "app"`), so it reaches neither the typing probe (which opens its sample in
-    `CmuxApplication.sendEvent`) nor the page's own keydown listener: #45273's fleet run typed 80 keys with
-    0 probe rows and `typing_stats` keys 0, in every round and both phases. A key addressed to the pane's own
-    Chromium page window (`target: "page"`), as a real key is when the composer holds the keyboard, goes
-    through that window's dispatch into the page. Tries that first, keeps whichever route the page saw, and
-    returns None when neither did, so the surface measures nothing rather than report a wrong number.
+    A printable key addressed to the pane's own Chromium page window (`target: "page"`) is meant to travel
+    the path a real key takes and be counted by the page's keydown listener. #45273's first two fleet runs
+    saw 0 keys on that route and on the shell window, with `handled_by: "app"` and an empty trace, so the key
+    router took it first. `focus_chat_composer` logs both halves of focus just before, so the next run says
+    whether the pane held the keyboard natively when that happened. Tries the page window first, keeps
+    whichever route the page saw, and returns None when neither did, so the surface measures nothing rather
+    than report a wrong number.
     """
+    focus_chat_composer(pane)
     for params in ({"target": "page", "pane": pane}, {}):
         rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=20)
         reply = rpc("debug.key", dict(params, key="x"), timeout=10)
