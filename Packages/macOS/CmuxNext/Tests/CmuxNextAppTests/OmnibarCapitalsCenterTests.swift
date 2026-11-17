@@ -12,6 +12,13 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct OmnibarCapitalsCenterTests {
     /// The rows (from the top, in points at 2x) where `view` draws ink in `column` (a pixel column; nil: any column).
     static func inkRows(_ view: NSView, in bar: NSView, column: ((NSBitmapImageRep) -> Int)? = nil) throws -> ClosedRange<CGFloat> {
+        let lit = try inkProfile(view, in: bar, column: column)
+        let first = try #require(lit.firstIndex { $0 > 0.05 }), last = try #require(lit.lastIndex { $0 > 0.05 })
+        return CGFloat(first) / 2...CGFloat(last + 1) / 2
+    }
+
+    /// Each pixel row's ink (0 to 1, from the top, at 2x) where `view` draws in `column` (a pixel column; nil: any column).
+    static func inkProfile(_ view: NSView, in bar: NSView, column: ((NSBitmapImageRep) -> Int)? = nil) throws -> [Double] {
         let size = bar.bounds.size
         let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -26,9 +33,50 @@ import Testing
         }
         let rows = (0..<rep.pixelsHigh).map { y in xs.map { ink($0, y) }.max() ?? 0 }
         let floor = rows.min() ?? 0, top = rows.max() ?? 1
-        let lit = rows.map { ($0 - floor) / max(top - floor, 0.001) }
-        let first = try #require(lit.firstIndex { $0 > 0.05 }), last = try #require(lit.lastIndex { $0 > 0.05 })
-        return CGFloat(first) / 2...CGFloat(last + 1) / 2
+        return rows.map { ($0 - floor) / max(top - floor, 0.001) }
+    }
+
+    /// Each pixel row's most opaque pixel (from the top, at 2x) in `view` drawn alone.
+    static func alphaProfile(_ view: NSView) throws -> [Double] {
+        view.layoutSubtreeIfNeeded()
+        let size = view.bounds.size
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return (0..<rep.pixelsHigh).map { y in (0..<rep.pixelsWide).map { Double(rep.colorAt(x: $0, y: y)?.alphaComponent ?? 0) }.max() ?? 0 }
+    }
+
+    /// Lucas 2026-11-17: "maybe make the search icon 1px taller too for default", and Compact's stays exactly as it is
+    /// ("its perfect"). Measured from the search glyph's own pixels at 2x (an empty tab; a loaded page draws its
+    /// page-info glyph): Default's ink is 2 rows (1 pt) taller than Compact's, and Compact's glyph keeps its 17 pt box.
+    @Test func defaultsSearchGlyphIsAPointTaller() throws {
+        func ink(_ preset: DensityPreset) throws -> (rows: Double, side: CGFloat) {
+            let design = DesignSettings.shared
+            let saved = design.densityTokens
+            defer { design.densityTokens = saved }
+            design.densityTokens = preset.tokens
+            _ = NSApplication.shared
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: nil))
+            let chrome = BrowserChromeView(tab: tab)
+            chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
+            window.contentView = chrome
+            chrome.layoutSubtreeIfNeeded()
+            let icon = try #require(chrome.addressBar.chip.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
+            let alpha = try Self.alphaProfile(icon), top = alpha.max() ?? 1
+            // Each row's share of the glyph's full ink (its tint is not opaque): the glyph's height in rows.
+            let rows = alpha.reduce(0) { $0 + $1 / max(top, 0.001) }
+            print("SEARCH|\(preset.rawValue)|side \(icon.frame.height)|rows \(rows)|\(alpha.map { Int($0 / max(top, 0.001) * 100) })")
+            return (rows, icon.frame.height)
+        }
+        let compact = try ink(.compact), cozy = try ink(.cozy)
+        #expect(compact.side == 17, "Compact's search glyph keeps its 17 pt box: \(compact.side)")
+        #expect(abs(cozy.rows - compact.rows - 2) <= 0.4,
+                "Default's search glyph is \(cozy.rows) rows at 2x, Compact's \(compact.rows): want 2 rows (1 pt) more")
     }
 
     @Test(arguments: DensityPreset.allCases)
