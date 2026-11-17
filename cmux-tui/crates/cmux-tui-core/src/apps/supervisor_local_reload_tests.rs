@@ -361,13 +361,19 @@ fn local_reload_stress_one_save_among_many_apps() {
         // The first pass reports the malformed folders: that is the once.
         let mut prints = f.supervisor.reload_local_apps(&Default::default());
         let _: Vec<Value> = f.events.try_iter().collect();
+        // The pass a save makes: the watch and `cmux ext dev` name the folder.
         let mut samples = Vec::new();
         for save in 0..30 {
             save_version(&local.join("s0"), &format!("1.0.{}", save + 1));
             let start = Instant::now();
-            prints = f.supervisor.reload_local_apps(&prints);
+            prints = f.supervisor.reload_local_apps_saved(&prints, [local.join("s0")]);
             samples.push(start.elapsed());
         }
+        // A pass over every folder (`cmux ext reload`, a lost event), for the table.
+        let start = Instant::now();
+        prints = f.supervisor.reload_local_apps(&prints);
+        let full = start.elapsed();
+        assert!(!prints.is_empty());
         let events: Vec<Value> = f.events.try_iter().collect();
         let changed = events.iter().filter(|e| e["event"] == "apps-changed").count();
         let logs = f.supervisor.logs(CLIENT, "cmux/supervisor", false);
@@ -382,9 +388,10 @@ fn local_reload_stress_one_save_among_many_apps() {
         samples.sort();
         let (p50, p95) = (samples[15], samples[28]);
         println!(
-            "local reload: {apps} apps | p50 {:.2} ms | p95 {:.2} ms | {warns} warn lines over 30 saves",
+            "local reload: {apps} apps | p50 {:.2} ms | p95 {:.2} ms | {warns} warn lines over 30 saves | every folder {:.2} ms",
             p50.as_secs_f64() * 1e3,
-            p95.as_secs_f64() * 1e3
+            p95.as_secs_f64() * 1e3,
+            full.as_secs_f64() * 1e3
         );
         rows.push((apps, p50, warns));
     }
@@ -418,4 +425,27 @@ fn a_fixed_manifest_loads_while_unchanged_folders_are_reused() {
     f.supervisor.reload_local_apps(&prints);
     assert_eq!(app_entry(&f.supervisor.list(), "local/late")["version"], "1.0.0");
     assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.0");
+}
+
+/// The pass a save makes reads only the folders it names: among them a new
+/// app folder loads and a folder whose manifest went is removed, while an
+/// app the save did not name keeps what the last pass read. Every app's
+/// change is read by the pass that names it or reads every folder.
+#[test]
+fn a_pass_for_named_folders_reads_those_folders_only() {
+    let f = fixture();
+    let local = f.state.join("apps/local");
+    write_app(&local, "a", "local/a", json!({}));
+    write_app(&local, "b", "local/b", json!({}));
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_app(&local, "c", "local/c", json!({}));
+    std::fs::remove_file(local.join("b/cmux-app.json")).unwrap();
+    save_version(&local.join("a"), "2.0.0");
+    let prints = f.supervisor.reload_local_apps_saved(&prints, [local.join("b"), local.join("c")]);
+    let list = f.supervisor.list();
+    assert_eq!(app_entry(&list, "local/c")["version"], "1.0.0", "the new folder loads");
+    assert_eq!(app_entry(&list, "local/b"), Value::Null, "the folder without a manifest goes");
+    assert_eq!(app_entry(&list, "local/a")["version"], "1.0.0", "an unnamed folder is not read");
+    f.supervisor.reload_local_apps_saved(&prints, [local.join("a")]);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/a")["version"], "2.0.0");
 }

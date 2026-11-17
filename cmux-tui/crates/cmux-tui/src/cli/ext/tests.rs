@@ -1114,6 +1114,13 @@ fn a_reload_does_not_wait_for_the_file_watch() {
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     let cmds = fake.cmds();
     assert!(cmds.contains(&"apps-reload-local".to_string()), "{cmds:?}");
+    // It names the folder it copied to, so the daemon's pass reads that
+    // folder only, not every local app.
+    let requests = fake.requests.lock().unwrap();
+    let asked = requests.iter().find(|r| r["cmd"] == "apps-reload-local").unwrap();
+    let folders = asked["folders"].as_array().unwrap();
+    assert_eq!(folders.len(), 1, "{asked}");
+    assert_eq!(Path::new(folders[0].as_str().unwrap()).parent(), Some(local.as_path()), "{asked}");
 }
 
 /// A daemon older than `apps-reload-local` refuses it and still reloads on

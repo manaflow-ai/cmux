@@ -324,17 +324,22 @@ enum DirKind {
 }
 
 pub fn load(sources: &Sources) -> Catalog {
-    load_reusing(sources, &|_| None)
+    load_reusing(sources, &|_| None, &|_| None)
 }
 
 /// A package folder's earlier read (`Ok` package or `Err` refusal), when
 /// the folder is unchanged since it (`local_reload::PrintsBefore`).
 pub type Reuse<'a> = dyn Fn(&Path) -> Option<Result<Package, String>> + 'a;
 
-/// `load`, taking each package folder's read from `reuse` when it has one:
-/// a reload pass re-validates only the folders that changed, not every
-/// app's manifest and script (one save among 200 apps read 200 scripts).
-pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>) -> Catalog {
+/// A package root's package folders, sorted, when the caller already knows
+/// them (`local_reload::PrintsBefore::listed`); `None` lists the root.
+pub type Listed<'a> = dyn Fn(&Path) -> Option<Vec<PathBuf>> + 'a;
+
+/// `load`, taking each package folder's read from `reuse` and each root's
+/// package folders from `listed` when they have them: a reload pass a save
+/// makes reads and lists only the folders that changed, not every app's
+/// manifest and script (one save among 200 apps read 200 scripts).
+pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -> Catalog {
     let read = |dir: &Path, kind: DirKind| reuse(dir).unwrap_or_else(|| package(dir, kind));
     let mut catalog = Catalog::default();
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
@@ -344,12 +349,18 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>) -> Catalog {
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
-        let Ok(entries) = std::fs::read_dir(&root) else { continue };
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())
-            .collect();
-        paths.sort();
+        let paths = match listed(&root) {
+            Some(paths) => paths,
+            None => {
+                let Ok(entries) = std::fs::read_dir(&root) else { continue };
+                let mut paths: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())
+                    .collect();
+                paths.sort();
+                paths
+            }
+        };
         for dir in paths {
             match read(&dir, kind) {
                 // The customize app may run the person's own actions, so only

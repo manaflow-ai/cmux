@@ -50,6 +50,20 @@ struct Report {
     removed: Vec<String>,
 }
 
+/// The watched package folders a pass reads. A save names its folder (the
+/// watch's events, `cmux ext dev`'s copy), so the pass a save makes costs
+/// the same with 1 or 200 local apps; the others keep the fingerprint and
+/// read of the last pass (`Inner::local_seen`). Base: every save listed,
+/// fingerprinted and checked every app folder (200 apps: 16 ms a save).
+pub(super) enum Scope {
+    /// Every watched folder: a forced reload, safe mode ending, a watch that
+    /// may have lost events or was armed again.
+    All,
+    /// Only these package folders (each the customize folder or a direct
+    /// subfolder of a package folder), as `PrintsBefore::take` spells them.
+    Folders(HashSet<PathBuf>),
+}
+
 /// Files read per package for its fingerprint (a runaway folder costs no more).
 pub(super) const MAX_FILES: usize = 2_000;
 
@@ -95,12 +109,31 @@ impl Supervisor {
     /// refused (`rejected`, each `{dir, issue}`; a refused new folder makes
     /// no event, since it never had a print).
     pub(crate) fn reload_local_apps_now(&self) -> Value {
-        self.reload_local_apps_now_with(|_| {})
+        self.reload_local_apps_in(&Scope::All, |_| {})
+    }
+
+    /// `reload_local_apps_now` for a caller that names the package folders
+    /// it wrote (`apps-reload-local`'s `folders`): only those are read when
+    /// each is a watched package folder; any other name reads every folder.
+    pub(crate) fn reload_local_apps_named(&self, folders: Option<Vec<PathBuf>>) -> Value {
+        let sources = &self.config.sources;
+        let scope = match folders {
+            Some(folders) if folders.iter().all(|dir| is_watched_dir(sources, dir)) => {
+                Scope::Folders(folders.into_iter().collect())
+            }
+            _ => Scope::All,
+        };
+        self.reload_local_apps_in(&scope, |_| {})
     }
 
     /// `reload_local_apps_now` from the last pass's prints as `adjust` leaves
     /// them: a rollback drops its app's print so it reads as changed.
     pub(crate) fn reload_local_apps_now_with(&self, adjust: impl FnOnce(&mut Prints)) -> Value {
+        self.reload_local_apps_in(&Scope::All, adjust)
+    }
+
+    /// `reload_local_apps_now_with`, reading the folders `scope` names.
+    fn reload_local_apps_in(&self, scope: &Scope, adjust: impl FnOnce(&mut Prints)) -> Value {
         let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
         let mut prints =
             self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
@@ -108,7 +141,7 @@ impl Supervisor {
         if self.safe_mode_on() {
             return json!({ "safeMode": true, "rejected": [] });
         }
-        let (_, rejected) = on_screen(|| self.pass(&prints, catalog::load_reusing));
+        let (_, rejected) = on_screen(|| self.pass(&prints, scope, catalog::load_reusing));
         let rejected: Vec<Value> = rejected
             .into_iter()
             .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
@@ -144,7 +177,8 @@ impl Supervisor {
             }
             None => prints.values_mut().for_each(|print| *print = UNREAD),
         }
-        let (next, _, report) = on_screen(|| self.pass_reporting(&prints, catalog::load_reusing));
+        let (next, _, report) =
+            on_screen(|| self.pass_reporting(&prints, &Scope::All, catalog::load_reusing));
         if let Some(app) = app
             && !next.contains_key(app)
             && !report.removed.iter().any(|gone| gone == app)
@@ -195,7 +229,17 @@ impl Supervisor {
     /// `prints`; returns the new fingerprints.
     #[cfg(test)]
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
-        self.pass(prints, catalog::load_reusing).0
+        self.pass(prints, &Scope::All, catalog::load_reusing).0
+    }
+
+    /// `reload_local_apps` for a save the watch names: reads only `folders`.
+    #[cfg(test)]
+    pub(super) fn reload_local_apps_saved(
+        &self,
+        prints: &Prints,
+        folders: impl IntoIterator<Item = PathBuf>,
+    ) -> Prints {
+        self.pass(prints, &Scope::Folders(folders.into_iter().collect()), catalog::load_reusing).0
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
@@ -206,7 +250,7 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
-        self.pass(prints, |sources, _| load(sources)).0
+        self.pass(prints, &Scope::All, |sources, _, _| load(sources)).0
     }
 
     /// One pass: the new fingerprints, and the watched folders the catalog
@@ -214,28 +258,55 @@ impl Supervisor {
     fn pass(
         &self,
         prints: &Prints,
-        load: impl FnOnce(&catalog::Sources, &catalog::Reuse<'_>) -> catalog::Catalog,
+        scope: &Scope,
+        load: impl FnOnce(
+            &catalog::Sources,
+            &catalog::Reuse<'_>,
+            &catalog::Listed<'_>,
+        ) -> catalog::Catalog,
     ) -> (Prints, Vec<(PathBuf, String)>) {
-        let (next, rejected, _) = self.pass_reporting(prints, load);
+        let (next, rejected, _) = self.pass_reporting(prints, scope, load);
         (next, rejected)
     }
 
     /// `pass`, and what it applied. `load` gets the earlier read of each
     /// watched folder whose fingerprint is the one that read was taken with
-    /// (`Inner::local_dir_prints`), so a pass reads only changed folders.
+    /// (`Inner::local_dir_prints`), so a pass reads only changed folders, and
+    /// with `Scope::Folders` each root's package folders as the last pass
+    /// left them, so it lists no root either.
     fn pass_reporting(
         &self,
         prints: &Prints,
-        load: impl FnOnce(&catalog::Sources, &catalog::Reuse<'_>) -> catalog::Catalog,
+        scope: &Scope,
+        load: impl FnOnce(
+            &catalog::Sources,
+            &catalog::Reuse<'_>,
+            &catalog::Listed<'_>,
+        ) -> catalog::Catalog,
     ) -> (Prints, Vec<(PathBuf, String)>, Report) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
-        // saves made meanwhile apply when it ends (`safe_mode.rs`).
+        // saves made meanwhile apply when it ends (`safe_mode.rs`), which
+        // reads every folder.
         if self.safe_mode_on() {
             return (prints.clone(), Vec::new(), Report::default());
         }
-        let before = PrintsBefore::take(&self.config.sources);
+        let sources = &self.config.sources;
+        let before = match scope {
+            Scope::All => PrintsBefore::take(sources),
+            Scope::Folders(folders) => {
+                let seen =
+                    self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_seen.clone();
+                PrintsBefore::again(sources, seen, folders)
+            }
+        };
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_seen =
+            before.dirs().clone();
         let earlier = self.earlier_reads(&before);
-        let catalog = load(&self.config.sources, &|dir: &Path| earlier.get(dir).cloned());
+        let listed = |root: &Path| match scope {
+            Scope::All => None,
+            Scope::Folders(_) => before.listed(sources, root),
+        };
+        let catalog = load(sources, &|dir: &Path| earlier.get(dir).cloned(), &listed);
         let next = before.of(&self.config.sources, &catalog);
         let rejected: Vec<(PathBuf, String)> = catalog
             .rejected
@@ -549,9 +620,44 @@ impl PrintsBefore {
         Self(prints.collect())
     }
 
+    /// `take` for a pass that reads only `folders`: the other folders keep
+    /// `seen`, the last pass's fingerprints. A named folder that is no
+    /// longer a package (its manifest or the folder went) leaves the prints,
+    /// and one that became a package joins them, as `take` would have it.
+    pub(super) fn again(
+        sources: &catalog::Sources,
+        mut seen: HashMap<PathBuf, u64>,
+        folders: &HashSet<PathBuf>,
+    ) -> Self {
+        for dir in folders {
+            let customize = sources.customize.as_deref() == Some(dir.as_path());
+            if dir.is_dir() && (customize || is_package(dir)) {
+                seen.insert(dir.clone(), fingerprint(dir));
+            } else {
+                seen.remove(dir);
+            }
+        }
+        Self(seen)
+    }
+
     /// Each watched package folder's fingerprint.
     pub(super) fn dirs(&self) -> &HashMap<PathBuf, u64> {
         &self.0
+    }
+
+    /// `root`'s package folders, sorted, as `catalog::load` lists them, when
+    /// `root` is a package folder these prints cover (`package_dirs`).
+    pub(super) fn listed(&self, sources: &catalog::Sources, root: &Path) -> Option<Vec<PathBuf>> {
+        // The customize folder has a print with or without a manifest; in a
+        // package folder it would be listed without one.
+        let holds_customize = sources.customize.as_deref().and_then(Path::parent) == Some(root);
+        if holds_customize || !package_dirs(sources).any(|dir| dir == root) {
+            return None;
+        }
+        let mut dirs: Vec<PathBuf> =
+            self.0.keys().filter(|dir| dir.parent() == Some(root)).cloned().collect();
+        dirs.sort();
+        Some(dirs)
     }
 
     /// The fingerprints of `catalog`'s watched and local packages, by app id,
@@ -773,14 +879,18 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
     // startup catalog (`Inner::local_prints`) was read before this thread armed it: a write in
     // between (a loaded machine, an app saved as cmux starts) had no event
     // and was never read. Read once more now that the watch is on.
-    match me.upgrade() {
-        Some(supervisor) => drop(supervisor.reload_local_apps_now()),
+    let customize = match me.upgrade() {
+        Some(supervisor) => {
+            drop(supervisor.reload_local_apps_now());
+            supervisor.config.sources.customize.clone()
+        }
         None => return,
-    }
+    };
     loop {
-        let relevant = |path: &Path| roots.iter().any(|root| path.starts_with(root));
-        let root = |path: &Path| roots.iter().any(|root| path == root);
-        let Some(burst) = next_burst(&events, &relevant, &root) else { return };
+        let relevant = |path: &Path| roots.iter().any(|(root, _)| path.starts_with(root));
+        let root = |path: &Path| roots.iter().any(|(root, _)| path == root);
+        let package = |path: &Path| package_of(&roots, customize.as_deref(), path);
+        let Some(burst) = next_burst(&events, &relevant, &root, &package) else { return };
         if burst.folder {
             // Armed before the read: the read sees every file written before
             // the new folder was watched, and the watch every write after.
@@ -788,8 +898,28 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
             roots = watch_roots(&dirs);
         }
         let Some(supervisor) = me.upgrade() else { return };
-        supervisor.reload_local_apps_now();
+        supervisor.reload_local_apps_in(&burst.scope, |_| {});
     }
+}
+
+/// The package folder (as configured, the spelling `PrintsBefore::take`
+/// uses) that `path` is in: the customize folder, or the subfolder of a
+/// package folder it is under. `None` for a watched folder itself, whose
+/// event can mean any of its packages.
+fn package_of(
+    roots: &[(PathBuf, PathBuf)],
+    customize: Option<&Path>,
+    path: &Path,
+) -> Option<PathBuf> {
+    let (spelling, dir) = roots
+        .iter()
+        .filter(|(spelling, _)| path.starts_with(spelling))
+        .max_by_key(|(spelling, _)| spelling.as_os_str().len())?;
+    let first = path.strip_prefix(spelling).ok()?.components().next()?;
+    if customize == Some(dir.as_path()) {
+        return Some(dir.clone());
+    }
+    Some(dir.join(first.as_os_str()))
 }
 
 /// What woke the watch thread.
@@ -806,6 +936,46 @@ struct Burst {
     /// It held a `Wake::Folder`, or a watched folder itself was removed or
     /// renamed: the folders are armed again.
     folder: bool,
+    /// The package folders its events name; every folder when it held a
+    /// folder hint, a lost-events signal or an event on a watched folder.
+    scope: Scope,
+}
+
+impl Burst {
+    fn add(
+        &mut self,
+        wake: Wake,
+        relevant: &dyn Fn(&Path) -> bool,
+        root: &dyn Fn(&Path) -> bool,
+        package: &dyn Fn(&Path) -> Option<PathBuf>,
+    ) {
+        let event = match wake {
+            Wake::Folder => {
+                self.folder = true;
+                self.scope = Scope::All;
+                return;
+            }
+            Wake::File(event) => event,
+        };
+        if folder_gone(&event, root) {
+            self.folder = true;
+            self.scope = Scope::All;
+        }
+        if !is_change(&event, relevant) {
+            return;
+        }
+        let named: Option<Vec<PathBuf>> = match &event {
+            Ok(event) if !event.need_rescan() => {
+                event.paths.iter().filter(|path| relevant(path)).map(|path| package(path)).collect()
+            }
+            _ => None,
+        };
+        match (named, &mut self.scope) {
+            (Some(named), Scope::Folders(folders)) => folders.extend(named),
+            (None, scope) => *scope = Scope::All,
+            (Some(_), Scope::All) => {}
+        }
+    }
 }
 
 /// The local folders with a recursive watch.
@@ -847,42 +1017,45 @@ impl Folders {
 
 /// Each folder as configured and, when it differs, as resolved: the folder
 /// itself when it exists, else its parent resolved with its name (a
-/// customize folder the user has not made yet).
-fn watch_roots(dirs: &[PathBuf]) -> Vec<PathBuf> {
+/// customize folder the user has not made yet), each with the folder as
+/// configured.
+fn watch_roots(dirs: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
     let mut roots = Vec::new();
     for dir in dirs {
-        roots.push(dir.to_path_buf());
+        roots.push((dir.to_path_buf(), dir.to_path_buf()));
         let resolved = std::fs::canonicalize(dir).ok().or_else(|| {
             let parent = std::fs::canonicalize(dir.parent()?).ok()?;
             Some(parent.join(dir.file_name()?))
         });
         if let Some(resolved) = resolved.filter(|resolved| resolved != dir) {
-            roots.push(resolved);
+            roots.push((resolved, dir.to_path_buf()));
         }
     }
     roots
 }
 
 /// Waits for a folder hint or an event that can mean a change (`is_change`),
-/// then drains the burst queued behind it. `None` when the watch ended.
+/// then drains the burst queued behind it, with the package folders its
+/// events name (`package`). `None` when the watch ended.
 fn next_burst(
     events: &Receiver<Wake>,
     relevant: &dyn Fn(&Path) -> bool,
     root: &dyn Fn(&Path) -> bool,
+    package: &dyn Fn(&Path) -> Option<PathBuf>,
 ) -> Option<Burst> {
     loop {
-        let mut folder = match events.recv().ok()? {
-            Wake::Folder => true,
-            Wake::File(event) if is_change(&event, relevant) => folder_gone(&event, root),
-            Wake::File(_) => continue,
-        };
-        while let Ok(wake) = events.try_recv() {
-            folder |= match wake {
-                Wake::Folder => true,
-                Wake::File(event) => folder_gone(&event, root),
-            };
+        let first = events.recv().ok()?;
+        if let Wake::File(event) = &first
+            && !is_change(event, relevant)
+        {
+            continue;
         }
-        return Some(Burst { folder });
+        let mut burst = Burst { folder: false, scope: Scope::Folders(HashSet::new()) };
+        burst.add(first, relevant, root, package);
+        while let Ok(wake) = events.try_recv() {
+            burst.add(wake, relevant, root, package);
+        }
+        return Some(burst);
     }
 }
 
@@ -957,21 +1130,29 @@ mod tests {
         RenameMode,
     };
 
-    use super::{Folders, Wake, fingerprint, next_burst};
+    use super::{Burst, Folders, Scope, Wake, fingerprint, next_burst, package_of};
 
     const ROOT: &str = "/apps/customize";
 
-    /// Whether this queue of events wakes the watch.
-    fn wakes(events: Vec<notify::Result<Event>>) -> bool {
+    /// The burst the watch of the customize folder `ROOT` drains from `wakes`.
+    fn drain(wakes: Vec<Wake>) -> Option<Burst> {
         let (sender, receiver) = channel();
-        for event in events {
-            sender.send(Wake::File(event)).unwrap();
+        for wake in wakes {
+            sender.send(wake).unwrap();
         }
         drop(sender);
-        next_burst(&receiver, &|path: &Path| path.starts_with(ROOT), &|path: &Path| {
-            path == Path::new(ROOT)
-        })
-        .is_some()
+        let roots = [(PathBuf::from(ROOT), PathBuf::from(ROOT))];
+        next_burst(
+            &receiver,
+            &|path: &Path| path.starts_with(ROOT),
+            &|path: &Path| path == Path::new(ROOT),
+            &|path: &Path| package_of(&roots, Some(Path::new(ROOT)), path),
+        )
+    }
+
+    /// Whether this queue of events wakes the watch.
+    fn wakes(events: Vec<notify::Result<Event>>) -> bool {
+        drain(events.into_iter().map(Wake::File).collect()).is_some()
     }
 
     fn on(kind: EventKind) -> notify::Result<Event> {
@@ -1008,17 +1189,7 @@ mod tests {
     /// behind a save in the same burst. A save alone arms nothing.
     #[test]
     fn a_folder_hint_or_a_removed_folder_arms_the_folders_again() {
-        let burst = |wakes: Vec<Wake>| {
-            let (sender, receiver) = channel();
-            for wake in wakes {
-                sender.send(wake).unwrap();
-            }
-            drop(sender);
-            next_burst(&receiver, &|path: &Path| path.starts_with(ROOT), &|path: &Path| {
-                path == Path::new(ROOT)
-            })
-            .map(|burst| burst.folder)
-        };
+        let burst = |wakes: Vec<Wake>| drain(wakes).map(|burst| burst.folder);
         let write = || Wake::File(on(EventKind::Modify(ModifyKind::Data(DataChange::Any))));
         let folder = |kind| Wake::File(Ok(Event::new(kind).add_path(PathBuf::from(ROOT))));
         assert_eq!(burst(vec![Wake::Folder]), Some(true));
@@ -1029,6 +1200,80 @@ mod tests {
             Some(true)
         );
         assert_eq!(burst(vec![write()]), Some(false), "a save alone arms nothing");
+    }
+
+    /// A burst names the package folders its events are in, so the pass
+    /// reads only those; a lost-events signal, a folder hint or an event on
+    /// a watched folder itself reads every folder.
+    #[test]
+    fn a_save_names_its_package_folder_and_a_lost_event_reads_all() {
+        let local = PathBuf::from("/state/apps/local");
+        // The folder as watched under a symlink's real path, and as configured.
+        let real = PathBuf::from("/private/state/apps/local");
+        let roots = [(local.clone(), local.clone()), (real.clone(), local.clone())];
+        let scope = |events: Vec<notify::Result<Event>>| {
+            let (sender, receiver) = channel();
+            for event in events {
+                sender.send(Wake::File(event)).unwrap();
+            }
+            drop(sender);
+            let relevant = |path: &Path| roots.iter().any(|(root, _)| path.starts_with(root));
+            let root = |path: &Path| roots.iter().any(|(root, _)| path == root);
+            let package = |path: &Path| package_of(&roots, None, path);
+            match next_burst(&receiver, &relevant, &root, &package).unwrap().scope {
+                Scope::All => None,
+                Scope::Folders(folders) => {
+                    let mut folders: Vec<PathBuf> = folders.into_iter().collect();
+                    folders.sort();
+                    Some(folders)
+                }
+            }
+        };
+        let write = |path: PathBuf| {
+            Ok(Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any))).add_path(path))
+        };
+        // `ext dev` stages a file and renames it over the old one.
+        let staged = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(local.join("s0/dist/.main.js.tmp"))
+            .add_path(local.join("s0/dist/main.js"));
+        assert_eq!(scope(vec![Ok(staged)]), Some(vec![local.join("s0")]));
+        assert_eq!(
+            scope(vec![write(real.join("s1/cmux-app.json")), write(local.join("s0/main.js"))]),
+            Some(vec![local.join("s0"), local.join("s1")]),
+            "the real path names the folder as configured"
+        );
+        assert_eq!(
+            scope(vec![Ok(Event::new(EventKind::Create(notify::event::CreateKind::Folder))
+                .add_path(local.join("new")))]),
+            Some(vec![local.join("new")]),
+            "a new app folder is read on its own"
+        );
+        assert_eq!(scope(vec![write(local.clone())]), None, "the watched folder itself");
+        assert_eq!(
+            scope(vec![
+                write(local.join("s0/a")),
+                Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan))
+            ]),
+            None,
+            "a lost event reads every folder"
+        );
+        assert_eq!(
+            scope(vec![write(local.join("s0/a")), Err(notify::Error::generic("read failed"))]),
+            None
+        );
+        assert!(
+            matches!(
+                drain(vec![Wake::File(on(EventKind::Modify(ModifyKind::Any))), Wake::Folder])
+                    .unwrap()
+                    .scope,
+                Scope::All
+            ),
+            "a folder hint reads every folder"
+        );
+        assert!(matches!(
+            drain(vec![Wake::File(on(EventKind::Modify(ModifyKind::Any)))]).unwrap().scope,
+            Scope::Folders(folders) if folders.len() == 1 && folders.contains(Path::new(ROOT))
+        ));
     }
 
     /// Waits (at most 10 s) for a change event naming `want`; panics on one

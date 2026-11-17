@@ -283,6 +283,10 @@ pub(super) struct Inner {
     /// The watched folders' fingerprints `catalog` was read with: a reload
     /// pass reuses the read of each folder whose fingerprint is unchanged.
     pub local_dir_prints: HashMap<PathBuf, u64>,
+    /// The watched folders' fingerprints at the last reload pass, whether it
+    /// applied anything or not: a pass that reads only the folders a save
+    /// names (`local_reload::Scope::Folders`) keeps these for the others.
+    pub local_seen: HashMap<PathBuf, u64>,
     /// Each local app's last good copy (`rollback.rs`), and the fingerprint
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
@@ -470,6 +474,7 @@ impl Supervisor {
                 failed: HashMap::new(),
                 local_prints,
                 local_rejected_logged: HashMap::new(),
+                local_seen: local_dir_prints.clone(),
                 local_dir_prints,
                 last_good,
                 good_tried: HashMap::new(),
