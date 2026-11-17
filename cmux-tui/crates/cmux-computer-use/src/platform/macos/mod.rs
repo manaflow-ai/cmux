@@ -56,10 +56,10 @@ impl MacDesktop {
         }
     }
 
-    /// Keeps `check` for the engine's read-back after the settle.
     /// Keeps `check` for the engine's read-back after the settle (its
-    /// intended change goes with it; see [`readback`]).
-    fn expect(&self, check: Option<readback::Check>) -> Option<Expect> {
+    /// intended change goes with it; see [`readback`]): the [`Expect`] an
+    /// action's outcome carries.
+    fn keep_check(&self, check: Option<readback::Check>) -> Option<Expect> {
         let check = check?;
         Some(self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).add(check))
     }

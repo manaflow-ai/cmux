@@ -54,19 +54,19 @@ fn outcome_after(
                 && a != b.get() =>
         {
             let mut out = ActionOutcome::confirmed(route);
-            out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
+            out.expect = d.keep_check(Some(readback::Check::value_from(el, b, wanted, 0.0)));
             out
         }
         // A radio button already on stays on when pressed: done already,
         // not "no effect" (the read-back states no change).
         (Some(b), _) if roles::press_already_done(&role, action, b.get()) => {
             let mut out = ActionOutcome::delivered(route);
-            out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
+            out.expect = d.keep_check(Some(readback::Check::value_from(el, b, wanted, 0.0)));
             out
         }
         _ => {
             let mut out = ActionOutcome::delivered(route);
-            out.expect = d.expect(effects);
+            out.expect = d.keep_check(effects);
             out
         }
     };
@@ -818,7 +818,7 @@ fn caret_click(d: &MacDesktop, t: &Target, el: &Ax, at: Point) -> DResult<Option
         }
         out
     };
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     Ok(Some(out.showing("selection").at(at)))
 }
 
@@ -866,7 +866,7 @@ fn select_drag(
         }
         out
     };
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     Ok(Some(out.showing("selection").at(to)))
 }
 
@@ -938,7 +938,7 @@ fn slider_drag(
     } else {
         ActionOutcome::delivered("ax_slider")
     };
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     Ok(Some(out.showing("value").at(to)))
 }
 
@@ -1049,7 +1049,7 @@ fn ax_scroll_run(
     };
     // At the end it scrolls toward, wanted == before: the read-back states
     // no change.
-    out.expect = d.expect(Some(readback::Check::scroll_planned(plan)));
+    out.expect = d.keep_check(Some(readback::Check::scroll_planned(plan)));
     Ok(Some(out.showing("scroll").at(at)))
 }
 
@@ -1113,7 +1113,7 @@ fn select_outcome(d: &MacDesktop, row: &Ax, check: Option<readback::Check>) -> A
         ActionOutcome::delivered("ax_select")
     }
     .showing("selection");
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     if let Some(frame) = row.frame() {
         out = out.at(roles::center(&frame));
     }
@@ -1292,7 +1292,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         // mark, and an app primed a moment ago may write its document on
         // its own; a primed press stays uncertain.
         if in_menu_bar && out.evidence != "confirmed" && menu_key.is_none() && !primed_press {
-            out.expect = d.expect(menu_checks(item_toggle, item_effect));
+            out.expect = d.keep_check(menu_checks(item_toggle, item_effect));
         }
         // AXPress runs the item's action before it returns: hand back now.
         if let Some(key) = menu_key.take()
@@ -1456,11 +1456,11 @@ fn web_value_write(
     };
     // A field that lost focus may have taken nothing: no read-back claim.
     if !kept {
-        out.expect = d.expect(None);
+        out.expect = d.keep_check(None);
         out = out.at(field.center);
         return Ok(out);
     }
-    out.expect = d.expect(Some(check));
+    out.expect = d.keep_check(Some(check));
     out = out.at(field.center);
     Ok(out)
 }
@@ -2052,7 +2052,7 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
         {
             let mut out = ActionOutcome::delivered("ax_insert_text");
             out.note = "the app did not answer the accessibility write in time; it may have applied it, so no keys were posted after it".into();
-            out.expect = d.expect(check);
+            out.expect = d.keep_check(check);
             return Ok(Some(out.showing("text")));
         }
         if written.is_ok() {
@@ -2087,7 +2087,7 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
                     INSERT_WAIT.as_millis()
                 );
             }
-            out.expect = d.expect(check);
+            out.expect = d.keep_check(check);
             return Ok(Some(out.showing("text")));
         }
     }
@@ -2151,7 +2151,7 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
         ActionOutcome::delivered("ax_set_value")
     }
     .showing("text");
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     out.note = match error {
         Some(e) => format!(
             "the value write returned accessibility error {e}; it may have applied; no keys were posted after it"
@@ -2343,13 +2343,13 @@ pub(super) fn type_text(
         if let Some(el) = &web_keys_into {
             settle_web_caret(d, &t, el, text)?;
         }
-        return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
+        return Ok(typed_outcome(route.name(), shows_text, d.keep_check(check)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
     if let Some(el) = &web_keys_into {
         settle_web_caret(d, &t, el, text)?;
     }
-    Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
+    Ok(typed_outcome(route.name(), shows_text, d.keep_check(check)))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
@@ -2620,9 +2620,9 @@ fn press_keys_inner(
                 // after the settle.
                 if let Some(check) = select_all {
                     out = out.showing("selection");
-                    out.expect = d.expect(Some(check));
+                    out.expect = d.keep_check(Some(check));
                 } else if item_checks.is_some() {
-                    out.expect = d.expect(item_checks);
+                    out.expect = d.keep_check(item_checks);
                 }
                 return Ok(out);
             }
@@ -2704,7 +2704,7 @@ fn press_keys_inner(
         readback::Check::digit(&win, ch)
     });
     unprimed(route, |p| input::key(p, code, flags, carries))?;
-    let mut out = typed_outcome(route.name(), shows_text, d.expect(check));
+    let mut out = typed_outcome(route.name(), shows_text, d.keep_check(check));
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -2908,7 +2908,7 @@ pub(super) fn scroll(
     let check = readback::Check::scroll(t.window.pid, at.x, at.y, dx, dy);
     unprimed(route, |p| input::scroll(p, at, dx, dy))?;
     let mut out = ActionOutcome::delivered(route.name()).at(at).showing("scroll");
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     Ok(out)
 }
 
@@ -3097,7 +3097,7 @@ pub(super) fn set_value(
     }
     .showing("value");
     // A field that lost focus may have taken nothing: no read-back claim.
-    out.expect = if kept { d.expect(check) } else { None };
+    out.expect = if kept { d.keep_check(check) } else { None };
     if let Some(e) = error {
         out.note = format!(
             "the value write returned accessibility error {e}; it may have applied; nothing more was sent"
@@ -3224,7 +3224,7 @@ fn pick_closed(
     if after == before && !confirmed {
         out.note = "pressed the item; the pop-up reads back its old value".into();
     }
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     out.menu = Some(menus::MenuReport::picked(&title, None));
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
@@ -3276,7 +3276,7 @@ fn write_attribute(
     if let Some(e) = error {
         out.note = format!("the write returned accessibility error {e}; it may have applied");
     }
-    out.expect = d.expect(check);
+    out.expect = d.keep_check(check);
     Ok(out.showing("value"))
 }
 
@@ -3628,7 +3628,7 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
             readback::Wanted::from_request(format!("{target}")),
             roles::step_tolerance(step),
         );
-        out.expect = d.expect(Some(check));
+        out.expect = d.keep_check(Some(check));
     }
     out = out.showing("value");
     out.note = match failed {

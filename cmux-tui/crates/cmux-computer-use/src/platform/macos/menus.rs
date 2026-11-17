@@ -928,7 +928,7 @@ impl MacDesktop {
             .collect();
         // The menu was read from accessibility: it opened.
         let mut out = ActionOutcome::confirmed(route);
-        out.expect = self.expect(Some(shown_check));
+        out.expect = self.keep_check(Some(shown_check));
         if let Some(note) = loading_note(workspace::app_names_ready()) {
             out.note = note.into();
         }
@@ -1154,7 +1154,7 @@ impl MacDesktop {
             out.note = format!("{} {}", out.note, menus::MENU_DID_NOT_CLOSE).trim().to_string();
         }
         if popup.is_some() {
-            out.expect = self.expect(check);
+            out.expect = self.keep_check(check);
         } else if closed && !stays {
             out.note = format!("{} pressed {title:?}; its effect is not read back", out.note)
                 .trim()
