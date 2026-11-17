@@ -632,6 +632,11 @@ def main():
         env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local"}
+        # v1 reads its own settings file, never the Mac's ~/.config/cmux/cmux-next.json, which every
+        # cmux NEXT build on the Mac shares: an updates.downloadAutomatically left on there made the
+        # check skip the update-found step on both sides of an A/B (step 93fa252e, cmux20-bench).
+        # Downloads ask first unless the run is about Sparkle's own automatic install.
+        settings = {} if a.sparkle_auto else {"updates": {"downloadAutomatically": False}}
         if a.feed_latency_ms:
             # The app's own feed reads (the install click's, the read ahead) go to the loopback feed
             # too, not only Sparkle's: the pinned test feed (`UpdaterService.restorePinnedTestFeed`),
@@ -657,19 +662,17 @@ def main():
                                                      "summary": "The click answers in one frame."},
                                                     {"id": "b", "title": "Highlights before you restart", "category": "new"}]}}, f)
             # Light and dark captures follow debug.appearance only with a theme for each.
-            config = os.path.join(work, "cmux.json")
-            with open(config, "w") as f:
-                json.dump({"appearance": {"theme": "light:Builtin Light,dark:Builtin Dark"}}, f)
-            env["CMUX_NEXT_CONFIG_FILE"] = config
+            settings["appearance"] = {"theme": "light:Builtin Light,dark:Builtin Dark"}
         if a.required_update:
-            config = os.path.join(work, "cmux.json")
-            with open(config, "w") as f:
-                json.dump({"updates": {"downloadAutomatically": False}}, f)
             managed = os.path.join(work, "managed.plist")
             with open(managed, "wb") as f:
                 plistlib.dump({"MinimumVersion": i2["CFBundleShortVersionString"]}, f)
-            env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_NEXT_MANAGED_PREFS_FILE=managed)
+            env["CMUX_NEXT_MANAGED_PREFS_FILE"] = managed
             result["required"] = {"from": i1.get("CFBundleShortVersionString"), "minimum": i2["CFBundleShortVersionString"]}
+        config = os.path.join(work, "cmux.json")
+        with open(config, "w") as f:
+            json.dump(settings, f)
+        env["CMUX_NEXT_CONFIG_FILE"] = config
         binary = os.path.join(v1, "Contents/MacOS", i1["CFBundleExecutable"])
         arguments = ["-SUAutomaticallyUpdate", "YES"] if a.sparkle_auto else []
         if a.language:
