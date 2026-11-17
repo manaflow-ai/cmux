@@ -65,6 +65,13 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
@@ -200,6 +207,13 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
