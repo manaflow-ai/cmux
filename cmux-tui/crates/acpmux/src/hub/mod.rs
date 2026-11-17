@@ -395,6 +395,8 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
