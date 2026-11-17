@@ -153,20 +153,20 @@ pub(super) fn run_in(
 }
 
 /// `value` (a hook run's answer) with the link `rows` and `errors` added.
-pub(super) fn merge(mut value: Value, rows: Vec<Value>, errors: Vec<String>) -> Value {
-    if !value.is_object() {
-        value = json!({});
-    }
+pub(super) fn merge(value: Value, rows: Vec<Value>, errors: Vec<String>) -> Value {
+    let mut object = match value {
+        Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    };
     for (key, items) in
         [("providers", rows), ("errors", errors.into_iter().map(Value::from).collect())]
     {
-        let slot =
-            value.as_object_mut().expect("an object").entry(key).or_insert_with(|| json!([]));
+        let slot = object.entry(key).or_insert_with(|| json!([]));
         if let Some(list) = slot.as_array_mut() {
             list.extend(items);
         }
     }
-    value
+    Value::Object(object)
 }
 
 #[cfg(test)]
