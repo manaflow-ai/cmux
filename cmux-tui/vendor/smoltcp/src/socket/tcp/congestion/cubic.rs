@@ -352,6 +352,52 @@ mod test {
         assert_eq!(cubic.cwnd, ssthresh);
     }
 
+    // cmux patch: a connection that delivered `per_rtt` bytes every 100 ms
+    // round trip for a second, one MSS per ACK, with RTT samples `rtts`.
+    fn delivering(per_rtt: usize, rtts: &[u32]) -> (Cubic, Instant) {
+        let mut rtt = RttEstimator::default();
+        for sample in rtts {
+            rtt.sample(*sample);
+        }
+        let mut cubic = Cubic::new();
+        cubic.set_mss(MSS);
+        cubic.set_remote_window(usize::MAX);
+        let acks = per_rtt / MSS;
+        let mut now = Instant::from_millis(0);
+        for _ in 0..10 * acks {
+            now += crate::time::Duration::from_micros(100_000 / acks as u64);
+            cubic.on_ack(now, MSS, per_rtt, &rtt);
+        }
+        (cubic, now)
+    }
+
+    // cmux patch: a loss on a path with no queue (the RTT is its minimum)
+    // leaves the window at what the path delivered.
+    #[test]
+    fn random_loss_keeps_the_delivered_window() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
+        cubic.on_sack_loss(now, per_rtt);
+        assert!(
+            cubic.ssthresh >= 31 * MSS,
+            "delivered {per_rtt} bytes per round trip, cut to {}",
+            cubic.ssthresh
+        );
+        let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
+        cubic.on_rto(now, per_rtt);
+        assert!(cubic.ssthresh >= 31 * MSS, "RTO cut to {}", cubic.ssthresh);
+    }
+
+    // cmux patch: a loss with a queue built (RTT twice its minimum) still
+    // cuts to β times the flight, which drains the queue.
+    #[test]
+    fn queue_loss_still_cuts() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[50, 100, 100, 100]);
+        cubic.on_sack_loss(now, per_rtt);
+        assert_eq!(cubic.ssthresh, (per_rtt as f64 * BETA_CUBIC) as usize);
+    }
+
     fn ack(cubic: &mut Cubic, len: usize, now: Instant) {
         cubic.on_ack(now, len, cubic.window().saturating_sub(MSS), &rtte())
     }
