@@ -39,6 +39,37 @@ public final class TerminalBenchProbe: @unchecked Sendable {
     /// probe is active; the agent CLI hybrid bench compares it with the Mac's screen.
     nonisolated(unsafe) public var readScreen: (@MainActor () -> [String]?)?
 
+    /// Where the Mac's grid is drawn now, in window points (set with ``readScreen``): the
+    /// pixel matrix (`AgentCLIHybridPixelMatrixUITests`) compares exactly those pixels.
+    public struct Geometry: Sendable {
+        /// The Mac's whole grid (columns × rows cells), panned as it is (it may run past
+        /// the window's edges).
+        public var grid: CGRect
+        /// The cursor's cell, when it is in the viewport.
+        public var cursor: CGRect?
+        /// One cell of the grid.
+        public var cell: CGSize
+        /// The terminal shows a full-screen app (the alternate screen's layout).
+        public var fullScreen: Bool
+        /// The window's width, height and scale.
+        public var window: CGRect
+        public var scale: CGFloat
+
+        public init(grid: CGRect, cursor: CGRect?, cell: CGSize, fullScreen: Bool, window: CGRect, scale: CGFloat) {
+            self.grid = grid
+            self.cursor = cursor
+            self.cell = cell
+            self.fullScreen = fullScreen
+            self.window = window
+            self.scale = scale
+        }
+    }
+
+    /// The Mac's grid on screen now (``Geometry``).
+    nonisolated(unsafe) public var readGeometry: (@MainActor () -> Geometry?)?
+    /// Pans a grid wider than the phone to its first column (false) or its last (true).
+    nonisolated(unsafe) public var pan: (@MainActor (_ toEnd: Bool) -> Void)?
+
     /// Times the drain: from `since` until Ghostty has processed session byte
     /// `end`, read back as ``Snapshot/drainMs``. Already there: zero.
     public func timeDrain(until end: Int, since: CFTimeInterval) {

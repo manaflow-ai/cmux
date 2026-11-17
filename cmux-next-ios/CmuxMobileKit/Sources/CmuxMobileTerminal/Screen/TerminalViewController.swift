@@ -2165,6 +2165,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             probe.presented()
             if probe.readScreen == nil {
                 probe.readScreen = { [weak self] in self?.surface.screenRows()?.rows }
+                probe.readGeometry = { [weak self] in self?.benchGeometry() }
+                probe.pan = { [weak self] toEnd in self?.benchPan(toEnd: toEnd) }
             }
         }
         devProbe?.presented()
@@ -3643,6 +3645,46 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         return abs(motion.x) > abs(motion.y)
     }
 }
+
+#if DEBUG
+/// DEBUG only: the pixel matrix's view of the screen (`TerminalBenchProbe.readGeometry`, `pan`).
+extension TerminalViewController {
+    /// The Mac's grid in window points, where it is drawn now: a full-screen app's from the
+    /// surface in its host (viewport row 0 is the grid's row 0), the primary screen's from the
+    /// scrollback's end (its last row is the grid's last), as `positionHostGridNote` places them.
+    func benchGeometry() -> TerminalBenchProbe.Geometry? {
+        guard cell.width > 0, cell.height > 0, let window = view.window,
+              let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return nil }
+        let size = CGSize(width: CGFloat(columns) * cell.width, height: CGFloat(rows) * cell.height)
+        let padding = surface.gridPadding
+        let left = surface.convert(padding, to: nil).x
+        let top: CGFloat
+        let fullScreen = surface.superview === tuiHost
+        if fullScreen {
+            top = surface.convert(padding, to: nil).y
+        } else {
+            guard let document, scrollbar.total > 0 else { return nil }
+            let bottom = scrollView.frame.minY + document.contentY(ofRow: scrollbar.total, cellHeight: cell.height)
+                - scrollView.contentOffset.y
+            top = view.convert(CGPoint(x: 0, y: bottom), to: nil).y - size.height
+        }
+        let cursor = surface.visibleCursorCell.map { surface.convert($0, to: nil) }
+        return TerminalBenchProbe.Geometry(grid: CGRect(origin: CGPoint(x: left, y: top), size: size), cursor: cursor, cell: cell,
+                                           fullScreen: fullScreen, window: window.bounds, scale: window.screen.scale)
+    }
+
+    /// Pans a grid wider than the phone to its first or last column.
+    func benchPan(toEnd: Bool) {
+        let layout = hostLayout
+        if surface.superview === tuiHost {
+            tuiPanX = toEnd ? layout.maxPanX : 0
+            applyTUIPlacement()
+        } else {
+            scrollView.contentOffset.x = toEnd ? max(0, contentWidth - view.bounds.width) : 0
+        }
+    }
+}
+#endif
 
 final class TerminalScrollView: UIScrollView {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
