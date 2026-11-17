@@ -63,8 +63,7 @@ function cloudStartHandlers(record: Recorder) {
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
     // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
     onSwitchTeam: inPlace(record, "switch to the person's own team, then the start goes again"),
-    // cloudTooBigActions: a repository or a folder picked (project.browse), or none, then the same prompt goes there.
-    onPickRepo: inPlace(record, "start the prompt in a repository inside the folder"),
+    // cloudFolderActions: a folder picked (project.browse), or none, then the same prompt goes there.
     onPickFolder: inPlace(record, "pick a folder, then the start goes again there"),
     onStartWithoutFolder: inPlace(record, "start the prompt with no folder"),
     // openNewCloudChatForStart: a new Cloud chat (palette.newCloudChat) with the same prompt and folder.

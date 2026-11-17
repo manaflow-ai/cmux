@@ -822,7 +822,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
+import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -5221,9 +5221,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         runCloudHere(key);
         return;
       }
-      // A folder the host refused before binding the compose's reservation: that machine is given back now.
-      if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
-        cloudReservation.returned(request.reservationKey);
       if (answer.ok) cloudRetryFolder.current = undefined;
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
@@ -6517,28 +6514,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : Promise.resolve(false);
   /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
   /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
-  /// A Retry keeps the start's own folder: a start the too-big card sent without a folder retries without one, never
-  /// from the composer's folder the preflight refused (Codex review F2 on #40957).
+  /// A Retry keeps the start's own folder: a start a folder refusal's card sent without a folder retries without one,
+  /// never from the composer's folder that was refused (Codex review F2 on #40957).
   const retryCloudStart = () => {
     if (cloudRetryFolder.current) cloudFolderOnce.current = cloudRetryFolder.current;
     sendStartPrompt();
   };
-  /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
-  /// it, another folder, or none), taken once by that send.
+  /// The folder the next Cloud send names instead of the composer's (a folder refusal's card: another folder, or
+  /// none), taken once by that send.
   const cloudFolderOnce = useRef<{ cwd: string } | { home: true } | undefined>(undefined);
-  /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
+  /// A folder refusal's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
   const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
     cloudFolderOnce.current = folder;
     sendStartPrompt();
   };
-  /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
+  /// A folder the person browses to: picked as the chat's folder (granted to the
   /// tab, shown in the composer), then sent from the pick's acceptance, so a pick the host refuses, one it only asks
   /// to confirm, or one a newer pick replaced sends nothing (Codex review F3 on #40957).
   const sendCloudInPicked = (cwd: string) => {
     void chooseProject(cwd, undefined, undefined, (folder) => sendCloudIn({ cwd: folder }));
   };
-  const cloudTooBigActions = {
-    onPickRepo: sendCloudInPicked,
+  const cloudFolderActions = {
     onPickFolder: () => {
       void callNative<{ cwd?: string }>("project.browse").then(
         (result) => result?.cwd && sendCloudInPicked(result.cwd),
@@ -13385,7 +13381,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
-                                  {...cloudTooBigActions}
+                                  {...cloudFolderActions}
                                 />
                               ),
                             }
@@ -13937,7 +13933,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
-                    {...cloudTooBigActions}
+                    {...cloudFolderActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView

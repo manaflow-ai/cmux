@@ -7,7 +7,6 @@ import {
   CLOUD_START_STALL_MS,
   CLOUD_START_STEPS,
   cloudStartWayOn,
-  type CloudFolderTooBig,
   type CloudStartAsk as Ask,
   type CloudStartProgress,
 } from "./cloudStartProgress";
@@ -193,81 +192,7 @@ function PlanTeamRefusal({
 }
 
 /** Start refusals that name what to do in their own card, with no failed step for the checklist to show. */
-const POLICY_REFUSALS: ReadonlySet<string> = new Set([
-  "cloud_plan_required",
-  "cloud_spend_cap",
-  "cloud_member_budget",
-  "cloud_folder_too_big",
-]);
-
-/// A folder too big to copy (cloudStartProgress `tooBig`): each repository inside it starts the chat there, then
-/// another folder (only when no repository or more than the card lists) and no folder. Never a Retry: it fails the same way.
-function TooBigActions({
-  tooBig,
-  onPickRepo,
-  onPickFolder,
-  onStartWithoutFolder,
-}: {
-  tooBig: CloudFolderTooBig;
-  onPickRepo?: (path: string) => void;
-  onPickFolder?: () => void;
-  onStartWithoutFolder?: () => void;
-}) {
-  const t = useT();
-  const repos = onPickRepo ? tooBig.repos : [];
-  const offerFolder = onPickFolder && (repos.length === 0 || tooBig.more);
-  return (
-    <div className="acpmux-cloud-too-big" data-repos={repos.length}>
-      {repos.length > 0 && onPickRepo && (
-        <>
-          <span className="acpmux-cloud-too-big__label">{t("cloudStart.pickRepo")}</span>
-          <fieldset
-            className="acpmux-cloud-ask__actions acpmux-cloud-too-big__repos"
-            aria-label={t("cloudStart.pickRepo")}
-          >
-            {repos.map((repo) => (
-              <button
-                key={repo.path}
-                type="button"
-                className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
-                data-repo={repo.path}
-                title={repo.path}
-                onClick={() => onPickRepo(repo.path)}
-              >
-                {repo.name}
-              </button>
-            ))}
-          </fieldset>
-        </>
-      )}
-      {(offerFolder || onStartWithoutFolder) && (
-        <span className="acpmux-cloud-ask__actions">
-          {offerFolder && (
-            <button
-              type="button"
-              className="acpmux-cloud-ask__button"
-              data-action="pick-folder"
-              {...(repos.length === 0 ? { "data-role": "default" } : {})}
-              onClick={() => onPickFolder?.()}
-            >
-              {t("cloudStart.pickFolder")}
-            </button>
-          )}
-          {onStartWithoutFolder && (
-            <button
-              type="button"
-              className="acpmux-cloud-ask__button"
-              data-action="no-folder"
-              onClick={() => onStartWithoutFolder()}
-            >
-              {t("cloudStart.startWithoutFolder")}
-            </button>
-          )}
-        </span>
-      )}
-    </div>
-  );
-}
+const POLICY_REFUSALS: ReadonlySet<string> = new Set(["cloud_plan_required", "cloud_spend_cap", "cloud_member_budget"]);
 
 /// A failed start's way on when it has no recovery of its own (cloudStartProgress `cloudStartWayOn`): each button only
 /// where App passes its handler, the first filled. Never Retry for a refusal that fails the same way again.
@@ -339,7 +264,6 @@ export function CloudStartView({
   onRunHere,
   onDismiss,
   onSwitchTeam,
-  onPickRepo,
   onPickFolder,
   onStartWithoutFolder,
   onOpenNewCloudChat,
@@ -363,9 +287,8 @@ export function CloudStartView({
   onDismiss?: () => void;
   /// A plan refusal in a team: switch to the person's own team (the team picker's switch) and send again.
   onSwitchTeam?: (team: CloudPlanTeam) => void;
-  /// A folder too big to copy (`cloud_folder_too_big`): start the same prompt in a repository inside it (its path),
-  /// in another folder the person picks, or with no folder.
-  onPickRepo?: (path: string) => void;
+  /// A folder refusal's way on (cloudStartWayOn `pick-folder`, `no-folder`): the same prompt in another folder the
+  /// person picks, or with no folder.
   onPickFolder?: () => void;
   onStartWithoutFolder?: () => void;
   /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
@@ -644,14 +567,6 @@ export function CloudStartView({
             )}
           </span>
         )}
-      {failed && start.code === "cloud_folder_too_big" && start.tooBig && (
-        <TooBigActions
-          tooBig={start.tooBig}
-          {...(onPickRepo ? { onPickRepo } : {})}
-          {...(onPickFolder ? { onPickFolder } : {})}
-          {...(onStartWithoutFolder ? { onStartWithoutFolder } : {})}
-        />
-      )}
       {failed && (
         <WayOnActions
           start={start}

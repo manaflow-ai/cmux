@@ -66,7 +66,6 @@ struct CloudStartChat {
             return AgentPaneCloudFolderRefusal.missing.reply
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
-        } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { return refusal.reply // the repos inside it, another folder or none; no Retry
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
@@ -113,7 +112,6 @@ struct CloudStartChat {
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
-        if let refusal = await cli.startChatPreflight(local: folder.root) { throw refusal } // past the copy's limits: before any machine or lease
         report(.init(name: "machine", folder: folderName))
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
