@@ -187,6 +187,21 @@ class State:
     # fork, which owned_pool_rescue never rescues) and not on the bot's re-run, which has already
     # waited behind the fleet once. Off unless the caller says so (main(), wait_on_owned()).
     wait_on_owned: bool = False
+    # vars.CI_BLACKSMITH_MACOS (blacksmith_allowed()): off, an owned pick names no Blacksmith label.
+    blacksmith_on: bool = True
+
+
+# The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), the same
+# repository variable feat-cmux-next's placement reads (next_macos_cascade.BLACKSMITH_SWITCH). Only `on`
+# lets a same-repository run that an owned pool can take be placed on, or retried on, a Blacksmith macOS
+# label. On 2026-11-17, with it off, run 43990120167's compile admission waited on the owned light pool
+# and the shards it did not own took the Blacksmith retry_runner, blacksmith-12vcpu-macos-26: five hours queued.
+BLACKSMITH_SWITCH = "CI_BLACKSMITH_MACOS"
+
+
+def blacksmith_allowed(env: Mapping[str, str]) -> bool:
+    """Whether the switch lets a run take Blacksmith macOS: `on`, or a caller that passes no switch at all."""
+    return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -214,6 +229,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
             gui_required=bool(state.get("gui_required", False)),
             wait_on_owned=bool(state.get("wait_on_owned", False)),
+            blacksmith_on=bool(state.get("blacksmith_on", True)),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -238,6 +254,12 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
                               pool.xcode_app, True, retry_label=retry)
+    if eligible and not state.blacksmith_on:
+        # Blacksmith macOS is off: a run an owned pool can take waits there, the bot's re-run too, however
+        # free a Blacksmith label looks (a dead one reads as free).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
+        return Choice(pool.label, f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`); "
+                      "waits on the owned label", pool.xcode_app, True, retry_label=_retry_label(state, pool))
     if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
         # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
         # pool where the run is expected to start soonest (owned order on a tie).
@@ -302,7 +324,11 @@ def _retry_label(state: State, owned: Pool) -> str:
     It stays a Blacksmith label even when every one is full: ci-macos.yml also sends an owned
     run's jobs the minis cannot run (the SDK 15 helper build, for one) to pr_retry_runner, so an
     owned label here would fail them. A free, moving label comes first (_pick_blacksmith).
+    With Blacksmith macOS off (State.blacksmith_on) it is the owned label itself: write_outputs()
+    then names that label, so a job the pool does not own waits there instead of on Blacksmith.
     """
+    if not state.blacksmith_on:
+        return owned.label
     wanted = _xcode_version(owned.xcode_app)
     if wanted:
         matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
@@ -513,7 +539,8 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                        for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
-                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
+                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
+                 blacksmith_on=blacksmith_allowed(env))
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:

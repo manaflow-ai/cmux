@@ -16,7 +16,7 @@ This guard evaluates every macOS runs-on in .github/workflows with the switch
 off, for a same-repository run (push, pull_request, schedule, workflow_dispatch,
 as far as the workflow or a reusable workflow's callers run for them; attempts 1 to 3; a person or github-actions[bot] as the triggering actor), the
 owned pools on (CI_PR_POOL_OWNED=1, the side lanes set), every runner variable
-unset and every picker output empty (a picker that chose nothing, the case its
+unset, every input at its declared default, every picker output empty (a picker that chose nothing, the case its
 fallback is for). A job whose runs-on still names a Blacksmith macOS label, a
 literal or a RUNNER_POOLS macOS key, fails, unless it is listed with why:
 test_ci_paid_queue_pin.PAID_ONLY_JOBS (it must stay on an ephemeral Mac) or
@@ -32,6 +32,7 @@ main.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import itertools
 import json
@@ -241,8 +242,22 @@ def labels(runs_on: str, context: Context) -> list[str]:
     return found
 
 
+@functools.lru_cache(maxsize=1)
 def _workflows() -> dict[str, dict]:
     return {path.name: yaml.safe_load(path.read_text()) or {} for path in sorted(WORKFLOWS.glob("*.y*ml"))}
+
+
+def input_defaults(workflow: str) -> dict[str, str]:
+    """{`inputs.<name>`: its declared default} for a workflow's dispatch and call inputs (a run that sets none)."""
+    on = _workflows().get(workflow, {})
+    on = on.get("on", on.get(True))
+    found: dict[str, str] = {}
+    for trigger in ("workflow_call", "workflow_dispatch"):
+        spec = on.get(trigger) if isinstance(on, dict) else None
+        for name, item in ((spec or {}).get("inputs") or {}).items():
+            if isinstance(item, dict) and "default" in item and not isinstance(item["default"], bool):
+                found[f"inputs.{name}"] = str(item["default"])
+    return found
 
 
 def _on(workflow: dict) -> set[str]:
@@ -297,8 +312,9 @@ def macos_jobs() -> dict[tuple[str, str], tuple[str, tuple[str, ...]]]:
 
 def blacksmith_route(workflow: str, runs_on: str, events: tuple[str, ...] = EVENTS) -> str | None:
     """The first same-repository scenario in which runs-on names a Blacksmith macOS label, if any."""
+    defaults = input_defaults(workflow)
     for event, attempt, actor in itertools.product(events, ATTEMPTS, ACTORS):
-        context = Context(workflow, event, attempt, actor)
+        context = Context(workflow, event, attempt, actor, defaults)
         try:
             picked = labels(runs_on, context)
         except (_Unreadable, routing.ExpressionSyntaxError) as error:
