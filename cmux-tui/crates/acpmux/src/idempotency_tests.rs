@@ -133,3 +133,19 @@ async fn bench_dedupe_lookup_per_call() {
     }
     time("after, replay of one key", start.elapsed());
 }
+
+#[test]
+fn forgotten_and_replaced_keys_do_not_grow_the_order_queue() {
+    let cache = Cache::new(Duration::from_secs(1), 4);
+    let t0 = Instant::now();
+    for i in 0..1000u64 {
+        let now = t0 + Duration::from_secs(i * 2); // each claim expires the last
+        let cell = cache.claim("s", "same", 0, now).expect("new cell");
+        if i % 2 == 0 {
+            cache.forget("s", "same", &cell);
+        }
+    }
+    let entries = cache.entries.lock().unwrap();
+    assert!(entries.map.len() <= 4, "{}", entries.map.len());
+    assert!(entries.order.len() <= 2 * 4 + 1, "{}", entries.order.len());
+}

@@ -8,7 +8,7 @@
 //! the first one's run. The same key with other arguments is refused, not replayed.
 
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 use std::sync::{Arc, Mutex};
@@ -37,20 +37,37 @@ struct Entry {
     result: Arc<OnceCell<Value>>,
 }
 
+type Id = (String, String);
+
+/// The keys and, oldest first, when each was claimed: eviction pops the front, so a
+/// claim costs O(1) amortized at any size. A front item whose entry was replaced or
+/// forgotten since is skipped.
+#[derive(Default)]
+struct Entries {
+    map: HashMap<Id, Entry>,
+    order: VecDeque<(Id, Instant)>,
+}
+
+impl Entries {
+    fn is_current(&self, id: &Id, at: Instant) -> bool {
+        self.map.get(id).is_some_and(|e| e.at == at)
+    }
+}
+
 /// Remembered keys and their first results, bounded by `max` and `ttl`.
 pub struct Cache {
-    entries: Mutex<HashMap<(String, String), Entry>>,
+    entries: Mutex<Entries>,
     ttl: Duration,
     max: usize,
 }
 
 impl Cache {
     pub fn new(ttl: Duration, max: usize) -> Self {
-        Self { entries: Mutex::new(HashMap::new()), ttl, max: max.max(1) }
+        Self { entries: Mutex::new(Entries::default()), ttl, max: max.max(1) }
     }
 
     pub fn len(&self) -> usize {
-        self.entries.lock().map(|m| m.len()).unwrap_or(0)
+        self.entries.lock().map(|e| e.map.len()).unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -66,33 +83,41 @@ impl Cache {
         fingerprint: u64,
         now: Instant,
     ) -> Option<Arc<OnceCell<Value>>> {
-        let mut map = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let id = (scope.to_owned(), key.to_owned());
-        if let Some(e) = map.get(&id)
+        if let Some(e) = entries.map.get(&id)
             && now.saturating_duration_since(e.at) < self.ttl
         {
             return (e.fingerprint == fingerprint).then(|| e.result.clone());
         }
-        if map.len() >= self.max {
-            let ttl = self.ttl;
-            map.retain(|_, e| now.saturating_duration_since(e.at) < ttl);
-        }
-        while map.len() >= self.max {
-            let Some(oldest) = map.iter().min_by_key(|(_, e)| e.at).map(|(k, _)| k.clone()) else {
+        // Oldest first: drop what expired, then the oldest while full.
+        while let Some((front, at)) = entries.order.pop_front() {
+            let current = entries.is_current(&front, at);
+            let expired = now.saturating_duration_since(at) >= self.ttl;
+            if current && !expired && entries.map.len() < self.max {
+                entries.order.push_front((front, at));
                 break;
-            };
-            map.remove(&oldest);
+            }
+            if current {
+                entries.map.remove(&front);
+            }
+        }
+        // Skipped items (replaced or forgotten keys) never outnumber live ones for long.
+        if entries.order.len() > 2 * self.max {
+            let Entries { map, order } = &mut *entries;
+            order.retain(|(id, at)| map.get(id).is_some_and(|e| e.at == *at));
         }
         let result = Arc::new(OnceCell::new());
-        map.insert(id, Entry { at: now, fingerprint, result: result.clone() });
+        entries.map.insert(id.clone(), Entry { at: now, fingerprint, result: result.clone() });
+        entries.order.push_back((id, now));
         Some(result)
     }
 
     fn forget(&self, scope: &str, key: &str, cell: &Arc<OnceCell<Value>>) {
-        let mut map = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let id = (scope.to_owned(), key.to_owned());
-        if map.get(&id).is_some_and(|e| Arc::ptr_eq(&e.result, cell)) {
-            map.remove(&id);
+        if entries.map.get(&id).is_some_and(|e| Arc::ptr_eq(&e.result, cell)) {
+            entries.map.remove(&id);
         }
     }
 }
