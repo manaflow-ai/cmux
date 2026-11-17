@@ -46,7 +46,7 @@ public nonisolated struct AgentPageOps {
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
@@ -59,7 +59,7 @@ public nonisolated struct AgentPageOps {
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
