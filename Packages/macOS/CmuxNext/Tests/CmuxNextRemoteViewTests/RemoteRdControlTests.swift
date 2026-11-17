@@ -34,10 +34,15 @@ import Testing
         }
     }
 
+    /// The vector's `json` names no service; its top-level `service` ("desktop") is what both
+    /// sides must default to (cmux-rd-proto's `a_hello_without_service_is_a_desktop_hello`).
     @Test func aHelloWithoutServiceIsADesktopHello() throws {
         let vector = try Self.vector("hello_before_c1")
+        let json = try #require(vector["json"] as? [String: Any])
+        #expect(json["service"] == nil)
+        let expected = try #require(vector["service"] as? String)
         guard case let .hello(hello) = try Self.parse(vector) else { Issue.record("not a hello"); return }
-        #expect(hello.service == vector["service"] as? String)
+        #expect(hello.service == expected)
         #expect(hello.caps.isEmpty)
         #expect(hello.token == nil)
     }
