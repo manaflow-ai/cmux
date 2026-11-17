@@ -210,8 +210,8 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
             continue
         oldest, since = min(ready, key=lambda entry: entry[1])
         age = now - since
-        # The runs stuck past RESCUE_AFTER, oldest wait first, that rescue_plan() may start a rescue for: attempt 1
-        # (the watch reads the run's live attempt and watches attempt 1 only, owned_pool_rescue.target_from_event()),
+        # The runs stuck past RESCUE_AFTER, oldest wait first, that rescue_plan() may start a rescue for: attempt 1 only
+        # (a dispatch watches any attempt, owned_pool_rescue.dispatch_target(), but this alert stays the loop guard),
         # and no workflow whose own workflow_run watch holds that run's group (REQUEST_WATCHED_PATHS).
         rescuable: list[list[int]] = []
         for job, at in sorted(ready, key=lambda entry: entry[1]):

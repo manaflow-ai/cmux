@@ -601,7 +601,8 @@ class Refusal(unittest.TestCase):
         for why, run in {
                 "a push run": event(event="push")["workflow_run"],
                 "a fork head": event(head_repository={"full_name": "someone/cmux"})["workflow_run"],
-                "a retry": event(run_attempt=2)["workflow_run"],
+                "a nightly's retry": event(path=rescue.NIGHTLY_WORKFLOW_PATH, event="schedule", head_branch="main",
+                                         run_attempt=2, pull_requests=[])["workflow_run"],
                 "another workflow": event(path=".github/workflows/other.yml")["workflow_run"]}.items():
             clock = Clock()
             api = FakeAPI(clock, refusing_run(), marker=True)
@@ -8342,7 +8343,7 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 # Attempt 2 (the rescue's re-run) is placed once more only where the head places the bot's attempt 3.
                 (2, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, True),
                 (2, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, False),
-                # Attempt 3 is the last placed attempt: bounded, nothing places it again for a busy label.
+                # A head whose placement stops at attempt 3 cannot place attempt 4: nothing places attempt 3 again.
                 (3, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, False)):
             with self.subTest(attempt=attempt, placed_on_3=workflow is attempt3, wait=wait):
                 clock, api, target = self.world(self.shape(), running=11, workflow=workflow,
@@ -8365,6 +8366,101 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                                         for line in lines), lines)
                 else:
                     assert_left_at_open_head(self, api, result, number=27797)
+
+    # The head's placement as feat-cmux-next has it since 2026-11-15: it runs on every bot attempt
+    # (rescue.CMUX_NEXT_BOT_PLACEMENT), so a placement re-run of any attempt is placed afresh.
+    BOT_PLACED = CMUX_NEXT_FIXTURE.replace(
+        "    name: cmux-next macOS placement\n",
+        "    name: cmux-next macOS placement\n    if: ${{ " + rescue.CMUX_NEXT_BOT_PLACEMENT + " }}\n", 1)
+
+    def busy_side_world(self, attempt, *, workflow, extra=None):
+        """A fast tier queued past OWNED_REPLACE_SECONDS on a busy (not dark) std side label, on `attempt`."""
+        clock, api, target = self.world(self.shape(), running=11, workflow=workflow,
+                                        extra={"attempt": attempt, **(extra or {})})
+        rows = self.shape()(0)
+        rows[-1] = job("cmux-next fast tier", labels=[SIDE_STD], created=-(rescue.OWNED_REPLACE_SECONDS + 60))
+        api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
+        api.attempt = attempt
+
+        def snapshot(seconds):
+            # Busy, not dark: the label started a job 30 s before every look.
+            return {"generated_at": stamp(seconds), rescue.LABEL_STARTED_KEY: {SIDE_STD: stamp(seconds - 30)},
+                    "pools": {SIDE_STD: {"queued": 55, "running": 11, "oldest_queued_minutes": 420}}}
+        api.snapshot = snapshot
+        return clock, api, target
+
+    def test_attempt_3_and_a_dispatched_later_attempt_are_placed_again_after_a_long_owned_wait(self):
+        # cmux#44757's run 44018861106 (2026-11-17): the bot's attempt 3 of its fast tier waited 5 to 7 hours on
+        # glaeda-side-std-xcode-26.6 while that label ran other jobs. Its head places every bot attempt, yet
+        # nothing placed attempt 3 again, and a dispatch naming the run answered "not watched: attempt 3".
+        bounded = rerun_workflow()
+        for attempt, workflow, dispatched, moved in (
+                # The sweeper's watch of the bot's attempt 3 (refusals only) places it again, once.
+                (3, self.BOT_PLACED, False, True),
+                # A head whose placement stops at attempt 3 cannot place attempt 4 afresh: left as it is.
+                (3, bounded, False, False),
+                (3, bounded, True, False),
+                # Past attempt 3 only a dispatch naming the run places it again (the loop guard: the sweeper never
+                # adopts the bot's attempt 4 or later, and a dispatch's watch ends at its one rescue).
+                (4, self.BOT_PLACED, False, False),
+                (4, self.BOT_PLACED, True, True),
+                (7, self.BOT_PLACED, True, True)):
+            with self.subTest(attempt=attempt, bounded=workflow is bounded, dispatched=dispatched):
+                clock, api, target = self.busy_side_world(attempt, workflow=workflow,
+                                                          extra={"dispatched": dispatched,
+                                                                 "refusals_only": attempt == 3 and not dispatched})
+                result, lines = self.run_rescue(api, clock, target)
+                if moved:
+                    self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
+                    self.assertNotIn("rerun", api.calls)
+                    self.assertNotIn("rerun-failed", api.calls)
+                    self.assertIn(f"{rescue.CANCEL_SENT} run {RUN_ID} attempt {attempt} of job {self.PLACEMENT_ID}",
+                                  lines)
+                else:
+                    assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_a_running_job_keeps_a_dispatched_attempt_as_it_is(self):
+        # A dispatch never cancels a run with a job a runner holds, whatever its attempt.
+        clock, api, target = self.busy_side_world(4, workflow=self.BOT_PLACED, extra={"dispatched": True})
+        rows = api.jobs_at(0)
+        rows.append(job("cmux-next swift test", status="in_progress", labels=[SIDE_STD], runner="mini-3"))
+        api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_a_dispatch_watches_the_runs_current_attempt_whatever_its_number(self):
+        # Five cmux-next runs (cmux#44757's run 44018861106 among them) sat 5 to 7 hours on their bot attempt 3, and
+        # a dispatch naming each answered "not watched: attempt 3; its first attempt's watch follows it". The
+        # dispatch now watches the current attempt with attempt 1's rules: its long owned wait is placed again.
+        for attempt in (2, 3, 5):
+            with self.subTest(attempt=attempt):
+                clock, api, target = self.busy_side_world(attempt, workflow=self.BOT_PLACED)
+                live_run = api.run
+                named = {"id": RUN_ID, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "event": "pull_request",
+                         "head_sha": HEAD, "head_branch": "feature", "head_repository": {"full_name": "manaflow-ai/cmux"},
+                         "pull_requests": [{"number": 27797}], "triggering_actor": {"login": CMUX_BOT},
+                         "run_started_at": stamp(-600), "name": "cmux-next", "display_title": "a change"}
+                api.run = lambda run_id, named=named, live_run=live_run: {**named, **live_run(run_id)}
+                api.pull = lambda number, api=api: (api.calls.append("pull"), {"state": "open", "head": {"sha": HEAD}})[1]
+                code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                                         payload={"inputs": {"run_id": str(RUN_ID)}})
+                self.assertEqual(code, 0, summary)
+                self.assertNotIn("not watched", summary)
+                self.assertIn(f"watching run {RUN_ID} of pull request #27797", summary)
+                self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (summary, api.calls))
+                self.assertNotIn("rerun", api.calls)
+                self.assertNotIn("rerun-failed", api.calls)
+
+    def test_a_dispatch_leaves_a_delivery_runs_later_attempt_to_the_sweeper(self):
+        # A nightly, DEV or promote build past attempt 1 keeps the rules the sweeper resumes it by.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        nightly = event(path=rescue.NIGHTLY_WORKFLOW_PATH, event="schedule", head_branch="main", run_attempt=2,
+                        pull_requests=[])["workflow_run"]
+        api.run = lambda run_id: (api.calls.append("run"), nightly)[1]
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)})
+        self.assertEqual((code, api.calls), (0, ["run"]))
+        self.assertIn("not watched: attempt 2 of a delivery build", summary)
 
     # cmux-next.yml's fast tier as feat-cmux-next has it: its runs-on reads the placement's light_jobs on the attempt
     # the placement ran (a re-run's light move lands on the light label, #18147).
@@ -8444,7 +8540,10 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         old = job("cmux-next fast tier", labels=[SIDE_STD], created=-rescue.OWNED_REPLACE_SECONDS)
         self.assertTrue(rescue.long_owned_wait(target, old, SIDE_STD, START))
         self.assertFalse(rescue.long_owned_wait(target, old, BLACKSMITH, START), "a Blacksmith label is not owned")
-        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, attempt=3), old, SIDE_STD, START))
+        self.assertTrue(rescue.long_owned_wait(dataclasses.replace(target, attempt=3), old, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, attempt=4), old, SIDE_STD, START))
+        self.assertTrue(rescue.long_owned_wait(dataclasses.replace(target, attempt=4, dispatched=True), old, SIDE_STD,
+                                               START))
         self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, pr_number=None), old, SIDE_STD, START))
         self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, path=rescue.CI_WORKFLOW_PATH), old,
                                                 SIDE_STD, START))
