@@ -45,7 +45,7 @@ extension AgentPaneCloudStart {
     public init() {}
 
     func note(_ repos: [CloudGitHubRepos.Repo]) {
-        if sizes.count + repos.count > limit { sizes.removeAll() }
+        if sizes.count + repos.count > Self.limit { sizes.removeAll() }
         for repo in repos { sizes[repo.fullName.lowercased()] = repo.sizeKb }
     }
 
