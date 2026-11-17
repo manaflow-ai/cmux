@@ -177,6 +177,8 @@ import Testing
         var failures: [String] = []
         let cases = 6000
         for index in 0..<cases {
+            // About 0.15 s of cases at a time, then the main actor's other work goes first.
+            if index % 20 == 0 { await Task.yield() }
             let fixture = fixtures[index % fixtures.count]
             let lean = index % 2 == 0
             let connections = (fixture.steps.map(\.connection).max() ?? 0) + 1
