@@ -946,6 +946,8 @@ mod tests {
                 ..Default::default()
             });
         }
+        // The terminal's queue is read only while the chat is writable.
+        hub.set_terminal_chat_writable(true).await;
         (hub, session)
     }
 
