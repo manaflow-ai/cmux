@@ -203,7 +203,8 @@ fn upserted(write: AppKvWrite) -> AppKvRow {
 #[test]
 fn a_partial_snapshot_pages_the_list_before_removing_rows() {
     let (f, cloud) = synced_fixture();
-    *cloud.account.lock().unwrap() = Some("user_1".into());
+    // Signed out on the sender's side until the part is checked: the sender
+    // would page the list as soon as the reset pokes it.
     let event =
         |writes| CloudEvent::AppKvChanged { seq: 1, writes, account: Some("user_1".into()) };
     f.supervisor.on_appkv_event(&event(vec![
@@ -224,6 +225,7 @@ fn a_partial_snapshot_pages_the_list_before_removing_rows() {
         f.call("t", "app.storage.get", json!({ "key": "gone" }), false)["body"]["value"],
         json!(2)
     );
+    *cloud.account.lock().unwrap() = Some("user_1".into());
     f.supervisor.appkv_wrote();
     until("the list to page", || {
         f.call("t", "app.storage.keys", json!({}), false)["body"]["value"] == json!(["new", "old"])
