@@ -399,3 +399,23 @@ fn local_reload_stress_one_save_among_many_apps() {
         );
     }
 }
+
+/// A pass reuses the read of each unchanged folder (`earlier_reads`); a
+/// folder whose files change is read again, so a malformed manifest that is
+/// fixed loads, and its unchanged neighbour keeps its package.
+#[test]
+fn a_fixed_manifest_loads_while_unchanged_folders_are_reused() {
+    let f = fixture();
+    let local = f.state.join("apps/local");
+    write_app(&local, "late", "local/late", json!({}));
+    let good = std::fs::read_to_string(local.join("late/cmux-app.json")).unwrap();
+    std::fs::write(local.join("late/cmux-app.json"), "{ not json").unwrap();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late"), Value::Null);
+    let prints = f.supervisor.reload_local_apps(&prints);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late"), Value::Null, "still refused");
+    std::fs::write(local.join("late/cmux-app.json"), good).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late")["version"], "1.0.0");
+    assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.0");
+}

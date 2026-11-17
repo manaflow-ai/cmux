@@ -324,6 +324,18 @@ enum DirKind {
 }
 
 pub fn load(sources: &Sources) -> Catalog {
+    load_reusing(sources, &|_| None)
+}
+
+/// A package folder's earlier read (`Ok` package or `Err` refusal), when
+/// the folder is unchanged since it (`local_reload::PrintsBefore`).
+pub type Reuse<'a> = dyn Fn(&Path) -> Option<Result<Package, String>> + 'a;
+
+/// `load`, taking each package folder's read from `reuse` when it has one:
+/// a reload pass re-validates only the folders that changed, not every
+/// app's manifest and script (one save among 200 apps read 200 scripts).
+pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>) -> Catalog {
+    let read = |dir: &Path, kind: DirKind| reuse(dir).unwrap_or_else(|| package(dir, kind));
     let mut catalog = Catalog::default();
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
     dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));
@@ -339,7 +351,7 @@ pub fn load(sources: &Sources) -> Catalog {
             .collect();
         paths.sort();
         for dir in paths {
-            match package(&dir, kind) {
+            match read(&dir, kind) {
                 // The customize app may run the person's own actions, so only
                 // their customize folder (below) provides it.
                 Ok(package) if package.id == CUSTOMIZE_APP => catalog
@@ -363,7 +375,7 @@ pub fn load(sources: &Sources) -> Catalog {
         .as_ref()
         .filter(|dir| dir.join("cmux-app.json").is_file() || dir.join(V2_MANIFEST).is_file())
     {
-        match package(dir, DirKind::Local) {
+        match read(dir, DirKind::Local) {
             Ok(package)
                 if package.id == CUSTOMIZE_APP && !catalog.packages.contains_key(CUSTOMIZE_APP) =>
             {

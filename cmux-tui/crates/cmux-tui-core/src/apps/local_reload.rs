@@ -108,7 +108,7 @@ impl Supervisor {
         if self.safe_mode_on() {
             return json!({ "safeMode": true, "rejected": [] });
         }
-        let (_, rejected) = on_screen(|| self.pass(&prints, catalog::load));
+        let (_, rejected) = on_screen(|| self.pass(&prints, catalog::load_reusing));
         let rejected: Vec<Value> = rejected
             .into_iter()
             .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
@@ -144,7 +144,7 @@ impl Supervisor {
             }
             None => prints.values_mut().for_each(|print| *print = UNREAD),
         }
-        let (next, _, report) = on_screen(|| self.pass_reporting(&prints, catalog::load));
+        let (next, _, report) = on_screen(|| self.pass_reporting(&prints, catalog::load_reusing));
         if let Some(app) = app
             && !next.contains_key(app)
             && !report.removed.iter().any(|gone| gone == app)
@@ -195,18 +195,18 @@ impl Supervisor {
     /// `prints`; returns the new fingerprints.
     #[cfg(test)]
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
-        self.reload_local_apps_from(prints, catalog::load)
+        self.pass(prints, catalog::load_reusing).0
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
-    /// right after the read.
+    /// right after the read. It reads every folder again (no reuse).
     #[cfg(test)]
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
-        self.pass(prints, load).0
+        self.pass(prints, |sources, _| load(sources)).0
     }
 
     /// One pass: the new fingerprints, and the watched folders the catalog
@@ -214,17 +214,19 @@ impl Supervisor {
     fn pass(
         &self,
         prints: &Prints,
-        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+        load: impl FnOnce(&catalog::Sources, &catalog::Reuse<'_>) -> catalog::Catalog,
     ) -> (Prints, Vec<(PathBuf, String)>) {
         let (next, rejected, _) = self.pass_reporting(prints, load);
         (next, rejected)
     }
 
-    /// `pass`, and what it applied.
+    /// `pass`, and what it applied. `load` gets the earlier read of each
+    /// watched folder whose fingerprint is the one that read was taken with
+    /// (`Inner::local_dir_prints`), so a pass reads only changed folders.
     fn pass_reporting(
         &self,
         prints: &Prints,
-        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+        load: impl FnOnce(&catalog::Sources, &catalog::Reuse<'_>) -> catalog::Catalog,
     ) -> (Prints, Vec<(PathBuf, String)>, Report) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
         // saves made meanwhile apply when it ends (`safe_mode.rs`).
@@ -232,7 +234,8 @@ impl Supervisor {
             return (prints.clone(), Vec::new(), Report::default());
         }
         let before = PrintsBefore::take(&self.config.sources);
-        let catalog = load(&self.config.sources);
+        let earlier = self.earlier_reads(&before);
+        let catalog = load(&self.config.sources, &|dir: &Path| earlier.get(dir).cloned());
         let next = before.of(&self.config.sources, &catalog);
         let rejected: Vec<(PathBuf, String)> = catalog
             .rejected
@@ -290,6 +293,16 @@ impl Supervisor {
                 }
             }
             inner.catalog = catalog;
+            // The prints this catalog was read with, for the next pass's
+            // reuse; a refused save's folder holds the last good package, not
+            // what is on disk, so it is read again next time.
+            let mut dir_prints = before.dirs().clone();
+            for (app, _) in &refused {
+                if let Some(package) = inner.catalog.packages.get(app) {
+                    dir_prints.remove(&package.dir);
+                }
+            }
+            inner.local_dir_prints = dir_prints;
             for (app, error) in &refused {
                 let reason = format!("init: {error}");
                 let message = format!(
@@ -327,6 +340,30 @@ impl Supervisor {
         };
         self.emit(outs);
         (next, rejected, report)
+    }
+
+    /// Each watched folder's read in the current catalog (its package, or why
+    /// it was refused) whose fingerprint now is the one that read was taken
+    /// with. A package the defaults marked (`Source::Default`) is read again.
+    fn earlier_reads(&self, before: &PrintsBefore) -> HashMap<PathBuf, Result<Package, String>> {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let unchanged = |dir: &Path| {
+            let now = before.dirs().get(dir);
+            now.is_some() && now != Some(&UNREAD) && inner.local_dir_prints.get(dir) == now
+        };
+        let packages = inner
+            .catalog
+            .packages
+            .values()
+            .filter(|p| p.source != Source::Default && unchanged(&p.dir))
+            .map(|p| (p.dir.clone(), Ok(p.clone())));
+        let refused = inner
+            .catalog
+            .rejected
+            .iter()
+            .filter(|(dir, _)| unchanged(dir))
+            .map(|(dir, issue)| (dir.clone(), Err(issue.clone())));
+        packages.chain(refused).collect()
     }
 
     /// The changed apps whose live host serves views and whose saved script
@@ -510,6 +547,11 @@ impl PrintsBefore {
             (dir, print)
         });
         Self(prints.collect())
+    }
+
+    /// Each watched package folder's fingerprint.
+    pub(super) fn dirs(&self) -> &HashMap<PathBuf, u64> {
+        &self.0
     }
 
     /// The fingerprints of `catalog`'s watched and local packages, by app id,
