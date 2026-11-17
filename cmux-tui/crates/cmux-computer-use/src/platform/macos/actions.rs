@@ -1833,17 +1833,23 @@ fn web_focus(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Option<WebFocus>> {
         return Ok(Some(WebFocus { written: false, focused: true }));
     }
     let how = roles::web_focus_write(roles::web_engine(app_bundle(t).as_deref()));
-    // The caret goes after the field's text, read strictly.
-    let caret = match how {
-        roles::WebFocusWrite::Focused => None,
-        roles::WebFocusWrite::Caret => {
-            let Ok(text) = el.try_value_text() else { return Ok(None) };
-            Some(roles::caret_at_end(&text.unwrap_or_default()))
+    // The caret goes after the field's text, read strictly. Chromium takes
+    // the AXFocused write first, then the caret too: a rich editor
+    // (ProseMirror, Lexical) gets a selection of its own that way, and its
+    // beforeinput events (live, Chrome 157: without the caret Lexical
+    // dropped the keys once the address bar had held the keyboard).
+    let Ok(text) = el.try_value_text() else { return Ok(None) };
+    let at =
+        super::sys::CFRange { location: roles::caret_at_end(&text.unwrap_or_default()), length: 0 };
+    let wrote = match persons_caret_write(d, t, el, true, || match how {
+        roles::WebFocusWrite::Focused => {
+            let focused = Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok());
+            if focused {
+                let _ = el.set_selected_range(at);
+            }
+            focused
         }
-    };
-    let wrote = match persons_caret_write(d, t, el, true, || match caret {
-        None => Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok()),
-        Some(at) => el.set_selected_range(super::sys::CFRange { location: at, length: 0 }).is_ok(),
+        roles::WebFocusWrite::Caret => el.set_selected_range(at).is_ok(),
     })? {
         CaretWrite::Wrote { value, .. } => value,
         CaretWrite::Refused => {
