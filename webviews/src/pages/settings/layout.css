@@ -208,6 +208,16 @@
     animation-range: 0 var(--ds-space-6);
   }
 
+  /* The fade follows the person's scroll, not the clock, so the motion switch has nothing to stop
+     here. With motion off, WebTheme's bootstrap sets every animation to 0s (!important); a 0s
+     scroll-driven animation has no range and holds its last keyframe, which drew the edge's blurs
+     and tint over the page title at rest (cmux#44886). Its duration stays the timeline's own. */
+  html[data-cmux-motion] .scroll-edge > span,
+  html[data-cmux-motion] .scroll-edge::after {
+    animation-duration: auto !important;
+    animation-delay: 0s !important;
+  }
+
   .scroll-edge::after {
     content: "";
     background: var(--scroll-edge-tint);
