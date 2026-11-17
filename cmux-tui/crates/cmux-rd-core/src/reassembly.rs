@@ -372,8 +372,7 @@ impl Reassembler {
             && entry.count == header.count
             && shard_len_ok
             && self.pending_bytes + payload.len() <= MAX_PENDING_BYTES
-            && let Some(slot) = entry.shards.get_mut(usize::from(header.index))
-            && slot.is_none()
+            && entry.shards.get(usize::from(header.index)).is_some_and(Option::is_none)
         {
             entry.shard_len = Some(payload.len());
             // A requested shard arriving times the repair round trip.
@@ -396,7 +395,9 @@ impl Reassembler {
             entry.highest_index = entry.highest_index.max(header.index);
             self.pending_bytes += payload.len();
             entry.held += payload.len();
-            *slot = Some(payload.to_vec());
+            if let Some(slot) = entry.shards.get_mut(index) {
+                *slot = Some(payload.to_vec());
+            }
         }
         self.expire(now_us);
         self.release_ready()
