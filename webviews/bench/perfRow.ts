@@ -17,6 +17,8 @@
 //   load    set by bench/web-ui-suite.ts, never by a bench: the host's contention factor (bench/hostLoad.ts) the row's
 //           p50 and p95 were divided by, with the measured p95 as raw_p95. Only ms rows are scaled, only when the
 //           host was busy.
+//   speed   set by bench/web-ui-suite.ts, never by a bench: the ms the host-speed canary (bench/hostLoad.ts) took
+//           around the row's bench. The cron judges a time row only against values measured at about that speed.
 export type PerfRow = {
   name: string;
   p50?: number;
@@ -28,6 +30,7 @@ export type PerfRow = {
   clock?: "wall" | "cpu";
   load?: number;
   raw_p95?: number;
+  speed?: number;
 };
 
 export const PERF_ROW_MARK = "PERF_ROW ";
