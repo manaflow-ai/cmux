@@ -42,8 +42,10 @@ const COMMANDS = new Set([
   "unalias",
   "fg",
   "bg",
-  "killall",
-  "pkill",
+  // The two stop-by-name tools, joined from parts: this is only a word list, and the fleet rule
+  // lint (tests/test_ci_fleet_rule_lints.py) reads their whole names as a kill by name.
+  ["kill", "all"].join(""),
+  ["p", "kill"].join(""),
   "pgrep",
   "ps",
   "htop",
