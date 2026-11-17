@@ -2113,6 +2113,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
+            policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),

@@ -380,9 +380,6 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
-    /// The stages of uploads begun under a Send's ticket, by stage token, each with its hold on the
-    /// ticket (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``).
-    @ObservationIgnored var uploadHolds: [String: String] = [:]
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
@@ -913,8 +910,9 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consumeUpload() { return Self.transportFailure(.gestureRequired) }
-            return await stageHeld(stage, stager)
+            // A batch's first begin needs no key press or click (Leo, 2026-11-17: "go remove this").
+            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil { _ = transport.gestures.consumeUpload() }
+            return await stager(stage, sessionId)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
