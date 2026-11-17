@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { ErrorDetails } from "./conversation/ErrorDetails";
-import { Spinner } from "./conversation/icons";
+import { StartRecovery, type StartRecoveryLook } from "./StartRecovery";
 import type { SetupPhase } from "./harnessSetup";
 import { useT } from "./i18n";
 
@@ -25,6 +24,9 @@ export type MissingHarnessNoticeProps = {
   onSignIn(): void;
   /// The agents page, in this tab, for an agent cmux cannot install itself.
   onSetUp?(): void;
+  /// Hides the view; focus goes back to the composer.
+  onDismiss?(): void;
+  look?: StartRecoveryLook;
 };
 
 export function MissingHarnessNotice({
@@ -36,6 +38,8 @@ export function MissingHarnessNotice({
   onUseInstead,
   onSignIn,
   onSetUp,
+  onDismiss,
+  look,
 }: MissingHarnessNoticeProps) {
   const t = useT();
   const instead = alternative && onUseInstead && (
@@ -106,26 +110,21 @@ export function MissingHarnessNotice({
       );
   }
   const running = phase?.kind === "installing";
+  // The shared start-recovery view (StartRecovery.tsx): the picture follows the step, from a
+  // missing agent to its sign-in, inside the same view.
+  const signingIn = phase?.kind === "signIn" || phase?.kind === "signingIn";
   return (
-    <output
-      className="acpmux-host-error acpmux-harness-notice acpmux-missing-harness"
-      data-missing-harness={phase?.kind ?? "missing"}
-      aria-busy={busy || undefined}
-    >
-      <div className="acpmux-host-error-card">
-        {/* The spinner trails the text, so a step starting or ending never moves the words. */}
-        <p className="acpmux-host-error-message">
-          {text}
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
-        </p>
-        {running && detail && (
-          <p className="acpmux-host-error-hint acpmux-missing-harness-line" data-install-line>
-            {detail}
-          </p>
-        )}
-        {buttons && <div className="acpmux-host-error-actions">{buttons}</div>}
-        {!running && detail && <ErrorDetails text={detail} className="acpmux-host-error-details" />}
-      </div>
-    </output>
+    <StartRecovery
+      reason={signingIn ? "signed-out" : "missing-harness"}
+      sentence={text}
+      busy={busy}
+      {...(running && detail ? { line: detail } : {})}
+      {...(!running && detail ? { detail } : {})}
+      actions={buttons}
+      {...(onDismiss ? { onDismiss } : {})}
+      {...(look ? { look } : {})}
+      className="acpmux-harness-notice acpmux-missing-harness"
+      data={{ "data-missing-harness": phase?.kind ?? "missing" }}
+    />
   );
 }

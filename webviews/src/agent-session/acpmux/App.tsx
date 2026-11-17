@@ -712,6 +712,8 @@ import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, failedSendText, sendCause, type FailedRun } from "./sendFailure";
 import { MissingHarnessNotice } from "./MissingHarnessNotice";
+import { FailedStartRecovery } from "./FailedStartRecovery";
+import { startRecoveryReason } from "./startRecoveryReason";
 import { useMissingHarness } from "./missingHarness";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -4665,6 +4667,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     editRows: (rowIds) => void window.cmuxAcpmuxActions?.["chat.editFailedPrompt"]?.({ rowIds: [...rowIds] }),
     setUp: () => openHarnessesPage(),
   });
+  // A failed start that is signed out or offline (startRecoveryReason.ts) gets the shared start-recovery
+  // view in the start-failed card's place; Dismiss hides it for that one failure.
+  const failedStart = snapshot.switching?.phase === "failed" ? snapshot.switching : undefined;
+  const recoveryReason = missingHarness ? undefined : startRecoveryReason(failedStart);
+  const [dismissedStart, setDismissedStart] = useState<object>();
+  const startRecovery =
+    failedStart && failedStart !== dismissedStart && (recoveryReason === "signed-out" || recoveryReason === "offline")
+      ? recoveryReason
+      : undefined;
+  // The agent's own login, only for a chat on this Mac: a login runs in a terminal tab here.
+  const recoveryLogin =
+    agentLocal && failedStart
+      ? catalog.find((entry) => entry.id === failedStart.harness)?.auth?.login?.trim()
+      : undefined;
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -11363,10 +11379,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           <Notice
             id="switch"
             tier={snapshot.switching?.phase === "deferred" && !missingHarness ? "status" : "error"}
-            when={Boolean(missingHarness) || Boolean(snapshot.switching && snapshot.switching.phase !== "starting")}
+            when={
+              Boolean(missingHarness) ||
+              Boolean(startRecovery) ||
+              Boolean(
+                snapshot.switching &&
+                snapshot.switching.phase !== "starting" &&
+                !(failedStart && failedStart === dismissedStart),
+              )
+            }
           >
             {missingHarness ? (
               <MissingHarnessNotice {...missingHarness} />
+            ) : startRecovery && failedStart ? (
+              <FailedStartRecovery
+                start={failedStart}
+                reason={startRecovery}
+                {...(recoveryLogin ? { onSignIn: () => signIn.logIn(failedStart.harness, recoveryLogin) } : {})}
+                onRetry={() => void callNative("chat.harness.retry")}
+                onDismiss={() => setDismissedStart(failedStart)}
+              />
             ) : (
               <SwitchNotice
                 switching={snapshot.switching}
