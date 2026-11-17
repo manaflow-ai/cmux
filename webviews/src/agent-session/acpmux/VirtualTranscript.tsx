@@ -4180,19 +4180,25 @@ function TranscriptView({
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
   // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
   // something went wrong with a retry button just above the composer ... and then it layout shifted"):
-  // while the view follows, the line that comes lies over the transcript's foot, as the tray's list
-  // does, and the room it leaves when it goes stays under the last row (`noticeHold`, the line's change
-  // since the room last took it; negative for one that went). The room takes it once the rows move
-  // anyway (they grew: a reply streaming on, a send), or at Jump to latest or the reader's wheel past
-  // the end (`takeRoom`, `giveTrayRoom`). A line there at the chat's first draw lies over the foot too:
-  // after a restart the chat's saved copy drew without it, and the live page that took over with the
-  // line as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused).
+  // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
+  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
+  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
+  // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
+  // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
+  // (they grew: a reply streaming on, a send), or Jump to latest or the reader's wheel past the end gives
+  // it back (`takeRoom`, `giveTrayRoom`).
   const noticeHeldAt = noticeBase.current;
   const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
+  // Scrolled up the room is held anyway (`heldRoom`), and the base waits for the view to follow again.
   const noticeHold =
-    following && dockSpace > 0 && !noticeTaken
-      ? Math.min(dockSpace - Math.max(0, trayHold) - cardHold, dockNotice - noticeHeldAt)
-      : 0;
+    dockSpace <= 0 || !following
+      ? 0
+      : dockNotice >= noticeHeldAt
+        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        : noticeTaken
+          ? 0
+          : dockNotice - noticeHeldAt;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -5273,7 +5279,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
-    noticeBase.current = dockNotice - noticeHold;
+    if (following || dockSpace <= 0) noticeBase.current = dockNotice - noticeHold;
     rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
