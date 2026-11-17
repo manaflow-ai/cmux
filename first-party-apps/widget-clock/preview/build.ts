@@ -36,7 +36,8 @@ if (import.meta.main) {
   const text = await buildScenes()
   for (const target of targets) {
     if (process.argv.includes("--check")) {
-      if (!existsSync(target) || readFileSync(target, "utf8") !== text) {
+      // Compared as data: the web formatter lays out the webviews copy its own way.
+      if (!existsSync(target) || JSON.stringify(JSON.parse(readFileSync(target, "utf8"))) !== JSON.stringify(JSON.parse(text))) {
         console.error(`${target} is stale: run bun first-party-apps/widget-clock/preview/build.ts`)
         process.exit(1)
       }
