@@ -7,28 +7,24 @@ import Testing
 /// The bundle identifier alone cannot tell either case.
 @Suite struct PasswordImportKeyTests {
     @Test func aReleaseBuildWhoseChromiumFellBackToTheMockKeychainImportsNoPasswords() {
-        #expect(PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: true,
-                                                     bundleIdentifier: "com.cmuxterm.app.nightly", environment: [:]))
+        #expect(PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: true, environment: [:]))
     }
 
     @Test func aReleaseBuildOnItsOwnKeychainItemImportsPasswords() {
-        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false,
-                                                      bundleIdentifier: "com.cmuxterm.app.nightly", environment: [:]))
+        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false, environment: [:]))
     }
 
     @Test func aDevelopmentBundleOnTheRealKeychainImportsPasswords() {
-        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false,
-                                                      bundleIdentifier: "com.cmuxterm.app.debug.tag", environment: [:]))
+        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false, environment: [:]))
     }
 
     @Test func beforeChromiumStartsNothingIsImported() {
-        #expect(PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: nil,
-                                                     bundleIdentifier: "com.cmuxterm.app.nightly", environment: [:]))
+        #expect(PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: nil, environment: [:]))
     }
 
     #if DEBUG
     @Test func debugBuildsMayImportThrowawayDataUnderTheMockKey() {
-        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: true, bundleIdentifier: "com.cmuxterm.app.debug.tag",
+        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: true,
                                                       environment: ["CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"]))
     }
     #endif
