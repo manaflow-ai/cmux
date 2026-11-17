@@ -51,8 +51,8 @@ import Testing
     }
 
     /// A probe with no timestamp gives no unit (macOS 27, 2026-10-31: a fresh probe event carries timestamp 0, so every
-    /// sequence was refused; the start then came from the host's mach ticks at the timebase's rate). Decision of
-    /// 2026-11-17: the start comes from the host's clock in the unit that AppKit reads from a probe that the app
+    /// sequence was refused; the start then came from the host's mach ticks at the timebase's rate). The rule
+    /// now: the start comes from the host's clock in the unit that AppKit reads from a probe that the app
     /// stamped. On a Mac with macOS 26.7 AppKit read the mach ticks as nanoseconds, so each event of a sequence was
     /// older than it was by 122/125 of the time since boot.
     @Test func startWithNoProbeTimestampIsTheHostsTimeInTheUnitThatAppKitReads() throws {

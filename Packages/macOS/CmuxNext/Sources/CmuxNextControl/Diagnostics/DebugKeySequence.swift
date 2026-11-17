@@ -60,9 +60,9 @@ public struct DebugKeySequence: Sendable, Equatable {
         ///
         /// A fresh probe event with a timestamp gives its own ticks and the seconds AppKit reads from it. A probe
         /// with no timestamp (macOS 27, 2026-10-31: every sequence was refused) gives no unit. The start then comes
-        /// from the host's clock in the unit that AppKit reads (decision of 2026-11-17): `stampedRate` says how many
+        /// from the host's clock in the unit that AppKit reads: `stampedRate` says how many
         /// event ticks AppKit takes for a second (``eventTicksPerSecond(stamping:with:read:)``), and the base is the
-        /// host's seconds since boot at that rate. Before that decision the base was the host's mach ticks at the
+        /// host's seconds since boot at that rate. Before this rule the base was the host's mach ticks at the
         /// timebase's rate. On a Mac with macOS 26.7 AppKit read those ticks as nanoseconds, so each event of a
         /// sequence was older than it was by 122/125 of the time since boot.
         ///
