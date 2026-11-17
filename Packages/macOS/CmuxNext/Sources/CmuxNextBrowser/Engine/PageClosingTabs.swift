@@ -9,9 +9,17 @@ import CmuxNextCompat
 @MainActor
 public final class PageClosingTabs {
     private var watches: [String: Task<Void, Never>] = [:]
+    /// When each tab's page began deciding.
+    private var began: [String: ContinuousClock.Instant] = [:]
+    /// The clock ``limit`` is measured on (tests inject one).
+    private let now: () -> ContinuousClock.Instant
+    /// The longest a tab stays in this set.
+    public static let limit: Duration = .seconds(2)
 
     /// No tab closing.
-    public init() {}
+    public init(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.now = now
+    }
 
     /// The page of tab `id` began deciding its close.
     ///
@@ -19,6 +27,7 @@ public final class PageClosingTabs {
     /// - Parameter page: Its page; the tab leaves the set once the page asks or goes away.
     public func begin(_ id: String, page: any BrowserTab) {
         watches[id]?.cancel()
+        began[id] = now()
         // task-owner: this set (cancelled on end or a new begin); event driven (Observation), ends
         // when the page asks or goes away.
         watches[id] = Task { [weak self, weak page] in
@@ -27,6 +36,7 @@ public final class PageClosingTabs {
             }
             guard !Task.isCancelled else { return }
             self?.watches[id] = nil
+            self?.began[id] = nil
         }
     }
 
@@ -42,6 +52,7 @@ public final class PageClosingTabs {
     /// Tab `id` left its strip (closed) or its close is over.
     public func end(_ id: String) {
         watches.removeValue(forKey: id)?.cancel()
+        began[id] = nil
     }
 
     nonisolated deinit {}
