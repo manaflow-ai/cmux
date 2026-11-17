@@ -7,10 +7,10 @@ import Testing
 @MainActor @Suite struct CEFHiddenPageTrimTests {
     @Test func aBurstWaitsTheDelayAndALaterOneWaitsOutTheGap() {
         let start = ContinuousClock.now
-        #expect(CEFHiddenPageTrim.wait(since: nil, now: start) == CEFHiddenPageTrim.delay)
-        #expect(CEFHiddenPageTrim.wait(since: start, now: start + .seconds(10)) == CEFHiddenPageTrim.minimumGap - .seconds(10))
-        #expect(CEFHiddenPageTrim.wait(since: start, now: start + .seconds(59)) == CEFHiddenPageTrim.delay)
-        #expect(CEFHiddenPageTrim.wait(since: start, now: start + .seconds(600)) == CEFHiddenPageTrim.delay)
+        #expect(CEFHiddenPageTrim.nextDelay(since: nil, now: start) == CEFHiddenPageTrim.delay)
+        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(10)) == CEFHiddenPageTrim.minimumGap - .seconds(10))
+        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(59)) == CEFHiddenPageTrim.delay)
+        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(600)) == CEFHiddenPageTrim.delay)
     }
 
     @Test func theNoticeIsCriticalAndNoTrimRunsWithoutAFrozenPage() async {

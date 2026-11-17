@@ -13,11 +13,6 @@ import Foundation
 /// A chat looked at again within the freeze wait is never touched.
 @MainActor
 final class CEFHiddenPageTrim {
-    /// The app's one trim (every cmux page shares the runtime).
-    static let shared = CEFHiddenPageTrim { tab in
-        _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": CEFHiddenPageTrim.level], timeout: .seconds(10))
-    }
-
     /// Chromium's pressure level the notice names.
     static let level = "critical"
     /// From the first freeze of a burst to the notice: one notice serves every page frozen together.
@@ -39,10 +34,15 @@ final class CEFHiddenPageTrim {
         self.notify = notify
     }
 
-    /// A cmux page froze: a notice goes out within ``wait(since:now:)``.
+    /// A cmux page froze: a notice goes out within ``nextDelay(since:now:)``.
     func pageFroze(_ tab: CEFTab) {
         target = tab
-        timer.scheduleIfIdle(after: Self.wait(since: lastNotice, now: now())) { @MainActor [weak self] in await self?.trim() }
+        timer.scheduleIfIdle(after: Self.nextDelay(since: lastNotice, now: now())) { @MainActor [weak self] in await self?.trim() }
+    }
+
+    /// The notice itself, through `tab`'s DevTools (the runtime's `hiddenPageTrim` sends it).
+    static func notice(_ tab: CEFTab) async {
+        _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": level], timeout: .seconds(10))
     }
 
     /// Sends the notice through the newest frozen page, when it is still open.
@@ -55,7 +55,7 @@ final class CEFHiddenPageTrim {
     }
 
     /// ``delay``, or longer when the last notice was less than ``minimumGap`` before `now`.
-    nonisolated static func wait(since last: ContinuousClock.Instant?, now: ContinuousClock.Instant) -> Duration {
+    nonisolated static func nextDelay(since last: ContinuousClock.Instant?, now: ContinuousClock.Instant) -> Duration {
         guard let last else { return delay }
         return max(delay, minimumGap - (now - last))
     }
