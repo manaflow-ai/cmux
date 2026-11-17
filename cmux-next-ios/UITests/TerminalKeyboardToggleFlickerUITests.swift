@@ -4,9 +4,9 @@ import XCTest
 ///
 /// - A full-screen app (vim) gets one PTY resize per settled toggle (R1-1);
 ///   the Mac answers with its grid, a mirror reset and a replay. Until the
-///   new grid is drawn the old one stays pinned to the composer, then it
-///   swaps in: no frame with the grid off the composer, no blank grid, no
-///   letterbox note.
+///   new grid is drawn the old one stays pinned to the top (row 1 at the
+///   toolbar's edge, not moving), then it swaps in once, with no grid in
+///   between: no blank grid, no letterbox note, no torn frame.
 /// - A shell never resizes for the keyboard; its rows ride the keyboard,
 ///   never against it, never blank, and never snap after it stops.
 ///
@@ -50,7 +50,7 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
     func testFullScreenAppToggleReversedBeforeTheMacAnswers() throws {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-reverse", defaults: ["CmuxMobileTerminalDemoToggle": "reverse",
                                                                                           "CmuxMobileTerminalDemoMacMs": "150"]),
-                               exactResizes: false)
+                               exactResizes: false, reversed: true)
     }
 
     /// Shown, hidden and shown again 100 ms apart.
@@ -114,8 +114,28 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     /// `exactResizes`: one resize per settled toggle (a reversed or doubled
     /// toggle sends its revert at once, recorded, not asserted).
-    private func checkFullScreenApp(_ values: [String: String], exactResizes: Bool = true) throws {
+    /// `reversed`: each show is taken back before the Mac answers (show and
+    /// hide end where they started), so a round swaps the grid 0 times.
+    private func checkFullScreenApp(_ values: [String: String], exactResizes: Bool = true, reversed: Bool = false) throws {
         let steps = resizeSteps(values)
+        // The grid on screen changes once per toggle, straight to the end
+        // rows (a full reversal: never); no grid in between is drawn.
+        let swaps = counts(values["swapn"])
+        XCTAssertEqual(swaps.count, 10, "swap counts for five shows and five hides (\(values["swapn"] ?? "-"))")
+        if reversed {
+            for round in 0..<5 {
+                XCTAssertEqual((swaps["show\(round)"] ?? -1) + (swaps["hide\(round)"] ?? -1), 0,
+                               "a reversed toggle swaps the grid 0 times (round \(round): \(values["swapn"] ?? "-"))")
+            }
+        } else {
+            for (step, count) in swaps.sorted(by: { $0.key < $1.key }) {
+                XCTAssertEqual(count, 1, "one swap for \(step) (\(values["swapn"] ?? "-"))")
+            }
+        }
+        XCTAssertEqual(values["inter"], "0", "intermediate grids drawn: \(values["offlog"] ?? "?")")
+        // Row 1 stays where its grid first showed until the next swap, held
+        // still or live, whatever is drawn above it.
+        XCTAssertEqual(values["rowoff"], "0", "frames with row 1 off its place: largest \(values["rowmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
         if exactResizes {
             for (step, resizes) in steps {
@@ -211,6 +231,16 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
     /// Each toggle step and its PTY resizes, from the demo's cumulative log
     /// (`demo=done....steps=show0:1,hide0:1,...`): a label the probe missed
     /// under load is still in it.
+    /// `show0:1,hide0:1,...` as a map.
+    private func counts(_ log: String?) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for item in (log ?? "").split(separator: ",") {
+            let kv = item.split(separator: ":")
+            if kv.count == 2, let count = Int(kv[1]) { out[String(kv[0])] = count }
+        }
+        return out
+    }
+
     private func resizeSteps(_ values: [String: String]) -> [(String, Int)] {
         let log = (values["demo"] ?? "").components(separatedBy: ".steps=").dropFirst().first ?? ""
         return log.split(separator: ",").compactMap { item -> (String, Int)? in

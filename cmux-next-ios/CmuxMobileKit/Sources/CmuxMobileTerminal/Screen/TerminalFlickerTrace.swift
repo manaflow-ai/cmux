@@ -74,6 +74,13 @@ final class TerminalFlickerTrace: NSObject {
         var heldAreaRows = 0
         var areaInset: CGFloat = 0
         var sentRows = 0
+        /// The area's top as drawn, and whether the area clips the grid to
+        /// itself (rows shifted above it are not drawn).
+        var areaTop: CGFloat = 0
+        var areaClips = false
+        /// The rows of the grid the held still shows, and which still it is.
+        var heldRows = 0
+        var heldID = 0
         // Shell.
         var contentBottom: CGFloat = 0
         var legibleBlank = false
@@ -208,6 +215,8 @@ final class TerminalFlickerTrace: NSObject {
         }
         if measuring { measure(now, t: t, interval: interval, duration: duration) }
         if measuring, now.demo.hasPrefix("done.") {
+            closeSwapStep()
+            swapCountStep = ""
             measuring = false
             finished = true
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
@@ -312,15 +321,20 @@ final class TerminalFlickerTrace: NSObject {
         // What shows of the grid: the held still while it is up (its top and
         // bottom), else the live grid.
         let top: CGFloat, bottom: CGFloat
+        // The live grid's first drawn row: rows shifted above the area are
+        // drawn up to the clip's top unless the area clips them.
+        let liveTop = max(now.gridTop, now.areaClips ? now.areaTop : now.clipTop)
         if now.held {
             // A still of the whole page: where its grid is drawn is not known.
             guard now.heldIsArea else { return }
-            top = now.heldTop
+            // The live grid shows above the still where it reaches higher.
+            top = min(now.heldTop, liveTop)
             bottom = now.heldBottom
         } else {
-            top = now.gridTop
+            top = liveTop
             bottom = now.gridTop + CGFloat(now.gridRows) * now.cellHeight
         }
+        countSwaps(now, top: top, t: t)
         let pin = bottom - now.stackTop
         let swapped = !now.held && now.gridRows == now.pageRows
         // Row 1 at the toolbar's edge, every frame (the area's sub-row rest is
@@ -332,11 +346,12 @@ final class TerminalFlickerTrace: NSObject {
         }
         // While the same grid shows (no swap), its top stands still: it does
         // not ride the composer.
-        if let last = lastShown, last.rows == now.gridRows, last.held == now.held, abs(top - last.top) > 1 {
+        let shownKey = now.held ? -now.heldID : now.gridRows
+        if let last = lastShown, last.rows == shownKey, last.held == now.held, abs(top - last.top) > 1 {
             count("topmove")
             if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:move%.1f", t, now.demo, top - last.top)) }
         }
-        lastShown = (now.gridRows, now.held, top)
+        lastShown = (shownKey, now.held, top)
         // Below the grid's last row, down to the composer: background only
         // (the area's cover starts at the grid's bottom).
         if bottom < now.stackTop - 1 {
@@ -372,6 +387,53 @@ final class TerminalFlickerTrace: NSObject {
             swapRowsAtStart = -1
         }
     }
+
+    /// The grid the person sees (the held still's, else the live one's
+    /// rows), per step: each change of its rows is a swap (`swapn`), rows
+    /// that are neither the step's first nor its last are an intermediate
+    /// grid (`inter`), and row 1 stays where it was until a swap (`rowoff`,
+    /// frames more than 1 pt from where the grid first showed).
+    private func countSwaps(_ now: Sample, top: CGFloat, t: CFTimeInterval) {
+        let rows = now.held ? now.heldRows : now.gridRows
+        if now.demo != swapCountStep {
+            closeSwapStep()
+            swapCountStep = now.demo
+            stepRows = [rows]
+            stepSwaps = 0
+            shownRows = rows
+        }
+        if rows != shownRows {
+            stepSwaps += 1
+            shownRows = rows
+            shownTop = top
+            if !stepRows.contains(rows) { stepRows.append(rows) }
+        }
+        let anchor = shownTop ?? top
+        shownTop = anchor
+        if abs(top - anchor) > 1 {
+            count("rowoff")
+            largestRowOff = max(largestRowOff, abs(top - anchor))
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:row%.1f", t, now.demo, top - anchor)) }
+        }
+    }
+
+    private func closeSwapStep() {
+        guard !swapCountStep.isEmpty, swapCountStep.hasPrefix("show") || swapCountStep.hasPrefix("hide") else { return }
+        swapCounts.append("\(swapCountStep):\(stepSwaps)")
+        // The grids between the first and the last one shown.
+        if stepRows.count > 2 {
+            counts["inter", default: 0] += stepRows.count - 2
+            if offLog.count < 24 { offLog.append("inter@\(swapCountStep):" + stepRows.map(String.init).joined(separator: ">")) }
+        }
+    }
+
+    private var swapCountStep = ""
+    private var stepRows: [Int] = []
+    private var stepSwaps = 0
+    private var shownRows = -1
+    private var shownTop: CGFloat?
+    private var swapCounts: [String] = []
+    private var largestRowOff: CGFloat = 0
 
     private var lastShown: (rows: Int, held: Bool, top: CGFloat)?
     private var largestTopOff: CGFloat = 0
@@ -410,13 +472,15 @@ final class TerminalFlickerTrace: NSObject {
     private var offLog: [String] = []
 
     private func summary(demo: String) -> String {
-        let keys = ["frames", "topoff", "topmove", "off2", "gaplive", "gapf", "torn", "gapoff", "jump", "jump1", "late", "drift", "blank", "note", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "topoff", "topmove", "rowoff", "inter", "off2", "gaplive", "gapf", "torn", "gapoff", "jump", "jump1", "late", "drift", "blank", "note", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
         parts.append(String(format: "off2max=%.1f", largestOff))
         parts.append(String(format: "topmax=%.1f", largestTopOff))
         parts.append(String(format: "gappx=%.1f", largestGapBelow))
         parts.append("swapms=" + (swapLog.isEmpty ? "-" : swapLog.joined(separator: ",")))
+        parts.append("swapn=" + (swapCounts.isEmpty ? "-" : swapCounts.joined(separator: ",")))
+        parts.append(String(format: "rowmax=%.1f", largestRowOff))
         parts.append(String(format: "gapmax=%.1f", largestGap))
         parts.append("offlog=" + (offLog.isEmpty ? "-" : offLog.joined(separator: ",")))
         parts.append("demo=\(demo)")

@@ -344,6 +344,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         : nil
     /// `-CmuxMobileTerminalFlickerTrace` (TerminalKeyboardToggleFlickerUITests).
     private var flickerTrace: TerminalFlickerTrace?
+    /// Held stills taken, and the rows of the grid the latest one shows.
+    private var freezeCount = 0
+    private var freezeRows = 0
     /// The held still is committed (on screen), so a present under it shows nothing.
     private var heldCommitted = false
     #endif
@@ -795,6 +798,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.areaInset = tuiHostTop.constant
             sample.sentRows = claimedTUIRows ?? 0
             sample.coverTop = probe.onScreen(tuiBelowCover, in: view).minY
+            sample.areaTop = probe.onScreen(tuiHost, in: view).minY
+            sample.areaClips = tuiHost.clipsToBounds || tuiHost.layer.mask != nil
+            sample.heldRows = freezeRows
+            sample.heldID = freezeCount
             sample.clipTop = probe.onScreen(tuiClip, in: view).minY
             sample.cellHeight = cell.height
             sample.noteShown = !hostGridNote.isHidden
@@ -2063,6 +2070,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // first show, a source frame of 5 ms).
         CATransaction.flush()
         freezeView = snapshot
+        #if DEBUG
+        freezeCount &+= 1
+        // The rows the area shows as the still is taken (the Mac's new grid
+        // may be applied already: its change comes before the reset).
+        freezeRows = cell.height > 0 ? Int((tuiHeight.constant / cell.height).rounded()) : 0
+        #endif
         #if DEBUG
         heldCommitted = true
         #endif
