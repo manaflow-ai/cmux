@@ -5870,6 +5870,19 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
 
+# The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
+# not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
+TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
+TREE_HANDOFF_STEP = "Re-run the runs that deferred to this tree"
+TREE_HANDOFF_QUOTA = re.compile(
+    r"^##\[error\]\[quota-only\] deferred runs not re-run for the published tree; run (?P<run>\d+); "
+    r"no attempt before (?P<retry>\d{2}:\d{2}Z); the repo installation's API limit refused its API call\."
+    r"(?: Deferred markers remain for the next run\.)?$")
+
+
+class JobRateLimited(Refused):
+    """A failed CI job reported only its own GitHub API quota refusal."""
+
 
 def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
@@ -5881,6 +5894,19 @@ def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
         return None
     return sorted(errors)[0].strip()
+
+
+def tree_handoff_quota_only(job: dict, log: str) -> str | None:
+    """The published-tree hand-off's sole quota refusal, with its job id and retry boundary."""
+    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if failed != [TREE_HANDOFF_STEP]:
+        return None
+    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+              and not text.startswith("##[error]Process completed with exit code")]
+    if len(errors) != 1 or not (match := TREE_HANDOFF_QUOTA.fullmatch(errors[0].rstrip())):
+        return None
+    return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
 
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
@@ -7117,6 +7143,9 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
+                             "after that boundary")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
@@ -7948,6 +7977,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                           flake_state=test_reds.load_flake_state(args.flake_state, fetch=True), purpose=args.purpose)
+    except JobRateLimited as error:
+        print(f"job-rate-limited: {error}", file=sys.stderr)
+        return 3
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
