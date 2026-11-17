@@ -55,6 +55,11 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
         defer { endWrite() }
         return await base.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
     }
+    /// The wrapped store's failed reads, so a keychain miss behind the fence
+    /// is still a retry and never a sign-out.
+    public func tokenReadFailureCount() async -> UInt64 {
+        await base.tokenReadFailureCount()
+    }
     public func freezeForCapture() async {
         if frozen { return }
         if freezing {

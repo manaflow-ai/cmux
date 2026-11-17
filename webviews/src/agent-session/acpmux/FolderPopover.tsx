@@ -167,9 +167,10 @@ export function FolderPopover({
   const githubStatus = !addingExtra ? github?.state.status?.state : undefined;
   const cardShown = githubCard && githubStatus === "not_connected";
   const githubReady = githubStatus === "ready" && github?.state.error === undefined;
+  const githubRepos = github?.state.repos;
   const repos = useMemo(
-    () => (githubReady && github?.state.repos ? matchingRepos(github.state.repos, typed) : []),
-    [githubReady, github?.state.repos, typed],
+    () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
+    [githubReady, githubRepos, typed],
   );
   const githubRows = [
     ...(githubStatus === "not_connected" ? [GITHUB_ADD] : []),
