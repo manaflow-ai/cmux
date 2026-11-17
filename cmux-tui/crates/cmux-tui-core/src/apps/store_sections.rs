@@ -146,7 +146,7 @@ fn all_sections(mut apps: Vec<Shelved>) -> Vec<Section> {
     // Stable: the rest keep the name order.
     featured.sort_by_key(|app| rank(&app.id));
     let mut recent: Vec<&Shelved> = apps.iter().filter(|app| app.date_ms.is_some()).collect();
-    recent.sort_by(|a, b| b.date_ms.cmp(&a.date_ms));
+    recent.sort_by_key(|app| std::cmp::Reverse(app.date_ms));
     let ids = |rows: Vec<&Shelved>| -> Vec<String> {
         rows.into_iter().map(|app| app.id.clone()).collect()
     };
