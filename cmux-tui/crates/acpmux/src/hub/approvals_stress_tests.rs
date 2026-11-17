@@ -150,9 +150,9 @@ async fn answer(hub: &Hub, session: &Session, id: &str) {
 
 /// The review queue page a client reads.
 fn queue_page(hub: &Hub, limit: usize) -> (usize, usize) {
-    let (mut items, visited) = hub.review_queue_local(crate::store::now_ms());
-    let total = items.len();
-    review_queue::sort_items(&mut items, limit);
+    // `_acpmux/review_queue`'s local part: the page and the count before its cut.
+    let (items, total, visited) = hub.review_queue_page(crate::store::now_ms(), limit);
+    assert!(items.len() <= limit);
     (total, visited)
 }
 

@@ -266,7 +266,7 @@ impl Hub {
             // restart's `detach_child` would cancel it): that session restarts
             // after its next turn, as `restart_unproven` waits for one.
             let idle = || {
-                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                if session.turn().is_none() && !session.has_pending_permissions() {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None
@@ -320,7 +320,7 @@ impl Hub {
         tokio::spawn(async move {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
-                && session.pending_permissions().is_empty()
+                && !session.has_pending_permissions()
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
                 hub.detach_child(&session).await;

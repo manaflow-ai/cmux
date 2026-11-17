@@ -88,7 +88,9 @@ async fn queue(
             .clamp(1, MAX_LIMIT as u64) as usize,
     };
     let now = crate::store::now_ms();
-    let (mut items, _) = hub.review_queue_local(now);
+    // Only this daemon's first `limit` can reach the page: the rest are counted, not built.
+    let (mut items, local_total, _) = hub.review_queue_page(now, limit);
+    let local_cut = local_total.saturating_sub(limit);
     let mut omitted: Vec<String> = Vec::new();
     // Items a peer counted but cut at the same `limit` before it answered.
     let mut peers_cut = 0usize;
@@ -123,7 +125,7 @@ async fn queue(
     }
     // How many there were before the cut, so a page showing `limit` can say more wait: a peer's
     // own cut counts too.
-    let total = items.len() + peers_cut;
+    let total = items.len() + local_cut + peers_cut;
     sort_items(&mut items, limit);
     let mut out = json!({"items": items, "now": now, "total": total});
     if !omitted.is_empty() {

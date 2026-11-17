@@ -2404,7 +2404,7 @@ impl Hub {
             // switch does (`route_switch.rs`), so the next prompt runs on it. Between turns
             // the process ends now, under the turn lock, and the next prompt starts it.
             let idle = || {
-                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                if session.turn().is_none() && !session.has_pending_permissions() {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None

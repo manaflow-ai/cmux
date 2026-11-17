@@ -112,6 +112,9 @@ impl JsonSet for Map<String, Value> {
 /// assert_eq!(record.get_array("tabs").len(), 2);
 /// assert_eq!(record.get_str("count"), None);
 /// assert!(record.get_array("missing").is_empty());
+/// let nested = json!({ "a": { "b": { "c": 1 } } });
+/// assert_eq!(nested.get_path(&["a", "b", "c"]), Some(&json!(1)));
+/// assert_eq!(nested.get_path(&["a", "x"]), None);
 /// ```
 pub trait JsonGet {
     /// The member `key`, when `self` is an object that has it.
@@ -146,6 +149,14 @@ pub trait JsonGet {
     /// Member `key`'s elements; empty when it is missing or not an array.
     fn get_array(&self, key: &str) -> &[Value] {
         self.member(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    }
+
+    /// The value at `keys`, one object member per key (`["toolCall", "_meta"]`), with no
+    /// allocation. `Value::pointer` builds two strings per token to unescape it, which a read
+    /// on every item of a large collection pays for each item.
+    fn get_path(&self, keys: &[&str]) -> Option<&Value> {
+        let (first, rest) = keys.split_first()?;
+        rest.iter().try_fold(self.member(first)?, |value, key| value.get(*key))
     }
 }
 

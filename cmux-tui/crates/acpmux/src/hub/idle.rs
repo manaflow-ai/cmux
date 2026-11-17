@@ -80,7 +80,7 @@ impl Hub {
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
             && session.queued() == 0
-            && session.pending_permissions().is_empty()
+            && !session.has_pending_permissions()
             // A harness's own background process (a dev server, a watcher) ends with the
             // harness: never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not
             // in this table and outlives the harness.
@@ -524,7 +524,7 @@ impl Hub {
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.queued() > 0
-            || !session.pending_permissions().is_empty()
+            || session.has_pending_permissions()
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
             || session.agent_requests.load(Ordering::SeqCst) > 0
             || self.continuation_pending(session)
@@ -565,7 +565,7 @@ impl Hub {
         Some(SessionAtWork {
             id: session.id.clone(),
             turn,
-            person: !session.pending_permissions().is_empty()
+            person: session.has_pending_permissions()
                 || session.asks_in_flight.load(Ordering::SeqCst) > 0,
             processes,
             below: subagents > 0 || below,

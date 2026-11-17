@@ -274,7 +274,7 @@ impl Hub {
         let shown = session.attached.load(Ordering::SeqCst) > session.hidden.load(Ordering::SeqCst);
         shown
             || session.status() == SessionStatus::Waiting
-            || !session.pending_permissions().is_empty()
+            || session.has_pending_permissions()
             || self.secrets.waiting_in(&session.id)
             || self.owner_busy(session)
     }

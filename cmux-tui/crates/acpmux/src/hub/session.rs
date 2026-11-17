@@ -909,7 +909,11 @@ impl Session {
         self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
-        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
+        self.pending_permission_count() > 0
+    }
+    /// How many permission requests wait, without copying them (a summary's badge).
+    pub(crate) fn pending_permission_count(&self) -> usize {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.len()
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
