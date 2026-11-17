@@ -1,0 +1,1032 @@
+2026-11-17T14:28:22.5712785Z Current runner version: '2.338.2'
+2026-11-17T14:28:22.5718210Z Runner name: 'blacksmith-16vcpu-ubuntu-2404-n3b3ewfw6hhwnzj7'
+2026-11-17T14:28:22.5719222Z Runner group name: 'blacksmith scale sets - blacksmith-16vcpu-ubuntu-2404'
+2026-11-17T14:28:22.5720313Z Machine name: 'ip-172-31-73-130'
+2026-11-17T14:28:22.5722574Z ##[group]GITHUB_TOKEN Permissions
+2026-11-17T14:28:22.5724798Z Actions: read
+2026-11-17T14:28:22.5725291Z Checks: read
+2026-11-17T14:28:22.5725730Z Contents: read
+2026-11-17T14:28:22.5726181Z Metadata: read
+2026-11-17T14:28:22.5726617Z ##[endgroup]
+2026-11-17T14:28:22.5728761Z Secret source: Actions
+2026-11-17T14:28:22.5729545Z Cache mode: write
+2026-11-17T14:28:22.5730153Z Prepare workflow directory
+2026-11-17T14:28:22.6232401Z Prepare all required actions
+2026-11-17T14:28:22.6263530Z Getting action download info
+2026-11-17T14:28:22.7320681Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-17T14:28:22.8103112Z Setting BLACKSMITH_ACTIONS_RESULTS_URL to https://results-receiver.actions.githubusercontent.com/
+2026-11-17T14:28:22.8171220Z Complete job name: cmux-next checks (god files, concurrency, crash safety, l10n)
+2026-11-17T14:28:22.9936045Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-17T14:28:23.0002210Z ##[group]Run '/setup.sh'
+2026-11-17T14:28:23.0017550Z ##[endgroup]
+2026-11-17T14:28:23.0312238Z Logging daemon started (blacksmithd for logs)
+2026-11-17T14:28:23.0630285Z Enabling Blacksmith transparent cache
+2026-11-17T14:28:23.2498746Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-17T14:28:23.2508335Z ##[endgroup]
+2026-11-17T14:28:23.3595665Z Syncing repository: manaflow-ai/cmux
+2026-11-17T14:28:23.3596844Z ##[group]Getting Git version info
+2026-11-17T14:28:23.3666395Z ##[endgroup]
+2026-11-17T14:28:23.3724377Z ##[group]Initializing the repository
+2026-11-17T14:28:23.3847354Z ##[endgroup]
+2026-11-17T14:28:23.3848186Z ##[group]Disabling automatic garbage collection
+2026-11-17T14:28:23.3892808Z ##[endgroup]
+2026-11-17T14:28:23.3893358Z ##[group]Setting up auth
+2026-11-17T14:28:23.4769745Z ##[endgroup]
+2026-11-17T14:28:23.4770125Z ##[group]Fetching the repository
+2026-11-17T14:28:46.6811714Z ##[endgroup]
+2026-11-17T14:28:46.6812041Z ##[group]Determining the checkout info
+2026-11-17T14:28:46.6813034Z ##[endgroup]
+2026-11-17T14:28:46.6879752Z ##[group]Checking out the ref
+2026-11-17T14:28:49.9805979Z ##[endgroup]
+2026-11-17T14:28:49.9900112Z ##[group]Removing auth
+2026-11-17T14:28:50.0972025Z Removing credentials config '/home/runner/_work/_temp/git-credentials-4292711a-3562-4bcd-ab2e-c88f2c2c3944.config'
+2026-11-17T14:28:50.0979274Z ##[endgroup]
+2026-11-17T14:28:50.1148685Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-17T14:28:50.1170606Z ##[endgroup]
+2026-11-17T14:28:50.2261394Z ##[group]Run set -euo pipefail
+2026-11-17T14:28:50.2290748Z ##[endgroup]
+2026-11-17T14:28:52.2723623Z Collecting PyYAML==6.0.3
+2026-11-17T14:28:52.7872569Z Successfully installed Pillow-11.3.0 PyYAML-6.0.3
+2026-11-17T14:28:52.9901766Z ##[group]Run # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
+2026-11-17T14:28:52.9992432Z ##[endgroup]
+2026-11-17T14:28:53.0599934Z checks-structure: 13 commands
+2026-11-17T14:28:53.0814296Z 178 commands started, 16 at a time, deadline in 599s
+2026-11-17T14:28:53.1001700Z ##[group]Run base=()
+2026-11-17T14:28:53.1098785Z ##[endgroup]
+2026-11-17T14:28:54.3801537Z ##[warning]god file: Sources/CmuxNextTerminal/TerminalStatusBanner.swift has 405 lines (limit 400)
+2026-11-17T14:28:54.3853051Z ##[warning]god file: Sources/CmuxNextTerminal/GhosttyRuntime.swift has 452 lines (limit 400)
+2026-11-17T14:28:54.3856117Z ##[warning]god file: Sources/CmuxNextBrowser/Core/BrowserPageBusy.swift has 420 lines (limit 400)
+2026-11-17T14:28:54.3895938Z ##[warning]god file: Sources/CmuxNextBrowser/UI/ChromeButtons.swift has 432 lines (limit 400)
+2026-11-17T14:28:54.3935418Z ##[warning]god file: Sources/CmuxNextBrowser/CEF/CEFRuntime+Events.swift has 479 lines (limit 400)
+2026-11-17T14:28:54.3937639Z ##[warning]god file: Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift has 445 lines (limit 400)
+2026-11-17T14:28:54.3952313Z ##[warning]god file: Sources/CmuxNextBrowser/CEF/CEFSpareWindow.swift has 416 lines (limit 400)
+2026-11-17T14:28:54.3955934Z ##[warning]god file: Sources/CmuxNextCloud/MoveCore/CloudWait.swift has 465 lines (limit 400)
+2026-11-17T14:28:54.3959410Z ##[warning]god file: Sources/CmuxNextWakeups/FrameScheduler.swift has 447 lines (limit 400)
+2026-11-17T14:28:54.3961236Z ##[warning]god file: Sources/CmuxNextWakeups/ProcessRun.swift has 424 lines (limit 400)
+2026-11-17T14:28:54.3962816Z ##[warning]god file: Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift has 413 lines (limit 400)
+2026-11-17T14:28:54.3964474Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenButtons.swift has 401 lines (limit 400)
+2026-11-17T14:28:54.3966056Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenPages.swift has 440 lines (limit 400)
+2026-11-17T14:28:54.3967597Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenPane.swift has 476 lines (limit 400)
+2026-11-17T14:28:54.3969179Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenToolbar.swift has 420 lines (limit 400)
+2026-11-17T14:28:54.3970792Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenHomeDevices.swift has 437 lines (limit 400)
+2026-11-17T14:28:54.3972371Z ##[warning]god file: Sources/CmuxNextMacScreen/MacScreenSession.swift has 473 lines (limit 400)
+2026-11-17T14:28:54.3974593Z ##[warning]god file: Sources/CmuxNextRemoteLocalhostService/RemoteLocalhostService.swift has 403 lines (limit 400)
+2026-11-17T14:28:54.3977603Z ##[warning]god file: Sources/CmuxNextApp/Cloud/CloudMachineSession.swift has 471 lines (limit 400)
+2026-11-17T14:28:54.3979246Z ##[warning]god file: Sources/CmuxNextApp/Cloud/CloudStartSession.swift has 439 lines (limit 400)
+2026-11-17T14:28:54.3980869Z ##[warning]god file: Sources/CmuxNextApp/Cloud/CloudMachineCreation.swift has 444 lines (limit 400)
+2026-11-17T14:28:54.3982343Z ##[warning]god file: Sources/CmuxNextApp/WindowRootView.swift has 453 lines (limit 400)
+2026-11-17T14:28:54.3984550Z ##[warning]god file: Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift has 427 lines (limit 400)
+2026-11-17T14:28:54.3986107Z ##[warning]god file: Sources/CmuxNextApp/Focus/KeyRouter.swift has 453 lines (limit 400)
+2026-11-17T14:28:54.3987647Z ##[warning]god file: Sources/CmuxNextApp/Focus/CreationInputCoordinator.swift has 431 lines (limit 400)
+2026-11-17T14:28:54.3989186Z ##[warning]god file: Sources/CmuxNextApp/Focus/FocusEffectApplier.swift has 440 lines (limit 400)
+2026-11-17T14:28:54.3990730Z ##[warning]god file: Sources/CmuxNextApp/Focus/KeyRouter+NewTabInput.swift has 406 lines (limit 400)
+2026-11-17T14:28:54.3992311Z ##[warning]god file: Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift has 469 lines (limit 400)
+2026-11-17T14:28:54.3993945Z ##[warning]god file: Sources/CmuxNextApp/Handlers/CloudHandlers+Account.swift has 403 lines (limit 400)
+2026-11-17T14:28:54.3995558Z ##[warning]god file: Sources/CmuxNextApp/AgentTabs+Lifecycle.swift has 477 lines (limit 400)
+2026-11-17T14:28:54.3997149Z ##[warning]god file: Sources/CmuxNextApp/InternalPages/InternalPageTabStore.swift has 414 lines (limit 400)
+2026-11-17T14:28:54.3998723Z ##[warning]god file: Sources/CmuxNextApp/Feed/AcpmuxPermissionFeedBridge.swift has 428 lines (limit 400)
+2026-11-17T14:28:54.4000247Z ##[warning]god file: Sources/CmuxNextApp/PaneController+Intents.swift has 473 lines (limit 400)
+2026-11-17T14:28:54.4001732Z ##[warning]god file: Sources/CmuxNextApp/Windows/WindowOverlayLayer.swift has 443 lines (limit 400)
+2026-11-17T14:28:54.4003303Z ##[warning]god file: Sources/CmuxNextApp/ComputerUse/ComputerUseSetup.swift has 474 lines (limit 400)
+2026-11-17T14:28:54.4004713Z ##[warning]god file: Sources/CmuxNextApp/Drag/TabMoves.swift has 442 lines (limit 400)
+2026-11-17T14:28:54.4006127Z ##[warning]god file: Sources/CmuxNextApp/NewTab/NewTabSparePool.swift has 422 lines (limit 400)
+2026-11-17T14:28:54.4007643Z ##[warning]god file: Sources/CmuxNextApp/RemoteView/RemoteBrowserPages.swift has 416 lines (limit 400)
+2026-11-17T14:28:54.4009078Z ##[warning]god file: Sources/CmuxNextApp/PaneContentView.swift has 475 lines (limit 400)
+2026-11-17T14:28:54.4011471Z ##[warning]god file: Sources/CmuxNextApp/WorkspaceContentController.swift has 468 lines (limit 400)
+2026-11-17T14:28:54.4013070Z ##[warning]god file: Sources/CmuxNextApp/SidebarBridge.swift has 468 lines (limit 400)
+2026-11-17T14:28:54.4014667Z ##[warning]god file: Sources/CmuxNextPages/WebCard/WebCardPanel.swift has 455 lines (limit 400)
+2026-11-17T14:28:54.4016119Z ##[warning]god file: Sources/CmuxNextPages/PageWebView+Debug.swift has 464 lines (limit 400)
+2026-11-17T14:28:54.4017531Z ##[warning]god file: Sources/CmuxNextBridge/SidebarMapping.swift has 461 lines (limit 400)
+2026-11-17T14:28:54.4018960Z ##[warning]god file: Sources/CmuxNextBridge/SidebarDocBridging.swift has 438 lines (limit 400)
+2026-11-17T14:28:54.4020457Z ##[warning]god file: Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift has 455 lines (limit 400)
+2026-11-17T14:28:54.4022364Z ##[warning]god file: Sources/CmuxNextAgentLanes/SidebarSessionTreeFeed.swift has 479 lines (limit 400)
+2026-11-17T14:28:54.4024056Z ##[warning]god file: Sources/CmuxNextWindowRules/WindowRules+Tabs.swift has 403 lines (limit 400)
+2026-11-17T14:28:54.4025659Z ##[warning]god file: Sources/CmuxNextWindowRules/WindowRules+ChatAgent.swift has 417 lines (limit 400)
+2026-11-17T14:28:54.4027452Z ##[warning]god file: Sources/CmuxNextWindowRules/WindowRules+Chat.swift has 434 lines (limit 400)
+2026-11-17T14:28:54.4029183Z ##[warning]god file: Sources/CmuxNextSidebar/Store/SidebarDoc.swift has 406 lines (limit 400)
+2026-11-17T14:28:54.4030835Z ##[warning]god file: Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift has 427 lines (limit 400)
+2026-11-17T14:28:54.4032441Z ##[warning]god file: Sources/CmuxNextSidebar/Views/ProfileBarView.swift has 419 lines (limit 400)
+2026-11-17T14:28:54.4034082Z ##[warning]god file: Sources/CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift has 437 lines (limit 400)
+2026-11-17T14:28:54.4035648Z ##[warning]god file: Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift has 407 lines (limit 400)
+2026-11-17T14:28:54.4037284Z ##[warning]god file: Sources/CmuxNextSidebar/Views/Priority/SidebarPriorityPanelView.swift has 437 lines (limit 400)
+2026-11-17T14:28:54.4038796Z ##[warning]god file: Sources/CmuxNextSidebar/Logic/SidebarLayout.swift has 426 lines (limit 400)
+2026-11-17T14:28:54.4040279Z ##[warning]god file: Sources/CmuxNextDaemonService/RemoteFilePageFiles.swift has 429 lines (limit 400)
+2026-11-17T14:28:54.4041715Z ##[warning]god file: Sources/CmuxNextPalette/PaletteModel.swift has 455 lines (limit 400)
+2026-11-17T14:28:54.4043254Z ##[warning]god file: Sources/CmuxNextWorkspaceRepair/EmptyWorkspaceRepair.swift has 470 lines (limit 400)
+2026-11-17T14:28:54.4044709Z ##[warning]god file: Sources/CmuxNextDesign/Text/ChromeLabel.swift has 459 lines (limit 400)
+2026-11-17T14:28:54.4046100Z ##[warning]god file: Sources/CmuxNextDesign/GlassPanelView.swift has 480 lines (limit 400)
+2026-11-17T14:28:54.4047485Z ##[warning]god file: Sources/CmuxNextDesign/CornerFlush.swift has 420 lines (limit 400)
+2026-11-17T14:28:54.4049038Z ##[warning]god file: Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorLayer.swift has 454 lines (limit 400)
+2026-11-17T14:28:54.4050560Z ##[warning]god file: Sources/CmuxNextDesign/Motion/MotionScreenRecord.swift has 450 lines (limit 400)
+2026-11-17T14:28:54.4052073Z ##[warning]god file: Sources/CmuxNextDesign/Windows/NSWindow+Snapshot.swift has 452 lines (limit 400)
+2026-11-17T14:28:54.4056951Z ##[warning]god file: Sources/CmuxNextDesign/Overlay/WindowOverlayHost.swift has 402 lines (limit 400)
+2026-11-17T14:28:54.4060794Z ##[warning]god file: Sources/CmuxNextDesign/Overlay/NativePopupContent.swift has 418 lines (limit 400)
+2026-11-17T14:28:54.4062416Z ##[warning]god file: Sources/CmuxNextDesign/DesignSettings.swift has 405 lines (limit 400)
+2026-11-17T14:28:54.4064595Z ##[warning]god file: Sources/CmuxNextDesign/GlassMenu/GlassMenu.swift has 449 lines (limit 400)
+2026-11-17T14:28:54.4066107Z ##[warning]god file: Sources/CmuxNextDesign/HoverCards/HoverCardRow.swift has 430 lines (limit 400)
+2026-11-17T14:28:54.4067738Z ##[warning]god file: Sources/CmuxNextDesign/HoverReveal.swift has 457 lines (limit 400)
+2026-11-17T14:28:54.4069293Z ##[warning]god file: Sources/CmuxNextDaemon/Connection/DaemonConnection+Commands.swift has 471 lines (limit 400)
+2026-11-17T14:28:54.4070868Z ##[warning]god file: Sources/CmuxNextDaemon/Terminal/TerminalAttachment.swift has 453 lines (limit 400)
+2026-11-17T14:28:54.4072372Z ##[warning]god file: Sources/CmuxNextHomeEngine/HomeDirectory.swift has 414 lines (limit 400)
+2026-11-17T14:28:54.4073962Z ##[warning]god file: Sources/CmuxNextAgentCursor/AgentCursorLayer.swift has 462 lines (limit 400)
+2026-11-17T14:28:54.4075540Z ##[warning]god file: Sources/CmuxNextTabs/TabStripView+Layout.swift has 439 lines (limit 400)
+2026-11-17T14:28:54.4077024Z ##[warning]god file: Sources/CmuxNextServer/AddMachine/AddMachineModel.swift has 420 lines (limit 400)
+2026-11-17T14:28:54.4078642Z ##[warning]god file: Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift has 438 lines (limit 400)
+2026-11-17T14:28:54.4080139Z ##[warning]god file: Sources/CmuxNextUpdater/StagedUpdateRefresh.swift has 415 lines (limit 400)
+2026-11-17T14:28:54.4081669Z ##[warning]god file: Sources/CmuxNextCompat/ObservationStream.swift has 444 lines (limit 400)
+2026-11-17T14:28:54.4083507Z ##[warning]god file: Sources/CmuxNextOnboarding/Page/OnboardingPageState.swift has 453 lines (limit 400)
+2026-11-17T14:28:54.4085080Z ##[warning]god file: Sources/CmuxNextLayout/Views/ScreenContentView.swift has 463 lines (limit 400)
+2026-11-17T14:28:54.4086575Z ##[warning]god file: Sources/CmuxNextLayout/Views/PaneOverlayView.swift has 416 lines (limit 400)
+2026-11-17T14:28:54.4088425Z ##[warning]god file: Sources/CmuxNextLayout/Views/SharedEdgeMotion.swift has 408 lines (limit 400)
+2026-11-17T14:28:54.4090214Z ##[warning]god file: Sources/CmuxNextAgentPane/AcpmuxChatWindows.swift has 414 lines (limit 400)
+2026-11-17T14:28:54.4092044Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPanePullRequest.swift has 472 lines (limit 400)
+2026-11-17T14:28:54.4093921Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPageProvider.swift has 450 lines (limit 400)
+2026-11-17T14:28:54.4097058Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPaneTunables.swift has 412 lines (limit 400)
+2026-11-17T14:28:54.4098891Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPaneSessionInfoPanel.swift has 407 lines (limit 400)
+2026-11-17T14:28:54.4100707Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPaneModel+Header.swift has 431 lines (limit 400)
+2026-11-17T14:28:54.4102460Z ##[warning]god file: Sources/CmuxNextAgentPane/AcpmuxStatusClient.swift has 462 lines (limit 400)
+2026-11-17T14:28:54.4104248Z ##[warning]god file: Sources/CmuxNextAgentPane/AgentPaneReplyLinks.swift has 416 lines (limit 400)
+2026-11-17T14:28:54.4105875Z ##[warning]god file: Sources/CmuxNextFocus/FocusMachine.swift has 466 lines (limit 400)
+2026-11-17T14:28:54.4107580Z ##[warning]god file: Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift has 435 lines (limit 400)
+2026-11-17T14:28:54.4109380Z ##[warning]god file: Sources/CmuxNextControl/Diagnostics/AppHealth.swift has 477 lines (limit 400)
+2026-11-17T14:28:54.4111142Z ##[warning]god file: Tests/CmuxNextControlTests/MainFrameBudgetTests.swift has 694 lines (limit 600)
+2026-11-17T14:28:54.4112957Z ##[warning]god file: Tests/CmuxNextBrowserTests/CEFPageFrameOwnerTests.swift has 608 lines (limit 600)
+2026-11-17T14:28:54.4114782Z ##[warning]god file: Tests/CmuxNextBrowserTests/CEFLayerHostingTests.swift has 609 lines (limit 600)
+2026-11-17T14:28:54.4116646Z ##[warning]god file: Tests/CmuxNextAgentPaneTests/AgentPaneMediaNoAutoActionTests.swift has 608 lines (limit 600)
+2026-11-17T14:28:54.4118474Z ##[warning]god file: Tests/CmuxNextAgentPaneTests/AgentPaneCloudStartTests.swift has 689 lines (limit 600)
+2026-11-17T14:28:54.4120304Z ##[warning]god file: Tests/CmuxNextAgentPaneTests/AgentPaneRelayedAllowTests.swift has 716 lines (limit 600)
+2026-11-17T14:28:54.4122174Z ##[warning]god file: Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift has 695 lines (limit 600)
+2026-11-17T14:28:54.4124192Z ##[warning]god file: Tests/CmuxNextAppTests/HistoryWriteQueueTests.swift has 650 lines (limit 600)
+2026-11-17T14:28:54.4125930Z ##[warning]god file: Tests/CmuxNextAppTests/JoinedMachineRowsTests.swift has 644 lines (limit 600)
+2026-11-17T14:28:54.4127683Z ##[warning]god file: Tests/CmuxNextAppTests/SecondCreationKeysTests.swift has 629 lines (limit 600)
+2026-11-17T14:28:54.4129480Z ##[warning]god file: Tests/CmuxNextAppTests/ComputerUseSetupWindowTests.swift has 631 lines (limit 600)
+2026-11-17T14:28:54.4131230Z ##[warning]god file: Tests/CmuxNextAppTests/NewTabHoldCloseKeyTests.swift has 646 lines (limit 600)
+2026-11-17T14:28:54.4132943Z ##[warning]god file: Tests/CmuxNextAppTests/CloudStartSessionTests.swift has 648 lines (limit 600)
+2026-11-17T14:28:54.4135239Z ##[warning]god file: Tests/CmuxNextAppTests/ComputerUseLiveCaptureTests.swift has 685 lines (limit 600)
+2026-11-17T14:28:54.4136966Z ##[warning]god file: Tests/CmuxNextAppTests/CloudStartSessionAsksTests.swift has 606 lines (limit 600)
+2026-11-17T14:28:54.4138782Z ##[warning]god file: Tests/CmuxNextAppTests/CloudMachineUpdateTargetTests.swift has 701 lines (limit 600)
+2026-11-17T14:28:54.4140541Z ##[warning]god file: Tests/CmuxNextAppTests/AddMachineFlowTests.swift has 617 lines (limit 600)
+2026-11-17T14:28:54.4142560Z ##[warning]god file: Tests/CmuxNextAppTests/ACloseTabKeyAfterKeptNewTabKeysTests.swift has 655 lines (limit 600)
+2026-11-17T14:28:54.4144337Z ##[warning]god file: Tests/CmuxNextAppTests/PaneContentPolicyTests.swift has 609 lines (limit 600)
+2026-11-17T14:28:54.4146009Z ##[warning]god file: Tests/CmuxNextAppTests/TerminalKeyResizeFrameTests.swift has 696 lines (limit 600)
+2026-11-17T14:28:54.4147808Z ##[warning]god file: Tests/CmuxNextPagesTests/ChromiumQuestionKeyChannelTests.swift has 627 lines (limit 600)
+2026-11-17T14:28:54.4149828Z ##[warning]god type: type CmuxNextSidebar/SidebarContainerView spans 1047 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4151841Z ##[warning]god type: type CmuxNextBrowser/OmnibarStep spans 1005 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4154005Z ##[warning]god type: type CmuxNextApp/TabDragSession spans 1036 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4155880Z ##[warning]god type: type CmuxNextApp/CloudService spans 1086 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4157796Z ##[warning]god type: type CmuxNextPalette/PaletteController spans 1038 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4159704Z ##[warning]god type: type CmuxNextBrowser/AddressBarView spans 1042 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4161753Z ##[warning]god type: type CmuxNextHomeEngine/CloudHomeSource spans 1190 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4163823Z ##[warning]god type: type CmuxNextSettings/CmuxConfigSnapshot spans 1023 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4165767Z ##[warning]god type: type CmuxNextAgentPane/AcpmuxPaneMethods spans 1051 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4167663Z ##[warning]god type: type CmuxNextSidebar/SidebarItemRowView spans 1016 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4169508Z ##[warning]god type: type CmuxNextSidebar/SidebarDocStore spans 1052 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it)
+2026-11-17T14:28:54.4170718Z god file: Sources/CmuxNextTerminal/TerminalSession.swift has 660 lines (limit 400) (over the hard ceiling of 480 lines)
+2026-11-17T14:28:54.4472267Z god type: type CmuxNextDaemon/DaemonStore spans 2757 lines, 0 fns (limit 1000 lines, no fns; not in baseline: split it) (over the hard ceiling of 1200 lines)
+2026-11-17T14:28:54.4474094Z ##[warning]over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log
+2026-11-17T14:28:54.4611455Z ##[group]Run base=()
+2026-11-17T14:28:54.4636958Z ##[endgroup]
+2026-11-17T14:28:55.5044359Z ##[warning]god file: cmux-tui/bindings/rust/src/client.rs has 1197 lines, 72 fns; baseline allows 1092 lines, 67 fns (+105 lines, +5 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5049214Z ##[warning]god file: cmux-tui/bindings/rust/src/resource/client.rs has 1300 lines, 60 fns; baseline allows 1142 lines, 52 fns (+158 lines, +8 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5051749Z ##[warning]god file: cmux-tui/bindings/rust/src/resource/wire.rs has 798 lines, 64 fns; baseline allows 794 lines, 63 fns (+4 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5054181Z ##[warning]god file: cmux-tui/bindings/rust/tests/mock_server.rs has 2883 lines, 56 fns; baseline allows 2863 lines, 55 fns (+20 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5056187Z ##[warning]god file: cmux-tui/crates/acpmux-book/src/log/read.rs has 1168 lines, 31 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5058077Z ##[warning]god file: cmux-tui/crates/acpmux-book/src/translate/tests.rs has 1651 lines, 71 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5062449Z ##[warning]god file: cmux-tui/crates/acpmux-client/src/ffi.rs has 1003 lines, 46 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5064398Z ##[warning]god file: cmux-tui/crates/acpmux-core/src/chat/stream.rs has 1053 lines, 52 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5066343Z ##[warning]god file: cmux-tui/crates/acpmux-core/src/chat/stream/tests.rs has 1644 lines, 102 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5068241Z ##[warning]god file: cmux-tui/crates/acpmux-core/src/hub/history.rs has 1077 lines, 57 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5077832Z ##[warning]god file: cmux-tui/crates/acpmux/benches/v2/mod.rs has 1530 lines, 76 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5080219Z ##[warning]god file: cmux-tui/crates/acpmux/src/byo_endpoint_tests.rs has 1718 lines, 47 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5083289Z ##[warning]god file: cmux-tui/crates/acpmux/src/cli/host_enroll_tests.rs has 1534 lines, 66 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5085246Z ##[warning]god file: cmux-tui/crates/acpmux/src/cli/orchestrate.rs has 1164 lines, 33 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5087171Z ##[warning]god file: cmux-tui/crates/acpmux/src/cli/run/session_move.rs has 1147 lines, 37 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5089066Z ##[warning]god file: cmux-tui/crates/acpmux/src/cloud_rewind.rs has 1054 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5090855Z ##[warning]god file: cmux-tui/crates/acpmux/src/harness_admin.rs has 1148 lines, 40 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5092705Z ##[warning]god file: cmux-tui/crates/acpmux/src/harness_health/mod.rs has 1075 lines, 36 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5094667Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/agent_pairs.rs has 1147 lines, 36 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5096569Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/full_access_bound.rs has 1125 lines, 52 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5098505Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/journal_restore_tests.rs has 1539 lines, 77 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5100427Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/message_events.rs has 1017 lines, 37 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5102261Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/peer_cache.rs has 1156 lines, 42 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5104316Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/policy_mode.rs has 1136 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5107166Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/prompt_ledger.rs has 1159 lines, 21 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5109128Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/subagent_retry.rs has 1087 lines, 42 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5110988Z ##[warning]god file: cmux-tui/crates/acpmux/src/hub/transfer.rs has 1131 lines, 25 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5112802Z ##[warning]god file: cmux-tui/crates/acpmux/src/linux_sandbox/bwrap.rs has 1184 lines, 40 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5114729Z ##[warning]god file: cmux-tui/crates/acpmux/src/linux_sandbox/keeper.rs has 1151 lines, 50 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5116655Z ##[warning]god file: cmux-tui/crates/acpmux/src/mesh_node_key.rs has 1037 lines, 61 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5118820Z ##[warning]god file: cmux-tui/crates/acpmux/src/peer_carriers.rs has 1051 lines, 50 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5120664Z ##[warning]god file: cmux-tui/crates/acpmux/src/peer_runtime.rs has 1000 lines, 71 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5122477Z ##[warning]god file: cmux-tui/crates/acpmux/src/routes.rs has 1192 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5124290Z ##[warning]god file: cmux-tui/crates/acpmux/src/rpc.rs has 1032 lines, 30 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5126131Z ##[warning]god file: cmux-tui/crates/acpmux/src/server/connections.rs has 1060 lines, 37 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5128333Z ##[warning]god file: cmux-tui/crates/acpmux/src/server/machine_enroll.rs has 1039 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5138967Z ##[warning]god file: cmux-tui/crates/acpmux/src/server/mesh_relay.rs has 1165 lines, 42 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5140960Z ##[warning]god file: cmux-tui/crates/acpmux/src/session_scope.rs has 1141 lines, 52 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5142844Z ##[warning]god file: cmux-tui/crates/acpmux/src/shell_readonly.rs has 1051 lines, 26 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5144871Z ##[warning]god file: cmux-tui/crates/acpmux/src/store/journal_store/meta.rs has 1033 lines, 41 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5146695Z ##[warning]god file: cmux-tui/crates/acpmux/src/tui/mod.rs has 1143 lines, 47 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5148513Z ##[warning]god file: cmux-tui/crates/acpmux/src/usage_stats.rs has 1057 lines, 39 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5150409Z ##[warning]god file: cmux-tui/crates/acpmux/tests/hub_integration.rs has 1758 lines, 44 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5157073Z ##[warning]god file: cmux-tui/crates/acpmux/tests/hub_integration/prompt_provenance.rs has 1758 lines, 67 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5159270Z ##[warning]god file: cmux-tui/crates/acpmux/tests/session_pool.rs has 1771 lines, 86 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5161166Z ##[warning]god file: cmux-tui/crates/acpmux/tests/start_mode.rs has 1612 lines, 61 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5163073Z ##[warning]god file: cmux-tui/crates/cmux-action-catalog/src/catalog/agent.rs has 1068 lines, 0 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5165057Z ##[warning]god file: cmux-tui/crates/cmux-browser-host/src/cdp/driver.rs has 1030 lines, 47 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5167982Z ##[warning]god file: cmux-tui/crates/cmux-browser-host/src/gate_tests.rs has 1534 lines, 75 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5170003Z ##[warning]god file: cmux-tui/crates/cmux-browser-host/tests/chromium.rs has 1612 lines, 26 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5171881Z ##[warning]god file: cmux-tui/crates/cmux-cloud-api/src/sandbox.rs has 1060 lines, 40 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5178570Z ##[warning]god file: cmux-tui/crates/cmux-holder-v3/src/holder.rs has 1181 lines, 53 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5180525Z ##[warning]god file: cmux-tui/crates/cmux-host/src/linux/mod.rs has 1094 lines, 49 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5182392Z ##[warning]god file: cmux-tui/crates/cmux-launch-record/src/lib.rs has 1182 lines, 62 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5184440Z ##[warning]god file: cmux-tui/crates/cmux-layout-reducer/src/sidebar_doc/model.rs has 1012 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5186254Z ##[warning]god file: cmux-tui/crates/cmux-pty/src/macos.rs has 1108 lines, 47 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5188074Z ##[warning]god file: cmux-tui/crates/cmux-rd-host/src/bench.rs has 1146 lines, 19 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5189879Z ##[warning]god file: cmux-tui/crates/cmux-rd-host/src/mac/sys.rs has 391 lines, 66 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5192150Z ##[warning]god file: cmux-tui/crates/cmux-remote/src/admin.rs has 1251 lines, 55 fns; baseline allows 1238 lines, 57 fns (+13 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5195077Z ##[warning]god file: cmux-tui/crates/cmux-remote/src/identity/auth_database.rs has 1066 lines, 41 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5197313Z ##[warning]god file: cmux-tui/crates/cmux-remote/src/provider/relay.rs has 2552 lines, 121 fns; baseline allows 2771 lines, 119 fns (+0 lines, +2 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5199397Z ##[warning]god file: cmux-tui/crates/cmux-remote/src/provider/relay_tests.rs has 1506 lines, 44 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5201323Z ##[warning]god file: cmux-tui/crates/cmux-remote/src/services_tests.rs has 1622 lines, 28 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5203397Z ##[warning]god file: cmux-tui/crates/cmux-tui-cloud-conversations/src/host_replica.rs has 1031 lines, 38 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5224787Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/apps/local_reload.rs has 1015 lines, 38 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5226835Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/apps/supervisor.rs has 1045 lines, 40 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5228821Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/chief_registry.rs has 1197 lines, 41 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5230855Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_include.rs has 1085 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5232810Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/git_seed/run.rs has 1046 lines, 51 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5234780Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/journal_kernel.rs has 1073 lines, 48 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5237780Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/agent_hooks_at_rest.rs has 1189 lines, 56 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5239867Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/agent_roster_fold.rs has 1141 lines, 26 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5241934Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/presentation.rs has 1136 lines, 44 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5244055Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/resource_topology/effect_execution.rs has 1093 lines, 13 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5246015Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/tab_drag.rs has 1047 lines, 31 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5260754Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/unowned_hosts.rs has 1175 lines, 30 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5262883Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/resource.rs has 1131 lines, 21 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5264891Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/resource_router.rs has 1169 lines, 38 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5267060Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs has 1065 lines, 45 fns; baseline allows 1025 lines, 44 fns (+40 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5269363Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs has 2094 lines, 52 fns; baseline allows 1930 lines, 46 fns (+164 lines, +6 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5271973Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/resource_selector.rs has 1195 lines, 31 fns; baseline allows 1139 lines, 33 fns (+56 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5274741Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/agent_transfer.rs has 1099 lines, 31 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5277302Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/apps.rs has 1080 lines, 31 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5279289Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/bounded_outbound.rs has 924 lines, 66 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5281367Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/chief_registry_resource.rs has 1060 lines, 28 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5283461Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/cloud_runs.rs has 1025 lines, 44 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5285492Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/command_dispatch.rs has 1031 lines, 2 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5287783Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs has 1147 lines, 49 fns; baseline allows 1091 lines, 46 fns (+56 lines, +3 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5289962Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/terminal_snapshot.rs has 1093 lines, 41 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5292050Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/state/closed_history_store.rs has 1019 lines, 34 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5294304Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/state/router.rs has 1106 lines, 20 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5297162Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/surface.rs has 1087 lines, 28 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5299230Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/surface/host_frames.rs has 1002 lines, 41 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5301316Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/surface/tests/hosted.rs has 1662 lines, 60 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5303861Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs has 1400 lines, 29 fns; baseline allows 1410 lines, 25 fns (+0 lines, +4 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5306254Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/output_cleanup/swap.rs has 1159 lines, 30 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5308512Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/personal_mutations.rs has 1090 lines, 39 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5311064Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store.rs has 1297 lines, 50 fns; baseline allows 1244 lines, 49 fns (+53 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5313745Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs has 4953 lines, 110 fns; baseline allows 5114 lines, 105 fns (+0 lines, +5 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5316346Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/session_journal.rs has 2237 lines, 54 fns; baseline allows 2188 lines, 55 fns (+49 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5319076Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/workspace_registry/tests.rs has 6359 lines, 153 fns; baseline allows 6317 lines, 154 fns (+42 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5322168Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/tests/browser_runtime.rs has 1948 lines, 24 fns; baseline allows 1947 lines, 24 fns (+1 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5324656Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/tests/pty.rs has 2368 lines, 48 fns; baseline allows 2239 lines, 46 fns (+129 lines, +2 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5326701Z ##[warning]god file: cmux-tui/crates/cmux-tui-hooks/src/tests.rs has 1509 lines, 54 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5328954Z ##[warning]god file: cmux-tui/crates/cmux-tui-machine-protocol/src/lib.rs has 2187 lines, 70 fns; baseline allows 2169 lines, 70 fns (+18 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5331428Z ##[warning]god file: cmux-tui/crates/cmux-tui-platform/src/platform.rs has 1413 lines, 91 fns; baseline allows 1361 lines, 86 fns (+52 lines, +5 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5333700Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/app.rs has 1029 lines, 10 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5335969Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/browser_input.rs has 2037 lines, 102 fns; baseline allows 2025 lines, 101 fns (+12 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5338180Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/carrier/tunnel.rs has 1037 lines, 54 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5340235Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/claude_wrapper.rs has 1025 lines, 44 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5342243Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/agents/events.rs has 1039 lines, 38 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5345158Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/chat_start/tests.rs has 1602 lines, 72 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5347247Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/command/cases.rs has 1052 lines, 2 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5349209Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/mcp/v2_tools.rs has 1017 lines, 26 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5351203Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/terminal_talk/send.rs has 1017 lines, 32 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5353092Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/cli/vm.rs has 1121 lines, 47 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5355147Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/link/sync_cli/local.rs has 1070 lines, 34 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5357139Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/link/sync_cli/pull.rs has 1115 lines, 30 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5359116Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/link/sync_cli/seed_pull.rs has 1024 lines, 30 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5361055Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/local_owner.rs has 1167 lines, 34 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5363235Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/machine.rs has 1384 lines, 63 fns; baseline allows 1364 lines, 63 fns (+20 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5365847Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs has 2662 lines, 124 fns; baseline allows 2618 lines, 124 fns (+44 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5368885Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/remote_browser_proxy.rs has 1114 lines, 28 fns; baseline allows 1008 lines, 23 fns (+106 lines, +5 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5371145Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/remote_host/platform_shares.rs has 1135 lines, 55 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5373506Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/session/tree.rs has 1648 lines, 69 fns; baseline allows 1628 lines, 69 fns (+20 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5375826Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/ui/graphics.rs has 2404 lines, 110 fns; baseline allows 2302 lines, 107 fns (+102 lines, +3 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5377868Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/ui/sidebar.rs has 1068 lines, 17 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5380094Z ##[warning]god file: cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs has 1124 lines, 43 fns; baseline allows 1115 lines, 43 fns (+9 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5382472Z ##[warning]god file: cmux-tui/crates/cmux-tui/tests/cli.rs has 3927 lines, 119 fns; baseline allows 3832 lines, 121 fns (+95 lines, +0 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5384682Z ##[warning]god file: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs has 1734 lines, 54 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5386684Z ##[warning]god file: cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs has 1529 lines, 50 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5388648Z ##[warning]god file: cmux-tui/crates/cmux-tui/tests/setup.rs has 1569 lines, 54 fns (limit 1500 lines, 120 fns; not in baseline: split it)
+2026-11-17T14:28:55.5390974Z ##[warning]god file: cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs has 5483 lines, 111 fns; baseline allows 5339 lines, 110 fns (+144 lines, +1 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5393807Z ##[warning]god file: cmux-tui/crates/cmux-wg/src/ultra.rs has 1149 lines, 63 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-17T14:28:55.5396089Z ##[warning]god file: cmux-tui/crates/ghostty-vt/src/terminal.rs has 3323 lines, 168 fns; baseline allows 3187 lines, 163 fns (+136 lines, +5 fns over; move new code to a new module or type)
+2026-11-17T14:28:55.5397873Z god file: cmux-tui/crates/acpmux-book/src/index.rs has 1567 lines, 90 fns (limit 1000 lines, 60 fns; not in baseline: split it) (over the hard ceiling of 1200 lines, 72 fns) [grown past it by: unknown in a shallow checkout; run the check in a full clone]
+2026-11-17T14:28:56.9165931Z cmux-tui/crates/ghostty-vt/src/kitty.rs shrank to 1086 lines, 44 fns (baseline 1368, 64); run --update-baseline
+2026-11-17T14:28:56.9167625Z ##[warning]over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log
+2026-11-17T14:28:56.9389460Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-17T14:28:56.9490607Z ##[endgroup]
+2026-11-17T14:28:57.2195315Z fatal: Unable to create '/home/runner/_work/cmux/cmux/.git/shallow.lock': File exists.
+2026-11-17T14:28:57.2793199Z check-app-size: CmuxNextApp is capped at 135848 lines (now 152301, +16453); new features go in their own target (see plans/cmux-next/code-quality.md SW14)
+2026-11-17T14:28:57.2834381Z ##[error]Process completed with exit code 1.
+2026-11-17T14:28:57.2969294Z ##[group]Run scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+2026-11-17T14:28:57.2993430Z ##[endgroup]
+2026-11-17T14:28:57.4447320Z check-no-swift-cli: ok
+2026-11-17T14:28:57.4588306Z ##[group]Run scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+2026-11-17T14:28:57.4607546Z ##[endgroup]
+2026-11-17T14:28:58.1730154Z check-no-swift-closed-history: ok
+2026-11-17T14:28:58.1871809Z ##[group]Run python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+2026-11-17T14:28:58.1903118Z ##[endgroup]
+2026-11-17T14:28:58.9615045Z check-single-omnibar: ok
+2026-11-17T14:28:58.9811590Z ##[group]Run base=()
+2026-11-17T14:28:58.9844337Z ##[endgroup]
+2026-11-17T14:28:59.0483724Z REACT-PAGES: ok, 31 page(s), 4 debt, 5 to review
+2026-11-17T14:28:59.0724545Z ##[group]Run base=()
+2026-11-17T14:28:59.0745891Z ##[endgroup]
+2026-11-17T14:28:59.9767001Z UI text budget: 17160 strings, 275 over budget, all listed
+2026-11-17T14:29:00.0079379Z ##[group]Run base=()
+2026-11-17T14:29:00.0126302Z ##[endgroup]
+2026-11-17T14:29:00.2657423Z fatal: Unable to create '/home/runner/_work/cmux/cmux/.git/shallow.lock': File exists.
+2026-11-17T14:29:01.4739293Z NO-SWIFTUI: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:29:01.4815625Z NO-SWIFTUI: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:29:01.4841057Z NO-SWIFTUI: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:29:01.4865423Z NO-SWIFTUI: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:29:01.4893945Z NO-SWIFTUI: 4 finding(s); 90 file(s) still import SwiftUI
+2026-11-17T14:29:01.4935233Z ##[error]Process completed with exit code 1.
+2026-11-17T14:29:01.5092612Z ##[group]Run python3 -I scripts/cmux-next/check-launch-stages.py "$GITHUB_WORKSPACE"
+2026-11-17T14:29:01.5134962Z ##[endgroup]
+2026-11-17T14:29:01.5589109Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
+2026-11-17T14:29:01.5605220Z ##[endgroup]
+2026-11-17T14:29:14.2030453Z waited 13s for no-process-scan's 1 commands
+2026-11-17T14:29:14.2040709Z ##[group]python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE": ok, 21s
+2026-11-17T14:29:14.2059252Z ##[endgroup]
+2026-11-17T14:29:14.2059701Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:29:14.2403856Z ##[group]Run python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+2026-11-17T14:29:14.2476035Z ##[endgroup]
+2026-11-17T14:29:16.7065590Z check-default-cursor: ok
+2026-11-17T14:29:16.7343409Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
+2026-11-17T14:29:16.7358545Z ##[endgroup]
+2026-11-17T14:29:22.2543958Z waited 6s for state-roots's 1 commands
+2026-11-17T14:29:22.2556331Z ##[group]bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE": ok, 29s
+2026-11-17T14:29:22.2562450Z ##[endgroup]
+2026-11-17T14:29:22.2564248Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:29:22.2665931Z ##[group]Run python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+2026-11-17T14:29:22.2684916Z ##[endgroup]
+2026-11-17T14:29:23.3574786Z check-dialog-key-hints: every dialog button shows its key
+2026-11-17T14:29:23.3935611Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
+2026-11-17T14:29:23.3956953Z ##[endgroup]
+2026-11-17T14:29:23.4327973Z waited 0s for concurrency's 2 commands
+2026-11-17T14:29:23.4338190Z ##[group]scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext": ok, 25s
+2026-11-17T14:29:23.4345492Z ##[endgroup]
+2026-11-17T14:29:23.4353104Z ##[group]python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE": failed (exit 1), 10s
+2026-11-17T14:29:23.4358805Z main-actor-work violation: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift: string scan inside a loop: 1 hit(s), baseline 0
+2026-11-17T14:29:23.4359919Z     Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift:263: while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
+2026-11-17T14:29:23.4360748Z check-main-actor-work: 1 violation(s): new main-actor hot spots. Move the work off the main actor (nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed `// main-actor-ok: <reason>` when its input is provably small.
+2026-11-17T14:29:23.4361464Z ##[endgroup]
+2026-11-17T14:29:23.4377951Z ##[error]python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+2026-11-17T14:29:23.4381736Z ----- python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+2026-11-17T14:29:23.4387423Z main-actor-work violation: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift: string scan inside a loop: 1 hit(s), baseline 0
+2026-11-17T14:29:23.4423478Z     Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift:263: while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
+2026-11-17T14:29:23.4425121Z check-main-actor-work: 1 violation(s): new main-actor hot spots. Move the work off the main actor (nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed `// main-actor-ok: <reason>` when its input is provably small.
+2026-11-17T14:29:23.4427389Z ##[error]Process completed with exit code 1.
+2026-11-17T14:29:23.4549607Z ##[group]Run python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:29:23.4565555Z ##[endgroup]
+2026-11-17T14:29:24.8740926Z check-webview-factory: every web view goes through the engine decision
+2026-11-17T14:29:24.8915235Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-17T14:29:24.8930240Z ##[endgroup]
+2026-11-17T14:29:29.0680320Z check-crash-safety: ok
+2026-11-17T14:30:00.9504908Z crash-ratchet: ok; 11 count(s) went down: run scripts/cmux-next/crash_ratchet.py --update-baseline
+2026-11-17T14:30:00.9753410Z ##[group]Run scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:30:00.9771181Z ##[endgroup]
+2026-11-17T14:30:00.9888143Z gh-call	2026-11-17T14:29:47Z	cmux-next	checks	-	-	-	-	GH pr list [gh tok=930bbdc5]
+2026-11-17T14:30:02.1913536Z check-test-notification-centers: ok
+2026-11-17T14:30:02.2168398Z ##[group]Run set -o pipefail
+2026-11-17T14:30:02.2192222Z ##[endgroup]
+2026-11-17T14:30:03.4255258Z 181 tables, 11862 keys, 21 languages: 0 errors
+2026-11-17T14:30:03.4291948Z needs_review (machine translated): en=2 ar=7019 bs=7752 da=7747 de=7021 es=7023 fr=7018 it=7741 ja=3839 km=7880 ko=7017 nb=7752 pl=7739 pt-BR=7739 ru=7740 th=7747 tr=7739 uk=7746 vi=7933 zh-Hans=7018 zh-Hant=7018
+2026-11-17T14:30:03.4396966Z ##[group]Run scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:30:03.4410177Z ##[endgroup]
+2026-11-17T14:30:03.9145786Z check-module-resources: ok
+2026-11-17T14:30:03.9325721Z ##[group]Run set -o pipefail
+2026-11-17T14:30:03.9360992Z ##[endgroup]
+2026-11-17T14:30:08.6741347Z check-scrollbars: 11 hits are over the hard ceiling of 10
+2026-11-17T14:30:08.6747461Z   Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift:196: a SwiftUI ScrollView or List without .thinScrollers(): ScrollView {
+2026-11-17T14:30:08.6773903Z   webviews/src/agent-session/acpmux/conversation/conversation.css:2001: ::-webkit-scrollbar makes a custom scrollbar: .cv-edit-diff__loading-lines::-webkit-scrollbar-track {
+2026-11-17T14:30:08.6831532Z ##[error]Process completed with exit code 1.
+2026-11-17T14:30:08.6963010Z ##[group]Run python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
+2026-11-17T14:30:08.6985422Z ##[endgroup]
+2026-11-17T14:30:10.8569608Z check-button-radius: ok (every button rounds as a tab)
+2026-11-17T14:30:10.8772570Z ##[group]Run python3 -I scripts/cmux-next/check-concentric-containers.py "$GITHUB_WORKSPACE"
+2026-11-17T14:30:10.8793858Z ##[endgroup]
+2026-11-17T14:30:14.3295693Z check-concentric-containers: ok (113 known site(s) left in the baseline)
+2026-11-17T14:30:14.3725236Z ##[group]Run python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
+2026-11-17T14:30:14.3818406Z ##[endgroup]
+2026-11-17T14:30:17.1307538Z pressed-state: ok (12248 files)
+2026-11-17T14:30:17.1485813Z ##[group]Run scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:30:17.1544913Z ##[endgroup]
+2026-11-17T14:30:26.9674378Z check-motion: ok
+2026-11-17T14:30:26.9997492Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
+2026-11-17T14:30:27.0049386Z ##[endgroup]
+2026-11-17T14:30:27.0431807Z waited 0s for overlay-glass's 1 commands
+2026-11-17T14:30:27.0444808Z ##[group]python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE": ok, 14s
+2026-11-17T14:30:27.0457031Z ##[endgroup]
+2026-11-17T14:30:27.0457808Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:30:27.0694016Z ##[group]Run python3 -I scripts/cmux-next/gen-type-scale.py --check
+2026-11-17T14:30:27.0724298Z ##[endgroup]
+2026-11-17T14:30:27.9154900Z check-swift-type-scale: ok (13 raw font sizes and 17 off-scale weights left in the baseline)
+2026-11-17T14:30:27.9403958Z ##[group]Run python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+2026-11-17T14:30:27.9431766Z ##[endgroup]
+2026-11-17T14:30:28.0332453Z ..............
+2026-11-17T14:30:28.0340959Z OK
+2026-11-17T14:30:28.1123425Z ##[group]Run if [[ "$EVENT_NAME" == pull_request ]]; then
+2026-11-17T14:30:28.1150779Z ##[endgroup]
+2026-11-17T14:30:30.8895782Z ui font: ok
+2026-11-17T14:30:30.9216534Z ##[group]Run python3 -I scripts/cmux-next/gen-motion-scale.py --check
+2026-11-17T14:30:30.9239763Z ##[endgroup]
+2026-11-17T14:30:30.9685047Z ##[group]Run python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+2026-11-17T14:30:30.9717640Z ##[endgroup]
+2026-11-17T14:30:31.3605042Z ............
+2026-11-17T14:30:46.1818645Z motion coverage 0.8777 {'apps': 0.0, 'native': 0.925, 'rust': None, 'webviews': 0.863}
+2026-11-17T14:30:46.1945124Z ##[group]Run python3 -I scripts/cmux-next/check-surface-roles.py
+2026-11-17T14:30:46.1962927Z ##[endgroup]
+2026-11-17T14:30:46.2232943Z surface roles: copies match schemas/surface-roles/surface-roles.json
+2026-11-17T14:30:46.2366211Z ##[group]Run python3 -I scripts/cmux-next/gen-menu-metrics.py --check
+2026-11-17T14:30:46.2386349Z ##[endgroup]
+2026-11-17T14:30:46.9208815Z menu metrics: 192 menu surface file(s) on the grid, 6 still in DEBT
+2026-11-17T14:30:46.9366353Z ##[group]Run python3 -I scripts/cmux-next/gen-protected-folders.py --check
+2026-11-17T14:30:46.9385204Z ##[endgroup]
+2026-11-17T14:30:46.9818247Z ##[group]Run python3 -I scripts/cmux-next/gen-settings-sources.py --check
+2026-11-17T14:30:46.9839806Z ##[endgroup]
+2026-11-17T14:30:47.4835447Z ....
+2026-11-17T14:30:47.4836172Z OK
+2026-11-17T14:30:47.5021327Z ##[group]Run python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+2026-11-17T14:30:47.5040237Z ##[endgroup]
+2026-11-17T14:30:47.5552705Z ##[group]Run python3 -I scripts/cmux-next/export-backdrop-art.py --check
+2026-11-17T14:30:47.5571767Z ##[endgroup]
+2026-11-17T14:30:47.6155101Z plans/cmux-next/backdrop-art.json is current
+2026-11-17T14:30:47.6314028Z ##[group]Run bash tests/test_cmux_next_stale_pcm_cleanup.sh
+2026-11-17T14:30:47.6330786Z ##[endgroup]
+2026-11-17T14:30:47.6618124Z PASS: stale PCM cleanup removes all derived build state but the package checkouts
+2026-11-17T14:30:47.6719765Z PASS: missing serialized module scans request the stale retry
+2026-11-17T14:30:47.6832651Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
+2026-11-17T14:30:47.6850262Z ##[endgroup]
+2026-11-17T14:31:47.0461329Z script-tests: still running after 174s: python3 tests/test_cmux_next_prepush_gate.py
+2026-11-17T14:34:17.2766469Z ##[group]python3 tests/test_cmux_next_prepush_gate.py: ok, 324s
+2026-11-17T14:34:17.2770436Z ............................................................................................s........s....s......s........s.s....ssprepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked
+2026-11-17T14:34:17.2772644Z .s.prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.
+2026-11-17T14:34:17.2773140Z help: run `rustup component add rustfmt` to install it
+2026-11-17T14:34:17.2773759Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'
+2026-11-17T14:34:17.2774270Z To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`
+2026-11-17T14:34:17.2774730Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed
+2026-11-17T14:34:17.2776188Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed
+2026-11-17T14:34:17.2782007Z ##[endgroup]
+2026-11-17T14:34:17.2782371Z ##[group]python3 tests/test_cmux_next_prepush_main_twin.py: ok, 16s
+2026-11-17T14:34:17.2785200Z ##[endgroup]
+2026-11-17T14:34:17.2792355Z ##[group]python3 scripts/cmux-next/tests/test_hot_apply.py: ok, 186s
+2026-11-17T14:34:17.2797312Z ##[endgroup]
+2026-11-17T14:34:17.2802981Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh: ok, 92s
+2026-11-17T14:34:17.2807404Z ##[endgroup]
+2026-11-17T14:34:17.2812938Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh: ok, 191s
+2026-11-17T14:34:17.2817662Z ##[endgroup]
+2026-11-17T14:34:17.2823176Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh: ok, 33s
+2026-11-17T14:34:17.2826544Z ##[endgroup]
+2026-11-17T14:34:17.2831768Z ##[group]bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh: ok, 30s
+2026-11-17T14:34:17.2840382Z ##[endgroup]
+2026-11-17T14:34:17.2841096Z ##[group]bash scripts/cmux-next/tests/fake-clock.test.sh: ok, 0s
+2026-11-17T14:34:17.2845697Z ##[endgroup]
+2026-11-17T14:34:17.2850658Z ##[group]bash scripts/cmux-next/tests/preview.test.sh: ok, 5s
+2026-11-17T14:34:17.2854859Z ##[endgroup]
+2026-11-17T14:34:17.2860467Z ##[group]python3 tests/test_intent_familiar_warning.py: ok, 0s
+2026-11-17T14:34:17.2864911Z ##[endgroup]
+2026-11-17T14:34:17.2869878Z ##[group]python3 tests/test_ci_launch_budget_gate.py: ok, 0s
+2026-11-17T14:34:17.2873439Z ##[endgroup]
+2026-11-17T14:34:17.2878689Z ##[group]python3 tests/test_strings_output_encoding.py: ok, 0s
+2026-11-17T14:34:17.2882807Z ##[endgroup]
+2026-11-17T14:34:17.2887429Z ##[group]bash tests/test_strip_release_bundle.sh: ok, 1s
+2026-11-17T14:34:17.2900880Z ##[endgroup]
+2026-11-17T14:34:17.2901084Z ##[group]python3 tests/test_ui_font.py: ok, 3s
+2026-11-17T14:34:17.2901800Z ##[endgroup]
+2026-11-17T14:34:17.2906568Z ##[group]python3 tests/test_cmux_next_perf_gate_unlit.py: ok, 0s
+2026-11-17T14:34:17.2911524Z ##[endgroup]
+2026-11-17T14:34:17.2916122Z ##[group]python3 tests/test_base_merge_warning.py: ok, 2s
+2026-11-17T14:34:17.2919548Z ##[endgroup]
+2026-11-17T14:34:17.2924503Z ##[group]python3 tests/test_job_input_fingerprint.py: ok, 26s
+2026-11-17T14:34:17.2928534Z ##[endgroup]
+2026-11-17T14:34:17.2933245Z ##[group]python3 tests/test_job_reuse.py: ok, 1s
+2026-11-17T14:34:17.2936858Z ##[endgroup]
+2026-11-17T14:34:17.2942297Z ##[group]python3 tests/test_rebuild_mirror.py: ok, 2s
+2026-11-17T14:34:17.2946004Z ##[endgroup]
+2026-11-17T14:34:17.2951268Z ##[group]python3 tests/test_dev_release_product_key.py: ok, 2s
+2026-11-17T14:34:17.2955615Z ##[endgroup]
+2026-11-17T14:34:17.2959727Z ##[group]python3 tests/test_dev_release_product_reuse.py: ok, 0s
+2026-11-17T14:34:17.2963762Z ##[endgroup]
+2026-11-17T14:34:17.2967727Z ##[group]python3 tests/test_nightly_release_product_key.py: ok, 1s
+2026-11-17T14:34:17.2971702Z ##[endgroup]
+2026-11-17T14:34:17.2977271Z ##[group]python3 tests/test_nightly_release_product_reuse.py: ok, 4s
+2026-11-17T14:34:17.2981245Z ##[endgroup]
+2026-11-17T14:34:17.2985284Z ##[group]python3 tests/test_ci_compile_test_plan.py: ok, 3s
+2026-11-17T14:34:17.2989113Z ##[endgroup]
+2026-11-17T14:34:17.2993828Z ##[group]python3 tests/test_guard_hooks_from_base.py: ok, 7s
+2026-11-17T14:34:17.2997707Z ##[endgroup]
+2026-11-17T14:34:17.3002312Z ##[group]python3 tests/test_feat_ci_guard_group.py: ok, 6s
+2026-11-17T14:34:17.3006169Z ##[endgroup]
+2026-11-17T14:34:17.3010305Z ##[group]python3 tests/test_guards_new_reds.py: ok, 4s
+2026-11-17T14:34:17.3014773Z ##[endgroup]
+2026-11-17T14:34:17.3019837Z ##[group]python3 tests/test_webviews_test_history.py: ok, 9s
+2026-11-17T14:34:17.3024287Z ##[endgroup]
+2026-11-17T14:34:17.3028567Z ##[group]python3 tests/test_app_symbol_map.py: ok, 0s
+2026-11-17T14:34:17.3032087Z ##[endgroup]
+2026-11-17T14:34:17.3036517Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui.test.sh: ok, 18s
+2026-11-17T14:34:17.3039763Z ##[endgroup]
+2026-11-17T14:34:17.3044402Z ##[group]bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh: ok, 0s
+2026-11-17T14:34:17.3047746Z ##[endgroup]
+2026-11-17T14:34:17.3052210Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh: ok, 6s
+2026-11-17T14:34:17.3055782Z ##[endgroup]
+2026-11-17T14:34:17.3060247Z ##[group]bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh: ok, 1s
+2026-11-17T14:34:17.3063285Z ##[endgroup]
+2026-11-17T14:34:17.3068393Z ##[group]bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh: ok, 1s
+2026-11-17T14:34:17.3071878Z ##[endgroup]
+2026-11-17T14:34:17.3076548Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh: ok, 25s
+2026-11-17T14:34:17.3079680Z ##[endgroup]
+2026-11-17T14:34:17.3084818Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh: ok, 8s
+2026-11-17T14:34:17.3088097Z ##[endgroup]
+2026-11-17T14:34:17.3092495Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh: ok, 13s
+2026-11-17T14:34:17.3095900Z ##[endgroup]
+2026-11-17T14:34:17.3101894Z ##[group]python3 tests/test_cmux_next_tree_notify.py: ok, 0s
+2026-11-17T14:34:17.3108020Z ##[notice]GET repos/o/r was refused on a spent rate limit (HTTP 403); the notify continues on the spare token
+2026-11-17T14:34:17.3109397Z ##[warning]could not start the deferred cmux-next tree jobs for tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403
+2026-11-17T14:34:17.3111117Z ##[warning]tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: the notify was refused: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403; recorded as cmux-next-tree-notify-pending, and the next feat-cmux-next push's sweep makes the notify again
+2026-11-17T14:34:17.3112848Z ##[warning]could not start the deferred cmux-next tree jobs for tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403
+2026-11-17T14:34:17.3113600Z ##[endgroup]
+2026-11-17T14:34:17.3113846Z ##[group]python3 tests/test_cmux_next_same_tree_status_never_silent.py: ok, 3s
+2026-11-17T14:34:17.3115281Z ##[notice]POST repos/o/r/statuses/9cc846fc00000000000000000000000000000000 was refused on a spent rate limit (HTTP 403); the notify continues on the spare token
+2026-11-17T14:34:17.3116015Z ##[error]not a commit: 'nope'
+2026-11-17T14:34:17.3118332Z ##[warning]could not read this run's jobs for the reason: GET: HTTP 403
+2026-11-17T14:34:17.3119629Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 500); trying again
+2026-11-17T14:34:17.3120361Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 502); trying again
+2026-11-17T14:34:17.3121346Z ##[error]could not post cmux-next daemon tests (same-tree)=success on 9cc846fc00000000000000000000000000000000: NO_VERDICT, the status stays as last posted; re-run this job to post it
+2026-11-17T14:34:17.3122201Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 500); trying again
+2026-11-17T14:34:17.3124861Z ##[endgroup]
+2026-11-17T14:34:17.3125086Z ##[group]python3 tests/test_cmux_tui_tree_takeover.py: ok, 0s
+2026-11-17T14:34:17.3125917Z ##[endgroup]
+2026-11-17T14:34:17.3128095Z ##[group]python3 tests/test_cmux_next_same_tree_failed.py: ok, 2s
+2026-11-17T14:34:17.3132086Z ##[endgroup]
+2026-11-17T14:34:17.3136086Z ##[group]python3 tests/test_idea_ledger.py: ok, 2s
+2026-11-17T14:34:17.3140542Z ##[endgroup]
+2026-11-17T14:34:17.3146738Z ##[group]python3 tests/test_ios_internal_builder.py: ok, 0s
+2026-11-17T14:34:17.3151247Z ##[endgroup]
+2026-11-17T14:34:17.3155909Z ##[group]python3 tests/test_ios_internal_notes.py: ok, 0s
+2026-11-17T14:34:17.3159668Z ##[endgroup]
+2026-11-17T14:34:17.3164033Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh: ok, 74s
+2026-11-17T14:34:17.3167732Z ##[endgroup]
+2026-11-17T14:34:17.3172185Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh: ok, 9s
+2026-11-17T14:34:17.3175388Z ##[endgroup]
+2026-11-17T14:34:17.3179975Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh: ok, 56s
+2026-11-17T14:34:17.3183199Z ##[endgroup]
+2026-11-17T14:34:17.3187960Z ##[group]bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh: ok, 0s
+2026-11-17T14:34:17.3191145Z ##[endgroup]
+2026-11-17T14:34:17.3195496Z ##[group]bash scripts/cmux-next/tests/request-nightly-next.test.sh: ok, 191s
+2026-11-17T14:34:17.3198672Z ##[endgroup]
+2026-11-17T14:34:17.3203258Z ##[group]bash scripts/cmux-next/tests/cef-runtime-pack.test.sh: ok, 1s
+2026-11-17T14:34:17.3206767Z ##[endgroup]
+2026-11-17T14:34:17.3211241Z ##[group]bash scripts/cmux-next/tests/continue-nightly-next.test.sh: ok, 1s
+2026-11-17T14:34:17.3214912Z ##[endgroup]
+2026-11-17T14:34:17.3220293Z ##[group]bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh: ok, 0s
+2026-11-17T14:34:17.3225227Z ##[endgroup]
+2026-11-17T14:34:17.3230804Z ##[group]bash scripts/cmux-next/tests/reset-stale-submodules.test.sh: ok, 7s
+2026-11-17T14:34:17.3236437Z ##[endgroup]
+2026-11-17T14:34:17.3239182Z ##[group]bash scripts/cmux-next/tests/tree-key-v2.test.sh: ok, 65s
+2026-11-17T14:34:17.3242702Z ##[endgroup]
+2026-11-17T14:34:17.3247665Z ##[group]bash scripts/cmux-next/tests/tree-key-embeds.test.sh: ok, 1s
+2026-11-17T14:34:17.3251097Z ##[endgroup]
+2026-11-17T14:34:17.3260904Z ##[group]bash scripts/cmux-next/tests/tree-publish-v2.test.sh: ok, 21s
+2026-11-17T14:34:17.3264351Z ##[endgroup]
+2026-11-17T14:34:17.3270469Z ##[group]bash scripts/cmux-next/tests/embed-cef.test.sh: ok, 1s
+2026-11-17T14:34:17.3274396Z ##[endgroup]
+2026-11-17T14:34:17.3279681Z ##[group]bash scripts/cmux-next/tests/ublock-pin.test.sh: ok, 0s
+2026-11-17T14:34:17.3283538Z ##[endgroup]
+2026-11-17T14:34:17.3288833Z ##[group]bash scripts/cmux-next/tests/base-autofix-push.test.sh: ok, 18s
+2026-11-17T14:34:17.3292767Z ##[endgroup]
+2026-11-17T14:34:17.3297934Z ##[group]bash scripts/cmux-next/tests/base-autofix-land.test.sh: ok, 5s
+2026-11-17T14:34:17.3302139Z ##[endgroup]
+2026-11-17T14:34:17.3307687Z ##[group]bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh: ok, 9s
+2026-11-17T14:34:17.3311623Z ##[endgroup]
+2026-11-17T14:34:17.3317192Z ##[group]bash scripts/cmux-next/tests/base-autofix-changed.test.sh: ok, 2s
+2026-11-17T14:34:17.3321049Z ##[endgroup]
+2026-11-17T14:34:17.3326399Z ##[group]bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh: ok, 2s
+2026-11-17T14:34:17.3330434Z ##[endgroup]
+2026-11-17T14:34:17.3335417Z ##[group]bash scripts/cmux-next/tests/judge-action-exports.test.sh: ok, 8s
+2026-11-17T14:34:17.3347293Z ##[endgroup]
+2026-11-17T14:34:17.3347723Z ##[group]bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh: ok, 0s
+2026-11-17T14:34:17.3348386Z ##[endgroup]
+2026-11-17T14:34:17.3355850Z ##[group]bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh: ok, 4s
+2026-11-17T14:34:17.3361953Z ##[endgroup]
+2026-11-17T14:34:17.3364891Z ##[group]bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh: ok, 1s
+2026-11-17T14:34:17.3368475Z ##[endgroup]
+2026-11-17T14:34:17.3373318Z ##[group]bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh: ok, 0s
+2026-11-17T14:34:17.3378005Z ##[endgroup]
+2026-11-17T14:34:17.3383038Z ##[group]bash scripts/cmux-next/tests/cargo-test-selected.test.sh: ok, 0s
+2026-11-17T14:34:17.3387377Z ##[endgroup]
+2026-11-17T14:34:17.3393020Z ##[group]bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh: ok, 2s
+2026-11-17T14:34:17.3396817Z ##[endgroup]
+2026-11-17T14:34:17.3402266Z ##[group]bash scripts/cmux-next/tests/app-capability-references.test.sh: ok, 1s
+2026-11-17T14:34:17.3405929Z ##[endgroup]
+2026-11-17T14:34:17.3411232Z ##[group]bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh: ok, 1s
+2026-11-17T14:34:17.3415011Z ##[endgroup]
+2026-11-17T14:34:17.3421713Z ##[group]bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh: ok, 1s
+2026-11-17T14:34:17.3425238Z ##[endgroup]
+2026-11-17T14:34:17.3430196Z ##[group]bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh: ok, 5s
+2026-11-17T14:34:17.3433369Z ##[endgroup]
+2026-11-17T14:34:17.3438246Z ##[group]bash scripts/cmux-next/tests/check-fleet-only.test.sh: ok, 0s
+2026-11-17T14:34:17.3441974Z ##[endgroup]
+2026-11-17T14:34:17.3447231Z ##[group]node --test scripts/lib/reload-shim.test.mjs: ok, 1s
+2026-11-17T14:34:17.3471966Z ##[endgroup]
+2026-11-17T14:34:17.3472216Z ##[group]bash scripts/cmux-next/tests/capability-text.test.sh: ok, 2s
+2026-11-17T14:34:17.3472794Z ##[endgroup]
+2026-11-17T14:34:17.3473047Z ##[group]bash scripts/cmux-next/tests/release-compile-derived-data.test.sh: ok, 1s
+2026-11-17T14:34:17.3473476Z ##[endgroup]
+2026-11-17T14:34:17.3477246Z ##[group]bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh: ok, 1s
+2026-11-17T14:34:17.3480423Z ##[endgroup]
+2026-11-17T14:34:17.3485064Z ##[group]bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh: ok, 1s
+2026-11-17T14:34:17.3488567Z ##[endgroup]
+2026-11-17T14:34:17.3493681Z ##[group]bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh: ok, 0s
+2026-11-17T14:34:17.3498252Z ##[endgroup]
+2026-11-17T14:34:17.3502574Z ##[group]bash scripts/cmux-next/tests/dev-account-guard.test.sh: ok, 0s
+2026-11-17T14:34:17.3506084Z ##[endgroup]
+2026-11-17T14:34:17.3511043Z ##[group]bash scripts/cmux-next/tests/private-bun.test.sh: ok, 0s
+2026-11-17T14:34:17.3514759Z ##[endgroup]
+2026-11-17T14:34:17.3519361Z ##[group]bash scripts/cmux-next/tests/check-webviews-bun-version.test.sh: ok, 1s
+2026-11-17T14:34:17.3522455Z ##[endgroup]
+2026-11-17T14:34:17.3526815Z ##[group]bash scripts/cmux-next/tests/check-motion.test.sh: ok, 2s
+2026-11-17T14:34:17.3529997Z ##[endgroup]
+2026-11-17T14:34:17.3536074Z ##[group]bash scripts/cmux-next/tests/fast-tier.test.sh: ok, 15s
+2026-11-17T14:34:17.3539936Z ##[endgroup]
+2026-11-17T14:34:17.3545284Z ##[group]bash scripts/cmux-next/tests/check-scrollbars.test.sh: ok, 2s
+2026-11-17T14:34:17.3549959Z ##[endgroup]
+2026-11-17T14:34:17.3554834Z ##[group]bash scripts/cmux-next/tests/check-button-radius.test.sh: ok, 1s
+2026-11-17T14:34:17.3558468Z ##[endgroup]
+2026-11-17T14:34:17.3564011Z ##[group]bash scripts/cmux-next/tests/check-concentric-containers.test.sh: ok, 0s
+2026-11-17T14:34:17.3567803Z ##[endgroup]
+2026-11-17T14:34:17.3572689Z ##[group]bash scripts/cmux-next/tests/check-pressed-state.test.sh: ok, 1s
+2026-11-17T14:34:17.3575955Z ##[endgroup]
+2026-11-17T14:34:17.3580897Z ##[group]bash scripts/cmux-next/tests/check-overlay-glass.test.sh: ok, 2s
+2026-11-17T14:34:17.3584591Z ##[endgroup]
+2026-11-17T14:34:17.3589259Z ##[group]bash scripts/cmux-next/tests/check-no-process-scan.test.sh: ok, 1s
+2026-11-17T14:34:17.3592274Z ##[endgroup]
+2026-11-17T14:34:17.3598352Z ##[group]bash scripts/cmux-next/tests/check-single-omnibar.test.sh: ok, 1s
+2026-11-17T14:34:17.3602163Z ##[endgroup]
+2026-11-17T14:34:17.3607364Z ##[group]bash scripts/cmux-next/tests/check-react-pages.test.sh: ok, 0s
+2026-11-17T14:34:17.3611060Z ##[endgroup]
+2026-11-17T14:34:17.3615886Z ##[group]bash scripts/cmux-next/tests/check-no-swiftui.test.sh: ok, 4s
+2026-11-17T14:34:17.3620047Z ##[endgroup]
+2026-11-17T14:34:17.3624589Z ##[group]bash scripts/cmux-next/tests/check-launch-stages.test.sh: ok, 1s
+2026-11-17T14:34:17.3627644Z ##[endgroup]
+2026-11-17T14:34:17.3632614Z ##[group]bash scripts/cmux-next/tests/check-default-cursor.test.sh: ok, 1s
+2026-11-17T14:34:17.3636316Z ##[endgroup]
+2026-11-17T14:34:17.3640804Z ##[group]bash scripts/cmux-next/tests/check-state-roots.test.sh: ok, 0s
+2026-11-17T14:34:17.3643849Z ##[endgroup]
+2026-11-17T14:34:17.3648856Z ##[group]bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh: ok, 1s
+2026-11-17T14:34:17.3652543Z ##[endgroup]
+2026-11-17T14:34:17.3660343Z ##[group]bash scripts/cmux-next/tests/check-switch-fetches.test.sh: ok, 4s
+2026-11-17T14:34:17.3664304Z ##[endgroup]
+2026-11-17T14:34:17.3668772Z ##[group]bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh: ok, 2s
+2026-11-17T14:34:17.3671737Z ##[endgroup]
+2026-11-17T14:34:17.3677367Z ##[group]python3 -I scripts/cmux-next/tests/test_check_ui_text_budget.py: ok, 1s
+2026-11-17T14:34:17.3681335Z ##[endgroup]
+2026-11-17T14:34:17.3685763Z ##[group]bash scripts/cmux-next/tests/check-test-notification-centers.test.sh: ok, 0s
+2026-11-17T14:34:17.3688418Z ##[endgroup]
+2026-11-17T14:34:17.3693701Z ##[group]python3 scripts/cmux-next/tests/count-swift-code-lines.test.py: ok, 1s
+2026-11-17T14:34:17.3698049Z ##[endgroup]
+2026-11-17T14:34:17.3702925Z ##[group]bash scripts/cmux-next/tests/check-app-size.test.sh: ok, 1s
+2026-11-17T14:34:17.3707234Z ##[endgroup]
+2026-11-17T14:34:17.3711247Z ##[group]python3 -I scripts/cmux-next/tests/test_bundle_size.py: ok, 0s
+2026-11-17T14:34:17.3716403Z ##[endgroup]
+2026-11-17T14:34:17.3719337Z ##[group]python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py: ok, 1s
+2026-11-17T14:34:17.3725377Z ##[endgroup]
+2026-11-17T14:34:17.3728827Z ##[group]python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py: ok, 0s
+2026-11-17T14:34:17.3733851Z ##[endgroup]
+2026-11-17T14:34:17.3738163Z ##[group]python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py: ok, 0s
+2026-11-17T14:34:17.3743531Z ##[endgroup]
+2026-11-17T14:34:17.3748642Z ##[group]bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh: ok, 0s
+2026-11-17T14:34:17.3752405Z ##[endgroup]
+2026-11-17T14:34:17.3757370Z ##[group]bash tests/test_strip_release_bundle_atom_info.sh: ok, 0s
+2026-11-17T14:34:17.3761187Z ##[endgroup]
+2026-11-17T14:34:17.3766804Z ##[group]bash scripts/cmux-next/tests/version-surfaces.test.sh: ok, 1s
+2026-11-17T14:34:17.3771840Z ##[endgroup]
+2026-11-17T14:34:17.3776200Z ##[group]bash scripts/cmux-next/tests/ratchet-tiers.test.sh: ok, 1s
+2026-11-17T14:34:17.3779616Z ##[endgroup]
+2026-11-17T14:34:17.3785257Z ##[group]bash scripts/cmux-next/tests/base-autofix.test.sh: ok, 1s
+2026-11-17T14:34:17.3788946Z ##[endgroup]
+2026-11-17T14:34:17.3793830Z ##[group]bash scripts/cmux-next/tests/pr-autofix.test.sh: ok, 1s
+2026-11-17T14:34:17.3797311Z ##[endgroup]
+2026-11-17T14:34:17.3801858Z ##[group]bash tests/test_ci_generator_input_freshness.sh: ok, 1s
+2026-11-17T14:34:17.3806903Z ##[endgroup]
+2026-11-17T14:34:17.3810491Z ##[group]bash scripts/cmux-next/tests/generated-ownership.test.sh: ok, 3s
+2026-11-17T14:34:17.3813694Z ##[endgroup]
+2026-11-17T14:34:17.3818547Z ##[group]bash scripts/ci/tests/cmux-tui-rust-check.test.sh: ok, 1s
+2026-11-17T14:34:17.3822723Z ##[endgroup]
+2026-11-17T14:34:17.3827822Z ##[group]bash scripts/ci/tests/cmux-tui-base-red.test.sh: ok, 0s
+2026-11-17T14:34:17.3831035Z ##[endgroup]
+2026-11-17T14:34:17.3836429Z ##[group]bash scripts/ci/tests/package-test-lane-suite-args.test.sh: ok, 0s
+2026-11-17T14:34:17.3839930Z ##[endgroup]
+2026-11-17T14:34:17.3845286Z ##[group]bash scripts/ci/tests/package-test-lane-sdkroot.test.sh: ok, 0s
+2026-11-17T14:34:17.3848790Z ##[endgroup]
+2026-11-17T14:34:17.3853249Z ##[group]bash scripts/ci/tests/ios-sim-fetch-commit.test.sh: ok, 0s
+2026-11-17T14:34:17.3856587Z ##[endgroup]
+2026-11-17T14:34:17.3860941Z ##[group]bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh: ok, 0s
+2026-11-17T14:34:17.3865300Z ##[endgroup]
+2026-11-17T14:34:17.3869519Z ##[group]bash scripts/ci/tests/first-turn-cost-route-probe.test.sh: ok, 1s
+2026-11-17T14:34:17.3872913Z ##[endgroup]
+2026-11-17T14:34:17.3877132Z ##[group]bash scripts/ci/tests/run-webviews-tests-retry.test.sh: ok, 1s
+2026-11-17T14:34:17.3880310Z ##[endgroup]
+2026-11-17T14:34:17.3884565Z ##[group]bash scripts/cmux-next/tests/cef-credits.test.sh: ok, 1s
+2026-11-17T14:34:17.3888087Z ##[endgroup]
+2026-11-17T14:34:17.3893095Z ##[group]bash scripts/cmux-next/tests/swift-test-summary.test.sh: ok, 69s
+2026-11-17T14:34:17.3896763Z ##[endgroup]
+2026-11-17T14:34:17.3901357Z ##[group]bash scripts/cmux-next/tests/cef-license.test.sh: ok, 0s
+2026-11-17T14:34:17.3904468Z ##[endgroup]
+2026-11-17T14:34:17.3910081Z ##[group]bash scripts/cmux-next/tests/ensure-cef-store.test.sh: ok, 3s
+2026-11-17T14:34:17.3913763Z ##[endgroup]
+2026-11-17T14:34:17.3918420Z ##[group]bash scripts/cmux-next/tests/cef-build-flags.test.sh: ok, 0s
+2026-11-17T14:34:17.3921517Z ##[endgroup]
+2026-11-17T14:34:17.3926831Z ##[group]bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh: ok, 0s
+2026-11-17T14:34:17.3930375Z ##[endgroup]
+2026-11-17T14:34:17.3935407Z ##[group]bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh: ok, 4s
+2026-11-17T14:34:17.3939295Z ##[endgroup]
+2026-11-17T14:34:17.3944213Z ##[group]bash scripts/cmux-next/tests/cef-manifest-r2.test.sh: ok, 1s
+2026-11-17T14:34:17.3947572Z ##[endgroup]
+2026-11-17T14:34:17.3951853Z ##[group]python3 -I tests/test_chromium_staleness.py: ok, 0s
+2026-11-17T14:34:17.3957035Z ##[endgroup]
+2026-11-17T14:34:17.3961649Z ##[group]python3 -I tests/test_payload_advisories.py: ok, 0s
+2026-11-17T14:34:17.3969379Z ##[endgroup]
+2026-11-17T14:34:17.3970228Z ##[group]python3 -I scripts/cmux-next/herdr-sync.py check: ok, 0s
+2026-11-17T14:34:17.3974128Z ##[endgroup]
+2026-11-17T14:34:17.3978417Z ##[group]python3 -I scripts/cmux-next/tests/test_herdr_sync.py: ok, 1s
+2026-11-17T14:34:17.3982395Z ##[endgroup]
+2026-11-17T14:34:17.3987002Z ##[group]python3 -I scripts/cmux-next/tests/test_build_names.py: ok, 0s
+2026-11-17T14:34:17.3990438Z ##[endgroup]
+2026-11-17T14:34:17.3995148Z ##[group]python3 -I scripts/cmux-next/tests/test_hot_verify_ci.py: ok, 1s
+2026-11-17T14:34:17.3999271Z ##[endgroup]
+2026-11-17T14:34:17.4003372Z ##[group]python3 -I scripts/cmux-next/tests/test_rj_rows.py: ok, 0s
+2026-11-17T14:34:17.4006849Z ##[endgroup]
+2026-11-17T14:34:17.4011518Z ##[group]python3 -I scripts/cmux-next/tests/test_rj_update.py: ok, 0s
+2026-11-17T14:34:17.4015394Z ##[endgroup]
+2026-11-17T14:34:17.4019700Z ##[group]python3 -I scripts/cmux-next/tests/test_renderer_rest.py: ok, 0s
+2026-11-17T14:34:17.4023291Z ##[endgroup]
+2026-11-17T14:34:17.4028361Z ##[group]python3 -I scripts/cmux-next/tests/test_check_v2_app_callers.py: ok, 2s
+2026-11-17T14:34:17.4032119Z ##[endgroup]
+2026-11-17T14:34:17.4036570Z ##[group]python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py: ok, 0s
+2026-11-17T14:34:17.4042080Z ##[endgroup]
+2026-11-17T14:34:17.4044769Z ##[group]python3 -I tests/test_git_history.py: ok, 15s
+2026-11-17T14:34:17.4049171Z ##[endgroup]
+2026-11-17T14:34:17.4053109Z ##[group]python3 -I tests/test_known_red.py: ok, 14s
+2026-11-17T14:34:17.4057135Z ##[endgroup]
+2026-11-17T14:34:17.4061435Z ##[group]python3 scripts/cmux-next/tests/run-script-tests.py: ok, 34s
+2026-11-17T14:34:17.4175473Z /home/runner/_work/cmux/cmux/scripts/cmux-next/tests/test_bench_launch_calls.py:44: ResourceWarning: unclosed file <_io.TextIOWrapper name='/home/runner/_work/cmux/cmux/scripts/cmux-next/check-main-actor-work.py' mode='r' encoding='UTF-8'>
+2026-11-17T14:34:17.4516946Z perf-cron: dropped from the state (not a commit of HEAD): current
+2026-11-17T14:34:17.4557711Z ##[endgroup]
+2026-11-17T14:34:17.4557890Z ##[group]bash scripts/cef/tests/test-embedder-step.test.sh: ok, 7s
+2026-11-17T14:34:17.4558057Z ##[endgroup]
+2026-11-17T14:34:17.4558122Z 148 checks, 16 at a time: 148 passed, 0 failed
+2026-11-17T14:34:17.4616801Z ##[group]Run git submodule update --init --depth 1 --filter=blob:none ghostty-next
+2026-11-17T14:34:17.4627341Z ##[endgroup]
+2026-11-17T14:34:17.4888219Z Submodule 'ghostty-next' (https://github.com/manaflow-ai/ghostty-next.git) registered for path 'ghostty-next'
+2026-11-17T14:34:23.3132510Z PASS: the bundle has Ghostty's themes and terminfo whichever order the resource phases run in
+2026-11-17T14:34:23.3379052Z ##[group]Run bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+2026-11-17T14:34:23.3390691Z ##[endgroup]
+2026-11-17T14:34:23.5121260Z PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch
+2026-11-17T14:34:23.5229530Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
+2026-11-17T14:34:23.5241417Z ##[endgroup]
+2026-11-17T14:34:23.5360238Z waited 0s for package-conventions's 1 commands
+2026-11-17T14:34:23.5365899Z ##[group]./scripts/lint-ios-package-conventions.sh: ok, 19s
+2026-11-17T14:34:23.5421099Z ##[endgroup]
+2026-11-17T14:34:23.5421219Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:34:23.5474769Z ##[group]Run python3 scripts/icons/chromium_icons.py --check
+2026-11-17T14:34:23.5484084Z ##[endgroup]
+2026-11-17T14:34:23.7566363Z browser chrome icons: all Chromium
+2026-11-17T14:34:23.7660074Z ##[group]Run python3 tests/test_app_store_rules.py
+2026-11-17T14:34:23.7671084Z ##[endgroup]
+2026-11-17T14:34:25.5778098Z .................
+2026-11-17T14:34:27.0058644Z ok: cmux-next-ios sources: no App Store review rule broken
+2026-11-17T14:34:27.0149323Z ##[group]Run python3 tests/test_cmux_next_perf_source_guard.py
+2026-11-17T14:34:27.0160752Z ##[endgroup]
+2026-11-17T14:34:27.5340616Z ............
+2026-11-17T14:34:28.0019725Z perf source guard: 8525 files, no hits
+2026-11-17T14:34:28.0094298Z ##[group]Run python3 tests/test_cmux_next_fixture_host_names.py
+2026-11-17T14:34:28.0105889Z ##[endgroup]
+2026-11-17T14:34:28.0676798Z ....
+2026-11-17T14:34:28.5172432Z Fixture host names: ok (939 fixture files)
+2026-11-17T14:34:28.5249685Z ##[group]Run python3 tests/test_cmux_next_kill_switches.py
+2026-11-17T14:34:28.5261984Z ##[endgroup]
+2026-11-17T14:34:29.9002369Z ........................
+2026-11-17T14:34:30.4278798Z kill switches: ok
+2026-11-17T14:34:30.4370415Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
+2026-11-17T14:34:30.4381721Z ##[endgroup]
+2026-11-17T14:34:30.4509512Z waited 0s for checks-structure's 13 commands
+2026-11-17T14:34:30.4515002Z ##[group]python3 tests/test_cmux_next_checks_workflow.py: ok, 137s
+2026-11-17T14:34:30.4519295Z ##[endgroup]
+2026-11-17T14:34:30.4529766Z ##[group]python3 tests/test_cmux_next_generated_fold.py: ok, 11s
+2026-11-17T14:34:30.4530595Z ##[endgroup]
+2026-11-17T14:34:30.4531387Z ##[group]python3 tests/test_cmux_next_pr_autofix_push_gate.py: ok, 0s
+2026-11-17T14:34:30.4535518Z ##[endgroup]
+2026-11-17T14:34:30.4540751Z ##[group]python3 tests/test_run_checks_concurrently.py: ok, 10s
+2026-11-17T14:34:30.4545189Z ##[endgroup]
+2026-11-17T14:34:30.4550410Z ##[group]python3 tests/test_cmux_next_release_build_retention.py: ok, 1s
+2026-11-17T14:34:30.4554824Z ##[endgroup]
+2026-11-17T14:34:30.4559404Z ##[group]python3 tests/test_cmux_next_dev_release_host_root.py: ok, 10s
+2026-11-17T14:34:30.4563521Z ##[endgroup]
+2026-11-17T14:34:30.4567943Z ##[group]python3 tests/test_cmux_next_hybrid_ref_capture.py: ok, 2s
+2026-11-17T14:34:30.4574501Z ##[endgroup]
+2026-11-17T14:34:30.4576765Z ##[group]python3 tests/test_cmux_next_dev_release_import_out.py: ok, 0s
+2026-11-17T14:34:30.4580778Z ##[endgroup]
+2026-11-17T14:34:30.4585421Z ##[group]python3 tests/test_xcode_build_timeline.py: ok, 0s
+2026-11-17T14:34:30.4589373Z ##[endgroup]
+2026-11-17T14:34:30.4593983Z ##[group]python3 tests/test_cmux_next_dev_landing_workflow.py: ok, 1s
+2026-11-17T14:34:30.4598441Z ##[endgroup]
+2026-11-17T14:34:30.4604076Z ##[group]python3 tests/test_dev_landing_place.py: ok, 2s
+2026-11-17T14:34:30.4608587Z ##[endgroup]
+2026-11-17T14:34:30.4615133Z ##[group]python3 tests/test_cmux_next_dev_cas_seed.py: ok, 2s
+2026-11-17T14:34:30.4620500Z ##[endgroup]
+2026-11-17T14:34:30.4625255Z ##[group]python3 tests/test_cmux_next_dev_daily_tree_wait.py: ok, 2s
+2026-11-17T14:34:30.4631576Z ##[endgroup]
+2026-11-17T14:34:30.4631695Z 13 checks, 16 at a time: 13 passed, 0 failed
+2026-11-17T14:34:30.4683934Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
+2026-11-17T14:34:30.4696067Z ##[endgroup]
+2026-11-17T14:34:30.4819480Z waited 0s for tier-routing's 8 commands
+2026-11-17T14:34:30.4825240Z ##[group]python3 tests/test_cmux_next_route.py: ok, 37s
+2026-11-17T14:34:30.4838834Z ##[endgroup]
+2026-11-17T14:34:30.4839159Z ##[group]python3 tests/test_cmux_next_base_tier.py: ok, 9s
+2026-11-17T14:34:30.4840356Z ##[endgroup]
+2026-11-17T14:34:30.4844205Z ##[group]python3 tests/test_cmux_next_dispatch_heavy_compiles.py: ok, 0s
+2026-11-17T14:34:30.4848620Z ##[endgroup]
+2026-11-17T14:34:30.4853551Z ##[group]python3 tests/test_ci_target_graph.py: ok, 0s
+2026-11-17T14:34:30.4858415Z ##[endgroup]
+2026-11-17T14:34:30.4862519Z ##[group]python3 tests/test_ci_swiftpm_build_metrics.py: ok, 9s
+2026-11-17T14:34:30.4866362Z ##[endgroup]
+2026-11-17T14:34:30.4870908Z ##[group]python3 tests/test_cmux_next_route_replay.py: ok, 1s
+2026-11-17T14:34:30.4875687Z ##[endgroup]
+2026-11-17T14:34:30.4880148Z ##[group]python3 tests/test_ci_cmux_next_compile_revert.py: ok, 1s
+2026-11-17T14:34:30.4885238Z ##[endgroup]
+2026-11-17T14:34:30.4890642Z ##[group]python3 tests/test_ci_cmux_next_compile_status.py: ok, 80s
+2026-11-17T14:34:30.4895122Z ##[endgroup]
+2026-11-17T14:34:30.4895244Z 8 checks, 16 at a time: 8 passed, 0 failed
+2026-11-17T14:34:30.4947381Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
+2026-11-17T14:34:30.4957169Z ##[endgroup]
+2026-11-17T14:34:30.5073218Z waited 0s for package-dependency-lists's 2 commands
+2026-11-17T14:34:30.5078803Z ##[group]python3 scripts/cmux-next/check-package-dependency-lists.py: ok, 5s
+2026-11-17T14:34:30.5082516Z ##[endgroup]
+2026-11-17T14:34:30.5087482Z ##[group]python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py: ok, 7s
+2026-11-17T14:34:30.5091879Z ##[endgroup]
+2026-11-17T14:34:30.5092004Z 2 checks, 16 at a time: 2 passed, 0 failed
+2026-11-17T14:34:30.5141512Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
+2026-11-17T14:34:30.5151341Z ##[endgroup]
+2026-11-17T14:34:30.5266562Z waited 0s for web-bundle-key-inputs's 1 commands
+2026-11-17T14:34:30.5271384Z ##[group]bash tests/test_web_bundle_key_inputs.sh: ok, 26s
+2026-11-17T14:34:30.5274652Z ##[endgroup]
+2026-11-17T14:34:30.5274775Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:34:30.5321987Z ##[group]Run bash tests/test_build_web_bundles_from.sh
+2026-11-17T14:34:30.5330630Z ##[endgroup]
+2026-11-17T14:34:30.7371303Z packed the web bundles of source key 97956cd566b3 (30720 bytes)
+2026-11-17T14:34:30.9532999Z PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files
+2026-11-17T14:34:30.9628802Z ##[group]Run python3 tests/test_web_ota_publication_contract.py
+2026-11-17T14:34:30.9640067Z ##[endgroup]
+2026-11-17T14:34:33.3454200Z .........
+2026-11-17T14:34:35.8730395Z web-ota pointer: ok
+2026-11-17T14:34:35.8799032Z ##[group]Run python3 tests/test_cmux_next_generated_catch_up.py
+2026-11-17T14:34:35.8818136Z ##[endgroup]
+2026-11-17T14:34:36.5255446Z .........................
+2026-11-17T14:35:26.4747302Z ##[warning]app-ffi-release.yml: Watch the build and rescue it calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4750041Z ##[warning]backend.yml: Cloud journey after the promote (model stub) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4752204Z ##[warning]backend.yml: Dashboard inputs changed since its last deploy calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4754279Z ##[warning]ci-web.yml: Hand the duration manifest to the shards calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4756316Z ##[warning]ci-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4757903Z ##[warning]ci-web.yml: Restore the history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4759588Z ##[warning]classic-frozen-guard.yml: Check the changed paths against the classic-frozen list calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4761320Z ##[warning]cloud-chat-proof.yml: Install, sign in and launch the published NEXT DEV app calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4763012Z ##[warning]cloud-chat-proof.yml: Resolve the published NEXT DEV release asset calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4764730Z ##[warning]cloud-journey-prod.yml: Open, update or close the red-journey issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4766353Z ##[warning]cloud-vm-image-roll.yml: Record the roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4768027Z ##[warning]cmux-next-dev-kick.yml: Dispatch nightly-next-tick.yml on main calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4769735Z ##[warning]cmux-next-hot-verify.yml: Dispatch one more look calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4771308Z ##[warning]cmux-next-hot-verify.yml: Plan calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4773141Z ##[warning]cmux-next-media.yml: Plan the What's New clips calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4775107Z ##[warning]cmux-next-payload-advisories.yml: Compare pinned payloads with upstream security advisories calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4776913Z ##[warning]cmux-next-payload-advisories.yml: Open, update, or close the payload-advisory issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4778713Z ##[warning]cmux-next-web-bundle-publish.yml: Apply the pull request or ref onto its base calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4780403Z ##[warning]cmux-next-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4782021Z ##[warning]cmux-next.yml: Place the fast tier's re-run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4783581Z ##[warning]cmux-rd-release.yml: Attest calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4785112Z ##[warning]cmux-rd-release.yml: Release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4786732Z ##[warning]cmux-tui-artifacts.yml: Point the Windows channel at this tree calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4788514Z ##[warning]cmux-tui-artifacts.yml: Re-run the runs of commits whose tree is published and manifest missing calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4790237Z ##[warning]cmux-tui-artifacts.yml: Re-run the runs that deferred to this tree calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4791982Z ##[warning]cmux-tui-artifacts.yml: Request the Cloud VM image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4793733Z ##[warning]cmux-tui-artifacts.yml: Start the cmux-next tree jobs a refused tree notify left calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4795441Z ##[warning]cmux-tui-spec.yml: Does the change touch an input of acpmux's tests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4797068Z ##[warning]cmux-tui-team-signed.yml: Check the commit calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4799149Z ##[warning]cmux-vm.yml: Deploy the rollback again calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4800874Z ##[warning]cmux-vm.yml: Image roll commit with a passed check on the same code (short check) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4802558Z ##[warning]cmux-vm.yml: Record the production smoke and any rollback calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4804177Z ##[warning]cmux-web-layer-fork.yml: Publish the release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4805746Z ##[warning]cu-driver-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4807806Z ##[warning]cu-driver-eval.yml: the last successful run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4809737Z ##[warning]debug-labs-keys-report.yml: Open or update the Debug and Labs keys issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4811440Z ##[warning]first-user-journey-ios.yml: step 3 calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4813099Z ##[warning]ios-review-gate.yml: Download the dispatched run's binary calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4814780Z ##[warning]ios-review-gate.yml: step 1 calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4816424Z ##[warning]nightly-next-rollback-drill.yml: Dispatch the step on nightly-next calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4818166Z ##[warning]nightly-speed.yml: Record the nightlies published since the last record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4819823Z ##[warning]nightly.yml: Ask for this build's post-publication run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4821402Z ##[warning]nightly.yml: Ask for this build's sign run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4822963Z ##[warning]nightly.yml: Ask main's nightly-next tick calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4824549Z ##[warning]nightly.yml: Ask the push group for the newest head calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4826163Z ##[warning]nightly.yml: Build the tip while its tree publishes calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4827786Z ##[warning]nightly.yml: Check the run that published calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4829385Z ##[warning]nightly.yml: Download SSH daemon assets for publication calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4831014Z ##[warning]nightly.yml: Download its record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4832615Z ##[warning]nightly.yml: Download nightly variant artifacts calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4834190Z ##[warning]nightly.yml: Download published variant calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4835766Z ##[warning]nightly.yml: Download signed app (parallel) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4837333Z ##[warning]nightly.yml: Download the build's dSYMs calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4838953Z ##[warning]nightly.yml: Download the cmux-next source archive calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4840527Z ##[warning]nightly.yml: Download the published feed calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4842096Z ##[warning]nightly.yml: Download verified DMG digests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4843690Z ##[warning]nightly.yml: Every routing label has an online runner calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4845271Z ##[warning]screen-stream-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4846874Z ##[warning]screen-stream-eval.yml: the last successful daily run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4848989Z ##[warning]thunderdome-label.yml: Add the thunderdome label calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:35:26.4854545Z no longer spends the token (drop its line from .github/github-token-budget.json): pr-body-checks.yml: Check the description for a Performance table
+2026-11-17T14:35:26.4919143Z ##[group]Run python3 tests/test_test_reds.py
+2026-11-17T14:35:26.4929934Z ##[endgroup]
+2026-11-17T14:35:28.4831619Z ......................................................................................................................................................................
+2026-11-17T14:36:24.9223288Z web subareas: db=true diff_sidecar=true instant=true production_build=true react_apps=true typecheck=true unit_tests=true
+2026-11-17T14:36:24.9579600Z ##[group]Run python3 tests/test_cmux_next_update_dev_daily.py
+2026-11-17T14:36:24.9606794Z ##[endgroup]
+2026-11-17T14:36:28.4112824Z ok   test_a_closed_app_is_updated_and_stays_closed
+2026-11-17T14:36:29.1991343Z ok   test_a_split_workspace_keeps_its_panes
+2026-11-17T14:36:29.2118554Z ##[group]Run if [[ "$EVENT_NAME" != pull_request ]]; then
+2026-11-17T14:36:29.2133958Z ##[endgroup]
+2026-11-17T14:36:29.2212569Z Pushes run every tier; the replay checks pull request routing only.
+2026-11-17T14:36:29.2268758Z ##[group]Run set -euo pipefail
+2026-11-17T14:36:29.2290991Z ##[endgroup]
+2026-11-17T14:36:30.4839993Z app FFI pin: sources match fba2a308b63b5d963dd1feb64de2115f245471e3
+2026-11-17T14:36:30.5675754Z app FFI pin: release built from fba2a308b63b5d963dd1feb64de2115f245471e3 with checksum e6f51bb5b1d63f5759459768aa0c4f07729a3ab3eb1881e48a92804c2c30a6da
+2026-11-17T14:36:30.5737291Z ##[group]Run python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+2026-11-17T14:36:30.5748195Z ##[endgroup]
+2026-11-17T14:36:30.9414524Z check-daemon-capabilities-fresh: plans/cmux-next/daemon-capabilities.json matches DaemonEndpoint.swift (7 required, 197 optional, 0 unservedByBundledDaemon)
+2026-11-17T14:36:30.9530380Z ##[group]Run python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+2026-11-17T14:36:30.9542262Z ##[endgroup]
+2026-11-17T14:36:34.0500886Z check-app-capability-references: PASS: 216 capabilities referenced; every gated one is defined by the daemon source (346 defined) and listed for the same-tree identify check (204 listed)
+2026-11-17T14:36:34.0659242Z ##[group]Run bash scripts/cmux-next/tests/capability-text.test.sh
+2026-11-17T14:36:34.0674633Z ##[endgroup]
+2026-11-17T14:36:35.3041410Z capability texts: no 'update the app/daemon' advice
+2026-11-17T14:36:35.3089195Z capability-text tests: ok
+2026-11-17T14:36:35.3157493Z ##[group]Run # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+2026-11-17T14:36:35.3177249Z ##[endgroup]
+2026-11-17T14:36:58.2053612Z prepush-gate: 3 commit(s) checked, 0 add violations (10.4s)
+2026-11-17T14:36:58.2240454Z ##[group]Run failed=()
+2026-11-17T14:36:58.2284552Z ##[endgroup]
+2026-11-17T14:36:58.8978130Z base-red: unable to read previous tip 1fd8ee1f5551b338b8d0fe512f4db9923b08e402: HTTP Error 404: The specified blob does not exist.
+2026-11-17T14:36:58.9042855Z ##[warning]could not read the previous tip to tell new reds from inherited ones
+2026-11-17T14:36:58.9044066Z ##[warning]CmuxNextApp size cap found issues; see that step's log
+2026-11-17T14:36:58.9044787Z ##[warning]Scrollbars thin, one style found issues; see that step's log
+2026-11-17T14:36:58.9048884Z ### 2 style guard(s) reported findings (warn-only)
+2026-11-17T14:36:58.9049003Z 
+2026-11-17T14:36:58.9049059Z - CmuxNextApp size cap
+2026-11-17T14:36:58.9049195Z - Scrollbars thin, one style
+2026-11-17T14:36:58.9049288Z 
+2026-11-17T14:36:58.9050538Z ##[error]red check: No new SwiftUI (macOS UI is AppKit)
+2026-11-17T14:36:58.9051448Z ##[error]red check: Main-thread concurrency
+2026-11-17T14:36:58.9055455Z ### 2 cmux-next check(s) failed
+2026-11-17T14:36:58.9055542Z 
+2026-11-17T14:36:58.9055613Z - No new SwiftUI (macOS UI is AppKit) (failure)
+2026-11-17T14:36:58.9055817Z - Main-thread concurrency (failure)
+2026-11-17T14:36:58.9055967Z 
+2026-11-17T14:36:58.9056082Z Each check's own step log has the details.
+2026-11-17T14:36:58.9058120Z ##[error]Process completed with exit code 1.
+2026-11-17T14:36:58.9153225Z Post job cleanup.
+2026-11-17T14:36:58.9583296Z [command]/usr/local/bin/git version
+2026-11-17T14:36:58.9622052Z git version 2.55.0
+2026-11-17T14:36:58.9647373Z Temporarily overriding HOME='/home/runner/_work/_temp/8037e5c1-c43e-4c74-bdba-7b9da79d8b15' before making global git config changes
+2026-11-17T14:36:58.9647781Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-17T14:36:58.9652363Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/_work/cmux/cmux
+2026-11-17T14:36:58.9682443Z Removing SSH command configuration
+2026-11-17T14:36:58.9686756Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-17T14:36:58.9720283Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-17T14:36:58.9899198Z Entering 'ghostty-next'
+2026-11-17T14:36:58.9935391Z Removing HTTP extra header
+2026-11-17T14:36:58.9939427Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-17T14:36:58.9965575Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-17T14:36:59.0106851Z Entering 'ghostty-next'
+2026-11-17T14:36:59.0138635Z Removing includeIf entries pointing to credentials config files
+2026-11-17T14:36:59.0144648Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T14:36:59.0171998Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-17T14:36:59.0378591Z Entering 'ghostty-next'
+2026-11-17T14:36:59.0389665Z file:/home/runner/_work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-17T14:36:59.0417744Z [command]/usr/local/bin/git config --file /home/runner/_work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T14:36:59.0542246Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-17T14:36:59.0557294Z ##[group]Run '/job_completed.sh'
+2026-11-17T14:36:59.0567318Z ##[endgroup]
+2026-11-17T14:36:59.0659738Z Docker container cache not activated, skipping hash computation.
+2026-11-17T14:36:59.1047767Z No active SSH sessions detected. Proceeding with shutdown immediately.
+2026-11-17T14:36:59.1164871Z Cleaning up orphan processes

@@ -1,0 +1,760 @@
+2026-11-17T14:09:03.4218900Z Current runner version: '2.338.2'
+2026-11-17T14:09:03.4222512Z Runner name: 'blacksmith-16vcpu-ubuntu-2404-fvllg4ajwxl5i72s'
+2026-11-17T14:09:03.4223108Z Runner group name: 'blacksmith scale sets - blacksmith-16vcpu-ubuntu-2404'
+2026-11-17T14:09:03.4223833Z Machine name: 'ip-172-31-73-130'
+2026-11-17T14:09:03.4225223Z ##[group]GITHUB_TOKEN Permissions
+2026-11-17T14:09:03.4226519Z Actions: read
+2026-11-17T14:09:03.4226806Z Checks: read
+2026-11-17T14:09:03.4227139Z Contents: read
+2026-11-17T14:09:03.4227427Z Metadata: read
+2026-11-17T14:09:03.4227743Z ##[endgroup]
+2026-11-17T14:09:03.4228991Z Secret source: Actions
+2026-11-17T14:09:03.4229521Z Cache mode: write
+2026-11-17T14:09:03.4229908Z Prepare workflow directory
+2026-11-17T14:09:03.4593392Z Prepare all required actions
+2026-11-17T14:09:03.4622110Z Getting action download info
+2026-11-17T14:09:03.5994825Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-17T14:09:03.6702529Z Setting BLACKSMITH_ACTIONS_RESULTS_URL to https://results-receiver.actions.githubusercontent.com/
+2026-11-17T14:09:03.6768391Z Complete job name: cmux-next checks (god files, concurrency, crash safety, l10n)
+2026-11-17T14:09:03.8347394Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-17T14:09:03.8423404Z ##[group]Run '/setup.sh'
+2026-11-17T14:09:03.8436358Z ##[endgroup]
+2026-11-17T14:09:03.8672593Z Logging daemon started (blacksmithd for logs)
+2026-11-17T14:09:03.8936230Z Enabling Blacksmith transparent cache
+2026-11-17T14:09:04.0527320Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-17T14:09:04.0535752Z ##[endgroup]
+2026-11-17T14:09:04.1354486Z Syncing repository: manaflow-ai/cmux
+2026-11-17T14:09:04.1355610Z ##[group]Getting Git version info
+2026-11-17T14:09:04.1422650Z ##[endgroup]
+2026-11-17T14:09:04.1464019Z ##[group]Initializing the repository
+2026-11-17T14:09:04.1537295Z ##[endgroup]
+2026-11-17T14:09:04.1537711Z ##[group]Disabling automatic garbage collection
+2026-11-17T14:09:04.1561225Z ##[endgroup]
+2026-11-17T14:09:04.1561623Z ##[group]Setting up auth
+2026-11-17T14:09:04.2238249Z ##[endgroup]
+2026-11-17T14:09:04.2238639Z ##[group]Fetching the repository
+2026-11-17T14:09:27.0842706Z ##[endgroup]
+2026-11-17T14:09:27.0843128Z ##[group]Determining the checkout info
+2026-11-17T14:09:27.0843559Z ##[endgroup]
+2026-11-17T14:09:27.0910579Z ##[group]Checking out the ref
+2026-11-17T14:09:30.5500478Z ##[endgroup]
+2026-11-17T14:09:30.5588645Z ##[group]Removing auth
+2026-11-17T14:09:30.6608767Z Removing credentials config '/home/runner/_work/_temp/git-credentials-88d3d7d9-60e1-450f-8ed8-8fc2f8362c08.config'
+2026-11-17T14:09:30.6615037Z ##[endgroup]
+2026-11-17T14:09:30.6774919Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-17T14:09:30.6789819Z ##[endgroup]
+2026-11-17T14:09:30.7917655Z ##[group]Run set -euo pipefail
+2026-11-17T14:09:30.7940768Z ##[endgroup]
+2026-11-17T14:09:33.0000566Z Collecting PyYAML==6.0.3
+2026-11-17T14:09:33.4586317Z Successfully installed Pillow-11.3.0 PyYAML-6.0.3
+2026-11-17T14:09:33.6497258Z ##[group]Run # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
+2026-11-17T14:09:33.6594456Z ##[endgroup]
+2026-11-17T14:09:33.7177619Z checks-structure: 13 commands
+2026-11-17T14:09:33.7325385Z 178 commands started, 16 at a time, deadline in 600s
+2026-11-17T14:09:33.7466525Z ##[group]Run base=()
+2026-11-17T14:09:33.7507010Z ##[endgroup]
+2026-11-17T14:09:38.2051933Z Sources/CmuxNextDaemonService/DaemonService.swift has 802 lines (limit 400), over budget on the base too; this change did not grow it
+2026-11-17T14:09:38.2888943Z CmuxNextDaemon/DaemonStore: 2757 lines, 0 fns, over budget on the base too; this change did not grow it
+2026-11-17T14:09:38.6144269Z ##[group]Run base=()
+2026-11-17T14:09:38.6161378Z ##[endgroup]
+2026-11-17T14:09:42.3861501Z cmux-tui/bindings/examples/rust-agent-screen-detection/src/manifest.rs shrank to 1667 lines, 81 fns (baseline 2290, 109); run --update-baseline
+2026-11-17T14:09:42.4141878Z cmux-tui/crates/ghostty-vt/tests/tmux_conformance.rs: 2274 lines, 196 fns, over budget on the base too; this change did not grow it
+2026-11-17T14:09:42.9580843Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-17T14:09:42.9602188Z ##[endgroup]
+2026-11-17T14:09:42.9837391Z Size cap is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-17T14:09:43.0017077Z ##[group]Run scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+2026-11-17T14:09:43.0048548Z ##[endgroup]
+2026-11-17T14:09:43.1133702Z check-no-swift-cli: ok
+2026-11-17T14:09:43.1251501Z ##[group]Run scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+2026-11-17T14:09:43.1280169Z ##[endgroup]
+2026-11-17T14:09:43.7175347Z check-no-swift-closed-history: ok
+2026-11-17T14:09:43.7314196Z ##[group]Run python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+2026-11-17T14:09:43.7334762Z ##[endgroup]
+2026-11-17T14:09:44.6475532Z check-single-omnibar: ok
+2026-11-17T14:09:44.6701039Z ##[group]Run base=()
+2026-11-17T14:09:44.6717970Z ##[endgroup]
+2026-11-17T14:09:44.7503466Z REACT-PAGES: ok, 31 page(s), 4 debt, 5 to review
+2026-11-17T14:09:44.7763544Z ##[group]Run base=()
+2026-11-17T14:09:44.7785275Z ##[endgroup]
+2026-11-17T14:09:45.8709320Z UI text budget: 17160 strings, 275 over budget, all listed
+2026-11-17T14:09:45.8972720Z ##[group]Run base=()
+2026-11-17T14:09:45.8992892Z ##[endgroup]
+2026-11-17T14:09:48.6758426Z NO-SWIFTUI: base red, already on HEAD^1 (not this change's, warning only): Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6767390Z NO-SWIFTUI: base red, already on HEAD^1 (not this change's, warning only): Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6789933Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6796827Z NO-SWIFTUI: base red, already on HEAD^1 (not this change's, warning only): Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6798229Z NO-SWIFTUI: base red, already on HEAD^1 (not this change's, warning only): Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6800237Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6802192Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6803956Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundWindow.swift: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); the allowlist only shrinks
+2026-11-17T14:09:48.6804729Z NO-SWIFTUI: ok, 90 allowlisted file(s) left
+2026-11-17T14:09:48.6987753Z ##[group]Run python3 -I scripts/cmux-next/check-launch-stages.py "$GITHUB_WORKSPACE"
+2026-11-17T14:09:48.7013169Z ##[endgroup]
+2026-11-17T14:09:48.7516512Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
+2026-11-17T14:09:48.7556809Z ##[endgroup]
+2026-11-17T14:09:57.9732103Z waited 9s for no-process-scan's 1 commands
+2026-11-17T14:09:57.9750117Z ##[group]python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE": ok, 24s
+2026-11-17T14:09:57.9771858Z ##[endgroup]
+2026-11-17T14:09:57.9772507Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:09:58.0059742Z ##[group]Run python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+2026-11-17T14:09:58.0081331Z ##[endgroup]
+2026-11-17T14:10:01.4051031Z check-default-cursor: ok
+2026-11-17T14:10:01.4267929Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
+2026-11-17T14:10:01.4292180Z ##[endgroup]
+2026-11-17T14:10:11.7173090Z waited 10s for state-roots's 1 commands
+2026-11-17T14:10:11.7215098Z ##[group]bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE": ok, 38s
+2026-11-17T14:10:11.7371682Z ##[endgroup]
+2026-11-17T14:10:11.7372065Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:10:11.7619982Z ##[group]Run python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+2026-11-17T14:10:11.7642555Z ##[endgroup]
+2026-11-17T14:10:13.2771052Z check-dialog-key-hints: every dialog button shows its key
+2026-11-17T14:10:13.2904772Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
+2026-11-17T14:10:13.2928200Z ##[endgroup]
+2026-11-17T14:10:13.3207964Z waited 0s for concurrency's 2 commands
+2026-11-17T14:10:13.3218562Z ##[group]scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext": ok, 30s
+2026-11-17T14:10:13.3236135Z ##[endgroup]
+2026-11-17T14:10:13.3237348Z ##[group]python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE": failed (exit 1), 12s
+2026-11-17T14:10:13.3238633Z main-actor-work violation: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift: string scan inside a loop: 1 hit(s), baseline 0
+2026-11-17T14:10:13.3240274Z     Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift:263: while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
+2026-11-17T14:10:13.3241952Z check-main-actor-work: 1 violation(s): new main-actor hot spots. Move the work off the main actor (nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed `// main-actor-ok: <reason>` when its input is provably small.
+2026-11-17T14:10:13.3243255Z ##[endgroup]
+2026-11-17T14:10:13.3269310Z ##[error]python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+2026-11-17T14:10:13.3273266Z ----- python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+2026-11-17T14:10:13.3278911Z main-actor-work violation: Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift: string scan inside a loop: 1 hit(s), baseline 0
+2026-11-17T14:10:13.3280655Z     Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundModel.swift:263: while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
+2026-11-17T14:10:13.3282517Z check-main-actor-work: 1 violation(s): new main-actor hot spots. Move the work off the main actor (nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed `// main-actor-ok: <reason>` when its input is provably small.
+2026-11-17T14:10:13.3299505Z ##[error]Process completed with exit code 1.
+2026-11-17T14:10:13.3440090Z ##[group]Run python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:10:13.3462634Z ##[endgroup]
+2026-11-17T14:10:14.9491188Z check-webview-factory: every web view goes through the engine decision
+2026-11-17T14:10:14.9694821Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-17T14:10:14.9722320Z ##[endgroup]
+2026-11-17T14:10:14.9949445Z Crash ratchet is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-17T14:10:15.0075576Z ##[group]Run scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:10:15.0100358Z ##[endgroup]
+2026-11-17T14:10:16.6433957Z check-test-notification-centers: ok
+2026-11-17T14:10:16.6656436Z ##[group]Run set -o pipefail
+2026-11-17T14:10:16.6677983Z ##[endgroup]
+2026-11-17T14:10:17.8874949Z 181 tables, 11862 keys, 21 languages: 0 errors
+2026-11-17T14:10:17.8876228Z needs_review (machine translated): en=2 ar=7019 bs=7752 da=7747 de=7021 es=7023 fr=7018 it=7741 ja=3839 km=7880 ko=7017 nb=7752 pl=7739 pt-BR=7739 ru=7740 th=7747 tr=7739 uk=7746 vi=7933 zh-Hans=7018 zh-Hant=7018
+2026-11-17T14:10:17.9129133Z ##[group]Run scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:10:17.9150353Z ##[endgroup]
+2026-11-17T14:10:18.5244556Z check-module-resources: ok
+2026-11-17T14:10:18.5455879Z ##[group]Run set -o pipefail
+2026-11-17T14:10:18.5478274Z ##[endgroup]
+2026-11-17T14:10:24.0637671Z check-scrollbars: 11 hits are over the hard ceiling of 10
+2026-11-17T14:10:24.0679628Z   Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift:196: a SwiftUI ScrollView or List without .thinScrollers(): ScrollView {
+2026-11-17T14:10:24.0701321Z   webviews/src/agent-session/acpmux/conversation/conversation.css:2001: ::-webkit-scrollbar makes a custom scrollbar: .cv-edit-diff__loading-lines::-webkit-scrollbar-track {
+2026-11-17T14:10:24.0775044Z ##[error]Process completed with exit code 1.
+2026-11-17T14:10:24.0923845Z ##[group]Run python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
+2026-11-17T14:10:24.0947616Z ##[endgroup]
+2026-11-17T14:10:26.2801870Z check-button-radius: ok (every button rounds as a tab)
+2026-11-17T14:10:26.2942382Z ##[group]Run python3 -I scripts/cmux-next/check-concentric-containers.py "$GITHUB_WORKSPACE"
+2026-11-17T14:10:26.2963342Z ##[endgroup]
+2026-11-17T14:10:28.8691287Z check-concentric-containers: ok (113 known site(s) left in the baseline)
+2026-11-17T14:10:28.8872792Z ##[group]Run python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
+2026-11-17T14:10:28.8922361Z ##[endgroup]
+2026-11-17T14:10:31.4917900Z pressed-state: ok (12248 files)
+2026-11-17T14:10:31.5080360Z ##[group]Run scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-17T14:10:31.5095358Z ##[endgroup]
+2026-11-17T14:10:40.4571837Z check-motion: ok
+2026-11-17T14:10:40.4815760Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
+2026-11-17T14:10:40.4853078Z ##[endgroup]
+2026-11-17T14:10:40.5047404Z gh-call	2026-11-17T14:10:37Z	cmux-next	checks	-	-	-	-	GH pr list [gh tok=930bbdc5]
+2026-11-17T14:10:40.5164069Z ##[group]python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE": ok, 16s
+2026-11-17T14:10:40.5180062Z ##[endgroup]
+2026-11-17T14:10:40.5180422Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:10:40.5322225Z ##[group]Run python3 -I scripts/cmux-next/gen-type-scale.py --check
+2026-11-17T14:10:40.5348598Z ##[endgroup]
+2026-11-17T14:10:41.3012192Z check-swift-type-scale: ok (13 raw font sizes and 17 off-scale weights left in the baseline)
+2026-11-17T14:10:41.3213014Z ##[group]Run python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+2026-11-17T14:10:41.3231557Z ##[endgroup]
+2026-11-17T14:10:41.4213008Z ..............
+2026-11-17T14:10:41.4307837Z OK
+2026-11-17T14:10:41.4873314Z ##[group]Run if [[ "$EVENT_NAME" == pull_request ]]; then
+2026-11-17T14:10:41.4903956Z ##[endgroup]
+2026-11-17T14:10:57.4739737Z ui font: ok
+2026-11-17T14:10:57.5101029Z ##[group]Run python3 -I scripts/cmux-next/gen-motion-scale.py --check
+2026-11-17T14:10:57.5126265Z ##[endgroup]
+2026-11-17T14:10:57.5902455Z ##[group]Run python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+2026-11-17T14:10:57.5928271Z ##[endgroup]
+2026-11-17T14:10:58.1811302Z ............
+2026-11-17T14:11:16.3071111Z motion coverage 0.8777 {'apps': 0.0, 'native': 0.925, 'rust': None, 'webviews': 0.863}
+2026-11-17T14:11:16.3196006Z ##[group]Run python3 -I scripts/cmux-next/check-surface-roles.py
+2026-11-17T14:11:16.3213230Z ##[endgroup]
+2026-11-17T14:11:16.3490594Z surface roles: copies match schemas/surface-roles/surface-roles.json
+2026-11-17T14:11:16.3634015Z ##[group]Run python3 -I scripts/cmux-next/gen-menu-metrics.py --check
+2026-11-17T14:11:16.3662753Z ##[endgroup]
+2026-11-17T14:11:17.3004747Z menu metrics: 192 menu surface file(s) on the grid, 6 still in DEBT
+2026-11-17T14:11:17.3156600Z ##[group]Run python3 -I scripts/cmux-next/gen-protected-folders.py --check
+2026-11-17T14:11:17.3219854Z ##[endgroup]
+2026-11-17T14:11:17.3706471Z ##[group]Run python3 -I scripts/cmux-next/gen-settings-sources.py --check
+2026-11-17T14:11:17.3732498Z ##[endgroup]
+2026-11-17T14:11:17.9443364Z ....
+2026-11-17T14:11:17.9444686Z OK
+2026-11-17T14:11:17.9733437Z ##[group]Run python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+2026-11-17T14:11:17.9755413Z ##[endgroup]
+2026-11-17T14:11:18.0395371Z ##[group]Run python3 -I scripts/cmux-next/export-backdrop-art.py --check
+2026-11-17T14:11:18.0422538Z ##[endgroup]
+2026-11-17T14:11:18.1090813Z plans/cmux-next/backdrop-art.json is current
+2026-11-17T14:11:18.1240195Z ##[group]Run bash tests/test_cmux_next_stale_pcm_cleanup.sh
+2026-11-17T14:11:18.1268494Z ##[endgroup]
+2026-11-17T14:11:18.1569707Z PASS: stale PCM cleanup removes all derived build state but the package checkouts
+2026-11-17T14:11:18.1680764Z PASS: missing serialized module scans request the stale retry
+2026-11-17T14:11:18.1813220Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
+2026-11-17T14:11:18.1837249Z ##[endgroup]
+2026-11-17T14:12:18.1611747Z script-tests: still running after 165s: python3 tests/test_cmux_next_prepush_gate.py
+2026-11-17T14:14:59.9040839Z ##[group]python3 tests/test_cmux_next_prepush_gate.py: ok, 326s
+2026-11-17T14:14:59.9046111Z ............................................................................................s........s....s......s........s.s....ssprepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked
+2026-11-17T14:14:59.9048879Z .s.prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.
+2026-11-17T14:14:59.9050115Z help: run `rustup component add rustfmt` to install it
+2026-11-17T14:14:59.9050984Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'
+2026-11-17T14:14:59.9051970Z To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`
+2026-11-17T14:14:59.9052966Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed
+2026-11-17T14:14:59.9054769Z prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); Rust formatting NOT checked: error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed
+2026-11-17T14:14:59.9061900Z ##[endgroup]
+2026-11-17T14:14:59.9062459Z ##[group]python3 tests/test_cmux_next_prepush_main_twin.py: ok, 19s
+2026-11-17T14:14:59.9063970Z ##[endgroup]
+2026-11-17T14:14:59.9070728Z ##[group]python3 scripts/cmux-next/tests/test_hot_apply.py: ok, 184s
+2026-11-17T14:14:59.9077038Z ##[endgroup]
+2026-11-17T14:14:59.9084501Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh: ok, 105s
+2026-11-17T14:14:59.9090345Z ##[endgroup]
+2026-11-17T14:14:59.9098176Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh: ok, 178s
+2026-11-17T14:14:59.9103139Z ##[endgroup]
+2026-11-17T14:14:59.9111979Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh: ok, 39s
+2026-11-17T14:14:59.9117152Z ##[endgroup]
+2026-11-17T14:14:59.9123676Z ##[group]bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh: ok, 36s
+2026-11-17T14:14:59.9144270Z ##[endgroup]
+2026-11-17T14:14:59.9144574Z ##[group]bash scripts/cmux-next/tests/fake-clock.test.sh: ok, 0s
+2026-11-17T14:14:59.9145198Z ##[endgroup]
+2026-11-17T14:14:59.9147117Z ##[group]bash scripts/cmux-next/tests/preview.test.sh: ok, 5s
+2026-11-17T14:14:59.9152595Z ##[endgroup]
+2026-11-17T14:14:59.9159876Z ##[group]python3 tests/test_intent_familiar_warning.py: ok, 0s
+2026-11-17T14:14:59.9164845Z ##[endgroup]
+2026-11-17T14:14:59.9171538Z ##[group]python3 tests/test_ci_launch_budget_gate.py: ok, 0s
+2026-11-17T14:14:59.9176707Z ##[endgroup]
+2026-11-17T14:14:59.9182890Z ##[group]python3 tests/test_strings_output_encoding.py: ok, 0s
+2026-11-17T14:14:59.9187708Z ##[endgroup]
+2026-11-17T14:14:59.9194035Z ##[group]bash tests/test_strip_release_bundle.sh: ok, 1s
+2026-11-17T14:14:59.9210727Z ##[endgroup]
+2026-11-17T14:14:59.9210963Z ##[group]python3 tests/test_ui_font.py: ok, 4s
+2026-11-17T14:14:59.9211797Z ##[endgroup]
+2026-11-17T14:14:59.9218048Z ##[group]python3 tests/test_cmux_next_perf_gate_unlit.py: ok, 0s
+2026-11-17T14:14:59.9222916Z ##[endgroup]
+2026-11-17T14:14:59.9229554Z ##[group]python3 tests/test_base_merge_warning.py: ok, 3s
+2026-11-17T14:14:59.9234776Z ##[endgroup]
+2026-11-17T14:14:59.9242589Z ##[group]python3 tests/test_job_input_fingerprint.py: ok, 32s
+2026-11-17T14:14:59.9248589Z ##[endgroup]
+2026-11-17T14:14:59.9255605Z ##[group]python3 tests/test_job_reuse.py: ok, 1s
+2026-11-17T14:14:59.9261751Z ##[endgroup]
+2026-11-17T14:14:59.9268544Z ##[group]python3 tests/test_rebuild_mirror.py: ok, 3s
+2026-11-17T14:14:59.9273628Z ##[endgroup]
+2026-11-17T14:14:59.9281143Z ##[group]python3 tests/test_dev_release_product_key.py: ok, 3s
+2026-11-17T14:14:59.9286784Z ##[endgroup]
+2026-11-17T14:14:59.9293815Z ##[group]python3 tests/test_dev_release_product_reuse.py: ok, 0s
+2026-11-17T14:14:59.9299357Z ##[endgroup]
+2026-11-17T14:14:59.9306057Z ##[group]python3 tests/test_nightly_release_product_key.py: ok, 2s
+2026-11-17T14:14:59.9310846Z ##[endgroup]
+2026-11-17T14:14:59.9319157Z ##[group]python3 tests/test_nightly_release_product_reuse.py: ok, 5s
+2026-11-17T14:14:59.9324308Z ##[endgroup]
+2026-11-17T14:14:59.9329921Z ##[group]python3 tests/test_ci_compile_test_plan.py: ok, 4s
+2026-11-17T14:14:59.9334468Z ##[endgroup]
+2026-11-17T14:14:59.9342278Z ##[group]python3 tests/test_guard_hooks_from_base.py: ok, 8s
+2026-11-17T14:14:59.9347199Z ##[endgroup]
+2026-11-17T14:14:59.9354429Z ##[group]python3 tests/test_feat_ci_guard_group.py: ok, 8s
+2026-11-17T14:14:59.9359381Z ##[endgroup]
+2026-11-17T14:14:59.9366447Z ##[group]python3 tests/test_guards_new_reds.py: ok, 5s
+2026-11-17T14:14:59.9371831Z ##[endgroup]
+2026-11-17T14:14:59.9380862Z ##[group]python3 tests/test_webviews_test_history.py: ok, 11s
+2026-11-17T14:14:59.9386910Z ##[endgroup]
+2026-11-17T14:14:59.9394173Z ##[group]python3 tests/test_app_symbol_map.py: ok, 1s
+2026-11-17T14:14:59.9399886Z ##[endgroup]
+2026-11-17T14:14:59.9405854Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui.test.sh: ok, 21s
+2026-11-17T14:14:59.9411871Z ##[endgroup]
+2026-11-17T14:14:59.9418200Z ##[group]bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh: ok, 0s
+2026-11-17T14:14:59.9423131Z ##[endgroup]
+2026-11-17T14:14:59.9429710Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh: ok, 2s
+2026-11-17T14:14:59.9434694Z ##[endgroup]
+2026-11-17T14:14:59.9441189Z ##[group]bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh: ok, 1s
+2026-11-17T14:14:59.9445393Z ##[endgroup]
+2026-11-17T14:14:59.9453535Z ##[group]bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh: ok, 1s
+2026-11-17T14:14:59.9458739Z ##[endgroup]
+2026-11-17T14:14:59.9465167Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh: ok, 22s
+2026-11-17T14:14:59.9469257Z ##[endgroup]
+2026-11-17T14:14:59.9475433Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh: ok, 9s
+2026-11-17T14:14:59.9479514Z ##[endgroup]
+2026-11-17T14:14:59.9485521Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh: ok, 12s
+2026-11-17T14:14:59.9491335Z ##[endgroup]
+2026-11-17T14:14:59.9497261Z ##[group]python3 tests/test_cmux_next_tree_notify.py: ok, 1s
+2026-11-17T14:14:59.9505148Z ##[notice]GET repos/o/r was refused on a spent rate limit (HTTP 403); the notify continues on the spare token
+2026-11-17T14:14:59.9506932Z ##[warning]could not start the deferred cmux-next tree jobs for tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403
+2026-11-17T14:14:59.9509052Z ##[warning]tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: the notify was refused: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403; recorded as cmux-next-tree-notify-pending, and the next feat-cmux-next push's sweep makes the notify again
+2026-11-17T14:14:59.9511206Z ##[warning]could not start the deferred cmux-next tree jobs for tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: GET repos/o/r/actions/artifacts?name=cmux-next-tree-wait-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100: HTTP 403
+2026-11-17T14:14:59.9512139Z ##[endgroup]
+2026-11-17T14:14:59.9512430Z ##[group]python3 tests/test_cmux_next_same_tree_status_never_silent.py: ok, 5s
+2026-11-17T14:14:59.9514717Z ##[notice]POST repos/o/r/statuses/9cc846fc00000000000000000000000000000000 was refused on a spent rate limit (HTTP 403); the notify continues on the spare token
+2026-11-17T14:14:59.9515572Z ##[error]not a commit: 'nope'
+2026-11-17T14:14:59.9518328Z ##[warning]could not read this run's jobs for the reason: GET: HTTP 403
+2026-11-17T14:14:59.9519863Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 500); trying again
+2026-11-17T14:14:59.9520738Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 502); trying again
+2026-11-17T14:14:59.9521934Z ##[error]could not post cmux-next daemon tests (same-tree)=success on 9cc846fc00000000000000000000000000000000: NO_VERDICT, the status stays as last posted; re-run this job to post it
+2026-11-17T14:14:59.9523021Z ##[warning]the cmux-next daemon tests (same-tree) status post was refused (HTTP 500); trying again
+2026-11-17T14:14:59.9526173Z ##[endgroup]
+2026-11-17T14:14:59.9526430Z ##[group]python3 tests/test_cmux_tui_tree_takeover.py: ok, 0s
+2026-11-17T14:14:59.9527356Z ##[endgroup]
+2026-11-17T14:14:59.9530368Z ##[group]python3 tests/test_cmux_next_same_tree_failed.py: ok, 1s
+2026-11-17T14:14:59.9538107Z ##[endgroup]
+2026-11-17T14:14:59.9542974Z ##[group]python3 tests/test_idea_ledger.py: ok, 2s
+2026-11-17T14:14:59.9548412Z ##[endgroup]
+2026-11-17T14:14:59.9554483Z ##[group]python3 tests/test_ios_internal_builder.py: ok, 1s
+2026-11-17T14:14:59.9560070Z ##[endgroup]
+2026-11-17T14:14:59.9565609Z ##[group]python3 tests/test_ios_internal_notes.py: ok, 1s
+2026-11-17T14:14:59.9570400Z ##[endgroup]
+2026-11-17T14:14:59.9578355Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh: ok, 74s
+2026-11-17T14:14:59.9583281Z ##[endgroup]
+2026-11-17T14:14:59.9591861Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh: ok, 10s
+2026-11-17T14:14:59.9596880Z ##[endgroup]
+2026-11-17T14:14:59.9604020Z ##[group]bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh: ok, 59s
+2026-11-17T14:14:59.9608670Z ##[endgroup]
+2026-11-17T14:14:59.9615895Z ##[group]bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh: ok, 1s
+2026-11-17T14:14:59.9621217Z ##[endgroup]
+2026-11-17T14:14:59.9629035Z ##[group]bash scripts/cmux-next/tests/request-nightly-next.test.sh: ok, 159s
+2026-11-17T14:14:59.9636083Z ##[endgroup]
+2026-11-17T14:14:59.9642028Z ##[group]bash scripts/cmux-next/tests/cef-runtime-pack.test.sh: ok, 2s
+2026-11-17T14:14:59.9646357Z ##[endgroup]
+2026-11-17T14:14:59.9652306Z ##[group]bash scripts/cmux-next/tests/continue-nightly-next.test.sh: ok, 0s
+2026-11-17T14:14:59.9656672Z ##[endgroup]
+2026-11-17T14:14:59.9662050Z ##[group]bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh: ok, 1s
+2026-11-17T14:14:59.9666278Z ##[endgroup]
+2026-11-17T14:14:59.9671608Z ##[group]bash scripts/cmux-next/tests/reset-stale-submodules.test.sh: ok, 7s
+2026-11-17T14:14:59.9677644Z ##[endgroup]
+2026-11-17T14:14:59.9681244Z ##[group]bash scripts/cmux-next/tests/tree-key-v2.test.sh: ok, 59s
+2026-11-17T14:14:59.9685793Z ##[endgroup]
+2026-11-17T14:14:59.9691936Z ##[group]bash scripts/cmux-next/tests/tree-key-embeds.test.sh: ok, 1s
+2026-11-17T14:14:59.9696338Z ##[endgroup]
+2026-11-17T14:14:59.9702068Z ##[group]bash scripts/cmux-next/tests/tree-publish-v2.test.sh: ok, 24s
+2026-11-17T14:14:59.9706086Z ##[endgroup]
+2026-11-17T14:14:59.9712252Z ##[group]bash scripts/cmux-next/tests/embed-cef.test.sh: ok, 1s
+2026-11-17T14:14:59.9716542Z ##[endgroup]
+2026-11-17T14:14:59.9722276Z ##[group]bash scripts/cmux-next/tests/ublock-pin.test.sh: ok, 0s
+2026-11-17T14:14:59.9726468Z ##[endgroup]
+2026-11-17T14:14:59.9733419Z ##[group]bash scripts/cmux-next/tests/base-autofix-push.test.sh: ok, 21s
+2026-11-17T14:14:59.9739120Z ##[endgroup]
+2026-11-17T14:14:59.9744837Z ##[group]bash scripts/cmux-next/tests/base-autofix-land.test.sh: ok, 6s
+2026-11-17T14:14:59.9749678Z ##[endgroup]
+2026-11-17T14:14:59.9756014Z ##[group]bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh: ok, 11s
+2026-11-17T14:14:59.9761530Z ##[endgroup]
+2026-11-17T14:14:59.9766634Z ##[group]bash scripts/cmux-next/tests/base-autofix-changed.test.sh: ok, 1s
+2026-11-17T14:14:59.9770950Z ##[endgroup]
+2026-11-17T14:14:59.9776336Z ##[group]bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh: ok, 3s
+2026-11-17T14:14:59.9781153Z ##[endgroup]
+2026-11-17T14:14:59.9786434Z ##[group]bash scripts/cmux-next/tests/judge-action-exports.test.sh: ok, 10s
+2026-11-17T14:14:59.9790319Z ##[endgroup]
+2026-11-17T14:14:59.9795680Z ##[group]bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh: ok, 0s
+2026-11-17T14:14:59.9799417Z ##[endgroup]
+2026-11-17T14:14:59.9805699Z ##[group]bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh: ok, 5s
+2026-11-17T14:14:59.9813295Z ##[endgroup]
+2026-11-17T14:14:59.9817807Z ##[group]bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh: ok, 1s
+2026-11-17T14:14:59.9824001Z ##[endgroup]
+2026-11-17T14:14:59.9830156Z ##[group]bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh: ok, 0s
+2026-11-17T14:14:59.9836413Z ##[endgroup]
+2026-11-17T14:14:59.9840896Z ##[group]bash scripts/cmux-next/tests/cargo-test-selected.test.sh: ok, 0s
+2026-11-17T14:14:59.9844838Z ##[endgroup]
+2026-11-17T14:14:59.9850474Z ##[group]bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh: ok, 2s
+2026-11-17T14:14:59.9854332Z ##[endgroup]
+2026-11-17T14:14:59.9859815Z ##[group]bash scripts/cmux-next/tests/app-capability-references.test.sh: ok, 2s
+2026-11-17T14:14:59.9863543Z ##[endgroup]
+2026-11-17T14:14:59.9869054Z ##[group]bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh: ok, 1s
+2026-11-17T14:14:59.9873227Z ##[endgroup]
+2026-11-17T14:14:59.9878419Z ##[group]bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh: ok, 1s
+2026-11-17T14:14:59.9882178Z ##[endgroup]
+2026-11-17T14:14:59.9887558Z ##[group]bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh: ok, 5s
+2026-11-17T14:14:59.9891724Z ##[endgroup]
+2026-11-17T14:14:59.9897876Z ##[group]bash scripts/cmux-next/tests/check-fleet-only.test.sh: ok, 0s
+2026-11-17T14:14:59.9903959Z ##[endgroup]
+2026-11-17T14:14:59.9911698Z ##[group]node --test scripts/lib/reload-shim.test.mjs: ok, 1s
+2026-11-17T14:14:59.9950696Z ##[endgroup]
+2026-11-17T14:14:59.9951143Z ##[group]bash scripts/cmux-next/tests/capability-text.test.sh: ok, 3s
+2026-11-17T14:14:59.9952014Z ##[endgroup]
+2026-11-17T14:14:59.9952307Z ##[group]bash scripts/cmux-next/tests/release-compile-derived-data.test.sh: ok, 2s
+2026-11-17T14:14:59.9952871Z ##[endgroup]
+2026-11-17T14:14:59.9953157Z ##[group]bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh: ok, 1s
+2026-11-17T14:14:59.9953638Z ##[endgroup]
+2026-11-17T14:14:59.9958320Z ##[group]bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh: ok, 1s
+2026-11-17T14:14:59.9963880Z ##[endgroup]
+2026-11-17T14:14:59.9969176Z ##[group]bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh: ok, 0s
+2026-11-17T14:14:59.9973065Z ##[endgroup]
+2026-11-17T14:14:59.9978284Z ##[group]bash scripts/cmux-next/tests/dev-account-guard.test.sh: ok, 0s
+2026-11-17T14:14:59.9982273Z ##[endgroup]
+2026-11-17T14:14:59.9987492Z ##[group]bash scripts/cmux-next/tests/private-bun.test.sh: ok, 1s
+2026-11-17T14:14:59.9991422Z ##[endgroup]
+2026-11-17T14:14:59.9996403Z ##[group]bash scripts/cmux-next/tests/check-webviews-bun-version.test.sh: ok, 0s
+2026-11-17T14:15:00.0000844Z ##[endgroup]
+2026-11-17T14:15:00.0007373Z ##[group]bash scripts/cmux-next/tests/check-motion.test.sh: ok, 2s
+2026-11-17T14:15:00.0011846Z ##[endgroup]
+2026-11-17T14:15:00.0016887Z ##[group]bash scripts/cmux-next/tests/fast-tier.test.sh: ok, 16s
+2026-11-17T14:15:00.0020571Z ##[endgroup]
+2026-11-17T14:15:00.0025559Z ##[group]bash scripts/cmux-next/tests/check-scrollbars.test.sh: ok, 3s
+2026-11-17T14:15:00.0029220Z ##[endgroup]
+2026-11-17T14:15:00.0034233Z ##[group]bash scripts/cmux-next/tests/check-button-radius.test.sh: ok, 1s
+2026-11-17T14:15:00.0037943Z ##[endgroup]
+2026-11-17T14:15:00.0043004Z ##[group]bash scripts/cmux-next/tests/check-concentric-containers.test.sh: ok, 1s
+2026-11-17T14:15:00.0046639Z ##[endgroup]
+2026-11-17T14:15:00.0051706Z ##[group]bash scripts/cmux-next/tests/check-pressed-state.test.sh: ok, 2s
+2026-11-17T14:15:00.0056991Z ##[endgroup]
+2026-11-17T14:15:00.0061921Z ##[group]bash scripts/cmux-next/tests/check-overlay-glass.test.sh: ok, 2s
+2026-11-17T14:15:00.0065654Z ##[endgroup]
+2026-11-17T14:15:00.0070565Z ##[group]bash scripts/cmux-next/tests/check-no-process-scan.test.sh: ok, 1s
+2026-11-17T14:15:00.0074353Z ##[endgroup]
+2026-11-17T14:15:00.0079258Z ##[group]bash scripts/cmux-next/tests/check-single-omnibar.test.sh: ok, 1s
+2026-11-17T14:15:00.0082969Z ##[endgroup]
+2026-11-17T14:15:00.0088075Z ##[group]bash scripts/cmux-next/tests/check-react-pages.test.sh: ok, 1s
+2026-11-17T14:15:00.0094310Z ##[endgroup]
+2026-11-17T14:15:00.0101993Z ##[group]bash scripts/cmux-next/tests/check-no-swiftui.test.sh: ok, 5s
+2026-11-17T14:15:00.0106371Z ##[endgroup]
+2026-11-17T14:15:00.0112676Z ##[group]bash scripts/cmux-next/tests/check-launch-stages.test.sh: ok, 0s
+2026-11-17T14:15:00.0118195Z ##[endgroup]
+2026-11-17T14:15:00.0124076Z ##[group]bash scripts/cmux-next/tests/check-default-cursor.test.sh: ok, 1s
+2026-11-17T14:15:00.0127719Z ##[endgroup]
+2026-11-17T14:15:00.0133863Z ##[group]bash scripts/cmux-next/tests/check-state-roots.test.sh: ok, 1s
+2026-11-17T14:15:00.0138246Z ##[endgroup]
+2026-11-17T14:15:00.0143777Z ##[group]bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh: ok, 2s
+2026-11-17T14:15:00.0147691Z ##[endgroup]
+2026-11-17T14:15:00.0152775Z ##[group]bash scripts/cmux-next/tests/check-switch-fetches.test.sh: ok, 5s
+2026-11-17T14:15:00.0156406Z ##[endgroup]
+2026-11-17T14:15:00.0161316Z ##[group]bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh: ok, 2s
+2026-11-17T14:15:00.0165117Z ##[endgroup]
+2026-11-17T14:15:00.0171247Z ##[group]python3 -I scripts/cmux-next/tests/test_check_ui_text_budget.py: ok, 0s
+2026-11-17T14:15:00.0175468Z ##[endgroup]
+2026-11-17T14:15:00.0182268Z ##[group]bash scripts/cmux-next/tests/check-test-notification-centers.test.sh: ok, 1s
+2026-11-17T14:15:00.0186104Z ##[endgroup]
+2026-11-17T14:15:00.0192007Z ##[group]python3 scripts/cmux-next/tests/count-swift-code-lines.test.py: ok, 1s
+2026-11-17T14:15:00.0197801Z ##[endgroup]
+2026-11-17T14:15:00.0203884Z ##[group]bash scripts/cmux-next/tests/check-app-size.test.sh: ok, 0s
+2026-11-17T14:15:00.0208490Z ##[endgroup]
+2026-11-17T14:15:00.0224466Z ##[group]python3 -I scripts/cmux-next/tests/test_bundle_size.py: ok, 2s
+2026-11-17T14:15:00.0234482Z ##[endgroup]
+2026-11-17T14:15:00.0239193Z ##[group]python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py: ok, 3s
+2026-11-17T14:15:00.0245542Z ##[endgroup]
+2026-11-17T14:15:00.0251517Z ##[group]python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py: ok, 0s
+2026-11-17T14:15:00.0258771Z ##[endgroup]
+2026-11-17T14:15:00.0263484Z ##[group]python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py: ok, 1s
+2026-11-17T14:15:00.0267357Z ##[endgroup]
+2026-11-17T14:15:00.0273058Z ##[group]bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh: ok, 0s
+2026-11-17T14:15:00.0278786Z ##[endgroup]
+2026-11-17T14:15:00.0285778Z ##[group]bash tests/test_strip_release_bundle_atom_info.sh: ok, 0s
+2026-11-17T14:15:00.0290726Z ##[endgroup]
+2026-11-17T14:15:00.0298762Z ##[group]bash scripts/cmux-next/tests/version-surfaces.test.sh: ok, 1s
+2026-11-17T14:15:00.0305550Z ##[endgroup]
+2026-11-17T14:15:00.0311001Z ##[group]bash scripts/cmux-next/tests/ratchet-tiers.test.sh: ok, 1s
+2026-11-17T14:15:00.0317510Z ##[endgroup]
+2026-11-17T14:15:00.0324227Z ##[group]bash scripts/cmux-next/tests/base-autofix.test.sh: ok, 1s
+2026-11-17T14:15:00.0328675Z ##[endgroup]
+2026-11-17T14:15:00.0335898Z ##[group]bash scripts/cmux-next/tests/pr-autofix.test.sh: ok, 2s
+2026-11-17T14:15:00.0340343Z ##[endgroup]
+2026-11-17T14:15:00.0348360Z ##[group]bash tests/test_ci_generator_input_freshness.sh: ok, 0s
+2026-11-17T14:15:00.0354248Z ##[endgroup]
+2026-11-17T14:15:00.0361408Z ##[group]bash scripts/cmux-next/tests/generated-ownership.test.sh: ok, 3s
+2026-11-17T14:15:00.0368146Z ##[endgroup]
+2026-11-17T14:15:00.0376770Z ##[group]bash scripts/ci/tests/cmux-tui-rust-check.test.sh: ok, 1s
+2026-11-17T14:15:00.0380981Z ##[endgroup]
+2026-11-17T14:15:00.0388305Z ##[group]bash scripts/ci/tests/cmux-tui-base-red.test.sh: ok, 0s
+2026-11-17T14:15:00.0393247Z ##[endgroup]
+2026-11-17T14:15:00.0401937Z ##[group]bash scripts/ci/tests/package-test-lane-suite-args.test.sh: ok, 0s
+2026-11-17T14:15:00.0408400Z ##[endgroup]
+2026-11-17T14:15:00.0415493Z ##[group]bash scripts/ci/tests/package-test-lane-sdkroot.test.sh: ok, 1s
+2026-11-17T14:15:00.0421024Z ##[endgroup]
+2026-11-17T14:15:00.0427636Z ##[group]bash scripts/ci/tests/ios-sim-fetch-commit.test.sh: ok, 1s
+2026-11-17T14:15:00.0433142Z ##[endgroup]
+2026-11-17T14:15:00.0440240Z ##[group]bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh: ok, 0s
+2026-11-17T14:15:00.0445059Z ##[endgroup]
+2026-11-17T14:15:00.0449866Z ##[group]bash scripts/ci/tests/first-turn-cost-route-probe.test.sh: ok, 0s
+2026-11-17T14:15:00.0454090Z ##[endgroup]
+2026-11-17T14:15:00.0460248Z ##[group]bash scripts/ci/tests/run-webviews-tests-retry.test.sh: ok, 1s
+2026-11-17T14:15:00.0465541Z ##[endgroup]
+2026-11-17T14:15:00.0472964Z ##[group]bash scripts/cmux-next/tests/cef-credits.test.sh: ok, 0s
+2026-11-17T14:15:00.0479279Z ##[endgroup]
+2026-11-17T14:15:00.0486681Z ##[group]bash scripts/cmux-next/tests/swift-test-summary.test.sh: ok, 68s
+2026-11-17T14:15:00.0493074Z ##[endgroup]
+2026-11-17T14:15:00.0498980Z ##[group]bash scripts/cmux-next/tests/cef-license.test.sh: ok, 0s
+2026-11-17T14:15:00.0504307Z ##[endgroup]
+2026-11-17T14:15:00.0509666Z ##[group]bash scripts/cmux-next/tests/ensure-cef-store.test.sh: ok, 3s
+2026-11-17T14:15:00.0515009Z ##[endgroup]
+2026-11-17T14:15:00.0522077Z ##[group]bash scripts/cmux-next/tests/cef-build-flags.test.sh: ok, 1s
+2026-11-17T14:15:00.0526626Z ##[endgroup]
+2026-11-17T14:15:00.0534394Z ##[group]bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh: ok, 0s
+2026-11-17T14:15:00.0538775Z ##[endgroup]
+2026-11-17T14:15:00.0576781Z ##[group]bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh: ok, 3s
+2026-11-17T14:15:00.0581712Z ##[endgroup]
+2026-11-17T14:15:00.0589126Z ##[group]bash scripts/cmux-next/tests/cef-manifest-r2.test.sh: ok, 0s
+2026-11-17T14:15:00.0594098Z ##[endgroup]
+2026-11-17T14:15:00.0602393Z ##[group]python3 -I tests/test_chromium_staleness.py: ok, 0s
+2026-11-17T14:15:00.0610896Z ##[endgroup]
+2026-11-17T14:15:00.0615330Z ##[group]python3 -I tests/test_payload_advisories.py: ok, 0s
+2026-11-17T14:15:00.0628156Z ##[endgroup]
+2026-11-17T14:15:00.0628558Z ##[group]python3 -I scripts/cmux-next/herdr-sync.py check: ok, 0s
+2026-11-17T14:15:00.0629624Z ##[endgroup]
+2026-11-17T14:15:00.0637665Z ##[group]python3 -I scripts/cmux-next/tests/test_herdr_sync.py: ok, 1s
+2026-11-17T14:15:00.0643741Z ##[endgroup]
+2026-11-17T14:15:00.0650621Z ##[group]python3 -I scripts/cmux-next/tests/test_build_names.py: ok, 0s
+2026-11-17T14:15:00.0656995Z ##[endgroup]
+2026-11-17T14:15:00.0664620Z ##[group]python3 -I scripts/cmux-next/tests/test_hot_verify_ci.py: ok, 1s
+2026-11-17T14:15:00.0671458Z ##[endgroup]
+2026-11-17T14:15:00.0678314Z ##[group]python3 -I scripts/cmux-next/tests/test_rj_rows.py: ok, 0s
+2026-11-17T14:15:00.0682988Z ##[endgroup]
+2026-11-17T14:15:00.0688779Z ##[group]python3 -I scripts/cmux-next/tests/test_rj_update.py: ok, 0s
+2026-11-17T14:15:00.0694521Z ##[endgroup]
+2026-11-17T14:15:00.0701281Z ##[group]python3 -I scripts/cmux-next/tests/test_renderer_rest.py: ok, 0s
+2026-11-17T14:15:00.0707588Z ##[endgroup]
+2026-11-17T14:15:00.0714322Z ##[group]python3 -I scripts/cmux-next/tests/test_check_v2_app_callers.py: ok, 2s
+2026-11-17T14:15:00.0719801Z ##[endgroup]
+2026-11-17T14:15:00.0724892Z ##[group]python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py: ok, 0s
+2026-11-17T14:15:00.0734061Z ##[endgroup]
+2026-11-17T14:15:00.0738420Z ##[group]python3 -I tests/test_git_history.py: ok, 14s
+2026-11-17T14:15:00.0744663Z ##[endgroup]
+2026-11-17T14:15:00.0749756Z ##[group]python3 -I tests/test_known_red.py: ok, 10s
+2026-11-17T14:15:00.0754071Z ##[endgroup]
+2026-11-17T14:15:00.0760787Z ##[group]python3 scripts/cmux-next/tests/run-script-tests.py: ok, 29s
+2026-11-17T14:15:00.0906627Z /home/runner/_work/cmux/cmux/scripts/cmux-next/tests/test_bench_launch_calls.py:44: ResourceWarning: unclosed file <_io.TextIOWrapper name='/home/runner/_work/cmux/cmux/scripts/cmux-next/check-main-actor-work.py' mode='r' encoding='UTF-8'>
+2026-11-17T14:15:00.1289099Z perf-cron: dropped from the state (not a commit of HEAD): current
+2026-11-17T14:15:00.1387361Z ##[endgroup]
+2026-11-17T14:15:00.1387618Z ##[group]bash scripts/cef/tests/test-embedder-step.test.sh: ok, 8s
+2026-11-17T14:15:00.1388026Z ##[endgroup]
+2026-11-17T14:15:00.1388161Z 148 checks, 16 at a time: 148 passed, 0 failed
+2026-11-17T14:15:00.1474130Z ##[group]Run git submodule update --init --depth 1 --filter=blob:none ghostty-next
+2026-11-17T14:15:00.1488271Z ##[endgroup]
+2026-11-17T14:15:00.1811972Z Submodule 'ghostty-next' (https://github.com/manaflow-ai/ghostty-next.git) registered for path 'ghostty-next'
+2026-11-17T14:15:03.9753168Z PASS: the bundle has Ghostty's themes and terminfo whichever order the resource phases run in
+2026-11-17T14:15:04.0060529Z ##[group]Run bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+2026-11-17T14:15:04.0075892Z ##[endgroup]
+2026-11-17T14:15:04.1933277Z PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch
+2026-11-17T14:15:04.2070048Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
+2026-11-17T14:15:04.2084286Z ##[endgroup]
+2026-11-17T14:15:04.2227832Z waited 0s for package-conventions's 1 commands
+2026-11-17T14:15:04.2234235Z ##[group]./scripts/lint-ios-package-conventions.sh: ok, 25s
+2026-11-17T14:15:04.2299718Z ##[endgroup]
+2026-11-17T14:15:04.2299860Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:15:04.2374459Z ##[group]Run python3 scripts/icons/chromium_icons.py --check
+2026-11-17T14:15:04.2388369Z ##[endgroup]
+2026-11-17T14:15:04.5054962Z browser chrome icons: all Chromium
+2026-11-17T14:15:04.5181194Z ##[group]Run python3 tests/test_app_store_rules.py
+2026-11-17T14:15:04.5200189Z ##[endgroup]
+2026-11-17T14:15:06.7913675Z .................
+2026-11-17T14:15:08.4845789Z ok: cmux-next-ios sources: no App Store review rule broken
+2026-11-17T14:15:08.4970550Z ##[group]Run python3 tests/test_cmux_next_perf_source_guard.py
+2026-11-17T14:15:08.4983946Z ##[endgroup]
+2026-11-17T14:15:09.1402774Z ............
+2026-11-17T14:15:09.6957263Z perf source guard: 8525 files, no hits
+2026-11-17T14:15:09.7065768Z ##[group]Run python3 tests/test_cmux_next_fixture_host_names.py
+2026-11-17T14:15:09.7085865Z ##[endgroup]
+2026-11-17T14:15:09.7846727Z ....
+2026-11-17T14:15:10.3379851Z Fixture host names: ok (939 fixture files)
+2026-11-17T14:15:10.3482845Z ##[group]Run python3 tests/test_cmux_next_kill_switches.py
+2026-11-17T14:15:10.3497957Z ##[endgroup]
+2026-11-17T14:15:12.1066522Z ........................
+2026-11-17T14:15:12.7563363Z kill switches: ok
+2026-11-17T14:15:12.7668102Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
+2026-11-17T14:15:12.7680641Z ##[endgroup]
+2026-11-17T14:15:12.7832894Z waited 0s for checks-structure's 13 commands
+2026-11-17T14:15:12.7839959Z ##[group]python3 tests/test_cmux_next_checks_workflow.py: ok, 142s
+2026-11-17T14:15:12.7845692Z ##[endgroup]
+2026-11-17T14:15:12.7851840Z ##[group]python3 tests/test_cmux_next_generated_fold.py: ok, 14s
+2026-11-17T14:15:12.7857691Z ##[endgroup]
+2026-11-17T14:15:12.7865483Z ##[group]python3 tests/test_cmux_next_pr_autofix_push_gate.py: ok, 1s
+2026-11-17T14:15:12.7870488Z ##[endgroup]
+2026-11-17T14:15:12.7877546Z ##[group]python3 tests/test_run_checks_concurrently.py: ok, 9s
+2026-11-17T14:15:12.7882340Z ##[endgroup]
+2026-11-17T14:15:12.7887767Z ##[group]python3 tests/test_cmux_next_release_build_retention.py: ok, 1s
+2026-11-17T14:15:12.7894407Z ##[endgroup]
+2026-11-17T14:15:12.7900820Z ##[group]python3 tests/test_cmux_next_dev_release_host_root.py: ok, 12s
+2026-11-17T14:15:12.7907606Z ##[endgroup]
+2026-11-17T14:15:12.7911355Z ##[group]python3 tests/test_cmux_next_hybrid_ref_capture.py: ok, 2s
+2026-11-17T14:15:12.7923161Z ##[endgroup]
+2026-11-17T14:15:12.7923707Z ##[group]python3 tests/test_cmux_next_dev_release_import_out.py: ok, 1s
+2026-11-17T14:15:12.7928788Z ##[endgroup]
+2026-11-17T14:15:12.7935340Z ##[group]python3 tests/test_xcode_build_timeline.py: ok, 1s
+2026-11-17T14:15:12.7940552Z ##[endgroup]
+2026-11-17T14:15:12.7946046Z ##[group]python3 tests/test_cmux_next_dev_landing_workflow.py: ok, 0s
+2026-11-17T14:15:12.7951614Z ##[endgroup]
+2026-11-17T14:15:12.7957474Z ##[group]python3 tests/test_dev_landing_place.py: ok, 3s
+2026-11-17T14:15:12.7963382Z ##[endgroup]
+2026-11-17T14:15:12.7970870Z ##[group]python3 tests/test_cmux_next_dev_cas_seed.py: ok, 3s
+2026-11-17T14:15:12.7979847Z ##[endgroup]
+2026-11-17T14:15:12.7982433Z ##[group]python3 tests/test_cmux_next_dev_daily_tree_wait.py: ok, 2s
+2026-11-17T14:15:12.7992243Z ##[endgroup]
+2026-11-17T14:15:12.7992515Z 13 checks, 16 at a time: 13 passed, 0 failed
+2026-11-17T14:15:12.8066015Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
+2026-11-17T14:15:12.8079615Z ##[endgroup]
+2026-11-17T14:15:12.8228290Z waited 0s for tier-routing's 8 commands
+2026-11-17T14:15:12.8234974Z ##[group]python3 tests/test_cmux_next_route.py: ok, 47s
+2026-11-17T14:15:12.8250175Z ##[endgroup]
+2026-11-17T14:15:12.8250465Z ##[group]python3 tests/test_cmux_next_base_tier.py: ok, 10s
+2026-11-17T14:15:12.8251514Z ##[endgroup]
+2026-11-17T14:15:12.8255187Z ##[group]python3 tests/test_cmux_next_dispatch_heavy_compiles.py: ok, 0s
+2026-11-17T14:15:12.8258985Z ##[endgroup]
+2026-11-17T14:15:12.8265625Z ##[group]python3 tests/test_ci_target_graph.py: ok, 1s
+2026-11-17T14:15:12.8270233Z ##[endgroup]
+2026-11-17T14:15:12.8275764Z ##[group]python3 tests/test_ci_swiftpm_build_metrics.py: ok, 9s
+2026-11-17T14:15:12.8280543Z ##[endgroup]
+2026-11-17T14:15:12.8285616Z ##[group]python3 tests/test_cmux_next_route_replay.py: ok, 1s
+2026-11-17T14:15:12.8290778Z ##[endgroup]
+2026-11-17T14:15:12.8296268Z ##[group]python3 tests/test_ci_cmux_next_compile_revert.py: ok, 1s
+2026-11-17T14:15:12.8301721Z ##[endgroup]
+2026-11-17T14:15:12.8305677Z ##[group]python3 tests/test_ci_cmux_next_compile_status.py: ok, 87s
+2026-11-17T14:15:12.8312333Z ##[endgroup]
+2026-11-17T14:15:12.8312512Z 8 checks, 16 at a time: 8 passed, 0 failed
+2026-11-17T14:15:12.8375255Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
+2026-11-17T14:15:12.8386993Z ##[endgroup]
+2026-11-17T14:15:12.8529530Z waited 0s for package-dependency-lists's 2 commands
+2026-11-17T14:15:12.8556861Z ##[group]python3 scripts/cmux-next/check-package-dependency-lists.py: ok, 6s
+2026-11-17T14:15:12.8561415Z ##[endgroup]
+2026-11-17T14:15:12.8567994Z ##[group]python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py: ok, 9s
+2026-11-17T14:15:12.8575486Z ##[endgroup]
+2026-11-17T14:15:12.8575616Z 2 checks, 16 at a time: 2 passed, 0 failed
+2026-11-17T14:15:12.8643543Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
+2026-11-17T14:15:12.8656102Z ##[endgroup]
+2026-11-17T14:15:12.8817695Z waited 0s for web-bundle-key-inputs's 1 commands
+2026-11-17T14:15:12.8823964Z ##[group]bash tests/test_web_bundle_key_inputs.sh: ok, 24s
+2026-11-17T14:15:12.8827978Z ##[endgroup]
+2026-11-17T14:15:12.8828121Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-17T14:15:12.8884017Z ##[group]Run bash tests/test_build_web_bundles_from.sh
+2026-11-17T14:15:12.8896254Z ##[endgroup]
+2026-11-17T14:15:13.1216290Z packed the web bundles of source key 97956cd566b3 (30720 bytes)
+2026-11-17T14:15:13.3899999Z PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files
+2026-11-17T14:15:13.4022789Z ##[group]Run python3 tests/test_web_ota_publication_contract.py
+2026-11-17T14:15:13.4034987Z ##[endgroup]
+2026-11-17T14:15:16.2097687Z .........
+2026-11-17T14:15:19.6788725Z web-ota pointer: ok
+2026-11-17T14:15:19.6863459Z ##[group]Run python3 tests/test_cmux_next_generated_catch_up.py
+2026-11-17T14:15:19.6878377Z ##[endgroup]
+2026-11-17T14:15:20.5579141Z .........................
+2026-11-17T14:16:21.6509687Z ##[warning]app-ffi-release.yml: Watch the build and rescue it calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6512212Z ##[warning]backend.yml: Cloud journey after the promote (model stub) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6514427Z ##[warning]backend.yml: Dashboard inputs changed since its last deploy calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6516495Z ##[warning]ci-web.yml: Hand the duration manifest to the shards calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6518531Z ##[warning]ci-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6520524Z ##[warning]ci-web.yml: Restore the history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6522702Z ##[warning]classic-frozen-guard.yml: Check the changed paths against the classic-frozen list calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6524955Z ##[warning]cloud-chat-proof.yml: Install, sign in and launch the published NEXT DEV app calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6527166Z ##[warning]cloud-chat-proof.yml: Resolve the published NEXT DEV release asset calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6529540Z ##[warning]cloud-journey-prod.yml: Open, update or close the red-journey issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6531634Z ##[warning]cloud-vm-image-roll.yml: Record the roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6542557Z ##[warning]cmux-next-dev-kick.yml: Dispatch nightly-next-tick.yml on main calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6545476Z ##[warning]cmux-next-hot-verify.yml: Dispatch one more look calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6547607Z ##[warning]cmux-next-hot-verify.yml: Plan calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6550772Z ##[warning]cmux-next-media.yml: Plan the What's New clips calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6555040Z ##[warning]cmux-next-payload-advisories.yml: Compare pinned payloads with upstream security advisories calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6559308Z ##[warning]cmux-next-payload-advisories.yml: Open, update, or close the payload-advisory issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6563548Z ##[warning]cmux-next-web-bundle-publish.yml: Apply the pull request or ref onto its base calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6567528Z ##[warning]cmux-next-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6571460Z ##[warning]cmux-next.yml: Place the fast tier's re-run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6575134Z ##[warning]cmux-rd-release.yml: Attest calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6578664Z ##[warning]cmux-rd-release.yml: Release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6582525Z ##[warning]cmux-tui-artifacts.yml: Point the Windows channel at this tree calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6586720Z ##[warning]cmux-tui-artifacts.yml: Re-run the runs of commits whose tree is published and manifest missing calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6590761Z ##[warning]cmux-tui-artifacts.yml: Re-run the runs that deferred to this tree calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6595081Z ##[warning]cmux-tui-artifacts.yml: Request the Cloud VM image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6599184Z ##[warning]cmux-tui-artifacts.yml: Start the cmux-next tree jobs a refused tree notify left calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6603253Z ##[warning]cmux-tui-spec.yml: Does the change touch an input of acpmux's tests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6606868Z ##[warning]cmux-tui-team-signed.yml: Check the commit calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6610572Z ##[warning]cmux-vm.yml: Deploy the rollback again calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6614478Z ##[warning]cmux-vm.yml: Image roll commit with a passed check on the same code (short check) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6618352Z ##[warning]cmux-vm.yml: Record the production smoke and any rollback calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6622045Z ##[warning]cmux-web-layer-fork.yml: Publish the release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6625681Z ##[warning]cu-driver-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6629273Z ##[warning]cu-driver-eval.yml: the last successful run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6633146Z ##[warning]debug-labs-keys-report.yml: Open or update the Debug and Labs keys issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6637119Z ##[warning]first-user-journey-ios.yml: step 3 calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6640961Z ##[warning]ios-review-gate.yml: Download the dispatched run's binary calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6644292Z ##[warning]ios-review-gate.yml: step 1 calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6646617Z ##[warning]nightly-next-rollback-drill.yml: Dispatch the step on nightly-next calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6648847Z ##[warning]nightly-speed.yml: Record the nightlies published since the last record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6651085Z ##[warning]nightly.yml: Ask for this build's post-publication run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6653199Z ##[warning]nightly.yml: Ask for this build's sign run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6655243Z ##[warning]nightly.yml: Ask main's nightly-next tick calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6657297Z ##[warning]nightly.yml: Ask the push group for the newest head calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6659383Z ##[warning]nightly.yml: Build the tip while its tree publishes calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6661421Z ##[warning]nightly.yml: Check the run that published calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6663548Z ##[warning]nightly.yml: Download SSH daemon assets for publication calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6665733Z ##[warning]nightly.yml: Download its record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6667847Z ##[warning]nightly.yml: Download nightly variant artifacts calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6669898Z ##[warning]nightly.yml: Download published variant calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6671944Z ##[warning]nightly.yml: Download signed app (parallel) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6673990Z ##[warning]nightly.yml: Download the build's dSYMs calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6676040Z ##[warning]nightly.yml: Download the cmux-next source archive calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6678068Z ##[warning]nightly.yml: Download the published feed calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6680079Z ##[warning]nightly.yml: Download verified DMG digests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6682155Z ##[warning]nightly.yml: Every routing label has an online runner calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6684276Z ##[warning]screen-stream-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6686360Z ##[warning]screen-stream-eval.yml: the last successful daily run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6688506Z ##[warning]thunderdome-label.yml: Add the thunderdome label calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-17T14:16:21.6695450Z no longer spends the token (drop its line from .github/github-token-budget.json): pr-body-checks.yml: Check the description for a Performance table
+2026-11-17T14:16:21.6781117Z ##[group]Run python3 tests/test_test_reds.py
+2026-11-17T14:16:21.6799460Z ##[endgroup]
+2026-11-17T14:16:24.1626282Z ......................................................................................................................................................................
+2026-11-17T14:17:27.9210706Z web subareas: db=true diff_sidecar=true instant=true production_build=true react_apps=true typecheck=true unit_tests=true
+2026-11-17T14:17:27.9435004Z ##[group]Run python3 tests/test_cmux_next_update_dev_daily.py
+2026-11-17T14:17:27.9449483Z ##[endgroup]
+2026-11-17T14:17:31.3892944Z ok   test_a_closed_app_is_updated_and_stays_closed
+2026-11-17T14:17:32.1808656Z ok   test_a_split_workspace_keeps_its_panes
+2026-11-17T14:17:32.1943210Z ##[group]Run if [[ "$EVENT_NAME" != pull_request ]]; then
+2026-11-17T14:17:32.1960045Z ##[endgroup]
+2026-11-17T14:17:32.2074382Z The router did not change.
+2026-11-17T14:17:32.2135548Z ##[group]Run set -euo pipefail
+2026-11-17T14:17:32.2155299Z ##[endgroup]
+2026-11-17T14:17:35.7318469Z app FFI pin: sources match fba2a308b63b5d963dd1feb64de2115f245471e3
+2026-11-17T14:17:36.0188606Z app FFI pin: release built from fba2a308b63b5d963dd1feb64de2115f245471e3 with checksum e6f51bb5b1d63f5759459768aa0c4f07729a3ab3eb1881e48a92804c2c30a6da
+2026-11-17T14:17:36.8075965Z ##[group]Run python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+2026-11-17T14:17:36.8094388Z ##[endgroup]
+2026-11-17T14:17:37.2113897Z check-daemon-capabilities-fresh: plans/cmux-next/daemon-capabilities.json matches DaemonEndpoint.swift (7 required, 197 optional, 0 unservedByBundledDaemon)
+2026-11-17T14:17:37.2237619Z ##[group]Run python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+2026-11-17T14:17:37.2250403Z ##[endgroup]
+2026-11-17T14:17:40.6438756Z check-app-capability-references: PASS: 216 capabilities referenced; every gated one is defined by the daemon source (346 defined) and listed for the same-tree identify check (204 listed)
+2026-11-17T14:17:40.6608743Z ##[group]Run bash scripts/cmux-next/tests/capability-text.test.sh
+2026-11-17T14:17:40.6623423Z ##[endgroup]
+2026-11-17T14:17:42.1266822Z capability texts: no 'update the app/daemon' advice
+2026-11-17T14:17:42.1349723Z capability-text tests: ok
+2026-11-17T14:17:42.1455696Z ##[group]Run # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+2026-11-17T14:17:42.1486794Z ##[endgroup]
+2026-11-17T14:18:05.8671807Z prepush-gate: judging f0067df74c4 over 2131b34f1ed: the base given
+2026-11-17T14:18:13.2515552Z prepush-gate: no new violations (7.4s)
+2026-11-17T14:18:13.2739708Z ##[group]Run failed=()
+2026-11-17T14:18:13.2779806Z ##[endgroup]
+2026-11-17T14:18:13.2837487Z ##[warning]Scrollbars thin, one style found issues; see that step's log
+2026-11-17T14:18:13.2844745Z ### 1 style guard(s) reported findings (warn-only)
+2026-11-17T14:18:13.2845186Z 
+2026-11-17T14:18:13.2845281Z - Scrollbars thin, one style
+2026-11-17T14:18:13.2846611Z 
+2026-11-17T14:18:13.2847664Z ##[error]red check: Main-thread concurrency
+2026-11-17T14:18:13.2853253Z ### 1 cmux-next check(s) failed
+2026-11-17T14:18:13.2853434Z 
+2026-11-17T14:18:13.2853542Z - Main-thread concurrency (failure)
+2026-11-17T14:18:13.2853720Z 
+2026-11-17T14:18:13.2853827Z Each check's own step log has the details.
+2026-11-17T14:18:13.2856297Z ##[error]Process completed with exit code 1.
+2026-11-17T14:18:13.2979846Z Post job cleanup.
+2026-11-17T14:18:13.3655480Z [command]/usr/local/bin/git version
+2026-11-17T14:18:13.3691423Z git version 2.55.0
+2026-11-17T14:18:13.3719217Z Temporarily overriding HOME='/home/runner/_work/_temp/562dc0a5-4caf-4e62-bac2-9c4a8a315f2f' before making global git config changes
+2026-11-17T14:18:13.3719639Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-17T14:18:13.3724603Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/_work/cmux/cmux
+2026-11-17T14:18:13.3753980Z Removing SSH command configuration
+2026-11-17T14:18:13.3758961Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-17T14:18:13.3789064Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-17T14:18:13.3972689Z Entering 'ghostty-next'
+2026-11-17T14:18:13.4009393Z Removing HTTP extra header
+2026-11-17T14:18:13.4015448Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-17T14:18:13.4048885Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-17T14:18:13.4204238Z Entering 'ghostty-next'
+2026-11-17T14:18:13.4244296Z Removing includeIf entries pointing to credentials config files
+2026-11-17T14:18:13.4251362Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T14:18:13.4283204Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-17T14:18:13.4481237Z Entering 'ghostty-next'
+2026-11-17T14:18:13.4491520Z file:/home/runner/_work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-17T14:18:13.4517348Z [command]/usr/local/bin/git config --file /home/runner/_work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T14:18:13.4674781Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-17T14:18:13.4692878Z ##[group]Run '/job_completed.sh'
+2026-11-17T14:18:13.4703380Z ##[endgroup]
+2026-11-17T14:18:13.4804067Z Docker container cache not activated, skipping hash computation.
+2026-11-17T14:18:13.5147199Z No active SSH sessions detected. Proceeding with shutdown immediately.
+2026-11-17T14:18:13.9263216Z Cleaning up orphan processes
