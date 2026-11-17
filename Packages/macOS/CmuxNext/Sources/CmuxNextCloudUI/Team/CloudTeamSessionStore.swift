@@ -70,7 +70,7 @@ public final class CloudTeamSessionStore {
     public private(set) var listError: CloudTeamError?
 
     @ObservationIgnored private let transport: Transport
-    @ObservationIgnored private let makeKey: () -> String
+    @ObservationIgnored private let makeIdempotencyKey: () -> String
     @ObservationIgnored private var listGeneration = 0
     /// The signed-in person's TeamDO user id (`user_…`): a reassign to them shows under Assigned to me at once.
     @ObservationIgnored public var currentUser: () -> String?
@@ -83,7 +83,7 @@ public final class CloudTeamSessionStore {
         self.transport = transport
         self.currentUser = currentUser
         self.activeTeam = activeTeam
-        makeKey = idempotencyKey ?? { "cloud-team-\(UUID().uuidString)" }
+        makeIdempotencyKey = idempotencyKey ?? { "cloud-team-\(UUID().uuidString)" }
     }
 
     // MARK: Reads
@@ -281,7 +281,7 @@ public final class CloudTeamSessionStore {
     }
 
     private func mutate(_ op: String, _ params: [String: Any], team: String?) async throws -> [String: Any] {
-        let body: [String: Any] = ["op": op, "params": params, "idempotency_key": makeKey(), "origin": "user"]
+        let body: [String: Any] = ["op": op, "params": params, "idempotency_key": makeIdempotencyKey(), "origin": "user"]
         return try Self.value(try await transport("v1/ops", body, team))
     }
 

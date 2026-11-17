@@ -40,7 +40,7 @@ final class CloudTeamSectionView: NSView {
     private(set) var filters: [CloudTeamFilterButton] = []
     private(set) var rows: [CloudTeamSessionRowView] = []
     private let placeholder = NSTextField(wrappingLabelWithString: "")
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = CloudTeamRowList()
 
     init(store: CloudTeamSessionStore, colors: CloudTeamColors, actions: CloudTeamSessionRowView.Actions) {

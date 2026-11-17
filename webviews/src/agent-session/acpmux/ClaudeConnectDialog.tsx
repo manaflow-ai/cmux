@@ -7,6 +7,7 @@
 import { useId, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
+import { focusRoute } from "../../ui/focusRoute";
 import { CLAUDE_SETUP_TOKEN_COMMAND } from "../shared/claudeSetupToken";
 import { checkToken, connectRequest, refusalText, type ClaudeConnect } from "./claudeConnect";
 import { CopyButton } from "./conversation/CopyButton";
@@ -59,7 +60,7 @@ export function ClaudeConnectDialog({
       sending.current = false;
       setPending(false);
       setError(t("picker.connectClaude.failed", { reason: refusalText(failure, t("picker.connectClaude.refused")) }));
-      tokenField.current?.focus();
+      focusRoute(tokenField.current, "system", "the connect was refused: the token field, to paste again");
     });
   };
   const title = t("picker.connectClaude.title");
