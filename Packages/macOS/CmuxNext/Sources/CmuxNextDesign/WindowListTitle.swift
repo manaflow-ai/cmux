@@ -23,7 +23,8 @@ public struct WindowListTitle: Equatable, Sendable {
 /// app-specific values and decide whether the visible titlebar should also change.
 /// Publishes once synchronously, then only on observed changes. The window owner
 /// cancels the returned task when replacing the binding or tearing the window down.
-public enum WindowListTitleObservation {
+public struct WindowListTitleObservation {
+    public init() {}
     public typealias Value = (spaceName: String?, workspaceName: String?, incognito: Bool, showsWorkspaceChrome: Bool)
 
     @MainActor

@@ -342,6 +342,35 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
     }
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain in ENV's fresh home, as a real install has.
+
+    Without one, a Release or nightly bundle's Chromium creates "cmux Safe Storage" through a Keychain dialog
+    nobody answers: "Keychain Not Found" over the window (runs 41419773317, 41582798853), and every quit of
+    post-update-hitches.py held in CefShutdown behind a worker in SecItemAdd -> AuthorizationCopyRights (12 of
+    12 hang files, cmuxterm-hq#11994). CMUX_MOCK_KEYCHAIN=1 is no way out here: the app drops an inherited
+    CMUX_MOCK_KEYCHAIN at launch (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable but the
+    CMUX_NEXT_* knobs), so only a copy's own LSEnvironment can set it. Every `security` call runs with the
+    home's own HOME and CFFIXED_USER_HOME, so the keychain, its search list and the default are the fresh
+    home's: the runner account's own keychain settings are untouched (checked on cmux11s: default and search
+    list unchanged). A home that already has the keychain keeps it."""
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    steps = [] if keychain.exists() else [["create-keychain", "-p", "", str(keychain)]]
+    steps += [["list-keychains", "-d", "user", "-s", str(keychain)],
+              ["default-keychain", "-d", "user", "-s", str(keychain)],
+              ["set-keychain-settings", str(keychain)]]
+    for args in steps:
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30,
+                              start_new_session=True)
+        if done.returncode != 0:
+            raise CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    log(f"fresh home login keychain: {keychain}")
+
+
 class DefaultsAside:
     """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it.
 
