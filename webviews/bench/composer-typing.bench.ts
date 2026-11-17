@@ -23,10 +23,14 @@
 //             anything a keypress causes. One render per event is a coalesced draw; more is a frame it will redraw.
 //             STREAM-SPANS lines carry that run's spans (perf.ts `span`), which name the work each streamed frame
 //             spends its time in (flush.scroll, flush.drawn, vt.body, row.renders) where a render count cannot.
+//   reply     with --modes reply: the same keys while one long reply streams, for each --reply-words length (default
+//             2000,20000 words): its first words arrive at once and reveal, then the stream appends to it with no tool
+//             call. frame_p50 / frame_p95 (every mode) are each display frame's work while the keys are typed, rAF to
+//             after the page rendered it: in reply mode, what one reveal frame costs against the reply's length.
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
-//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
+//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
 //     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000]
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
 // should neither render nor lay out.
@@ -61,7 +65,7 @@ const ENGINES = (flag("--engines") ?? flag("--engine") ?? "chromium").split(",")
 const STREAM = Number(flag("--stream") ?? 60);
 const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
 if (
-  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
+  MODES.some((mode) => !["idle", "stream", "reply", "L0", "L1", "L2", "L3"].includes(mode)) ||
   ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
   !Number.isInteger(KEYS) ||
   KEYS < 1 ||
@@ -72,6 +76,10 @@ if (
   LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
 )
   throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
+/// With --modes reply: the reply lengths, in words, that one streaming reply has on screen while the keys are typed.
+const REPLY_WORDS = (flag("--reply-words") ?? "2000,20000").split(",").map(Number);
+/// How long the long reply's first words get to reveal before the timed stream and the keys start.
+const REPLY_SETTLE_MS = 1500;
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
@@ -105,6 +113,8 @@ if (DRAFT > 0 && (ENGINE === "webkit" || ENGINES.includes("webkit") || MODES.som
   throw new Error("--draft runs in Chromium's idle and stream modes only; WebKit and L0-L3 never fill the draft");
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
+  "frame_p50",
+  "frame_p95",
   "to_frame_p50",
   "to_frame_p95",
   "to_frame_max",
@@ -212,11 +222,49 @@ const serveOptions = {
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
+/// Init script (self-contained): the work of every display frame from `__frameWork.start()` to `stop()`, rAF time to
+/// after the page rendered it (a posted message runs after the rendering update), as loadDebug.ts `loadRun` reads it.
+function frameWorkProbe() {
+  const w = window as unknown as { __frameWork?: { start(): void; stop(): number[] } };
+  if (w.__frameWork) return;
+  let on = false;
+  let work: number[] = [];
+  const tick = (now: number) => {
+    if (!on) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      work.push(performance.now() - now);
+    };
+    channel.port2.postMessage(0);
+    requestAnimationFrame(tick);
+  };
+  w.__frameWork = {
+    start() {
+      work = [];
+      on = true;
+      requestAnimationFrame(tick);
+    },
+    stop() {
+      on = false;
+      return work;
+    },
+  };
+}
+
+const pct = (values: number[], at: number) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length
+    ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * at))]! * 100) / 100
+    : 0;
+};
+
 async function measure(
   port: number,
   length: number,
   mode: string,
   engine: "chromium" | "webkit" = ENGINE as "chromium" | "webkit",
+  replyWords = 0,
 ): Promise<Record<string, unknown>> {
   const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
@@ -241,6 +289,7 @@ async function measure(
       }
     }
     await page.addInitScript(longTaskProbe);
+    await page.addInitScript(frameWorkProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
     const cdp = await page.context().newCDPSession(page);
@@ -287,6 +336,8 @@ async function measure(
       await cdp.send("Profiler.start");
     }
     // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas.
+    // Reply mode: one reply of `replyWords` words is on screen, and the same stream appends to it with no tool call
+    // (a tool call would end the reply's row and start a short one), so each frame's cost reads against its length.
     const streaming =
       mode === "stream"
         ? page.evaluate(
@@ -294,9 +345,22 @@ async function measure(
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
-        : Promise.resolve(undefined);
-    if (mode === "stream") {
-      await page.waitForTimeout(300);
+        : mode === "reply"
+          ? page.evaluate(
+              ([seconds, words, settle]) =>
+                (window as any).cmuxAcpmuxDebug.loadRun({
+                  seconds,
+                  chunk_ms: 16,
+                  tool_every: 0,
+                  scroll_speed: 0,
+                  reply_words: words,
+                  reply_settle_ms: settle,
+                }),
+              [(KEYS * (GAP_MS + 20)) / 1000 + 1, replyWords, REPLY_SETTLE_MS] as const,
+            )
+          : Promise.resolve(undefined);
+    if (mode !== "idle") {
+      await page.waitForTimeout(mode === "reply" ? REPLY_SETTLE_MS + 300 : 300);
       await page.evaluate(() => {
         const debug = (window as any).cmuxAcpmuxDebug;
         debug.resetTyping();
@@ -312,9 +376,11 @@ async function measure(
         await page.waitForTimeout(GAP_MS);
       }
     };
+    await page.evaluate(() => (window as any).__frameWork.start());
     const typedAt = performance.now();
     const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
     const typedMs = performance.now() - typedAt;
+    const frameWork = (await page.evaluate(() => (window as any).__frameWork.stop())) as number[];
     await page.waitForTimeout(500);
     const after = await metrics();
     const until = await page.evaluate(() => performance.now());
@@ -400,6 +466,9 @@ async function measure(
       engine,
       mode,
       rows,
+      ...(mode === "reply" ? { reply_words: replyWords } : {}),
+      frame_p50: pct(frameWork, 0.5),
+      frame_p95: pct(frameWork, 0.95),
       keys: typing.keys,
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
@@ -439,7 +508,11 @@ async function measure(
 }
 
 try {
-  const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  const cases = LENGTHS.flatMap((length) =>
+    MODES.flatMap((mode) =>
+      mode === "reply" ? REPLY_WORDS.map((words) => ({ length, mode, words })) : [{ length, mode, words: 0 }],
+    ),
+  );
   if (ARMS && ENGINES.length > 1)
     throw new Error("--arms measures one engine: pass --engine chromium or --engine webkit, not a list");
   if (ARMS) {
@@ -447,16 +520,16 @@ try {
     const ports = new Map<string, number>();
     for (const arm of ARMS) ports.set(arm.name, await servePane(arm.dir, serveOptions, releases));
     const runs: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases)
+    for (const { length, mode, words } of cases)
       runs.push(
         ...(await runArms({
           arms: ARMS,
           rounds: ROUNDS,
           floor: FLOOR,
-          label: `${mode} ${length} rows`,
+          label: `${mode} ${length} rows${words ? ` ${words} words` : ""}`,
           metrics: ARM_METRICS,
           ports,
-          run: (port) => measure(port, length, mode, ENGINES[0] as "chromium" | "webkit"),
+          run: (port) => measure(port, length, mode, ENGINES[0] as "chromium" | "webkit", words),
         })),
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(runs)}`);
@@ -464,8 +537,8 @@ try {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
     for (const engine of ENGINES)
-      for (const { length, mode } of cases)
-        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
+      for (const { length, mode, words } of cases)
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit", words));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
