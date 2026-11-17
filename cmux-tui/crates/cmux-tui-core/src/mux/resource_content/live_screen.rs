@@ -55,6 +55,7 @@ pub(super) fn registry_screen_from_live(
         floating: crate::mux::resource_topology::floating_panes::registry_floating_panes(
             state,
             &screen.root,
+            &screen.layout_columns,
             &screen.floating,
         )?,
     })
