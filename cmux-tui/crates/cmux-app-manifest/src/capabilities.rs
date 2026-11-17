@@ -125,13 +125,16 @@ impl OpScope {
         match self {
             Self::Ungated => false,
             Self::NetHost | Self::IntegrationProvider => true,
-            Self::Named(scope) => {
-                scope.starts_with("net:")
-                    || scope.starts_with("integration:")
-                    || scope.ends_with(":external")
-            }
+            Self::Named(scope) => scope_reaches_out(scope),
         }
     }
+}
+
+/// Whether holding `scope` lets an app reach the network or another service
+/// (`net:`, `integration:`, `…:external`): what the sandbox takes away. One
+/// rule for the op check ([`OpScope::external`]) and the install mirror.
+pub fn scope_reaches_out(scope: &str) -> bool {
+    scope.starts_with("net:") || scope.starts_with("integration:") || scope.ends_with(":external")
 }
 
 /// A stronger scope an op needs for some of its params.

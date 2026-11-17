@@ -122,9 +122,11 @@ fn the_folder_is_copied_under_the_first_work_root_the_machine_allows() {
     );
 }
 
-/// `cmux cloud new-workspace` from a CLI or agent with no `--target` makes the workspace's own new machine.
+/// Every new Cloud workspace makes a machine of its own: a person's gesture in a
+/// window that shows a Cloud machine gets a new one too. Only an explicit
+/// `--target machine:<id>` names an existing machine.
 #[test]
-fn a_new_workspace_opens_on_the_named_or_the_persons_machine_else_a_new_one() {
+fn a_new_workspace_opens_on_the_named_machine_else_a_new_one() {
     assert_eq!(
         new_workspace_machine(Some("vm-1"), false, Some("vm-2")),
         NewWorkspaceMachine::Named("vm-1".into())
@@ -135,10 +137,8 @@ fn a_new_workspace_opens_on_the_named_or_the_persons_machine_else_a_new_one() {
     );
     assert_eq!(new_workspace_machine(None, false, Some("vm-fleet")), NewWorkspaceMachine::New);
     assert_eq!(new_workspace_machine(Some(""), false, None), NewWorkspaceMachine::New);
-    assert_eq!(
-        new_workspace_machine(None, true, Some("vm-2")),
-        NewWorkspaceMachine::Focused("vm-2".into())
-    );
+    assert_eq!(new_workspace_machine(None, true, Some("vm-2")), NewWorkspaceMachine::New);
+    assert_eq!(new_workspace_machine(Some(""), true, Some("vm-2")), NewWorkspaceMachine::New);
     assert_eq!(new_workspace_machine(None, true, None), NewWorkspaceMachine::New);
     assert_eq!(new_workspace_machine(None, true, Some("")), NewWorkspaceMachine::New);
 }

@@ -78,6 +78,10 @@ path = "tests/test_cmux_next_base_tier.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_bench_cli_calls.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_checkout_retry.py"
 lane = "linux-guard"
 

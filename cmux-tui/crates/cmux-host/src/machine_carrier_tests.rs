@@ -154,3 +154,19 @@ fn a_build_change_on_a_parked_or_hostless_machine_does_nothing() {
     parked.step(Input::DaemonExited { lived_ms: 60_000 });
     assert_eq!(parked.step(Input::BuildChanged), []);
 }
+
+/// Past the restart budget a crash holds an hour instead of restarting at once (the agent
+/// counted it on the supervisor contract); back within it, the usual backoff returns.
+#[test]
+fn a_crash_past_the_restart_budget_holds_an_hour_and_within_it_restarts_at_once() {
+    let mut m = running();
+    m.step(Input::RestartBudget { exceeded: true });
+    let out = m.step(Input::DaemonExited { lived_ms: 60_000 });
+    assert_eq!(out, [Action::ArmBackoff(BUDGET_HOLD_RETRY_MS)]);
+    assert_eq!(m.daemon(), &DaemonState::Backoff);
+
+    let mut m = running();
+    m.step(Input::RestartBudget { exceeded: false });
+    let out = m.step(Input::DaemonExited { lived_ms: 60_000 });
+    assert_eq!(out, [Action::Recheck], "a first crash within the budget restarts at once");
+}
