@@ -8,6 +8,8 @@ export type NewTabStartFailure = {
   harness?: string;
   error: string;
   code?: string;
+  /// What actually failed, for Details (startFailure.ts `startFailureCause`).
+  cause?: string;
   local: boolean;
   retry?: () => void;
 };
@@ -37,6 +39,7 @@ export function StartFailure({
         name,
         error: failure.error,
         ...(failure.code ? { code: failure.code } : {}),
+        ...(failure.cause ? { cause: failure.cause } : {}),
       })
     : { sentence: failure.error };
   const install = view.notInstalled && failure.local && onInstall;

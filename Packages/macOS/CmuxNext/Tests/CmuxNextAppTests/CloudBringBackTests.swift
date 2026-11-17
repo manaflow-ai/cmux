@@ -312,8 +312,8 @@ struct CloudBringBackTests {
     }
 
     /// A file the person drops or pastes into a chat moved to a Cloud machine, which the composer
-    /// can't attach (cmuxterm-hq#1874 slice 6): the page sends its bytes as `chat.upload`, and only
-    /// with a real gesture in the pane. The app writes them under this Mac's temporary
+    /// can't attach (cmuxterm-hq#1874 slice 6): the page sends its bytes as `chat.upload`, which
+    /// needs no gesture (Leo, 2026-11-17: "go remove this"). The app writes them under this Mac's temporary
     /// `cmux-pastes` folder, runs `cmux link access upload` for the chat's machine and work root,
     /// deletes its copy, and answers the file's path on the machine. A dot file or a name with a
     /// folder in it never reaches the CLI. Fake bytes only.
@@ -323,7 +323,6 @@ struct CloudBringBackTests {
             let data = Data(bytes.utf8).base64EncodedString()
             let file: [String: Any] = ["name": "diagram.sketch", "data": data]
             @MainActor func uploads() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "upload"] } }
-            #expect(await trip.upload([file], gesture: false)["ok"] as? Bool != true, "an upload went without a gesture")
             #expect(await trip.upload([["name": ".env", "data": data]], gesture: true)["ok"] as? Bool != true, "a dot file went")
             #expect(await trip.upload([["name": "../diagram.sketch", "data": data]], gesture: true)["ok"] as? Bool != true, "a path went")
             #expect(uploads().isEmpty, "a refused upload ran the CLI: \(uploads())")
