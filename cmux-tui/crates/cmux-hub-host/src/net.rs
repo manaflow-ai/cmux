@@ -330,7 +330,11 @@ impl WebSocket {
             if buf.len() > MAX_HEADER {
                 return Err("WebSocket answer header too large".into());
             }
-            let n = conn.io.read(&mut chunk)?;
+            let n = match conn.io.read(&mut chunk) {
+                // A signal interrupts this timed read too (see `recv`); read again.
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                read => read?,
+            };
             if n == 0 {
                 return Err("the hub closed the WebSocket before answering".into());
             }
@@ -386,8 +390,15 @@ impl WebSocket {
             match self.conn.io.read(&mut chunk) {
                 Ok(0) => return Ok(Some(Message::Closed(1006, "connection closed".into()))),
                 Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                // A signal to this process (a child's SIGCHLD, a SIGTERM) interrupts a read with
+                // a timeout even under SA_RESTART (signal(7)): nothing arrived, the socket is fine.
                 Err(e)
-                    if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock
+                            | io::ErrorKind::TimedOut
+                            | io::ErrorKind::Interrupted
+                    ) =>
                 {
                     return Ok(None)
                 }

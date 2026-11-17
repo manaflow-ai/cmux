@@ -450,6 +450,22 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("hand run", &[("Connect and serve Cloud requests in the foreground", "acpmux hand run")]),
     ("hand status", &[("Show this hand's id, API, profile and roots", "acpmux hand status")]),
+    (
+        "share-host",
+        &[
+            ("See whether this Mac's share host runs, and why not", "acpmux share-host status"),
+            ("Let viewers see this Mac's screen", "acpmux share-host on"),
+        ],
+    ),
+    (
+        "share-host status",
+        &[
+            ("Show the share host, its hub link and live shares", "acpmux share-host status"),
+            ("Read the share host's status as JSON", "acpmux share-host status --json"),
+        ],
+    ),
+    ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
+    ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];
