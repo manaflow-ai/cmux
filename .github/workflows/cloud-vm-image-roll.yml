@@ -251,6 +251,7 @@ jobs:
           SHA: ${{ needs.promote.outputs.sha }}
           IMAGE: ${{ needs.promote.outputs.image }}
           REVISION: ${{ needs.bake.outputs.revision }}
+          LIVE_FAILING: ${{ needs.bake.outputs.live_failing }}
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -270,6 +271,19 @@ jobs:
               rolled_back: false}' \
             | bash images/cmux-vm/image-roll-record.sh "$GITHUB_RUN_ID" || echo "::warning title=Image roll record::the record was not written"
           echo "Outcome: ${outcome}. Record: \`cloud-image-rolls:rolls/${GITHUB_RUN_ID}.json\`." >> "$GITHUB_STEP_SUMMARY"
+          # Checks that fail on the candidate and already failed on the live image warned and did not block: whatever
+          # the outcome, they go on the one open cloud-image-live-failing issue (opened when there is none).
+          if [ -n "${LIVE_FAILING//[[:space:]]/}" ]; then
+            live_body="$(printf 'Cloud VM image roll %s (outcome: %s): these checks fail on the candidate and already failed on the live image, so they warned and did not block. %s\n\n%s\n' "$GITHUB_RUN_ID" "$outcome" "$RUN_URL" "$LIVE_FAILING")"
+            live_issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label cloud-image-live-failing --state open --limit 1 --json number --jq '.[0].number // empty' || true)"
+            if [ -n "$live_issue" ]; then
+              gh issue comment "$live_issue" --repo "$GITHUB_REPOSITORY" --body "$live_body" || echo "::warning title=Cloud VM image roll::the live-failing comment was not posted"
+            else
+              gh label create cloud-image-live-failing --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A Cloud VM image check that already fails on the live image" --force > /dev/null || true
+              gh issue create --repo "$GITHUB_REPOSITORY" --label cloud-image-live-failing --title "Cloud VM image checks already failing on the live image" --body "$live_body" \
+                || echo "::warning title=Cloud VM image roll::the live-failing issue was not filed"
+            fi
+          fi
           case "$outcome" in
             pushed|dry-run|nothing) exit 0 ;;
           esac

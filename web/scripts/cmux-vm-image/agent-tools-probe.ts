@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
-import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, liveBootImage, pickerHarnesses, regressionGate } from "./harness-gate";
+import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, LIVE_FAILING_FILE, liveBootImage, liveFailingLines, pickerHarnesses, regressionGate } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
 
 const PROBE_DIR = "/tmp/cmux-agent-tools-probe";
@@ -539,6 +539,7 @@ async function harnessEnsureChecks(vm: Vm, check: Checker, result: ProbeResult, 
   const one = (s: string) => s.replace(/[\r\n%]/g, " ");
   for (const f of gate.blocking) console.log(`::error title=Image harness gate (${f.harness})::${one(f.detail)}`);
   for (const w of gate.warnings) console.log(`::warning title=Image harness gate (${w.harness})::${one(w.detail)}`);
+  fileLiveFailing(outDir, liveFailingLines("harness gate", gate.warnings.map((w) => ({ name: w.harness, detail: w.detail }))));
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary && gate.warnings.length) {
     appendFileSync(summary, ["", "### Image harness gate: already failing on the live image (not blocking)", "", ...gate.warnings.map((w) => `- **${w.harness}**: ${one(w.detail).slice(0, 400)}`), ""].join("\n"));
@@ -610,11 +611,16 @@ async function liveBaseline(fs: ReturnType<typeof freestyleClient>, ledger: Ledg
   }
 }
 
+/** Appends a gate's warnings to LIVE_FAILING_FILE, which the roll files as an issue (harness-gate.ts liveFailingLines). */
+function fileLiveFailing(outDir: string, lines: string[]): void {
+  if (lines.length) appendFileSync(path.join(outDir, LIVE_FAILING_FILE), `${lines.join("\n")}\n`);
+}
+
 /**
  * The browser checks block only regressions (harness-gate.ts checkRegressionGate): a candidate failure the live image
  * shares is re-judged a pass carrying its warning, here, as a workflow warning and in the step summary.
  */
-function browserGate(result: ProbeResult, live: Record<string, Check> | null): void {
+function browserGate(result: ProbeResult, live: Record<string, Check> | null, outDir: string): void {
   const gate = checkRegressionGate(BROWSER_CHECKS, result.checks, live);
   const one = (s: string) => s.replace(/[\r\n%]/g, " ");
   for (const b of gate.blocking) console.log(`::error title=Image browser check (${b.check})::${one(b.detail)}`);
@@ -623,6 +629,7 @@ function browserGate(result: ProbeResult, live: Record<string, Check> | null): v
     console.log(`WARN ${w.check}: ${w.detail.slice(0, 500)}`);
     console.log(`::warning title=Image browser check (${w.check})::${one(w.detail)}`);
   }
+  fileLiveFailing(outDir, liveFailingLines("browser check", gate.warnings.map((w) => ({ name: w.check, detail: w.detail }))));
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary && gate.warnings.length) {
     appendFileSync(summary, ["", "### Image browser check: already failing on the live image (not blocking)", "", ...gate.warnings.map((w) => `- **${w.check}**: ${one(w.detail).slice(0, 400)}`), ""].join("\n"));
@@ -638,7 +645,7 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions, live: LiveB
   if (!(await prepare(vm, check, result))) return result;
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
-  browserGate(result, live.checks);
+  browserGate(result, live.checks, options.outDir);
   await desktopChecks(vm, check);
   await harnessEnsureChecks(vm, check, result, options.outDir, live.harness);
   const plan = agentStepPlan(options);

@@ -133,6 +133,18 @@ export function checkRegressionGate(names: readonly string[], candidate: Record<
   return { blocking, warnings };
 }
 
+/**
+ * A warning of either gate (already failing on the live image) is also filed: the agent tools probe appends one line per
+ * warning to this file in its out dir, the bake hands the lines on as its `live_failing` output, and the roll's report
+ * job comments them on the one open cloud-image-live-failing issue (or opens it), whether or not the roll promoted.
+ */
+export const LIVE_FAILING_FILE = "live-failing.md";
+
+/** The lines for LIVE_FAILING_FILE: one Markdown bullet per warning, naming its gate and check, on one line. */
+export function liveFailingLines(gate: string, notes: readonly { name: string; detail: string }[]): string[] {
+  return notes.map((n) => `- ${gate} **${n.name}**: ${n.detail.replace(/[\r\n]+/g, " ").slice(0, 400)}`);
+}
+
 const AUTO_ROLL = fileURLToPath(new URL("../../../images/cmux-vm/auto-roll.ts", import.meta.url));
 
 /** The live image: production's boot image (auto-roll.ts BOOT_ENTRY) in workers/cmux-vm/wrangler.jsonc at this checkout. */

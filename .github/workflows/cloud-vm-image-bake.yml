@@ -112,6 +112,9 @@ on:
       revision:
         description: The image revision (the bake tag, ci-<run>-<attempt>)
         value: ${{ jobs.bake.outputs.revision }}
+      live_failing:
+        description: The agent tools probe's checks that fail on the candidate and already failed on the live image (warnings, not blocking), one Markdown line each; empty when none
+        value: ${{ jobs.bake.outputs.live_failing }}
 
 permissions:
   contents: read
@@ -161,6 +164,7 @@ jobs:
     outputs:
       candidate: ${{ steps.roll_candidate.outputs.candidate }}
       revision: ${{ steps.roll_candidate.outputs.revision }}
+      live_failing: ${{ steps.live_failing.outputs.lines }}
     defaults:
       run:
         working-directory: web
@@ -323,6 +327,20 @@ jobs:
         run: |
           set -euo pipefail
           bun scripts/cmux-vm-image/agent-tools-probe.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" --baseline "$BASELINE" | tee "$OUT_DIR/agent-tools-probe.out"
+
+      # A check already failing on the live image warns and does not block (harness-gate.ts LIVE_FAILING_FILE); its
+      # lines go on as the live_failing output, which the image roll's report job files on one issue.
+      - name: Checks already failing on the live image
+        if: always() && steps.agent_tools_probe.outcome != 'skipped'
+        id: live_failing
+        run: |
+          set -euo pipefail
+          if [ -s "$OUT_DIR/live-failing.md" ]; then
+            { echo "lines<<LIVE_FAILING_EOF"; head -c 6000 "$OUT_DIR/live-failing.md" | grep -v '^LIVE_FAILING_EOF$'; echo; echo "LIVE_FAILING_EOF"; } >> "$GITHUB_OUTPUT"
+            cat "$OUT_DIR/live-failing.md"
+          else
+            echo "none"
+          fi
 
       # The fields of a channels/dev.json history entry (promote.ts promotes only a
       # recorded snapshot_id with smoke PASSED, under --var <var>).
