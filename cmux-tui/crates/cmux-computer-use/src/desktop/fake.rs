@@ -95,6 +95,9 @@ pub struct FakeDesktop {
     /// change it between calls). Its menus part is left out when the walk
     /// asks for no menus (a child with role `menu_bar`).
     pub tree: Mutex<Option<Element>>,
+    /// Served by the next walk only, before `tree` (an app that builds its
+    /// accessibility when a client first asks: WebKit's page content).
+    pub first_walk: Mutex<Option<Element>>,
     /// Trees walked so far.
     pub walks: Mutex<u32>,
     /// The element limit the latest walk was asked for.
@@ -210,6 +213,7 @@ impl FakeDesktop {
             menu_policy: Mutex::new(None),
             installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
             tree: Mutex::new(None),
+            first_walk: Mutex::new(None),
             walks: Mutex::new(0),
             last_max_nodes: Mutex::new(0),
             reframed: Mutex::new(Vec::new()),
@@ -596,7 +600,8 @@ impl Desktop for FakeDesktop {
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         *lock(&self.walks) += 1;
         *lock(&self.last_max_nodes) = options.max_nodes;
-        if let Some(mut root) = lock(&self.tree).clone() {
+        let once = lock(&self.first_walk).take();
+        if let Some(mut root) = once.or_else(|| lock(&self.tree).clone()) {
             self.known(window_id)?;
             if !options.menus {
                 root.children.retain(|c| c.role != "menu_bar");

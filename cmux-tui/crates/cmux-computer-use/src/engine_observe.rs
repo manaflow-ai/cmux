@@ -154,6 +154,20 @@ impl Engine {
             }
         };
         let mut tree = self.desktop.ui_tree(window_id, options)?;
+        // An app builds some accessibility only when a client first asks for
+        // it (WebKit's and Chromium's page content): the first walk of a
+        // window can find a web view empty that the next fills. Walk a window
+        // the engine has never walked once more, when the first walk found
+        // little in it (a large window costs a second walk it does not need),
+        // and keep the fuller tree, so a first look shows the page and the
+        // next look does not report it all as added.
+        if size_outside_menus(&tree.root) < REREAD_BELOW
+            && lock(&self.observe.ids).window(window_id).is_none()
+            && let Ok(again) = self.desktop.ui_tree(window_id, options)
+            && size(&again.root) > size(&tree.root)
+        {
+            tree = again;
+        }
         let pid = self.desktop.window(window_id).ok().flatten().map(|w| w.pid);
         let mut reg = lock(&self.observe.ids);
         reg.assign(window_id, &mut tree, options.menus, pid);
@@ -846,4 +860,18 @@ fn open_menus(root: &Element, acted: u32) -> Vec<&Element> {
     ids::find(root, &acted.to_string())
         .map(|e| e.children.iter().filter(|c| c.role == "menu").collect())
         .unwrap_or_default()
+}
+
+/// A window's first walk found fewer elements than this outside its menu
+/// bar: it is read once more ([`Engine::walk_tree_for`]).
+const REREAD_BELOW: usize = 300;
+
+/// How many elements a tree holds.
+fn size(e: &Element) -> usize {
+    1 + e.children.iter().map(size).sum::<usize>()
+}
+
+/// How many elements a tree holds outside the app's menu bar.
+fn size_outside_menus(e: &Element) -> usize {
+    1 + e.children.iter().filter(|c| c.role != ids::MENU_BAR).map(size).sum::<usize>()
 }

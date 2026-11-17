@@ -710,3 +710,23 @@ fn a_look_with_nothing_to_compare_or_nothing_changed_costs_one_sentence() {
     assert_eq!(c["added"], 0);
     assert!(click.body["outcome"].is_string(), "{}", click.body);
 }
+
+#[test]
+fn a_web_view_that_fills_on_its_first_read_is_in_the_first_look() {
+    // The first read of the window finds the page empty (WebKit builds its
+    // accessibility when asked); the next has it.
+    let (d, e) = rig();
+    let mut empty = form(1, false, false, "");
+    empty.children.retain(|c| c.role != "button" && c.role != "text_field");
+    *d.first_walk.lock().unwrap() = Some(empty);
+    let first = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let text = tree_text(&first);
+    assert!(text.contains("button \"Save\"") && text.contains("text field \"Name\""), "{text}");
+    // So the next look has nothing new to report.
+    let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(tree_text(&again), "No change since your last look.");
+    // A window walked before is walked once per look.
+    let walks = *d.walks.lock().unwrap();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(*d.walks.lock().unwrap(), walks + 1);
+}
