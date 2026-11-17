@@ -182,7 +182,7 @@ test("a mode the agent refuses goes back to the mode in force and is marked refu
   expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
   // Nothing else can be picked: the chip is a plain label, its tooltip says why.
   expect(trigger()).toBeNull();
-  expect(host.querySelector(".acpmux-mode")!.getAttribute("title") ?? "").toContain("Not allowed on this Mac");
+  expect(host.querySelector(".acpmux-mode")!.getAttribute("title") ?? "").toContain("The agent refused this mode");
 });
 
 // #23322: an MDM-managed `sessions.allowFullAccess = false` is an upper bound the person can't
