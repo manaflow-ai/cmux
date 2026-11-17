@@ -31,7 +31,8 @@ struct MacScreenAgentStartTests {
     }
 
     private func row(_ pages: MacScreenPages, _ key: String) throws -> [String: CmuxNextSettings.JSONValue] {
-        try #require(MacScreenPages.stateRow(try #require(pages.tab(key))).objectValue)
+        let tab = try #require(pages.tab(key))
+        return try #require(MacScreenPages.stateRow(tab).objectValue)
     }
 
     /// The CLI alone, on the person's own device: the tab is made and asks the hub at once with the scope it named
