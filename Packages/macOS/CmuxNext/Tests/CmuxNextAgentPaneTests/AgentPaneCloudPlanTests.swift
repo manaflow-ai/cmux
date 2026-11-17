@@ -48,7 +48,7 @@ struct AgentPaneCloudPlanTests {
     }
 
     @Test func theRefusalsCarryWhatTheCardOffers() throws {
-        let required = AgentPaneCloudPlanRefusal.planRequiredDetails(["teams": [[String: String]](), "canSwitch": false])
+        let required = AgentPaneCloudMachines.Plan.requiredDetails(["teams": [[String: String]](), "canSwitch": false])
         #expect(required["plans"] as? [String] == ["pro", "max"] && required["canSwitch"] as? Bool == false)
 
         let reply = CloudSizeLocked(upgradePlan: "max", upgradeNamed: true, needed: .xl, folderBytes: 123).reply(planMax: nil)

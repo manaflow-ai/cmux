@@ -397,7 +397,7 @@ extension AgentPaneRequest {
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
         case "cloud.plan.subscribe":
             // Only the plans the pricing card offers; anything else is refused here.
-            if let plan = params?["plan"] as? String, AgentPaneCloudPlanRefusal.plans.contains(plan) { self = .cloudPlanSubscribe(plan: plan) } else { self = .unsupported(method) }
+            if let plan = params?["plan"] as? String, AgentPaneCloudMachines.Plan.offered.contains(plan) { self = .cloudPlanSubscribe(plan: plan) } else { self = .unsupported(method) }
         case "cloud.signIn":
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }

@@ -106,14 +106,14 @@ extension AgentPaneCloudMachines {
     }
 }
 
-/// The start card's plan refusals (webviews CloudStartView.tsx).
-public nonisolated enum AgentPaneCloudPlanRefusal {
+/// The start card's plan refusal (webviews CloudStartView.tsx).
+extension AgentPaneCloudMachines.Plan {
     /// The plans the pricing card offers.
-    public static let plans = ["pro", "max"]
+    public nonisolated static let offered = ["pro", "max"]
 
     /// `cloud_plan_required`'s details: the teams (``CloudAuth/planRefusalTeams``) and the plans to subscribe to.
-    public static func planRequiredDetails(_ teams: [String: Any]) -> [String: Any] {
-        teams.merging(["plans": plans]) { _, offered in offered }
+    public nonisolated static func requiredDetails(_ teams: [String: Any]) -> [String: Any] {
+        teams.merging(["plans": offered]) { _, plans in plans }
     }
 }
 
