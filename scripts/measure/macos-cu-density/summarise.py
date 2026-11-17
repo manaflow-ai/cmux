@@ -59,9 +59,44 @@ def jobs_table(title, rs):
             f"{p(tk.get('hold_s'))}/{p(tk.get('hold_s'), 'p99')} | {p(cw.get('latency_s'))}/{p(cw.get('latency_s'), 'p99')} | "
             f"{p(cd.get('latency_s'))}/{p(cd.get('latency_s'), 'p99')} | {leaks} | {round(r.get('actions_per_s_per_job') or 0, 1)} | "
             f"{round(r.get('host_cores_busy') or 0, 2)} | {r.get('footprint_total_mb')} |")
+    proofs = [r for r in rs if r.get("stage") == "jobs" and r.get("capture_proof")]
+    if proofs:
+        lines += ["", "Cross-job proofs per row: raw and stamped clicks by tag (own / another job's app / no app), the capture check's "
+                  "own-colour mean (lowest job), low-own and blank window captures, and the calibrated palette.", "",
+                  "| mode | N | raw clicks own/foreign/lost | stamped own/foreign/lost | untagged mouse-downs | jobs receiving a foreign click | own-colour mean (min job) | low-own / blank window captures | blank display captures | capture proven | palette radius, closest pair, calibration missed |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+        for r in proofs:
+            ci, cp, pa = r.get("click_ids", {}), r["capture_proof"], r.get("palette", {})
+            lines.append(
+                f"| {r.get('mode')} | {r.get('n')} | {ci.get('hid_own')}/{ci.get('hid_foreign')}/{ci.get('hid_lost')} | "
+                f"{ci.get('stamped_own')}/{ci.get('stamped_foreign')}/{ci.get('stamped_lost')} | {ci.get('untagged_mouse_downs')} | "
+                f"{ci.get('jobs_receiving_foreign')} | {round(cp.get('own_mean_min') or 0, 3)} | {cp.get('low_own')} / {cp.get('blank')} | "
+                f"{cp.get('display_blank')} | {cp.get('proven')} | {round(pa.get('radius') or 0, 1)}, {round(pa.get('closest_pair') or 0, 1)}, "
+                f"{pa.get('calibration_missed')} |")
     bad = [r for r in rs if r.get("stage") == "jobs" and r.get("first_error")]
     for r in bad:
         lines.append(f"\n{r.get('mode')} N={r.get('n')}: first error: {r.get('first_error')}")
+    return lines
+
+
+def sims_table(rs):
+    if not rs:
+        return []
+    lines = ["", "## iOS simulators beside the jobs (worker, own device set)", ""]
+    for r in rs:
+        if r.get("stage") == "sim-boot":
+            lines.append(f"Boot: `{json.dumps(r, sort_keys=True)}`")
+        if r.get("stage") == "sim-default-set":
+            lines.append(f"Default device set booted devices {r.get('when')}: {r.get('booted')}")
+    loops = [r for r in rs if r.get("stage") == "sim"]
+    if loops:
+        def pc(xs, q):
+            xs = sorted(xs)
+            return xs[min(len(xs) - 1, round(q * (len(xs) - 1)))] if xs else None
+        shots = [r["screenshot_s"] for r in loops if r.get("screenshot_exit") == 0]
+        launches = [r["launch_s"] for r in loops if r.get("launch_exit") == 0]
+        lines.append(f"\nRounds {len(loops)}: screenshots ok {len(shots)}/{len(loops)}, p50 {pc(shots, .5)} s, p99 {pc(shots, .99)} s; "
+                     f"launches ok {len(launches)}/{len(loops)}, p50 {pc(launches, .5)} s, p99 {pc(launches, .99)} s.")
     return lines
 
 
@@ -127,6 +162,7 @@ def main(out):
             lines.append(f"\nEvict: `{json.dumps({k: v for k, v in r.items() if k != 'trace'}, sort_keys=True)[:1500]}`")
     lines += jobs_table("Concurrent GUI jobs in the guest's session", g)
     lines += jobs_table("Concurrent GUI jobs in the worker's own console session", rows(os.path.join(out, "host-jobs", "results.jsonl")))
+    lines += sims_table(rows(os.path.join(out, "sims.jsonl")))
     print("\n".join(lines))
 
 

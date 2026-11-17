@@ -21,7 +21,12 @@
 #     ScreenCaptureKit captures, with raw pixel clicks serialised on one console-input token; it
 #     checks that no job's clicks, keys or field values reach another job's app and that no capture
 #     holds another job's pixels. It runs in the guest, and on the worker's own console session
-#     (host_jobs=1), where it reports the step's grants and runs only what they allow.
+#     (host_jobs=1), where it reports the step's grants and skips at once without them. Every click
+#     carries a tag (kCGEventSourceUserData) and each app logs the tags it received, so a click is
+#     traced to where it landed; each job's colour is calibrated from its own window, and each job's
+#     first and worst window capture is saved (guest/png). With sims=N (default 1), N headless iOS
+#     simulators in the step's own device set (simctl --set) boot on the worker and loop screenshots and
+#     app launches while the guest's jobs run (sims.jsonl); the default device set is checked untouched.
 #  2. One Virtualization.framework guest per slot (macos-cu-density/cudvz.m): three APFS clones of
 #     the image, boot to sshd, host RAM per VM, saveMachineStateTo / restoreMachineStateFrom times,
 #     and whether a saved VM still holds one of the two macOS VM slots. Never more than two macOS
@@ -31,7 +36,7 @@
 #     --script scripts/measure/macos-cu-density.sh --ref SHA --artifact artifacts/macos-cu-density.tgz \
 #     [--target-worker W] [--arg=ns=1,4,8,16,32] [--arg=ballast=64] [--arg=loop_s=60] [--arg=vz=1] \
 #     [--arg=vz_mem=4096] [--arg=guest_mem=12] [--arg=guest_cpu=6] [--arg=bench=1] \
-#     [--arg=jobs_ns=1,2,4,8,16] [--arg=jobs_s=30] [--arg=jobs_modes=display,window] [--arg=host_jobs=1] --timeout 7200
+#     [--arg=jobs_ns=1,2,4,8,16] [--arg=jobs_s=30] [--arg=jobs_modes=display,window] [--arg=host_jobs=1] [--arg=sims=1] --timeout 7200
 #
 # Lume, the image and its cache are cu-driver-bench.sh's (cu-driver-eval/pins.json, the same lume
 # home), so a worker that ran the bench does not pull the 23 GB image again. Output: CUD lines, and
@@ -43,7 +48,7 @@
 #   mem PID | slot release PID   (the header of macos-cu-density/cud.m).
 set -uo pipefail
 ns=1,4,8,16,32 ballast=64 loop_s=60 vz=1 vz_mem=4096 guest_mem=12 guest_cpu=6
-bench=1 jobs_ns=1,2,4,8,16 jobs_s=30 jobs_modes=display,window host_jobs=1
+bench=1 jobs_ns=1,2,4,8,16 jobs_s=30 jobs_modes=display,window host_jobs=1 sims=1
 for arg in "$@"; do
   case "$arg" in
     ns=*) ns="${arg#ns=}" ;;
@@ -58,6 +63,7 @@ for arg in "$@"; do
     jobs_s=*) jobs_s="${arg#jobs_s=}" ;;
     jobs_modes=*) jobs_modes="${arg#jobs_modes=}" ;;
     host_jobs=*) host_jobs="${arg#host_jobs=}" ;;
+    sims=*) sims="${arg#sims=}" ;;
     *) echo "macos-cu-density.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -65,6 +71,7 @@ done
 [[ "$ballast" =~ ^[0-9]{1,4}$ && "$loop_s" =~ ^[0-9]{1,4}$ && "$vz" =~ ^[01]$ ]] || { echo "macos-cu-density.sh: ballast= MB, loop_s= s, vz= 0|1" >&2; exit 2; }
 [[ "$jobs_ns" =~ ^([0-9]{1,2}(,[0-9]{1,2})*)?$ && "$jobs_s" =~ ^[0-9]{1,4}$ && "$bench" =~ ^[01]$ && "$host_jobs" =~ ^[01]$ ]] ||
   { echo "macos-cu-density.sh: jobs_ns= a comma list (empty: no jobs stage), jobs_s= s, bench= 0|1, host_jobs= 0|1" >&2; exit 2; }
+[[ "$sims" =~ ^[0-4]$ ]] || { echo "macos-cu-density.sh: sims= 0..4" >&2; exit 2; }
 [[ "$jobs_modes" =~ ^(display|window)(,(display|window))?$ ]] || { echo "macos-cu-density.sh: jobs_modes= display,window" >&2; exit 2; }
 [[ "$vz_mem" =~ ^[0-9]{4,5}$ && "$guest_mem" =~ ^[0-9]{1,2}$ && "$guest_cpu" =~ ^[0-9]{1,2}$ ]] || { echo "macos-cu-density.sh: vz_mem= MB, guest_mem= GB, guest_cpu= count" >&2; exit 2; }
 started_at=$(date +%s)
@@ -116,7 +123,7 @@ cat >"$b/vz.entitlements" <<'EOF'
 EOF
 cflags=(-fobjc-arc -O2 -arch arm64 -mmacosx-version-min=14.0 -Wno-deprecated-declarations)
 xcrun clang "${cflags[@]}" -o "$b/cud" "$here/cud.m" -framework AppKit -framework ApplicationServices \
-  -framework ScreenCaptureKit -framework CoreGraphics >"$b/cud.log" 2>&1 || { cat "$b/cud.log"; finish "cud.m did not compile (build/cud.log)"; exit 4; }
+  -framework ScreenCaptureKit -framework CoreGraphics -framework ImageIO >"$b/cud.log" 2>&1 || { cat "$b/cud.log"; finish "cud.m did not compile (build/cud.log)"; exit 4; }
 xcrun clang "${cflags[@]}" -o "$b/cudvz" "$here/cudvz.m" -framework Foundation -framework Virtualization >"$b/cudvz.log" 2>&1 ||
   { cat "$b/cudvz.log"; finish "cudvz.m did not compile (build/cudvz.log)"; exit 4; }
 cp "$b/cud" "$app/Contents/MacOS/cud"
@@ -145,9 +152,18 @@ perl -e 'alarm 30; exec @ARGV' "$b/cud" grants >"$out/host-grants.json" 2>&1 || 
 perl -e 'alarm 180; exec @ARGV' "$b/cud" vdisplay 64 1280 800 >"$out/host-vdisplay.json" 2>"$out/host-vdisplay.err" || true
 note "host grants $(cat "$out/host-grants.json"); host virtual displays $(head -c 600 "$out/host-vdisplay.json")"
 if [[ "$host_jobs" == 1 && -n "$jobs_ns" ]]; then
-  # The worker's own console session: what a job gets with the step's own grants, no VM.
-  perl -e 'alarm 1800; exec @ARGV' "$b/cud" jobs "$out/host-jobs" "$jobs_ns" "$jobs_s" 0 "$jobs_modes" >"$out/host-jobs.log" 2>&1 || true
-  note "host jobs: $(cut -c1-300 "$out/host-jobs/results.jsonl" 2>/dev/null | head -12)"
+  # The worker's own console session: what a job gets with the step's own grants, no VM. Without
+  # Accessibility and Screen Recording there is nothing to run (cmux8s, 2026-11-17: the stage sat out
+  # its whole 30-minute bound instead of skipping), so it is skipped here.
+  if grep -q '"accessibility":1' "$out/host-grants.json" && grep -q '"screen_recording":true' "$out/host-grants.json"; then
+    perl -e 'alarm 1800; exec @ARGV' "$b/cud" jobs "$out/host-jobs" "$jobs_ns" "$jobs_s" 0 "$jobs_modes" >"$out/host-jobs.log" 2>&1 || true
+    note "host jobs: $(cut -c1-300 "$out/host-jobs/results.jsonl" 2>/dev/null | head -12)"
+  else
+    mkdir -p "$out/host-jobs"
+    printf '{"stage": "jobs", "skipped": "the step has no Accessibility or Screen Recording grant in this session: %s"}\n' \
+      "$(tr -d '\n"' <"$out/host-grants.json")" >"$out/host-jobs/results.jsonl"
+    note "host jobs skipped: no grants ($(cat "$out/host-grants.json"))"
+  fi
 fi
 
 note "STAGE lume"
@@ -199,6 +215,12 @@ cleanup() {
     lume delete "$vm" --force >/dev/null 2>&1 || true
   done
   [[ -n "${keydir:-}" ]] && rm -rf "$keydir"
+  [[ -n "${sim_pid:-}" ]] && { touch "$sim_stop"; wait "$sim_pid" 2>/dev/null; }
+  if [[ -n "${simset:-}" && -d "$simset" ]]; then
+    xcrun simctl --set "$simset" shutdown all >/dev/null 2>&1 || true
+    xcrun simctl --set "$simset" delete all >/dev/null 2>&1 || true
+    rm -rf "$simset"
+  fi
 }
 trap cleanup EXIT
 vm_dir() {  # the folder of Lume VM $1
@@ -290,6 +312,34 @@ tar -c -C "$b" cud CudAgent.app run.sh agent.plist -C "$ev" tcc-grant.sh | guest
 # Screen Recording, Accessibility and event posting, in this throwaway SIP-off clone only.
 guest_n 'bash ~/cud/tcc-grant.sh /bin/bash ~/cud/cud ~/cud/CudAgent.app/Contents/MacOS/cud' >"$out/grant.log" 2>&1 ||
   { cat "$out/grant.log"; finish "tcc-grant.sh failed in the guest (grant.log)"; exit 4; }
+if [[ "$sims" -gt 0 ]]; then
+  # Headless iOS simulators in this step's own device set: it never lists, boots or deletes another
+  # simulator (scripts/ci/cmux-next-ios-sim.sh does the same). The default set's booted devices are
+  # counted before and after, to show it was not touched.
+  note "STAGE sims ($sims)"
+  mkdir -p "$out/sims"
+  simset="$lume_home/tmp/sims-$tag"
+  mkdir -p "$simset"
+  default_booted() { xcrun simctl list devices booted -j 2>/dev/null | python3 -I -c 'import json, sys; print(sum(len(v) for v in json.load(sys.stdin).get("devices", {}).values()))' 2>/dev/null; }
+  echo "{\"stage\": \"sim-default-set\", \"when\": \"before\", \"booted\": \"$(default_booted)\"}" >>"$out/sims.jsonl"
+  if choice=$(xcrun simctl list -j runtimes devicetypes 2>"$out/sims/list.err" | python3 -I "$root/scripts/ci/ios_sim_runtime.py" 2>"$out/sims/choice.err"); then
+    read -r sim_runtime sim_type <<<"$choice"
+    sim_udids=""
+    for i in $(seq 1 "$sims"); do
+      t0=$(python3 -c 'import time; print(time.time())')
+      u=$(xcrun simctl --set "$simset" create "cud-sim-$i" "$sim_type" "$sim_runtime" 2>>"$out/sims/create.err") || { note "simctl create failed ($(tail -2 "$out/sims/create.err"))"; continue; }
+      xcrun simctl --set "$simset" boot "$u" >/dev/null 2>>"$out/sims/boot.err"
+      perl -e 'alarm 600; exec @ARGV' xcrun simctl --set "$simset" bootstatus "$u" -b >/dev/null 2>>"$out/sims/boot.err"; st=$?
+      printf '{"stage": "sim-boot", "udid": "%s", "runtime": "%s", "device_type": "%s", "exit": %s, "boot_s": %s}\n' \
+        "$u" "$sim_runtime" "$sim_type" "$st" "$(python3 -c "import time; print(round(time.time() - $t0, 2))")" >>"$out/sims.jsonl"
+      [[ $st == 0 ]] && sim_udids="$sim_udids $u"
+    done
+    note "sims booted:${sim_udids:- none} ($sim_type on $sim_runtime)"
+  else
+    note "no iOS simulator runtime here: $(tail -2 "$out/sims/choice.err")"
+    echo "{\"stage\": \"sim-boot\", \"skipped\": \"$(tail -1 "$out/sims/choice.err" | tr -d '"')\"}" >>"$out/sims.jsonl"
+  fi
+fi
 # As guest-start.sh: wait for the login session (its Dock), then bootstrap into gui/UID as root.
 started=0
 for _ in $(seq 1 30); do
@@ -300,6 +350,28 @@ for _ in $(seq 1 30); do
 done
 [[ $started == 1 ]] || { finish "could not start the bench in the guest's login session"; exit 4; }
 note "the bench is running in the guest's session (jobs_ns=$jobs_ns jobs_s=$jobs_s jobs_modes=$jobs_modes; bench=$bench ns=$ns ballast=$ballast MB loop_s=$loop_s)"
+if [[ -n "${sim_udids:-}" ]]; then
+  # The simulators work while the guest's jobs run: a screenshot and an app launch per round each.
+  sim_stop="$out/sims/stop"
+  (
+    round=0
+    while [[ ! -e "$sim_stop" ]]; do
+      round=$((round + 1))
+      for u in $sim_udids; do
+        t0=$(python3 -c 'import time; print(time.time())')
+        perl -e 'alarm 60; exec @ARGV' xcrun simctl --set "$simset" io "$u" screenshot "$out/sims/$u-last.png" >/dev/null 2>&1; shot=$?
+        t1=$(python3 -c 'import time; print(time.time())')
+        perl -e 'alarm 60; exec @ARGV' xcrun simctl --set "$simset" launch "$u" com.apple.Preferences >/dev/null 2>&1; launch=$?
+        t2=$(python3 -c 'import time; print(time.time())')
+        xcrun simctl --set "$simset" terminate "$u" com.apple.Preferences >/dev/null 2>&1
+        [[ $round == 1 ]] && cp "$out/sims/$u-last.png" "$out/sims/$u-first.png" 2>/dev/null
+        printf '{"stage": "sim", "udid": "%s", "round": %s, "screenshot_exit": %s, "screenshot_s": %s, "launch_exit": %s, "launch_s": %s, "at": %s}\n' \
+          "$u" "$round" "$shot" "$(python3 -c "print(round($t1 - $t0, 3))")" "$launch" "$(python3 -c "print(round($t2 - $t1, 3))")" "$t0" >>"$out/sims.jsonl"
+      done
+    done
+  ) &
+  sim_pid=$!
+fi
 deadline=$(( started_at + 6900 ))
 finished=0
 next=$(( $(date +%s) + 240 ))
@@ -314,6 +386,13 @@ done
 guest_n 'cat ~/cud/out/results.jsonl' >"$out/guest/results.jsonl" 2>/dev/null
 guest_n 'cat ~/cud/bench.log' >"$out/guest/bench.log" 2>/dev/null
 guest_n 'cat ~/cud/jobs.log' >"$out/guest/jobs.log" 2>/dev/null
+guest_n 'cd ~/cud/out && tar -c png 2>/dev/null' | tar -x -C "$out/guest" 2>/dev/null
+if [[ -n "${sim_pid:-}" ]]; then
+  touch "$sim_stop"
+  wait "$sim_pid" 2>/dev/null
+  sim_pid=""
+  echo "{\"stage\": \"sim-default-set\", \"when\": \"after\", \"booted\": \"$(default_booted)\"}" >>"$out/sims.jsonl"
+fi
 guest_n 'sysctl -n hw.ncpu hw.memsize; sw_vers -productVersion; vm_stat' >"$out/guest/facts.txt" 2>/dev/null
 [[ $finished == 1 ]] || { finish "the bench did not finish in the guest in the time left"; exit 4; }
 note "bench exit $(guest_n 'cat ~/cud/bench.status' 2>/dev/null)"
