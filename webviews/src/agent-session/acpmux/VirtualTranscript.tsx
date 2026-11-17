@@ -632,6 +632,9 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     const node = ref.current;
     if (node) return queueDrawn(node, row.id, row.version, replyActions, status, row);
+    // `row` is read for its open state; its id and version say when that changed, so a new object
+    // with the same version re-queues nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     row.id,
     row.version,
