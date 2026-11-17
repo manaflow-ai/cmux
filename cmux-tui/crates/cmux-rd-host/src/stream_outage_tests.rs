@@ -45,7 +45,7 @@ impl FrameSource for SizedEncoder {
     }
     fn encode(&mut self, force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
         let mut forced = self.forced.lock().expect("lock");
-        let len = if forced.is_empty() { 60_000 } else { 800 };
+        let len = if forced.len() == 1 { 60_000 } else { 800 };
         forced.push(force_idr);
         out.extend((0..len).map(|i| i as u8));
         Ok(force_idr)
@@ -172,13 +172,28 @@ fn an_outage_end_drops_the_queued_datagrams_and_sends_the_newest_frame() {
         .expect("session starts");
     let mut carrier = RecordingCarrier::default();
 
-    // The first keyframe: the pacer sends its head at once and holds the rest.
+    // The path works: a small first frame is answered at once.
     let first = session.engine.start(now_us()).expect("first frame");
     session.encoder.submit(first);
     send_next_frame(&mut session, &mut carrier);
-    let sent_first = carrier.sent.clone();
+    let answered: Vec<Arrival> = carrier
+        .sent
+        .iter()
+        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 1_000 })
+        .collect();
+    let first_frame = header(&carrier.sent[0]).frame;
+    session.on_datagram(&mut carrier, &feedback(answered, first_frame), &table, id, &viewer);
+    let before = carrier.sent.len();
+
+    // A large frame: the pacer sends its head at once and holds the rest.
+    std::thread::sleep(Duration::from_millis(20));
+    let whole = Rect { x: 0, y: 0, width: 640, height: 480 };
+    let large = session.engine.damage(0, whole, now_us()).expect("second frame");
+    session.encoder.submit(large);
+    send_next_frame(&mut session, &mut carrier);
+    let sent_first = carrier.sent[before..].to_vec();
     let queued = session.pacer.as_ref().map_or(0, Pacer::queued_bytes);
-    assert!(queued > 0, "the pacer holds part of the keyframe");
+    assert!(queued > 0, "the pacer holds part of the frame");
     let stale_frame = header(&sent_first[0]).frame;
 
     // The radio goes away for longer than the outage threshold, then the head's
@@ -186,30 +201,30 @@ fn an_outage_end_drops_the_queued_datagrams_and_sends_the_newest_frame() {
     std::thread::sleep(Duration::from_millis(150));
     let arrivals = sent_first
         .iter()
-        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 150_000 })
+        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 170_000 })
         .collect();
-    session.on_datagram(&mut carrier, &feedback(arrivals, 0), &table, id, &viewer);
+    session.on_datagram(&mut carrier, &feedback(arrivals, first_frame), &table, id, &viewer);
     assert_eq!(session.pacer.as_ref().map_or(0, Pacer::queued_bytes), 0, "queue emptied");
     assert!(session.paced_logs.is_empty());
     session.send_paced(&mut carrier).expect("send paced");
     assert_eq!(
         carrier.sent.len(),
-        sent_first.len(),
+        before + sent_first.len(),
         "a datagram queued through the outage went out after it"
     );
 
     // The newest frame goes out next, as a keyframe.
     send_next_frame(&mut session, &mut carrier);
-    let fresh: Vec<Vec<u8>> = carrier.sent[sent_first.len()..].to_vec();
+    let fresh: Vec<Vec<u8>> = carrier.sent[before + sent_first.len()..].to_vec();
     let h = header(&fresh[0]);
     assert!(h.frame > stale_frame, "{} after {stale_frame}", h.frame);
     assert_ne!(h.flags & flags::KEYFRAME, 0, "the next frame is a keyframe");
-    assert_eq!(forced.lock().expect("lock").as_slice(), &[true, true]);
+    assert_eq!(forced.lock().expect("lock").as_slice(), &[true, false, true]);
 
     // Its receipts, then a quiet feedback after the reorder grace: no loss.
     let fresh_arrivals = fresh
         .iter()
-        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 160_000 })
+        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 180_000 })
         .collect();
     session.on_datagram(&mut carrier, &feedback(fresh_arrivals, h.frame), &table, id, &viewer);
     std::thread::sleep(Duration::from_millis(120));
