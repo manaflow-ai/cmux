@@ -707,6 +707,12 @@ public final class TerminalModel {
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
     }
 
+    /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
+    /// live session reports it.
+    public func demoConnection(_ state: TerminalConnectionState) {
+        ingest(.connection(state))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }
