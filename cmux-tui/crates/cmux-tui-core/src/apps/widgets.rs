@@ -653,7 +653,7 @@ impl Supervisor {
             };
             let mut row = json!({
                 "app": app,
-                "title": entry.get("title").map_or_else(|| text(&package.manifest["name"]), text),
+                "title": entry.get("title").map_or_else(|| text(package.manifest.get("name").unwrap_or(&Value::Null)), text),
                 "sizes": spec.sizes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 "defaultSize": spec.default_size.as_str(),
                 "places": spec.places.iter().map(|p| p.as_str()).collect::<Vec<_>>(),
@@ -663,10 +663,9 @@ impl Supervisor {
                 if let Some(symbol) = entry.get("symbol").and_then(Value::as_str) {
                     object.insert("symbol".into(), Value::String(symbol.into()));
                 }
-                let description = entry
-                    .get("description")
-                    .map(text)
-                    .unwrap_or_else(|| text(&package.manifest["description"]));
+                let description = entry.get("description").map(text).unwrap_or_else(|| {
+                    text(package.manifest.get("description").unwrap_or(&Value::Null))
+                });
                 if !description.is_empty() {
                     object.insert("description".into(), Value::String(description));
                 }
@@ -809,7 +808,8 @@ impl Supervisor {
                 }))
             })
             .collect();
-        meters.sort_by(|a, b| a["mount_id"].as_str().cmp(&b["mount_id"].as_str()));
+        let id = |meter: &Value| meter.get("mount_id").and_then(Value::as_str).map(str::to_owned);
+        meters.sort_by_key(id);
         json!({ "meters": meters })
     }
 
