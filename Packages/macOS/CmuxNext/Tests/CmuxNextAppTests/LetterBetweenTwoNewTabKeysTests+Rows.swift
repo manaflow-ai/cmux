@@ -320,6 +320,14 @@ extension LetterBetweenTwoNewTabKeysTests {
     /// The two pages report in the same window of the same test process, so the page that the pane shows is the
     /// control: when no page reports, the row gives no verdict (a `setup` stop). The limit of the wait is 20 s; the
     /// app keeps text for a page that is not ready for 2 s, and the printed times say on which side each report was.
+    ///
+    /// No daemon answers in this test process, so the handshake of each page fails, and the page then takes its
+    /// New Tab screen away and shows its chat view: the chat composer has the focus, and the page's focus count
+    /// moved. The row waits for that state in the same 20 s, then makes ONE insertion with the page's count: the
+    /// real page takes the app's insertion in the field that has its focus, at the right count. An insertion that
+    /// is on its way while the count moves is the row
+    /// `aLetterWhosePageMovedItsFocusDuringTheInsertionIsTypedWithTheNewCount`. No row has the New Tab field of a
+    /// real page whose host answers.
     @Test func aNewTabPageThatThePaneNoLongerShowsReportsItsField() async throws {
         try #require(AgentPaneView.bundledPage != nil, "setup: this build has no bundled page; the row needs the real New Tab page")
         try await Self.withScene(pages: [:]) { scene in
@@ -356,11 +364,32 @@ extension LetterBetweenTwoNewTabKeysTests {
             let place = "the first page's view is in a window: \(view1?.window != nil), hidden: \(view1?.isHiddenOrHasHiddenAncestor ?? true)"
             let process = "window on screen: \(scene.window.isVisible), key window: \(scene.window.isKeyWindow), app active: \(NSApp.isActive)"
 
+            // The state that the first page reaches in this test process: no New Tab field is in its document, the
+            // chat composer has the focus, and the app has the page's focus count.
+            var swapped: Duration?, pageWas = "not read"
+            if hidden != nil, let view1 {
+                let swapState = """
+                    const el = document.activeElement;
+                    const field = el && el.closest ? el.closest('.acpmux-md-field') : null;
+                    const newTab = document.querySelectorAll('.acpmux-md-field.nt-field, .acpmux-md-field.acpmux-newtab-field').length;
+                    const composer = !!field && !!field.closest('.acpmux-composer') && el.isContentEditable === true;
+                    return (newTab === 0 && composer ? 'swapped:' : 'not yet:') + String(window.__cmuxInputFocusEpoch) + ' (New Tab fields: ' + String(newTab) + ', the chat composer has the focus: ' + String(composer) + ')';
+                    """
+                while ContinuousClock.now - start < limit, swapped == nil {
+                    pageWas = (try? await view1.callPageScript(swapState)).flatMap { $0 as? String } ?? "not read"
+                    if pageWas.hasPrefix("swapped:\(page1.focusEpoch) ") {
+                        swapped = ContinuousClock.now - start
+                    } else {
+                        try await Task.sleep(for: .milliseconds(10))
+                    }
+                }
+            }
+
             // The app types into the first page, by its own call, and the test reads the field of the page.
             var landed = false, text: String?, reason = "not read", fields = "not read"
-            if hidden != nil {
+            if swapped != nil {
                 let appCount = page1.focusEpoch
-                landed = await page1.insert("x", expectedEpoch: page1.focusEpoch)
+                landed = await page1.insert("x", expectedEpoch: appCount)
                 if let view1 {
                     let read = "const el = document.activeElement; return el ? String(el.value !== undefined ? el.value : el.textContent) : null;"
                     text = (try? await view1.callPageScript(read)).flatMap { $0 as? String }
@@ -399,7 +428,9 @@ extension LetterBetweenTwoNewTabKeysTests {
             print("""
                 LetterBetweenTwoNewTabKeysTests: the real New Tab page: the field of the page that the pane no longer shows \
                 reported ready \(words(hidden)) from the second New Tab key; the field of the page that the pane shows reported \
-                \(words(shown)); the app keeps text for a page for 2 s. The app's call typed into the first page: \(landed); its \
+                \(words(shown)); the app keeps text for a page for 2 s. The first page had no New Tab field, its chat composer \
+                had the focus and the app had its focus count \(words(swapped)); the page's last word in that wait: \(pageWas). \
+                The app's call typed into the first page: \(landed); its \
                 field has the text: \(text ?? "not read"). For the reason of a refusal: \(reason). \(place); \(process). \
                 The elements of the first page that can take text, after the call: \(fields). The focus messages of the 2 pages \
                 in the app's journal (it was on before the row: \(journalWasOn)): \(journal.suffix(24).joined(separator: " | "))
@@ -413,6 +444,12 @@ extension LetterBetweenTwoNewTabKeysTests {
                     page that the pane shows reported \(words(shown)). \(place); \(process)
                     """)
             if hidden != nil {
+                try #require(swapped != nil,
+                             """
+                             setup: in 20 s from the second New Tab key the first page did not reach the state of this test \
+                             process (no New Tab field, the chat composer has the focus, the app has the page's focus count). \
+                             The page's last word: \(pageWas); the app's count: \(page1.focusEpoch). \(place); \(process)
+                             """)
                 #expect(landed && text?.contains("x") == true,
                         """
                         the app did not type into the page that the pane no longer shows (its call returned \(landed), the field \
