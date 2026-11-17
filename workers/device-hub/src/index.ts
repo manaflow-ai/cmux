@@ -88,7 +88,7 @@ const USER_ID = /^[A-Za-z0-9_-]{1,100}:[A-Za-z0-9_-]{1,200}$/;
 
 /**
  * Device-key renewal (PROTOCOL.md, Device renewal): an anchored macOS device
- * (cmux Remote, with the cmux app quit) signs `POST /v1/auth/device {userId}`
+ * (cmux Computer Use, with the cmux app quit) signs `POST /v1/auth/device {userId}`
  * with its device key and gets a host-scoped session for an hour. No Stack
  * token is involved; the User DO checks the signature, the replay window and
  * the anchor.

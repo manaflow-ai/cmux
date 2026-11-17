@@ -12,16 +12,16 @@ import Testing
 /// compare before it reaches a person's TCC prompt.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct AAMacScreenSetupGalleryTests {
-    static let steps = CmuxRemoteSharingSetup.Step.allCases
+    static let steps = CmuxHelperSharingSetup.Step.allCases
 
-    static func render(_ step: CmuxRemoteSharingSetup.Step, theme: String, dark: Bool) throws -> CGImage {
+    static func render(_ step: CmuxHelperSharingSetup.Step, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 720, height: 560), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(activate: {}, isAppActive: { true }))
-        let id = center.present(CmuxRemoteSharingSetup.spec(step), in: .window(window)) { _ in }
+        let id = center.present(CmuxHelperSharingSetup.spec(step), in: .window(window)) { _ in }
         defer {
             center.dismiss(id)
             window.close()

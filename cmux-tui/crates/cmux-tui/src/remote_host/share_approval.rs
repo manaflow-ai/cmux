@@ -3,7 +3,7 @@
 //! are at (the same-account device asking, one click there, recorded in the
 //! audit log)"): the asker's flow.
 //!
-//! `cmux remote-host share on --device DEVICE` (or the `remote_share` MCP tool
+//! `cmux helper-host share on --device DEVICE` (or the `mac_screen_share` MCP tool
 //! with `device`) asks the asker's own cmux app (`remote.confirm {action:
 //! share, device}`). The app shows "Share Studio's screen with your devices?"
 //! and only after the person clicks Allow signs a [`ShareApproval`] with its
@@ -69,7 +69,7 @@ impl Deliver for AwaitingSameAccountControl {
         Err(json!({
             "code": "share.needs_same_account_control",
             "message": format!(
-                "you allowed sharing {} here, and it is recorded, but this cmux cannot send the approval to {} yet. {} admits it only while control for your other signed-in Macs is on there. For now, run `cmux remote-host share on` on {} itself.",
+                "you allowed sharing {} here, and it is recorded, but this cmux cannot send the approval to {} yet. {} admits it only while control for your other signed-in Macs is on there. For now, run `cmux helper-host share on` on {} itself.",
                 approval.display_target(), approval.display_target(), approval.display_target(), approval.display_target()
             ),
             "details": {"confirmed": true, "delivered": false, "device": approval.target},

@@ -8,10 +8,10 @@ delete this file or move the parts you keep into your own plan.
 
 Changes in your crates (all on feat-cmux-next):
 
-- `cmux-tui/crates/cmux-tui-core/src/remote_host/macos.rs`:
+- `cmux-tui/crates/cmux-tui-core/src/helper_host/macos.rs`:
   - `Staged` lost its unread `app` field.
   - `std::mem::size_of` became `size_of` (prelude).
-- `cmux-tui/crates/cmux-tui-core/src/remote_host/unix.rs`: `bundle_digest: staged.digest`
+- `cmux-tui/crates/cmux-tui-core/src/helper_host/unix.rs`: `bundle_digest: staged.digest`
   (no clone).
 - Why: macOS clippy (`-D warnings`) failed on dead code and a redundant clone. Commit
   754010d9ff2e7.

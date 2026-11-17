@@ -60,10 +60,10 @@ public final class ComputerUseHelperV2 {
     /// Records a call the helper refused for consent ("screen" or "control").
     public var consentRefused: @Sendable (String) async -> Void = { _ in }
     private let localSpawner: any ComputerUseHelperV2Spawning
-    /// The running child's spawner: the local one, or a remote worker's (cmux Remote).
+    /// The running child's spawner: the local one, or a helper host worker's (cmux Computer Use).
     var spawner: any ComputerUseHelperV2Spawning
-    /// cmux Remote's worker instead of a helper this app starts (ComputerUseHelperV2+Remote.swift).
-    public var remote: (any ComputerUseRemoteSpawning)?
+    /// cmux Computer Use's worker instead of a helper this app starts (ComputerUseHelperV2+HelperHost.swift).
+    public var helperHost: (any ComputerUseHelperHostSpawning)?
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
     private let exitGrace: Duration
@@ -160,9 +160,9 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
-        if let remote, await remote.isAvailable() {
+        if let helperHost, await helperHost.isAvailable() {
             guard current == generation else { return }
-            return await applyRemote(remote, generation: current)
+            return await applyHelperHost(helperHost, generation: current)
         }
         guard current == generation else { return }
         spawner = localSpawner

@@ -1,6 +1,6 @@
 //! The app's device channel, `share-host/device.sock`: this Mac's one hub device, lent to the
-//! app in the JSON lines the cmux Remote Screen Sharing worker speaks (the app's
-//! `CmuxRemoteDevices` and `RemoteDeviceChannel`), so the app signs, opens relay secrets and
+//! app in the JSON lines the cmux Computer Use Screen Sharing worker speaks (the app's
+//! `CmuxHelperDevices` and `HelperDeviceChannel`), so the app signs, opens relay secrets and
 //! hears pushes as the daemon's device. Only this user's processes connect (the kernel's peer
 //! uid). Requests are `{"id":N,"method":M,"params":{..}}`; answers `{"id":N,"ok":true,
 //! "result":{..}}` or `{"id":N,"ok":false,"error":{"message":..}}`; a subscribed channel also

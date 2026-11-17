@@ -158,7 +158,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home.engine.renameInvalidName	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/Resources/HostedChief.xcstrings	home.chief.hostedBrainFailed	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextImportSuggestions/Resources/ImportSuggestions.xcstrings	importSuggestions.settings.empty	15	10
-Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/Resources/CmuxRemote.xcstrings	remote.confirm.shareOther.title	7	6
+Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/Resources/CmuxHelperHost.xcstrings	remote.confirm.shareOther.title	7	6
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/Resources/Localizable.xcstrings	devices.error.invalidAction	8	6
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/Resources/Localizable.xcstrings	devices.relay.checkNone	17	10
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/Resources/Localizable.xcstrings	devices.relays.help	28	25

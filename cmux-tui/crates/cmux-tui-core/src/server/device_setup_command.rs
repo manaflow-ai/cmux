@@ -8,7 +8,7 @@
 
 use serde_json::{Value, json};
 
-use super::{MessageWriter, Mux, remote_host_command};
+use super::{MessageWriter, Mux, helper_host_command};
 use crate::device_setup::{self, DeviceSetupRequest};
 
 /// The event each step line streams as.
@@ -23,7 +23,7 @@ pub(super) fn handle(
     allow_agents: bool,
     dry_run: bool,
 ) -> anyhow::Result<Value> {
-    let caller = remote_host_command::caller(mux, client).map_err(anyhow::Error::from)?;
+    let caller = helper_host_command::caller(mux, client).map_err(anyhow::Error::from)?;
     if !caller.verified_app {
         anyhow::bail!("device-setup is the cmux app's; agents run `cmux device setup`");
     }

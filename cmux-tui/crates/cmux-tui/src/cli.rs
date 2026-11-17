@@ -158,9 +158,9 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
-pub(crate) use host_mount::early_unix_scope;
+pub(crate) use helper_host::confirm_allow_agents;
 #[cfg(unix)]
-pub(crate) use remote_host::confirm_allow_agents;
+pub(crate) use host_mount::early_unix_scope;
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
@@ -186,16 +186,16 @@ mod machine_server;
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
+mod helper_host;
+#[cfg(unix)]
+mod helper_host_grants;
+#[cfg(unix)]
 mod mcp;
 mod older_daemon;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
 mod raw;
-#[cfg(unix)]
-mod remote_host;
-#[cfg(unix)]
-mod remote_host_grants;
 mod resolve;
 mod root_help;
 mod scope_help;
@@ -527,7 +527,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "setup",
     "device",
     "workflow",
-    "remote-host",
+    "helper-host",
     "chat",
     "vm",
     "customize",
@@ -875,7 +875,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
-        .or_else(|| remote_host::run_if_requested(args))
+        .or_else(|| helper_host::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))

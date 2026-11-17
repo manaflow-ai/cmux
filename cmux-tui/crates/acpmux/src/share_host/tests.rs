@@ -411,7 +411,7 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     let nightly_cua = helper_bundle(&nightly, "cmux Computer Use.app");
     let nightly_helper = helper_bundle(&nightly, "cmux NIGHTLY Screen Sharing.app");
     // Not a helper: another bundle in the same folder.
-    std::fs::create_dir_all(nightly.join("Contents/Library/cmux Remote.app")).unwrap();
+    std::fs::create_dir_all(nightly.join("Contents/Library/cmux Helper Host.app")).unwrap();
     let env = root.path().join("env Screen Sharing.app");
     let join = root.path().join("join/x.app/Contents/MacOS/cmux-screen-sharing");
     let found = helper::sources(

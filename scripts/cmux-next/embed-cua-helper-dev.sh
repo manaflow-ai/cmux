@@ -7,15 +7,15 @@
 # where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".
 # The bytes are never re-signed here (the helper's code identity, and so its
 # macOS grant, must stay the same across builds); Xcode signs the outer app
-# without --deep. The cmux Remote asset is also embedded for a Release build
-# that asks for it (embed-cmux-remote-dev.sh). An unavailable helper (no R2 read
+# without --deep. The cmux Computer Use asset is also embedded for a Release build
+# that asks for it (embed-helper-host-dev.sh). An unavailable helper (no R2 read
 # credentials) warns and embeds nothing unless CMUX_NEXT_REQUIRE_CUA_HELPER=1;
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# cmux Remote (docs/cmux-remote.md) is embedded by the same phase, first: the
+# cmux Computer Use (docs/computer-use-helper.md) is embedded by the same phase, first: the
 # helper's own early exits below must not skip it.
-"$SCRIPT_DIR/embed-cmux-remote-dev.sh"
+"$SCRIPT_DIR/embed-helper-host-dev.sh"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"

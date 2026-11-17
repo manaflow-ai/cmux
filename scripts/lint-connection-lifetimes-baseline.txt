@@ -62,7 +62,7 @@ R1 | cmux-tui/crates/cmux-tui-core/src/browser_host_activation.rs | 75d2b3e3112d
 R1 | cmux-tui/crates/cmux-tui-core/src/holder_runtime/service.rs | edc0083fa232 | Err(_) if std::os::unix::net::UnixStream::connect(&self.socket).is_ok() => {
 R1 | cmux-tui/crates/cmux-tui-core/src/mux/agent_chat_notices.rs | cb65358ce552 | let stream = match UnixStream::connect(socket) {
 R1 | cmux-tui/crates/cmux-tui-core/src/mux/project_chats.rs | 81d72e8ec504 | let Ok(stream) = UnixStream::connect(socket) else { continue };
-R1 | cmux-tui/crates/cmux-tui-core/src/remote_host/unix.rs | a24162d8accd | let stream = std::os::unix::net::UnixStream::connect(&record.socket)
+R1 | cmux-tui/crates/cmux-tui-core/src/helper_host/unix.rs | a24162d8accd | let stream = std::os::unix::net::UnixStream::connect(&record.socket)
 R1 | cmux-tui/crates/cmux-tui-core/src/server/remote_entry.rs | b2e3a1b4a148 | let woke = UnixStream::connect(&self.path).is_ok();
 R1 | cmux-tui/crates/cmux-tui-core/src/server/remote_entry.rs | e7aa997bf6b8 | match UnixStream::connect(path) {
 R1 | cmux-tui/crates/cmux-tui-core/src/server/websocket_listener.rs | f5d09b8d6c7b | if let Ok(stream) = TcpStream::connect(self.local_addr) {
@@ -147,7 +147,7 @@ R2 | cmux-tui/crates/cmux-tui-core/src/git_ops/user_run.rs | 6d9dcf13b5d2 | let 
 R2 | cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup.rs | da763fae4bd4 | let mut command = Command::new(&shell);
 R2 | cmux-tui/crates/cmux-tui-core/src/holder_runtime/service.rs | 8820a328c754 | let mut command = cmux_process::Command::new(&path);
 R2 | cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs | 723b1fbf36a1 | let mut command = Command::new(program);
-R2 | cmux-tui/crates/cmux-tui-core/src/remote_host/macos.rs | 98f1c081ef06 | let mut command = Command::new(&staged.executable);
+R2 | cmux-tui/crates/cmux-tui-core/src/helper_host/macos.rs | 98f1c081ef06 | let mut command = Command::new(&staged.executable);
 R2 | cmux-tui/crates/cmux-tui-core/src/server/browser_runtime.rs | 8fabf9800632 | let mut command = Command::new(executable);
 R2 | cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs | 5bd8047efc26 | let mut child = std::process::Command::new(std::env::current_exe().unwrap())
 R2 | cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs | abf6a57b23f4 | let mut child = std::process::Command::new("/bin/sh")

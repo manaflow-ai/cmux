@@ -991,7 +991,7 @@ Payload:
 object{event:"screen-device-changed",screen_device_id:string|null}
 ```
 
-This is the authenticated cmux Remote worker's independently generated screen
+This is the authenticated cmux Computer Use worker's independently generated screen
 UUID. It is delivered only to the local owner app (Unix or authenticated owner
 WebSocket); page relays, paired clients, and other remote clients do not hear
 it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.

@@ -1,4 +1,4 @@
-//! One supervisor contract for cmux Remote and Cloud (hq `docs/design/remote-cloud-durability.md`
+//! One supervisor contract for cmux Computer Use and Cloud (hq `docs/design/remote-cloud-durability.md`
 //! 4.1 and 4.2). acpmux's daemon service and `cmux host run` on a Cloud VM decide the same way:
 //!
 //! - [`record`]: an owner record `{pid, startTime, pgid, bootId, epoch, argv}`, written by

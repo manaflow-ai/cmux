@@ -99,16 +99,16 @@ out=$("$CLI" whoami --json 2>&1); echo "rc=$?"; printf '%s\n' "$out""#;
 pub(super) const REDEEM: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
 out=$("$CLI" auth handoff redeem --json 2>&1); echo "rc=$?"; printf '%s\n' "$out""#;
 
-/// cmux Remote's status on the target (the grants and Share This Mac).
+/// cmux Computer Use's status on the target (the grants and Share This Mac).
 pub(super) const SHARE_STATUS: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
-"$CLI" remote-host status --json 2>&1"#;
+"$CLI" helper-host status --json 2>&1"#;
 
 /// Opens the System Settings pane of one grant (its name on stdin) on the target's screen.
 /// Opening a pane grants nothing.
 pub(super) const OPEN_SETTINGS: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
 IFS= read -r grant
 case "$grant" in accessibility|screen-recording) ;; *) exit 2 ;; esac
-"$CLI" remote-host open-settings "$grant" >/dev/null 2>&1"#;
+"$CLI" helper-host open-settings "$grant" >/dev/null 2>&1"#;
 
 /// The keepalive LaunchAgent: every 5 minutes (and at login), open NIGHTLY in the background
 /// when its control socket does not answer the bundled CLI. It never kills anything.

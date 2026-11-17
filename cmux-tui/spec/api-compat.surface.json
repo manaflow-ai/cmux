@@ -11537,8 +11537,8 @@
       }
     },
     "request:reload-config": {},
-    "request:remote-host-app": {},
-    "request:remote-host-call": {
+    "request:helper-host-app": {},
+    "request:helper-host-call": {
       "/method": {
         "ty": "string",
         "required": true
@@ -11548,7 +11548,7 @@
         "nullable": true
       }
     },
-    "request:remote-host-config": {
+    "request:helper-host-config": {
       "/computer_use": {
         "ty": "boolean",
         "nullable": true
@@ -11562,7 +11562,7 @@
         "nullable": true
       }
     },
-    "request:remote-host-status": {},
+    "request:helper-host-status": {},
     "request:remote-terminal-snapshot": {
       "/surface": {
         "ty": "uint64",
@@ -20040,7 +20040,7 @@
         ]
       }
     },
-    "response:remote-host-app": {
+    "response:helper-host-app": {
       "/data/host_pid": {
         "ty": "uint32",
         "required": true
@@ -20054,19 +20054,19 @@
         "required": true
       }
     },
-    "response:remote-host-call": {
+    "response:helper-host-call": {
       "/data": {
         "ty": "json",
         "required": true
       }
     },
-    "response:remote-host-config": {
+    "response:helper-host-config": {
       "/data": {
         "ty": "json",
         "required": true
       }
     },
-    "response:remote-host-status": {
+    "response:helper-host-status": {
       "/data": {
         "ty": "json",
         "required": true

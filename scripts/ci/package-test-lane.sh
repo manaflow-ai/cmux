@@ -308,7 +308,7 @@ select_packages() {
     CmuxMobileBilling
     CmuxMobileSupport
     CmuxMobileTunnel
-    CmuxRemote
+    CmuxHelperHost
     CmuxScreenKit
     CmuxTabsKit
     CmuxVNCWebRTC

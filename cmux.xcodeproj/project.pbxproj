@@ -707,8 +707,8 @@
 
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/embed-cua-helper-dev.sh",
-				"$(SRCROOT)/scripts/cmux-next/embed-cmux-remote-dev.sh",
-				"$(SRCROOT)/scripts/cmux-next/cmux-remote-dev.pin.json",
+				"$(SRCROOT)/scripts/cmux-next/embed-helper-host-dev.sh",
+				"$(SRCROOT)/scripts/cmux-next/helper-host-dev.pin.json",
 				"$(SRCROOT)/scripts/cmux-next/cua-helper-dev.pin.json",
 				"$(SRCROOT)/scripts/cmux-next/ensure-cua-pinned-asset.sh",
 				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
@@ -716,11 +716,11 @@
 				"$(CMUX_NEXT_CUA_HELPER_PIN)",
 				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
 				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
-				"$(CMUX_NEXT_CMUX_REMOTE_PIN)",
-				"$(CMUX_NEXT_SKIP_CMUX_REMOTE)",
-				"$(CMUX_NEXT_REQUIRE_CMUX_REMOTE)",
-				"$(CMUX_NEXT_ALLOW_NO_CMUX_REMOTE)",
-				"$(CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE)",
+				"$(CMUX_NEXT_HELPER_HOST_PIN)",
+				"$(CMUX_NEXT_SKIP_HELPER_HOST)",
+				"$(CMUX_NEXT_REQUIRE_HELPER_HOST)",
+				"$(CMUX_NEXT_ALLOW_NO_HELPER_HOST)",
+				"$(CMUX_NEXT_EMBED_HELPER_HOST_IN_RELEASE)",
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
@@ -733,8 +733,8 @@
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
 				"$(TARGET_TEMP_DIR)/embed-cua-helper-dev.stamp",
-				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Remote (dev).app",
-				"$(TARGET_TEMP_DIR)/embed-cmux-remote-dev.stamp",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Helper Host (dev).app",
+				"$(TARGET_TEMP_DIR)/embed-helper-host-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

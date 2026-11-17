@@ -2,7 +2,7 @@
 /// the Developer ID signed cmux Computer Use helper, so agents can see and
 /// use other apps. Off, no helper starts and macOS asks for nothing.
 /// `driver` ("upstream" by default) picks the helper: "upstream" runs the
-/// helper v2 engine in cmux Remote (docs/cmux-remote.md), or the app's own helper v2
+/// helper v2 engine in cmux Computer Use (docs/computer-use-helper.md), or the app's own helper v2
 /// without it; a build with neither runs the legacy helper. "legacy" keeps the
 /// cmux-cua 0.8.12 helper.
 /// `livePreview` (on by default) shows a small live view of the app an agent

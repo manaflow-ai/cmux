@@ -162,9 +162,9 @@ extension SettingsSchema {
         "mobile.allowIPhoneConnections": .userOnly,
         // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
-        // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
+        // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Computer Use: the person's call.
         "macScreen.systemShortcuts": .userOnly,
-        // cmux Remote: the person's call.
+        // cmux Computer Use: the person's call.
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,

@@ -179,7 +179,7 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"], title: SettingsText.keyed("settings.pageGroup.agentDefaults", "Defaults")),
             GroupSpec(group: "settings.group.computerUse"),
-            GroupSpec(group: "settings.group.cmuxRemote"),
+            GroupSpec(group: "settings.group.helperHost"),
             // The free AI model while signed out (cx-ds09i).
             GroupSpec(group: "settings.group.freeModel"),
             // What this Mac does while agents work (keep awake).

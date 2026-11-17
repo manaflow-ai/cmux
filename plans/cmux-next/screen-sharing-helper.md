@@ -29,7 +29,7 @@ cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app     com.cmuxterm.cua, ev
 
 - **One row, already granted.** com.cmuxterm.cua is the Developer ID identity Computer Use has had
   since 2026-08, shared by every channel. Anyone who allowed Computer Use has both grants; anyone
-  else is asked once, for "cmux Computer Use", by the one guide (`CmuxRemoteSharingSetup`), which
+  else is asked once, for "cmux Computer Use", by the one guide (`CmuxHelperSharingSetup`), which
   now names that app. Either attribution model gives this row: the outermost bundle (macOS 26
   checks nested code as the outermost app; tried on Leo's Mac: the helper nested in cmux NIGHTLY
   read cmux NIGHTLY's grant, the same code anywhere else read none) or the code's own identifier

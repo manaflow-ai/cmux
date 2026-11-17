@@ -533,7 +533,7 @@ export const ROW_LEVELS: {
       },
       {
         into: "settings.group.subsessions",
-        from: ["settings.group.agentRetry", "settings.group.agentCache", "settings.group.cmuxRemote"],
+        from: ["settings.group.agentRetry", "settings.group.agentCache", "settings.group.helperHost"],
         title: "",
       },
     ],

@@ -92,7 +92,7 @@ Default raw `identify` replies preserve the original field set. The
 request, which adds `machine_id`, `machine_platform`, `machine_device`, `machine_symbol`
 and `machine_capabilities`.
 The enriched reply also includes the nullable `screen_device_id` UUID of the
-authenticated cmux Remote screen worker.
+authenticated cmux Computer Use screen worker.
 Clients that consume the `screen-device-changed` subscription event echo
 `screen-device-identity-v1` in `set-client-info` to opt into its replay and
 live updates.

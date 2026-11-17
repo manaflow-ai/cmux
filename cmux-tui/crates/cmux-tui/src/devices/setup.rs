@@ -147,7 +147,7 @@ pub(crate) enum Mode {
 /// Why a verb of this cmux on the asking side did not answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AskError {
-    /// This cmux has no such verb yet (`auth handoff`, `remote-host agents`).
+    /// This cmux has no such verb yet (`auth handoff`, `helper-host agents`).
     Unsupported,
     Failed(String),
 }
@@ -161,7 +161,7 @@ pub(crate) trait Asking {
     /// `cmux auth handoff mint --json`'s code. It never reaches a line or argv.
     fn mint_handoff(&self) -> Result<String, AskError>;
     /// Whether "My agents can turn screen sharing and control on my machines" is on
-    /// (`cmux remote-host agents status --json`).
+    /// (`cmux helper-host agents status --json`).
     fn agents_allowed(&self) -> Result<bool, AskError>;
     /// Asks this machine's cmux app to turn it on, `remote.confirm {"action":"allow_agents",
     /// "on":true}`, and gives the app's answer or error ([`allow_answer`] reads it). The app
@@ -649,7 +649,7 @@ pub(crate) fn sign_in_step(
     (StepState::Warn, format!("sign in on {name}: {}", last_line(&answer)), String::new())
 }
 
-/// The grants cmux Remote needs, as `remote-host status` names them and as a person reads them.
+/// The grants cmux Computer Use needs, as `helper-host status` names them and as a person reads them.
 const GRANTS: [(&str, &str, &str); 2] = [
     ("accessibility", "accessibility", "Accessibility"),
     ("screen_recording", "screen-recording", "Screen Recording"),
@@ -661,11 +661,11 @@ fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
     let Some(status) = status else {
         return (
             StepState::Warn,
-            format!("cannot read cmux Remote on {name}: {}", said(&out)),
+            format!("cannot read cmux Computer Use on {name}: {}", said(&out)),
             String::new(),
         );
     };
-    // `cmux remote-host status --json` prints the daemon's data, maybe in an `{ok, data}` envelope.
+    // `cmux helper-host status --json` prints the daemon's data, maybe in an `{ok, data}` envelope.
     let status = status.get("data").filter(|d| d.is_object()).unwrap_or(&status);
     let host = status.get("host").unwrap_or(&Value::Null);
     let shared = ["shared", "sharing", "on"]
@@ -682,7 +682,7 @@ fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
         return (
             StepState::Warn,
             format!(
-                "{sharing}; cmux Remote did not report its grants ({})",
+                "{sharing}; cmux Computer Use did not report its grants ({})",
                 status.get("state").and_then(Value::as_str).unwrap_or("not running")
             ),
             String::new(),
@@ -712,7 +712,7 @@ fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
             "{sharing}; missing {titles}{}",
             if dry_run { "" } else { " (its System Settings pane is open there)" }
         ),
-        format!("on {name}, allow cmux Remote under Privacy & Security > {titles}"),
+        format!("on {name}, allow cmux Computer Use under Privacy & Security > {titles}"),
     )
 }
 

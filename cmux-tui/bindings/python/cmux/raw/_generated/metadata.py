@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362'
+IR_SHA256 = 'd973d481545aea1acfa88a5aae73d720008abee73019d298393d693ed576002a'
 
 
 @dataclass(frozen=True)
@@ -1727,6 +1727,51 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'helper-host-app': CommandMetadata(
+        'helper-host-app',
+        'local-admin',
+        12,
+        'helper-host-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'helper-host-call': CommandMetadata(
+        'helper-host-call',
+        'local-admin',
+        12,
+        'helper-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'method': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+        },
+    ),
+    'helper-host-config': CommandMetadata(
+        'helper-host-config',
+        'local-admin',
+        12,
+        'helper-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'computer_use': CommandFieldMetadata(None, None),
+            'headless': CommandFieldMetadata(None, None),
+            'screen_sharing': CommandFieldMetadata(None, None),
+        },
+    ),
+    'helper-host-status': CommandMetadata(
+        'helper-host-status',
+        'local-admin',
+        12,
+        'helper-host-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'history-search': CommandMetadata(
         'history-search',
         'local-admin',
@@ -2752,51 +2797,6 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
-        None,
-        {
-        },
-    ),
-    'remote-host-app': CommandMetadata(
-        'remote-host-app',
-        'local-admin',
-        12,
-        'remote-host-v1',
-        ('local-admin',),
-        None,
-        {
-        },
-    ),
-    'remote-host-call': CommandMetadata(
-        'remote-host-call',
-        'local-admin',
-        12,
-        'remote-host-v1',
-        ('local-admin',),
-        None,
-        {
-            'method': CommandFieldMetadata(None, None),
-            'params': CommandFieldMetadata(None, None),
-        },
-    ),
-    'remote-host-config': CommandMetadata(
-        'remote-host-config',
-        'local-admin',
-        12,
-        'remote-host-v1',
-        ('local-admin',),
-        None,
-        {
-            'computer_use': CommandFieldMetadata(None, None),
-            'headless': CommandFieldMetadata(None, None),
-            'screen_sharing': CommandFieldMetadata(None, None),
-        },
-    ),
-    'remote-host-status': CommandMetadata(
-        'remote-host-status',
-        'local-admin',
-        12,
-        'remote-host-v1',
-        ('local-admin',),
         None,
         {
         },

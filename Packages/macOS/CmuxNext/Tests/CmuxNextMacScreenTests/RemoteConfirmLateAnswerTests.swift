@@ -4,7 +4,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Testing
 
-/// `cmux remote-host share on` asks "Share This Mac?" in cmux and waits 130 s. The dialog stays
+/// `cmux helper-host share on` asks "Share This Mac?" in cmux and waits 130 s. The dialog stays
 /// up past that, so an Allow after the caller's deadline is still the person's answer and must
 /// make the change. Before the fix the request's deadline cancelled the work holding the dialog:
 /// a late Allow resumed into a cancelled task and sharing stayed off (Leo, 2026-11-15).
@@ -77,7 +77,7 @@ import Testing
     @Test func allowAfterTheCallersDeadlineStillMakesTheChange() async throws {
         let dialog = Dialog()
         let change = Change()
-        let work = CmuxRemoteActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
+        let work = CmuxHelperActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
 
         await #expect(throws: ControlError.self) {
             _ = try await ControlDeadline.shared.run(method: "remote.confirm", deadline: .now + .milliseconds(50), work)
@@ -91,7 +91,7 @@ import Testing
         let dialog = Dialog()
         let change = Change()
         dialog.answer(true)
-        let work = CmuxRemoteActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
+        let work = CmuxHelperActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
 
         let reply = try await ControlDeadline.shared.run(method: "remote.confirm", deadline: .now + .seconds(5), work)
 
@@ -103,7 +103,7 @@ import Testing
         let dialog = Dialog()
         let change = Change()
         dialog.answer(false)
-        let work = CmuxRemoteActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
+        let work = CmuxHelperActionEnvironment.confirmedChange(confirm: { await dialog.ask() }, apply: { try change.apply() })
 
         let reply = try await ControlDeadline.shared.run(method: "remote.confirm", deadline: .now + .seconds(5), work)
 

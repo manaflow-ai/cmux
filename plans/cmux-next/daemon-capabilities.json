@@ -123,7 +123,7 @@
     "placement-shift-v1",
     "profiles-v1",
     "project-list-v1",
-    "remote-host-v1",
+    "helper-host-v1",
     "remote-terminal-tabs-v1",
     "resume-command",
     "row-client-keys-v1",

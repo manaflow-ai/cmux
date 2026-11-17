@@ -519,7 +519,7 @@ The phone and Mac already share one screen engine for simulators and Cloud
 desktops: hostd's `surface` service (`cmux.rd/1` on a link channel, video on
 the media lane as H.264 RTP over the WireGuard UDP carrier, with frame
 skipping and NACK). **Take over** adds a display source to it, fed by the
-cmux Remote screen-sharing worker, which stays the only process holding
+cmux Computer Use screen-sharing worker, which stays the only process holding
 Screen Recording and Accessibility. Video rides the media lane and input the
 input lane. Share This Mac's WebRTC `ScreenStream` and the device hub's
 tickets move onto this; the remote desktop plan's separate Noise_XX

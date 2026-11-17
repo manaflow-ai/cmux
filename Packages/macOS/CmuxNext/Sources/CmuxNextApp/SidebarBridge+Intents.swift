@@ -117,7 +117,7 @@ extension SidebarBridge {
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile, .openProfileInNewWindow:
-            SidebarIntentActions(registry: services.registry, remoteRuns: services.cmuxRemote.started).handle(intent, sections: model.sections)
+            SidebarIntentActions(registry: services.registry, remoteRuns: services.helperHost.started).handle(intent, sections: model.sections)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)

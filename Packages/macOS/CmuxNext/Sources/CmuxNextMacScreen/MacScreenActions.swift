@@ -15,7 +15,7 @@ public struct MacScreenActions {
     let refusal: (any Error) -> Void
     let worker: MacScreenWorkerSession
 
-    /// - Parameter worker: cmux Remote's worker, the host of this Mac's session in a build that bundles cmux Remote.
+    /// - Parameter worker: cmux Computer Use's worker, the host of this Mac's session in a build that bundles cmux Computer Use.
     public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
@@ -52,8 +52,8 @@ public struct MacScreenActions {
     }
 
     /// Stop Sharing This Mac ends this Mac's session wherever it is hosted: in the app's own host while a device
-    /// is connected to it, else in cmux Remote's worker, the host in a build that bundles cmux Remote. Each host
-    /// had its own palette row before (cmux Remote: End Screen Sharing Session was the worker's); Leo,
+    /// is connected to it, else in cmux Computer Use's worker, the host in a build that bundles cmux Computer Use. Each host
+    /// had its own palette row before (cmux Computer Use: End Screen Sharing Session was the worker's); Leo,
     /// 2026-11-16: "you can absolutely just do the reasonable/recommended thing in that case".
     var stopSharingUnavailable: String? {
         worker.running() ? nil : pages.hubHost.noSessionReason
@@ -66,7 +66,7 @@ public struct MacScreenActions {
         }
         guard worker.running() else { return .refused(pages.hubHost.noSessionReason ?? "") }
         let stop = worker.stop
-        // action-wait-allow: the session runs in cmux Remote's worker, another process; the menu bar item follows the hub.
+        // action-wait-allow: the session runs in cmux Computer Use's worker, another process; the menu bar item follows the hub.
         return .waiting(.externalProcess) {
             do { try await stop() } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
             return nil
@@ -159,7 +159,7 @@ public struct MacScreenActions {
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }
 }
 
-/// cmux Remote's worker as Stop Sharing This Mac sees it: whether it runs, and how to end the session it hosts.
+/// cmux Computer Use's worker as Stop Sharing This Mac sees it: whether it runs, and how to end the session it hosts.
 public struct MacScreenWorkerSession {
     let running: @MainActor () -> Bool
     let stop: @MainActor () async throws -> Void
@@ -169,6 +169,6 @@ public struct MacScreenWorkerSession {
         self.stop = stop
     }
 
-    /// No worker: a build without cmux Remote, and tests.
+    /// No worker: a build without cmux Computer Use, and tests.
     public static var none: MacScreenWorkerSession { MacScreenWorkerSession(running: { false }, stop: {}) }
 }

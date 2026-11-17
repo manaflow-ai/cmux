@@ -685,10 +685,10 @@
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done",
-      "remote-host-status",
-      "remote-host-call",
-      "remote-host-config",
-      "remote-host-app",
+      "helper-host-status",
+      "helper-host-call",
+      "helper-host-config",
+      "helper-host-app",
       "device-setup"
     ],
     "provider-authority": [

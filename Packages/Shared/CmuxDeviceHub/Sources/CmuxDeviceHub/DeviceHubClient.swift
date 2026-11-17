@@ -21,7 +21,7 @@ public struct DeviceHubAccountToken: DeviceHubAccountTokenProvider {
 public enum DeviceHubAccountSource: Sendable {
     /// The signed-in app: its Stack access token, exchanged at `POST /v1/auth/stack` (a full session).
     case stack(any DeviceHubAccountTokenProvider)
-    /// cmux Remote with the app quit: device-key renewal (`POST /v1/auth/device`), a host-scoped
+    /// cmux Computer Use with the app quit: device-key renewal (`POST /v1/auth/device`), a host-scoped
     /// session for this device of `userID` while the app's anchor holds (PROTOCOL.md, Device renewal).
     case deviceRenewal(userID: String)
 }
@@ -145,7 +145,7 @@ public actor DeviceHubClient {
     // MARK: Endpoints
 
     /// Lets this device renew its own host-scoped session for 30 days (`POST /v1/auth/device/anchor`;
-    /// a full session and this device's signature). The signed-in app calls it for cmux Remote's device.
+    /// a full session and this device's signature). The signed-in app calls it for cmux Computer Use's device.
     public func anchorDevice() async throws -> Date {
         struct Answer: Decodable {
             var anchoredUntil: Double

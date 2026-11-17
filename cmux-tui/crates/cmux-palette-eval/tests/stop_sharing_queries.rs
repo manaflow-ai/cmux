@@ -9,7 +9,7 @@ use catalog::ranked_rows;
 #[test]
 fn old_stop_titles_rank_stop_sharing_this_mac_first() {
     for query in [
-        "cmux Remote: End Screen Sharing Session",
+        "cmux Computer Use: End Screen Sharing Session",
         "end screen sharing session",
         "End Screen Sharing",
         "stop screen sharing",

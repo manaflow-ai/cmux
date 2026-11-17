@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
+inline constexpr std::string_view kProtocolIrSha256 = "d973d481545aea1acfa88a5aae73d720008abee73019d298393d693ed576002a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -91,6 +91,7 @@ struct GuestUrlAcknowledgeResult;
 struct GuestUrlClaimResult;
 struct GuestUrlOpenResult;
 struct GuestUrlSubscribeResult;
+struct HelperHostAppResult;
 struct HistorySearchHit;
 struct HistorySearchRange;
 enum class HomeChiefState;
@@ -143,7 +144,6 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
-struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -428,6 +428,10 @@ struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
 struct GetHostSizePolicyRequest;
 struct GetSizeStateRequest;
+struct HelperHostAppRequest;
+struct HelperHostCallRequest;
+struct HelperHostConfigRequest;
+struct HelperHostStatusRequest;
 struct HistorySearchRequest;
 struct HistorySearchResult;
 struct HomeInboxRequest;
@@ -513,10 +517,6 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
-struct RemoteHostAppRequest;
-struct RemoteHostCallRequest;
-struct RemoteHostConfigRequest;
-struct RemoteHostStatusRequest;
 struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
@@ -3349,6 +3349,34 @@ struct GuestUrlSubscribeResult {
     friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
+struct HelperHostAppRequest {
+    friend bool operator==(const HelperHostAppRequest&, const HelperHostAppRequest&) = default;
+};
+
+struct HelperHostAppResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const HelperHostAppResult&, const HelperHostAppResult&) = default;
+};
+
+struct HelperHostCallRequest {
+    std::string method{};
+    Field<JsonValue> params{};
+    friend bool operator==(const HelperHostCallRequest&, const HelperHostCallRequest&) = default;
+};
+
+struct HelperHostConfigRequest {
+    Field<bool> computer_use{};
+    Field<bool> headless{};
+    Field<bool> screen_sharing{};
+    friend bool operator==(const HelperHostConfigRequest&, const HelperHostConfigRequest&) = default;
+};
+
+struct HelperHostStatusRequest {
+    friend bool operator==(const HelperHostStatusRequest&, const HelperHostStatusRequest&) = default;
+};
+
 struct HistoryChangedEvent {
     std::vector<std::string> kinds{};
     std::uint64_t revision{};
@@ -4698,34 +4726,6 @@ struct ReloadConfigRequest {
 struct ReloadConfigResult {
     std::optional<std::string> path{};
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
-};
-
-struct RemoteHostAppRequest {
-    friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
-};
-
-struct RemoteHostAppResult {
-    std::uint32_t host_pid{};
-    std::string secret{};
-    std::string socket{};
-    friend bool operator==(const RemoteHostAppResult&, const RemoteHostAppResult&) = default;
-};
-
-struct RemoteHostCallRequest {
-    std::string method{};
-    Field<JsonValue> params{};
-    friend bool operator==(const RemoteHostCallRequest&, const RemoteHostCallRequest&) = default;
-};
-
-struct RemoteHostConfigRequest {
-    Field<bool> computer_use{};
-    Field<bool> headless{};
-    Field<bool> screen_sharing{};
-    friend bool operator==(const RemoteHostConfigRequest&, const RemoteHostConfigRequest&) = default;
-};
-
-struct RemoteHostStatusRequest {
-    friend bool operator==(const RemoteHostStatusRequest&, const RemoteHostStatusRequest&) = default;
 };
 
 struct RemoteTerminalSnapshotRequest {
@@ -7125,6 +7125,12 @@ struct Codec<GuestUrlSubscribeResult> {
 };
 
 template <>
+struct Codec<HelperHostAppResult> {
+    static Result<Json> encode(const HelperHostAppResult& value);
+    static Result<HelperHostAppResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<HistorySearchHit> {
     static Result<Json> encode(const HistorySearchHit& value);
     static Result<HistorySearchHit> decode(const Json& value);
@@ -7434,12 +7440,6 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
-};
-
-template <>
-struct Codec<RemoteHostAppResult> {
-    static Result<Json> encode(const RemoteHostAppResult& value);
-    static Result<RemoteHostAppResult> decode(const Json& value);
 };
 
 template <>
@@ -9147,6 +9147,30 @@ struct Codec<GetSizeStateRequest> {
 };
 
 template <>
+struct Codec<HelperHostAppRequest> {
+    static Result<Json> encode(const HelperHostAppRequest& value);
+    static Result<HelperHostAppRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HelperHostCallRequest> {
+    static Result<Json> encode(const HelperHostCallRequest& value);
+    static Result<HelperHostCallRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HelperHostConfigRequest> {
+    static Result<Json> encode(const HelperHostConfigRequest& value);
+    static Result<HelperHostConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HelperHostStatusRequest> {
+    static Result<Json> encode(const HelperHostStatusRequest& value);
+    static Result<HelperHostStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<HistorySearchRequest> {
     static Result<Json> encode(const HistorySearchRequest& value);
     static Result<HistorySearchRequest> decode(const Json& value);
@@ -9654,30 +9678,6 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
-};
-
-template <>
-struct Codec<RemoteHostAppRequest> {
-    static Result<Json> encode(const RemoteHostAppRequest& value);
-    static Result<RemoteHostAppRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<RemoteHostCallRequest> {
-    static Result<Json> encode(const RemoteHostCallRequest& value);
-    static Result<RemoteHostCallRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<RemoteHostConfigRequest> {
-    static Result<Json> encode(const RemoteHostConfigRequest& value);
-    static Result<RemoteHostConfigRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<RemoteHostStatusRequest> {
-    static Result<Json> encode(const RemoteHostStatusRequest& value);
-    static Result<RemoteHostStatusRequest> decode(const Json& value);
 };
 
 template <>

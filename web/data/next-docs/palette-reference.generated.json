@@ -7504,44 +7504,44 @@
           "command": "cmux machine doctor"
         },
         {
-          "id": "remote.allowAccessibility",
-          "title": "cmux Remote: Allow Accessibility",
+          "id": "helperHost.allowAccessibility",
+          "title": "cmux Computer Use: Allow Accessibility",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.allowScreenRecording",
-          "title": "cmux Remote: Allow Screen Recording",
+          "id": "helperHost.allowScreenRecording",
+          "title": "cmux Computer Use: Allow Screen Recording",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.stopScreenSession",
-          "title": "cmux Remote: End Screen Sharing Session",
+          "id": "helperHost.stopScreenSession",
+          "title": "cmux Computer Use: End Screen Sharing Session",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.refreshPermissions",
-          "title": "cmux Remote: Refresh Permissions",
+          "id": "helperHost.refreshPermissions",
+          "title": "cmux Computer Use: Refresh Permissions",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.restartComputerUse",
-          "title": "cmux Remote: Restart Computer Use",
+          "id": "helperHost.restartComputerUse",
+          "title": "cmux Computer Use: Restart Computer Use",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.restartScreenSharing",
-          "title": "cmux Remote: Restart Screen Sharing",
+          "id": "helperHost.restartScreenSharing",
+          "title": "cmux Computer Use: Restart Screen Sharing",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "remote.showStatus",
-          "title": "cmux Remote: Show Status",
+          "id": "helperHost.showStatus",
+          "title": "cmux Computer Use: Show Status",
           "shortcut": null,
           "command": null
         },

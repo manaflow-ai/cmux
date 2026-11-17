@@ -75,7 +75,7 @@ const COMMANDS: &[&str] = &[
     "set-default-colors",
     // The owner's own terminals and layout (`cmux cloud ssh` opens a tab with new-tab, then types into
     // it): the commands the app's terminal panes send. Host administration (shutdown-daemon,
-    // apps-*, remote-host-*, pairing, credentials) stays local only.
+    // apps-*, helper-host-*, pairing, credentials) stays local only.
     "new-tab",
     "new-pane",
     "new-pane-right",

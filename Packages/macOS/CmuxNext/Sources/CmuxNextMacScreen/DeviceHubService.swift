@@ -91,10 +91,10 @@ public final class DeviceHubService {
     }
     private var loadingID: UUID?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
-    /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
+    /// cmux Computer Use serves this Mac (docs/computer-use-helper.md): the hub for an address and account,
     /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
     public var makeRemoteHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
-    /// The running hub, its account and address after every change (the App anchors cmux Remote).
+    /// The running hub, its account and address after every change (the App anchors cmux Computer Use).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
     public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil,
@@ -232,7 +232,7 @@ public final class DeviceHubService {
 
     /// Platform error codes only: diagnostics must never include tokens or key material.
     private static func startupError(_ error: any Error) -> String {
-        if case .configurationTimeout? = error as? CmuxRemoteError { return "device_hub_configuration_timeout" }
+        if case .configurationTimeout? = error as? CmuxHelperError { return "device_hub_configuration_timeout" }
         switch error as? DeviceIdentity.Failure {
         case .secureEnclaveUnavailable: return "device_identity_secure_enclave_unavailable"
         case let .keychain(status): return "device_identity_keychain_\(status)"

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
+pub const ir_sha256 = "d973d481545aea1acfa88a5aae73d720008abee73019d298393d693ed576002a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1048,6 +1048,12 @@ pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
 };
 
+pub const HelperHostAppResult = struct {
+    host_pid: u32,
+    secret: []const u8,
+    socket: []const u8,
+};
+
 pub const HistorySearchHit = struct {
     at_ms: i64,
     highlights: []const HistorySearchRange,
@@ -1748,12 +1754,6 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
-};
-
-pub const RemoteHostAppResult = struct {
-    host_pid: u32,
-    secret: []const u8,
-    socket: []const u8,
 };
 
 pub const RenderCursor = struct {
@@ -6782,6 +6782,79 @@ pub fn getSizeState(client: anytype, request: GetSizeStateRequest) !wire.Decoded
     );
 }
 
+pub const HelperHostAppRequest = struct {};
+
+pub fn helperHostApp(client: anytype, request: HelperHostAppRequest) !wire.Decoded(HelperHostAppResult) {
+    return client.callTyped(
+        HelperHostAppResult,
+        .{
+            .name = "helper-host-app",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-host-v1",
+        },
+        request,
+    );
+}
+
+pub const HelperHostCallRequest = struct {
+    method: []const u8,
+    params: wire.Field(JsonValue) = .absent,
+};
+
+pub const HelperHostCallResult = JsonValue;
+
+pub fn helperHostCall(client: anytype, request: HelperHostCallRequest) !wire.Decoded(HelperHostCallResult) {
+    return client.callTyped(
+        HelperHostCallResult,
+        .{
+            .name = "helper-host-call",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-host-v1",
+        },
+        request,
+    );
+}
+
+pub const HelperHostConfigRequest = struct {
+    computer_use: wire.Field(bool) = .absent,
+    headless: wire.Field(bool) = .absent,
+    screen_sharing: wire.Field(bool) = .absent,
+};
+
+pub const HelperHostConfigResult = JsonValue;
+
+pub fn helperHostConfig(client: anytype, request: HelperHostConfigRequest) !wire.Decoded(HelperHostConfigResult) {
+    return client.callTyped(
+        HelperHostConfigResult,
+        .{
+            .name = "helper-host-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-host-v1",
+        },
+        request,
+    );
+}
+
+pub const HelperHostStatusRequest = struct {};
+
+pub const HelperHostStatusResult = JsonValue;
+
+pub fn helperHostStatus(client: anytype, request: HelperHostStatusRequest) !wire.Decoded(HelperHostStatusResult) {
+    return client.callTyped(
+        HelperHostStatusResult,
+        .{
+            .name = "helper-host-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-host-v1",
+        },
+        request,
+    );
+}
+
 pub const HistorySearchRequest = struct {
     kinds: ?[]const []const u8 = null,
     limit: wire.Field(u32) = .absent,
@@ -8588,79 +8661,6 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const RemoteHostAppRequest = struct {};
-
-pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
-    return client.callTyped(
-        RemoteHostAppResult,
-        .{
-            .name = "remote-host-app",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostCallRequest = struct {
-    method: []const u8,
-    params: wire.Field(JsonValue) = .absent,
-};
-
-pub const RemoteHostCallResult = JsonValue;
-
-pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
-    return client.callTyped(
-        RemoteHostCallResult,
-        .{
-            .name = "remote-host-call",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostConfigRequest = struct {
-    computer_use: wire.Field(bool) = .absent,
-    headless: wire.Field(bool) = .absent,
-    screen_sharing: wire.Field(bool) = .absent,
-};
-
-pub const RemoteHostConfigResult = JsonValue;
-
-pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
-    return client.callTyped(
-        RemoteHostConfigResult,
-        .{
-            .name = "remote-host-config",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostStatusRequest = struct {};
-
-pub const RemoteHostStatusResult = JsonValue;
-
-pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
-    return client.callTyped(
-        RemoteHostStatusResult,
-        .{
-            .name = "remote-host-status",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
         },
         request,
     );
@@ -12800,6 +12800,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
+    .{ .name = "helper-host-app", .authority = "local-admin", .since = 12, .capability = "helper-host-v1", .stream = null },
+    .{ .name = "helper-host-call", .authority = "local-admin", .since = 12, .capability = "helper-host-v1", .stream = null },
+    .{ .name = "helper-host-config", .authority = "local-admin", .since = 12, .capability = "helper-host-v1", .stream = null },
+    .{ .name = "helper-host-status", .authority = "local-admin", .since = 12, .capability = "helper-host-v1", .stream = null },
     .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
     .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -12874,10 +12878,6 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

@@ -1,0 +1,1015 @@
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+
+use crate::backoff::Backoff;
+
+#[path = "capture.rs"]
+mod capture;
+#[path = "capture_lease.rs"]
+mod capture_lease;
+#[cfg(target_os = "macos")]
+#[path = "capture_macos.rs"]
+mod capture_platform;
+#[cfg(test)]
+#[path = "capture_tests.rs"]
+mod capture_tests;
+
+#[cfg(target_os = "macos")]
+#[path = "macos.rs"]
+mod platform;
+
+/// Advertised by `identify` once `helper-host-status` and `helper-host-call` exist.
+/// The supervisor protocol range this daemon speaks (the host picks one in it).
+const PROTOCOL_MIN: u64 = 1;
+const PROTOCOL_MAX: u64 = 1;
+/// How long a starting host may take to report that it serves.
+const READY_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long one request to the host may take (a permission prompt answers at once).
+const CALL_TIMEOUT: Duration = Duration::from_secs(20);
+/// A host that ran at least this long before it stopped restarts at the
+/// first backoff delay again.
+const HEALTHY_RUN: Duration = Duration::from_secs(30);
+
+/// What the person turned on (`config.json`, kept for the next daemon start).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RemoteConfig {
+    #[serde(default)]
+    pub(crate) computer_use: bool,
+    #[serde(default)]
+    pub(crate) screen_sharing: bool,
+    #[serde(default = "yes")]
+    pub(crate) headless: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for RemoteConfig {
+    fn default() -> Self {
+        Self { computer_use: false, screen_sharing: false, headless: true }
+    }
+}
+
+impl RemoteConfig {
+    fn wanted(&self) -> bool {
+        self.computer_use || self.screen_sharing
+    }
+}
+
+/// The adoption record (`host.json`, 0600), written by the daemon that started the host.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct HostRecord {
+    pid: u32,
+    start_sec: u64,
+    start_usec: u64,
+    /// 64 lowercase hex digits.
+    secret: String,
+    /// The staged bundle's digest: another digest means another build.
+    bundle_digest: String,
+    socket: PathBuf,
+}
+
+/// Where one daemon's host lives.
+#[derive(Clone, Debug)]
+pub(crate) struct Paths {
+    /// Sockets and the record: `rh-<digest>` beside the daemon socket (0700).
+    pub(crate) runtime: PathBuf,
+    /// Persistent: the staged bundle, `config.json`, the worker's device state.
+    pub(crate) state: PathBuf,
+    /// This app build's scope (the worker's Keychain items, one device per build).
+    pub(crate) scope: String,
+    /// The daemon's own socket: the host admits a supervisor only when it is the process serving it.
+    pub(crate) daemon_socket: PathBuf,
+}
+
+impl Paths {
+    fn record(&self) -> PathBuf {
+        self.runtime.join("host.json")
+    }
+    fn supervisor_socket(&self) -> PathBuf {
+        self.runtime.join("s.sock")
+    }
+    fn config(&self) -> PathBuf {
+        self.state.join("config.json")
+    }
+    fn log(&self) -> PathBuf {
+        self.runtime.join("host.log")
+    }
+}
+
+/// The paths for the daemon on `daemon_socket` with durable state under `state_root`.
+pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
+    use sha2::{Digest, Sha256};
+    let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let socket_digest = digest(daemon_socket.as_os_str().as_encoded_bytes());
+    let leaf = format!("rh-{}", &socket_digest[..12]);
+    let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
+    #[cfg(unix)]
+    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
+        runtime = crate::platform::fallback_runtime_dir().join(leaf);
+    }
+    // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
+    let scope_root = cmux_agent_pane_policy::build_identity::path_identity(state_root);
+    let scope_digest = digest(scope_root.as_os_str().as_encoded_bytes());
+    Paths {
+        runtime,
+        state: state_root.join("helper-host"),
+        scope: format!("s{}", &scope_digest[..16]),
+        daemon_socket: daemon_socket.to_path_buf(),
+    }
+}
+
+/// The daemon's view of its host.
+#[derive(Default)]
+pub(crate) struct HelperHostSupervisor {
+    inner: Arc<Inner>,
+}
+
+#[derive(Default)]
+struct Inner {
+    /// The daemon owner is weak so the host reader never keeps a Mux alive.
+    owner: Mutex<Weak<crate::mux::Mux>>,
+    /// Last validated worker screen UUID, replayed to local app subscribers.
+    screen_device_id: Mutex<Option<String>>,
+    paths: Mutex<Option<Paths>>,
+    config: Mutex<RemoteConfig>,
+    state: Mutex<State>,
+    /// Held while a host starts or is adopted, so two callers never start two.
+    starting: Mutex<()>,
+    capture: Mutex<capture_lease::Admission>,
+    backoff: Mutex<Option<Backoff>>,
+    /// Why there is no host, for status.
+    unavailable: Mutex<Option<String>>,
+    /// A newer embedded build waits for the running host to become idle.
+    upgrade_pending: Mutex<bool>,
+}
+
+#[derive(Default)]
+enum State {
+    #[default]
+    Idle,
+    Running(Arc<Connection>),
+}
+
+/// One supervisor connection to a host.
+struct Connection {
+    pid: u32,
+    record: HostRecord,
+    adopted: bool,
+    started: Instant,
+    writer: Mutex<std::os::unix::net::UnixStream>,
+    pending: Mutex<HashMap<u64, SyncSender<Value>>>,
+    next_id: std::sync::atomic::AtomicU64,
+    /// The latest `status` the host reported (its hello, then each event).
+    status: Mutex<Value>,
+    /// Set when the host's connection ended (it exited or drained).
+    closed: (Mutex<bool>, std::sync::Condvar),
+}
+
+impl HelperHostSupervisor {
+    /// Lets this daemon run cmux Computer Use: reads the person's last choices and
+    /// adopts or starts the host when one is wanted.
+    pub(crate) fn configure(&self, paths: Paths, owner: Weak<crate::mux::Mux>) {
+        *lock(&self.inner.owner) = owner;
+        let config = read_config(&paths.config());
+        *lock(&self.inner.capture) = capture_lease::Admission::load(&paths.state);
+        *lock(&self.inner.paths) = Some(paths);
+        *lock(&self.inner.config) = config.clone();
+        if config.wanted() {
+            let inner = Arc::clone(&self.inner);
+            // Off the daemon's start path: staging and adoption touch the disk.
+            let _ = std::thread::Builder::new().name("helper-host-start".into()).spawn(move || {
+                if let Err(error) = Inner::ensure(&inner) {
+                    eprintln!("cmux-tui: cmux Computer Use: {error}");
+                }
+            });
+        }
+    }
+
+    /// The person's choices changed (the app's settings): saved, sent to the
+    /// host, and the host started or stopped to match.
+    pub(crate) fn set_config(&self, update: &Value) -> Result<Value, String> {
+        let _starting = lock(&self.inner.starting);
+        capture::require_open(&self.inner)?;
+        let mut config = lock(&self.inner.config).clone();
+        if let Some(value) = update.get("computer_use").and_then(Value::as_bool) {
+            config.computer_use = value;
+        }
+        if let Some(value) = update.get("screen_sharing").and_then(Value::as_bool) {
+            config.screen_sharing = value;
+        }
+        if let Some(value) = update.get("headless").and_then(Value::as_bool) {
+            config.headless = value;
+        }
+        *lock(&self.inner.config) = config.clone();
+        if let Some(paths) = lock(&self.inner.paths).clone() {
+            write_config(&paths.config(), &config);
+        }
+        if !config.wanted() {
+            Inner::stop(&self.inner);
+            return Ok(self.status());
+        }
+        let connection = Inner::ensure_locked(&self.inner, None)?;
+        connection.call(
+            "config",
+            json!({
+                "computer_use": config.computer_use,
+                "screen_sharing": config.screen_sharing,
+                "headless": config.headless,
+            }),
+        )?;
+        Ok(self.status())
+    }
+
+    /// One request to the host, starting it first when it is wanted and none runs.
+    pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        // Held only for admission and start: the request itself never serializes other calls.
+        // A capture that begins later is fenced by the host's own child admission.
+        let connection = {
+            let _starting = lock(&self.inner.starting);
+            capture::require_open(&self.inner)?;
+            // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
+            // no host starts for a request, so an off switch never runs cmux Computer Use.
+            if !lock(&self.inner.config).wanted() {
+                return Err("cmux Computer Use is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+            }
+            Inner::ensure_locked(&self.inner, None)?
+        };
+        connection.call(method, params)
+    }
+
+    /// The host's state for `helper-host-status` (never starts one).
+    pub(crate) fn status(&self) -> Value {
+        let config = lock(&self.inner.config).clone();
+        let mut status = json!({
+            "config": {
+                "computer_use": config.computer_use,
+                "screen_sharing": config.screen_sharing,
+                "headless": config.headless,
+            },
+            "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
+            // false in a cmux build without cmux Computer Use (Release and NIGHTLY embed none): the
+            // cmux app shares the screen itself there, and `cmux helper-host` says so.
+            "bundled": bundled(),
+        });
+        let Some(fields) = status.as_object_mut() else { return status };
+        match &*lock(&self.inner.state) {
+            State::Running(connection) => {
+                fields.insert("state".into(), json!("running"));
+                fields.insert("adopted".into(), json!(connection.adopted));
+                fields.insert("host".into(), lock(&connection.status).clone());
+            }
+            State::Idle => {
+                let reason = lock(&self.inner.unavailable).clone();
+                let state = match (&reason, config.wanted()) {
+                    (Some(_), true) => "unavailable",
+                    (_, true) => "starting",
+                    _ => "off",
+                };
+                fields.insert("state".into(), json!(state));
+                if let Some(reason) = reason {
+                    fields.insert("reason".into(), json!(reason));
+                }
+            }
+        }
+        status
+    }
+
+    /// Latest authenticated worker screen identity, if one is serving.
+    pub(crate) fn screen_device_id(&self) -> Option<String> {
+        lock(&self.inner.screen_device_id).clone()
+    }
+}
+
+impl Inner {
+    /// The running host's connection: adopted from the record, else started.
+    fn ensure(this: &Arc<Self>) -> Result<Arc<Connection>, String> {
+        let _starting = lock(&this.starting);
+        capture::require_open(this)?;
+        if !lock(&this.config).wanted() {
+            return Err("cmux Computer Use is off".into());
+        }
+        Self::ensure_locked(this, None)
+    }
+
+    // Caller owns starting, including capture transactions and config changes.
+    fn ensure_locked(
+        this: &Arc<Self>,
+        config: Option<&RemoteConfig>,
+    ) -> Result<Arc<Connection>, String> {
+        if let State::Running(connection) = &*lock(&this.state) {
+            return Ok(Arc::clone(connection));
+        }
+        let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Computer Use")?;
+        let result = Self::adopt_or_start(this, &paths, config);
+        match result {
+            Ok(connection) => Self::install_running(this, connection),
+            Err(reason) => {
+                *lock(&this.unavailable) = Some(reason.clone());
+                Err(reason)
+            }
+        }
+    }
+
+    /// Install a connected host and publish the identity from its latest
+    /// authenticated status. The state lock covers the closed check, status
+    /// snapshot, and pointer install so a ready reader cannot race a stale
+    /// connection replacement.
+    fn install_running(
+        this: &Arc<Self>,
+        connection: Arc<Connection>,
+    ) -> Result<Arc<Connection>, String> {
+        let changed = {
+            let mut state = lock(&this.state);
+            if *lock(&connection.closed.0) {
+                let reason = "cmux Computer Use closed before becoming current".to_string();
+                *lock(&this.unavailable) = Some(reason.clone());
+                return Err(reason);
+            }
+            let status = lock(&connection.status).clone();
+            *state = State::Running(Arc::clone(&connection));
+            Self::set_screen_device_id(this, screen_device_id_from_status(&status))
+        };
+        *lock(&this.unavailable) = None;
+        if changed {
+            Self::emit_screen_device_id(this);
+        }
+        Ok(connection)
+    }
+
+    fn adopt_or_start(
+        this: &Arc<Self>,
+        paths: &Paths,
+        override_config: Option<&RemoteConfig>,
+    ) -> Result<Arc<Connection>, String> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (this, paths, override_config);
+            Err("cmux Computer Use runs on macOS only".into())
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let staged = platform::stage(&paths.state)?;
+            if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
+                && let Some(record) = read_record(&paths.record())
+                && capture_platform::record_exited(&record)
+            {
+                capture_platform::exited_group_absent(&record)?;
+            }
+            if let Some(record) = read_record(&paths.record()) {
+                match Self::adopt(this, &record) {
+                    // Capture operates on this recorded host, never an upgrade replacement.
+                    Ok(connection)
+                        if !matches!(*lock(&this.capture), capture_lease::Admission::Open) =>
+                    {
+                        return Ok(connection);
+                    }
+                    Ok(connection) if record.bundle_digest == staged.digest => {
+                        return Ok(connection);
+                    }
+                    Ok(connection) if connection.busy() => {
+                        // Another build serving a session: keep it until it reports idle, then replace it.
+                        *lock(&this.upgrade_pending) = true;
+                        return Ok(connection);
+                    }
+                    Ok(connection) => {
+                        // Another build, idle: drain it now and start this build's copy in this call.
+                        connection.notify("drain");
+                        if !connection.wait_closed(Duration::from_secs(10)) {
+                            return Err(
+                                "the previous cmux Computer Use did not stop for the upgrade"
+                                    .into(),
+                            );
+                        }
+                        let _ = std::fs::remove_file(paths.record());
+                    }
+                    Err(_)
+                        if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
+                            && (!capture_platform::record_exited(&record)
+                                || capture_platform::exited_group_absent(&record).is_err()) =>
+                    {
+                        return Err("helper_host_identity_unverified".into());
+                    }
+                    // A live recorded host that did not answer is never replaced by a second one
+                    // (both would hold the same sockets and device); the next call tries again.
+                    Err(reason)
+                        if platform::process_start(record.pid)
+                            == Some((record.start_sec, record.start_usec)) =>
+                    {
+                        return Err(format!(
+                            "cmux Computer Use pid {} is running but did not answer: {reason}",
+                            record.pid
+                        ));
+                    }
+                    Err(reason) => eprintln!(
+                        "cmux-tui: cmux Computer Use: not adopting pid {}: {reason}",
+                        record.pid
+                    ),
+                }
+            }
+            let config = override_config.cloned().unwrap_or_else(|| lock(&this.config).clone());
+            let secret = mint_secret()?;
+            let pid = platform::spawn_host(
+                &staged,
+                paths,
+                &json!({
+                    "supervisor_secret": secret,
+                    "daemon_build": env!("CARGO_PKG_VERSION"),
+                    "computer_use": config.computer_use,
+                    "screen_sharing": config.screen_sharing,
+                    "headless": config.headless,
+                    "daemon_socket": paths.daemon_socket.display().to_string(),
+                }),
+                READY_TIMEOUT,
+            )?;
+            let (start_sec, start_usec) =
+                platform::process_start(pid).ok_or("the new host exited at once")?;
+            let record = HostRecord {
+                pid,
+                start_sec,
+                start_usec,
+                secret,
+                bundle_digest: staged.digest,
+                socket: paths.supervisor_socket(),
+            };
+            write_record(&paths.record(), &record);
+            let connection = Self::connect(this, record, false)?;
+            Ok(connection)
+        }
+    }
+
+    /// Adopts a recorded host: the same process (pid and start time) and the record's secret.
+    fn adopt(this: &Arc<Self>, record: &HostRecord) -> Result<Arc<Connection>, String> {
+        #[cfg(target_os = "macos")]
+        if platform::process_start(record.pid) != Some((record.start_sec, record.start_usec)) {
+            return Err("the recorded host is not running".into());
+        }
+        Self::connect(this, record.clone(), true)
+    }
+
+    /// Connects, says hello, and starts reading the host's answers and events.
+    fn connect(
+        this: &Arc<Self>,
+        record: HostRecord,
+        adopted: bool,
+    ) -> Result<Arc<Connection>, String> {
+        let stream = std::os::unix::net::UnixStream::connect(&record.socket)
+            .map_err(|error| format!("cannot connect to {}: {error}", record.socket.display()))?;
+        #[cfg(target_os = "macos")]
+        if platform::peer_pid(&stream) != Some(record.pid) {
+            return Err("the supervisor socket's peer is not the recorded host".into());
+        }
+        let mut writer = stream.try_clone().map_err(|error| format!("{error}"))?;
+        let hello = json!({"type": "hello", "secret": record.secret, "min": PROTOCOL_MIN, "max": PROTOCOL_MAX});
+        writeln!(writer, "{hello}").map_err(|error| format!("hello: {error}"))?;
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        stream_timeout(reader.get_ref(), Some(READY_TIMEOUT));
+        reader.read_line(&mut line).map_err(|error| format!("no hello from the host: {error}"))?;
+        stream_timeout(reader.get_ref(), None);
+        let answer: Value =
+            serde_json::from_str(&line).map_err(|_| "the host's hello is not JSON".to_string())?;
+        if answer.get("type").and_then(Value::as_str) != Some("hello") {
+            let message =
+                answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
+            return Err(format!("the host refused this daemon: {message}"));
+        }
+        let weak = Arc::downgrade(this);
+        let pid = record.pid;
+        let connection = Arc::new(Connection {
+            pid,
+            record,
+            adopted,
+            started: Instant::now(),
+            writer: Mutex::new(writer),
+            pending: Mutex::new(HashMap::new()),
+            next_id: std::sync::atomic::AtomicU64::new(1),
+            status: Mutex::new(answer),
+            closed: (Mutex::new(false), std::sync::Condvar::new()),
+        });
+        let reading = Arc::clone(&connection);
+        std::thread::Builder::new()
+            .name("helper-host-read".into())
+            .spawn(move || Self::read(&weak, &reading, reader))
+            .map_err(|error| format!("cannot read the host: {error}"))?;
+        eprintln!(
+            "cmux-tui: cmux Computer Use pid {pid} {}",
+            if adopted { "adopted" } else { "started" }
+        );
+        Ok(connection)
+    }
+
+    fn read(
+        this: &Weak<Self>,
+        connection: &Arc<Connection>,
+        mut reader: BufReader<std::os::unix::net::UnixStream>,
+    ) {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+            if let Some(id) = message.get("id").and_then(Value::as_u64) {
+                if let Some(waiting) = lock(&connection.pending).remove(&id) {
+                    let _ = waiting.send(message);
+                }
+                continue;
+            }
+            if message.get("event").and_then(Value::as_str) == Some("status") {
+                let status = message.get("status").cloned().unwrap_or(Value::Null);
+                let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                *lock(&connection.status) = status.clone();
+                Self::update_screen_device_id(this, connection, &status);
+                if idle
+                    && this.upgrade().is_some_and(|inner| {
+                        *lock(&inner.upgrade_pending) && capture::require_open(&inner).is_ok()
+                    })
+                {
+                    // Never a call here: only this thread reads the answer.
+                    connection.notify("drain");
+                }
+            }
+        }
+        lock(&connection.pending).clear();
+        *lock(&connection.closed.0) = true;
+        connection.closed.1.notify_all();
+        let Some(inner) = this.upgrade() else { return };
+        Self::host_gone(&inner, connection);
+    }
+
+    /// Read only the authenticated host status. The supervisor socket is
+    /// secret-bearing and peer-checked, so this value is safe to project to
+    /// the trusted local app; it never comes from a remote command.
+    fn update_screen_device_id(
+        this: &Weak<Self>,
+        expected_connection: &Arc<Connection>,
+        status: &Value,
+    ) {
+        let Some(inner) = this.upgrade() else { return };
+        let next = screen_device_id_from_status(status);
+        let changed = {
+            // A reader from a drained connection must not overwrite a newer
+            // host's UUID. The state lock also fences this against host_gone.
+            let state = lock(&inner.state);
+            // Only the installed connection may update the cache. A reader
+            // that outlives a replacement is rejected.
+            if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, expected_connection))
+            {
+                return;
+            }
+            Self::set_screen_device_id(&inner, next)
+        };
+        if changed {
+            Self::emit_screen_device_id(&inner);
+        }
+    }
+
+    fn set_screen_device_id(this: &Arc<Self>, next: Option<String>) -> bool {
+        let mut current = lock(&this.screen_device_id);
+        if *current == next {
+            false
+        } else {
+            *current = next;
+            true
+        }
+    }
+
+    fn emit_screen_device_id(this: &Arc<Self>) {
+        if let Some(mux) = lock(&this.owner).upgrade() {
+            mux.emit(crate::MuxEvent::ScreenDeviceChanged(lock(&this.screen_device_id).clone()));
+        }
+    }
+
+    /// The host's connection ended (it exited, crashed or drained): forget it,
+    /// and start a new one after the backoff delay while one is wanted.
+    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+        // Fence the identity clear with the exact connection pointer. The
+        // state and UUID transition are linearized together, so a replacement
+        // host cannot be cleared by an old reader finishing late.
+        {
+            let mut state = lock(&this.state);
+            if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
+                return;
+            }
+            *state = State::Idle;
+            let mut current = lock(&this.screen_device_id);
+            let changed = current.take().is_some();
+            drop(current);
+            if changed {
+                // Keep the state lock through the notification so a new
+                // connection cannot publish a UUID before this clear.
+                if let Some(mux) = lock(&this.owner).upgrade() {
+                    mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
+                }
+            }
+        }
+        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
+        if let Some(paths) = lock(&this.paths).clone()
+            && read_record(&paths.record()).is_some_and(|record| record == connection.record)
+            && capture::may_remove_record(this, &connection.record)
+        {
+            let _ = std::fs::remove_file(paths.record());
+        }
+        if !lock(&this.config).wanted() || capture::require_open(this).is_err() {
+            return;
+        }
+        let ran = connection.started.elapsed();
+        let delay = if upgraded {
+            Duration::ZERO
+        } else {
+            let mut backoff = lock(&this.backoff);
+            let backoff = backoff.get_or_insert_with(|| {
+                Backoff::new(Duration::from_millis(200), Duration::from_secs(30))
+            });
+            if ran >= HEALTHY_RUN {
+                backoff.reset();
+            }
+            backoff.next_delay()
+        };
+        eprintln!(
+            "cmux-tui: cmux Computer Use pid {} stopped after {} ms; starting again in {} ms",
+            connection.pid,
+            ran.as_millis(),
+            delay.as_millis()
+        );
+        let inner = Arc::downgrade(this);
+        let _ = std::thread::Builder::new().name("helper-host-restart".into()).spawn(move || {
+            // A bounded restart delay on this thread, not a synchronization.
+            std::thread::sleep(delay);
+            let Some(inner) = inner.upgrade() else { return };
+            if lock(&inner.config).wanted()
+                && let Err(error) = Self::ensure(&inner)
+            {
+                eprintln!("cmux-tui: cmux Computer Use restart failed: {error}");
+            }
+        });
+    }
+
+    /// Nothing wants the host: end its supervisor connection; the host exits
+    /// after its grace with no daemon (it ends a running session first).
+    fn stop(this: &Arc<Self>) {
+        // `host_gone` normally clears the worker identity when the reader sees
+        // EOF. A deliberate drain first takes the state to Idle, though, so
+        // the reader's connection fence intentionally returns early. Clear the
+        // cached identity at this transition instead of leaving a stale View
+        // screen action behind until a later host starts.
+        let state = {
+            let mut state = lock(&this.state);
+            let state = std::mem::take(&mut *state);
+            let changed = lock(&this.screen_device_id).take().is_some();
+            if changed && let Some(mux) = lock(&this.owner).upgrade() {
+                mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
+            }
+            state
+        };
+        if let State::Running(connection) = state {
+            connection.notify("drain");
+        }
+    }
+}
+
+/// Extract and validate the worker UUID from the supervisor's authenticated
+/// status. Production host startup is macOS-only; keeping parsing platform
+/// independent makes the authenticated cache contract testable on Linux.
+fn screen_device_id_from_status(status: &Value) -> Option<String> {
+    status
+        .pointer("/screen/device_id")
+        .or_else(|| status.pointer("/host/screen/device_id"))
+        .and_then(Value::as_str)
+        .and_then(validated_screen_device_id)
+}
+
+fn validated_screen_device_id(value: &str) -> Option<String> {
+    uuid::Uuid::parse_str(value).ok().map(|value| value.hyphenated().to_string())
+}
+
+impl Connection {
+    /// Whether the host reports a running Screen Sharing session.
+    fn busy(&self) -> bool {
+        lock(&self.status).get("busy").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    /// One request whose answer nobody waits for.
+    fn notify(&self, method: &str) {
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _ =
+            writeln!(lock(&self.writer), "{}", json!({"id": id, "method": method, "params": {}}));
+    }
+
+    /// Waits until the host's connection ended, at most `limit`; whether it did.
+    fn wait_closed(&self, limit: Duration) -> bool {
+        let guard = lock(&self.closed.0);
+        let (guard, _) = self
+            .closed
+            .1
+            .wait_timeout_while(guard, limit, |closed| !*closed)
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard
+    }
+
+    fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.call_with_timeout(method, params, CALL_TIMEOUT)
+    }
+
+    fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sender, receiver): (SyncSender<Value>, Receiver<Value>) =
+            std::sync::mpsc::sync_channel(1);
+        lock(&self.pending).insert(id, sender);
+        let request = json!({"id": id, "method": method, "params": params});
+        if writeln!(lock(&self.writer), "{request}").is_err() {
+            lock(&self.pending).remove(&id);
+            return Err("cmux Computer Use stopped".into());
+        }
+        let answer = receiver.recv_timeout(timeout).map_err(|_| {
+            lock(&self.pending).remove(&id);
+            format!("cmux Computer Use did not answer {method}")
+        })?;
+        if answer.get("ok").and_then(Value::as_bool) == Some(true) {
+            return Ok(answer.get("result").cloned().unwrap_or(Value::Null));
+        }
+        let code = answer.pointer("/error/code").and_then(Value::as_str).unwrap_or("failed");
+        let message = answer
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .unwrap_or("cmux Computer Use refused");
+        Err(format!("{code}: {message}"))
+    }
+}
+
+fn stream_timeout(stream: &std::os::unix::net::UnixStream, timeout: Option<Duration>) {
+    let _ = stream.set_read_timeout(timeout);
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn mint_secret() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| format!("cannot mint a secret: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn read_config(path: &Path) -> RemoteConfig {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn write_config(path: &Path, config: &RemoteConfig) {
+    if let Ok(bytes) = serde_json::to_vec_pretty(config) {
+        write_private(path, &bytes);
+    }
+}
+
+fn read_record(path: &Path) -> Option<HostRecord> {
+    std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+fn write_record(path: &Path, record: &HostRecord) {
+    if let Ok(bytes) = serde_json::to_vec(record) {
+        write_private(path, &bytes);
+    }
+}
+
+/// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory.
+fn write_private(path: &Path, bytes: &[u8]) {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let Some(dir) = path.parent() else { return };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    let temporary = path.with_extension("tmp");
+    let _ = std::fs::remove_file(&temporary);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary)
+        .and_then(|mut file| file.write_all(bytes));
+    if written.is_ok() {
+        let _ = std::fs::rename(&temporary, path);
+    }
+}
+
+/// Whether this cmux build embeds cmux Computer Use (`CMUX_HELPER_APP`, or the app
+/// bundle that holds this daemon). Never starts or stages it.
+fn bundled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::embedded().is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// A live process's start time (macOS), for the app grant.
+#[cfg(target_os = "macos")]
+pub(crate) fn process_stamp(pid: u32) -> Option<(u64, u64)> {
+    platform::process_start(pid)
+}
+
+impl crate::mux::Mux {
+    /// Lets this daemon run cmux Computer Use (macOS): the host for the daemon on
+    /// `daemon_socket`, with durable state beside the daemon's own.
+    pub fn configure_helper_host(self: &Arc<Self>, daemon_socket: &Path) {
+        let Some(state_root) = crate::platform::workspace_state_dir()
+            .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
+        else {
+            return;
+        };
+        self.control_clients
+            .helper_host
+            .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        Connection, HostRecord, Inner, State, screen_device_id_from_status,
+        validated_screen_device_id,
+    };
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    use std::sync::{Condvar, Mutex};
+    use std::time::Instant;
+
+    fn connection(status: Value) -> Arc<Connection> {
+        let (writer, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        Arc::new(Connection {
+            pid: 7,
+            record: HostRecord {
+                pid: 7,
+                start_sec: 1,
+                start_usec: 2,
+                secret: "secret".into(),
+                bundle_digest: "digest".into(),
+                socket: "/tmp/cmux-helper-host-test.sock".into(),
+            },
+            adopted: false,
+            started: Instant::now(),
+            writer: Mutex::new(writer),
+            pending: Mutex::new(std::collections::HashMap::new()),
+            next_id: std::sync::atomic::AtomicU64::new(1),
+            status: Mutex::new(status),
+            closed: (Mutex::new(false), Condvar::new()),
+        })
+    }
+
+    #[test]
+    fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
+        for status in [
+            json!({}),
+            json!({"host":{"screen":{"device_id":"not-a-uuid"}}}),
+            json!({"host":{"screen":{"device_id":42}}}),
+        ] {
+            assert_eq!(screen_device_id_from_status(&status), None);
+        }
+        assert_eq!(validated_screen_device_id("not-a-uuid"), None);
+    }
+
+    #[test]
+    fn screen_identity_reads_only_the_authenticated_status_path() {
+        let status = json!({
+            "device_id": "550e8400-e29b-41d4-a716-446655440000",
+            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
+        });
+        let expected = Some("550e8400-e29b-41d4-a716-446655440000".to_string());
+        assert_eq!(screen_device_id_from_status(&status), expected);
+    }
+
+    #[test]
+    fn screen_identity_normalizes_a_valid_uuid() {
+        assert_eq!(
+            validated_screen_device_id("550E8400-E29B-41D4-A716-446655440000"),
+            Some("550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+    }
+
+    #[test]
+    fn screen_identity_cache_dedupes_rotation_and_removal() {
+        let inner = Arc::new(Inner::default());
+        let first = "550e8400-e29b-41d4-a716-446655440000".to_string();
+        let second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
+        assert!(Inner::set_screen_device_id(&inner, Some(first.clone())));
+        assert!(!Inner::set_screen_device_id(&inner, Some(first)));
+        assert!(Inner::set_screen_device_id(&inner, Some(second)));
+        assert!(Inner::set_screen_device_id(&inner, None));
+        assert!(!Inner::set_screen_device_id(&inner, None));
+    }
+
+    #[test]
+    fn screen_identity_ready_status_is_seeded_when_connection_becomes_running() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let installed =
+            Inner::install_running(&inner, connection(json!({"screen": {"device_id": id}})))
+                .unwrap();
+
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
+        assert!(matches!(
+            &*super::lock(&inner.state),
+            State::Running(current) if Arc::ptr_eq(current, &installed)
+        ));
+    }
+
+    #[test]
+    fn screen_identity_ready_update_while_idle_is_ignored_until_install() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let connection = connection(json!({"screen": {"device_id": id}}));
+
+        Inner::update_screen_device_id(
+            &Arc::downgrade(&inner),
+            &connection,
+            &json!({"screen": {"device_id": id}}),
+        );
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+        Inner::install_running(&inner, connection).unwrap();
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
+    }
+
+    #[test]
+    fn screen_identity_closed_connection_is_rejected_before_install() {
+        let inner = Arc::new(Inner::default());
+        let connection = connection(json!({
+            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
+        }));
+        *super::lock(&connection.closed.0) = true;
+
+        let error = Inner::install_running(&inner, connection)
+            .err()
+            .expect("closed connection must be rejected");
+        assert_eq!(error, "cmux Computer Use closed before becoming current");
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+    }
+
+    #[test]
+    fn stopping_a_running_host_clears_screen_identity_before_reader_exit() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        Inner::install_running(
+            &inner,
+            connection(json!({
+                "screen": {"device_id": id}
+            })),
+        )
+        .unwrap();
+
+        Inner::stop(&inner);
+
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+    }
+
+    #[test]
+    fn screen_identity_stale_reader_cannot_restore_identity_after_clear_and_replacement() {
+        let inner = Arc::new(Inner::default());
+        let first_id = "550e8400-e29b-41d4-a716-446655440000";
+        let second_id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+        let first = connection(json!({"screen": {"device_id": first_id}}));
+        let second = connection(json!({"screen": {"device_id": second_id}}));
+
+        Inner::install_running(&inner, Arc::clone(&first)).unwrap();
+        Inner::host_gone(&inner, &first);
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+        Inner::install_running(&inner, Arc::clone(&second)).unwrap();
+
+        Inner::host_gone(&inner, &first);
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
+
+        Inner::update_screen_device_id(
+            &Arc::downgrade(&inner),
+            &first,
+            &json!({"screen": {"device_id": first_id}}),
+        );
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
+        assert!(matches!(
+            &*super::lock(&inner.state),
+            State::Running(current) if Arc::ptr_eq(current, &second)
+        ));
+    }
+}

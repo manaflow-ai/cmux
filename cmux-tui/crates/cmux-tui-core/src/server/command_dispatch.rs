@@ -115,18 +115,18 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::RemoteHostStatus => remote_host_command::status(mux, client),
-        Command::RemoteHostCall { method, params } => {
-            remote_host_command::call(mux, client, &method, params)
+        Command::HelperHostStatus => helper_host_command::status(mux, client),
+        Command::HelperHostCall { method, params } => {
+            helper_host_command::call(mux, client, &method, params)
         }
-        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
-            remote_host_command::config(
+        Command::HelperHostConfig { computer_use, screen_sharing, headless } => {
+            helper_host_command::config(
                 mux,
                 client,
                 json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
             )
         }
-        Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::HelperHostApp => helper_host_command::app(mux, client),
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }

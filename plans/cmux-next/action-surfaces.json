@@ -13039,7 +13039,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote show-status",
+      "cli_name" : "helper-host show-status",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13049,7 +13049,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.showStatus",
+      "id" : "helperHost.showStatus",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13061,8 +13061,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Show Status",
-      "title_key" : "action.remote.showStatus",
+      "title" : "cmux Computer Use: Show Status",
+      "title_key" : "action.helperHost.showStatus",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13070,7 +13070,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote refresh-permissions",
+      "cli_name" : "helper-host refresh-permissions",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13080,7 +13080,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.refreshPermissions",
+      "id" : "helperHost.refreshPermissions",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13092,8 +13092,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Refresh Permissions",
-      "title_key" : "action.remote.refreshPermissions",
+      "title" : "cmux Computer Use: Refresh Permissions",
+      "title_key" : "action.helperHost.refreshPermissions",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13101,7 +13101,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote allow-accessibility",
+      "cli_name" : "helper-host allow-accessibility",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13111,7 +13111,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.allowAccessibility",
+      "id" : "helperHost.allowAccessibility",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13123,8 +13123,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Allow Accessibility",
-      "title_key" : "action.remote.allowAccessibility",
+      "title" : "cmux Computer Use: Allow Accessibility",
+      "title_key" : "action.helperHost.allowAccessibility",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13132,7 +13132,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote allow-screen-recording",
+      "cli_name" : "helper-host allow-screen-recording",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13142,7 +13142,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.allowScreenRecording",
+      "id" : "helperHost.allowScreenRecording",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13154,8 +13154,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Allow Screen Recording",
-      "title_key" : "action.remote.allowScreenRecording",
+      "title" : "cmux Computer Use: Allow Screen Recording",
+      "title_key" : "action.helperHost.allowScreenRecording",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13163,7 +13163,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote restart-computer-use",
+      "cli_name" : "helper-host restart-computer-use",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13173,7 +13173,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.restartComputerUse",
+      "id" : "helperHost.restartComputerUse",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13185,8 +13185,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Restart Computer Use",
-      "title_key" : "action.remote.restartComputerUse",
+      "title" : "cmux Computer Use: Restart Computer Use",
+      "title_key" : "action.helperHost.restartComputerUse",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13194,7 +13194,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote restart-screen-sharing",
+      "cli_name" : "helper-host restart-screen-sharing",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13204,7 +13204,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.restartScreenSharing",
+      "id" : "helperHost.restartScreenSharing",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13216,8 +13216,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: Restart Screen Sharing",
-      "title_key" : "action.remote.restartScreenSharing",
+      "title" : "cmux Computer Use: Restart Screen Sharing",
+      "title_key" : "action.helperHost.restartScreenSharing",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13225,7 +13225,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote stop-screen-session",
+      "cli_name" : "helper-host stop-screen-session",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13235,7 +13235,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "remote.stopScreenSession",
+      "id" : "helperHost.stopScreenSession",
       "main_menu" : null,
       "mcp" : "ownerVerb",
       "palette" : "offered",
@@ -13247,8 +13247,8 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "cmux Remote: End Screen Sharing Session",
-      "title_key" : "action.remote.stopScreenSession",
+      "title" : "cmux Computer Use: End Screen Sharing Session",
+      "title_key" : "action.helperHost.stopScreenSession",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13256,7 +13256,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote share-this-mac",
+      "cli_name" : "mac-screen share-this-mac",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13287,7 +13287,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote stop-sharing-this-mac",
+      "cli_name" : "mac-screen stop-sharing-this-mac",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -13318,7 +13318,7 @@
 
       ],
       "cli" : "ownerVerb",
-      "cli_name" : "remote device-access",
+      "cli_name" : "mac-screen device-access",
       "context_menu" : "noObject",
       "context_menus" : [
 

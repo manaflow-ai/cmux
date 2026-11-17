@@ -117,7 +117,7 @@ pub(super) fn subscribe_command(
         if trusted_screen_client {
             let initial = json!({
                 "event": "screen-device-changed",
-                "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                "screen_device_id": event_mux.control_clients.helper_host.screen_device_id(),
             });
             if let Err(error) = writer.send_stream_backpressured(&initial, &outbound_stream) {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
@@ -163,7 +163,7 @@ pub(super) fn subscribe_command(
                 // payload; a rapid rotation/removal cannot regress the app.
                 MuxEvent::ScreenDeviceChanged(_) => json!({
                     "event": "screen-device-changed",
-                    "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                    "screen_device_id": event_mux.control_clients.helper_host.screen_device_id(),
                 }),
                 // A draft goes only to a trusted local connection that asked
                 // for drafts in set-client-info (the admission of

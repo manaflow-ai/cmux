@@ -1504,14 +1504,14 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
+      "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Computer Use: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
       ]
     },
     {
       "agent": "userOnly",
-      "why": "cmux Remote: the person's call.",
+      "why": "cmux Computer Use: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
       ]

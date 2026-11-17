@@ -372,7 +372,7 @@ virtualization facts on Linux) and `machine_symbol` the SF Symbol that kind draw
 the symbol by that name and treat an unknown or absent kind as `generic`.
 
 With `machine-identity-v1`, `screen_device_id` is the independently generated
-UUID of the authenticated cmux Remote screen worker. It is present only in an
+UUID of the authenticated cmux Computer Use screen worker. It is present only in an
 enriched reply and is `null` when that worker is unavailable; it is unrelated to
 `machine_id`, joined ids, host names, and display names.
 
@@ -11548,38 +11548,38 @@ from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
 These operations are exposed only in the SDKs' private `raw` namespace.
 
-## cmux Remote (remote-host-v1)
+## cmux Computer Use (helper-host-v1)
 
-macOS only (docs/cmux-remote.md). The daemon supervises cmux Remote, the signed
+macOS only (docs/computer-use-helper.md). The daemon supervises cmux Computer Use, the signed
 helper that holds Accessibility and Screen Recording for Computer Use and Screen
-Sharing. Elsewhere every command answers `remote_host_unavailable`.
+Sharing. Elsewhere every command answers `helper_host_unavailable`.
 
-### remote-host-status
+### helper-host-status
 
-`{"cmd":"remote-host-status"}`. The host's state: `state` (`off`, `starting`,
+`{"cmd":"helper-host-status"}`. The host's state: `state` (`off`, `starting`,
 `running`, `unavailable` with `reason`), `config`, `upgrade` and, while it runs,
 `host` (its grants, workers and Screen Sharing state). Never starts the host.
 Only the verified app sees `host.screen.devices`, `session`, `pending`, `indicator` and `banner` (they name the viewers).
 
-### remote-host-call
+### helper-host-call
 
-`{"cmd":"remote-host-call","method":M,"params":{...}}` for `status`, `refresh`,
+`{"cmd":"helper-host-call","method":M,"params":{...}}` for `status`, `refresh`,
 `request {permission}`, `open_settings {permission}`, `restart {worker, force}`,
 `screen.share {on}`, `screen.access {device, scope}` and `screen.stop_session`.
 Any local Unix connection may read, refresh, ask macOS for a grant, restart a
 worker and lower access. Turning sharing on or raising a device's access is
 the verified app's only (`origin.forbidden`).
 
-### remote-host-config
+### helper-host-config
 
-`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B}`,
+`{"cmd":"helper-host-config","computer_use":B,"screen_sharing":B,"headless":B}`,
 each optional. The verified app's switches; the daemon saves them and starts or
 stops the host.
 
-### remote-host-app
+### helper-host-app
 
-`{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
-Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
+`{"cmd":"helper-host-app"}`. The verified app's own credentials for cmux
+Computer Use's app socket: `{socket, secret, host_pid}`. The host admits only that
 app process; the secret is never logged or journaled.
 
 ### device-setup

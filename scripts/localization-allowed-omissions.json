@@ -7207,11 +7207,11 @@
   },
   "remote.status.title": {
     "class": "brand",
-    "source": "cmux Remote"
+    "source": "cmux Computer Use"
   },
-  "settings.group.cmuxRemote": {
+  "settings.group.helperHost": {
     "class": "brand",
-    "source": "cmux Remote"
+    "source": "cmux Computer Use"
   },
   "remote.status.computerUse": {
     "source": "Computer Use: %@",

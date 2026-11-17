@@ -58,7 +58,7 @@ server (Mac mini cmux server or Linux Cloud VM)
     remote role:   cmux-remote-browser (Rust, new)     session, stream, native-UI model, files, clipboard, audio, sync
                      └ C ABI ─ libcmux_rb_shim (C++, fork CEF Chrome style + remote presentation patches)
                      └ encoders: VideoToolbox (Mac, objc2-video-toolbox), x264/openh264 (Linux), lossless tiles
-                     └ media in: cmux Remote Camera/Mic virtual capture devices (fork)
+                     └ media in: cmux Computer Use Camera/Mic virtual capture devices (fork)
 client (cmux macOS app)
   cmux-rd-core + cmux-rb-client (Rust, linked through cmux-rd-ffi)   transport, decode scheduling, tile compositing math,
                                                                        audio jitter buffer, key routing decision, menu/dialog
@@ -78,7 +78,7 @@ The local in-app CEF tab (windowed Chrome style, browser.md decision 2) is uncha
 1. Windowless Chrome style: a Chrome-style browser hosted on a hidden widget (Linux: Ozone headless platform; Mac: an off-screen NSWindow that never orders in), frames exported from Viz `FrameSinkVideoCapturer` with update rects, shared texture on Mac (IOSurface), CPU or dmabuf on Linux.
 2. External UI delegates: context menu model (reuse the local shim's JSON and token protocol), external popup menus for `<select>` (as Mac Chromium does), JS and beforeunload dialogs, file chooser, download, permission prompt, color chooser, print to PDF, find; every Chrome bubble or popup widget without a data model is exported as a popup surface (its own frame sink, anchor rect, size).
 3. Input: macOS edit commands carried with key events (Cmd-C/V/Z, Option-arrow, Emacs keys, DefaultKeyBinding) on Linux; scroll phase and momentum; pinch gesture events; overscroll report for swipe navigation; Cmd-click disposition on Linux; IME composition API parity; macOS user agent and client hints from the viewer.
-4. Media: "cmux Remote Camera" and "cmux Remote Mic" capture devices fed by the remote browser host; audio output tap (planar float PCM with pts); screen-share source fed by the viewer's ScreenCaptureKit picker.
+4. Media: "cmux Computer Use Camera" and "cmux Computer Use Mic" capture devices fed by the remote browser host; audio output tap (planar float PCM with pts); screen-share source fed by the viewer's ScreenCaptureKit picker.
 5. WebAuthn relay to the viewer (origin shown by the client; ASAuthorization with Apple's web-browser public-key-credential entitlement, which we apply for).
 6. Web notifications to the viewer (UNUserNotificationCenter), clicks back.
 7. Accessibility tree export (diffed) for VoiceOver.

@@ -5,8 +5,8 @@ import Foundation
 import Testing
 
 /// Stop Sharing This Mac (`macScreen.stopSharing`) is the one row that ends this Mac's session, wherever it is
-/// hosted: the app's own host, or cmux Remote's worker in a build that bundles cmux Remote. Before, the worker's
-/// session had its own row (cmux Remote: End Screen Sharing Session), and this row read "no device" there.
+/// hosted: the app's own host, or cmux Computer Use's worker in a build that bundles cmux Computer Use. Before, the worker's
+/// session had its own row (cmux Computer Use: End Screen Sharing Session), and this row read "no device" there.
 @MainActor @Suite(.serialized)
 struct MacScreenStopSharingTests {
     private func actions(worker: MacScreenWorkerSession) -> (MacScreenActions, MacScreenPages) {

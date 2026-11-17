@@ -2,7 +2,7 @@
 //! the bundle's content digest (its executable, its seal and its Info.plist), its signature
 //! checked by `codesign` against a code requirement, one staged copy per digest under a
 //! private root (copied with `ditto`, checked again, renamed into place), and the old copies
-//! pruned. cmux Remote (`cmux-tui-core` `remote_host`) and the acpmux share host's Screen
+//! pruned. cmux Computer Use (`cmux-tui-core` `remote_host`) and the acpmux share host's Screen
 //! Sharing helper stage their helpers through it, each with its own bundle ids, names and
 //! requirement. The tools it runs exist on macOS only; elsewhere every call that runs one
 //! fails, and the rest (the digest, the slots, the pruning) is tested on any Unix.

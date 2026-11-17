@@ -10,7 +10,7 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScreenRoute {
-    /// A screen through the device hub: a Mac's (cmux Remote's screen worker on that Mac), a
+    /// A screen through the device hub: a Mac's (cmux Computer Use's screen worker on that Mac), a
     /// Linux desktop's (`cmux-rd linux-host`) or a Windows PC's (`cmux-rd windows-host`). The hub only lists a machine once it registered;
     /// `cmux_window_rules::screen_share::plan` refuses one it does not list.
     Hub,

@@ -207,7 +207,7 @@ class AffectedTests(unittest.TestCase):
 
     def test_a_deferred_swift_selection_keeps_every_dependent_package(self):
         # The CmuxNext manifest defers focused_tests' Swift selection (it comes back empty); the
-        # CmuxVNC change still reaches CmuxScreenKit and CmuxRemote, whose suites must run.
+        # CmuxVNC change still reaches CmuxScreenKit and CmuxHelperHost, whose suites must run.
         files = ["Packages/macOS/CmuxNext/Package.swift", "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift"]
         result = plan(files)
         self.assertFalse(result["all"], result["reasons"])

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
+// cmux-tui mux protocol 12, IR d973d481545aea1acfa88a5aae73d720008abee73019d298393d693ed576002a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -934,6 +934,14 @@ pub struct GuestUrlSubscribeResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelperHostAppResult {
+    pub host_pid: u32,
+    pub secret: String,
+    pub socket: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistorySearchHit {
     pub at_ms: i64,
     pub highlights: Vec<HistorySearchRange>,
@@ -1529,14 +1537,6 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RemoteHostAppResult {
-    pub host_pid: u32,
-    pub secret: String,
-    pub socket: String,
 }
 
 #[rustfmt::skip]

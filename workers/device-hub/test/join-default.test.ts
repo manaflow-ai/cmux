@@ -59,7 +59,7 @@ describe("join turns Mac Screen sharing on", () => {
     const credential = await joinedMachine(person.sub);
     const mini = await machineDevice(person, credential);
     expect((await registerAs(mini, true)).macScreenShared).toBe(true);
-    // The person turns it off (the off switch on that Mac, or `cmux remote-host share off`).
+    // The person turns it off (the off switch on that Mac, or `cmux helper-host share off`).
     const off = await mini.call("PUT", `/v1/devices/${mini.id}/mac-screen`, { shared: false });
     expect(off.json.device.macScreenShared).toBe(false);
     // A daemon restart, an update and a second join all register again with shareByJoin.

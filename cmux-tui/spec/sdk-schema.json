@@ -2464,7 +2464,7 @@
      "since": 12,
      "capability": "machine-identity-v1",
      "constraints": [
-      "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+      "The authenticated cmux Computer Use worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
      ]
     }
    },
@@ -10314,7 +10314,7 @@
    },
    "additional_properties": false
   },
-  "RemoteHostAppResult": {
+  "HelperHostAppResult": {
    "kind": "object",
    "fields": {
     "socket": {
@@ -26527,10 +26527,10 @@
     "The secret is never journaled, logged or put in an event."
    ]
   },
-  "remote-host-status": {
+  "helper-host-status": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-host-v1",
    "request": {
     "kind": "object",
     "fields": {},
@@ -26542,14 +26542,14 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "cmux Computer Use (docs/computer-use-helper.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "Never starts the host. The device list under host.screen.devices is the verified app's only."
    ]
   },
-  "remote-host-call": {
+  "helper-host-call": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-host-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -26578,14 +26578,14 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "cmux Computer Use (docs/computer-use-helper.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
    ]
   },
-  "remote-host-config": {
+  "helper-host-config": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-host-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -26622,14 +26622,14 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "cmux Computer Use (docs/computer-use-helper.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "The verified app connection only; the daemon saves the switches and starts or stops the host."
    ]
   },
-  "remote-host-app": {
+  "helper-host-app": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-host-v1",
    "request": {
     "kind": "object",
     "fields": {},
@@ -26637,11 +26637,11 @@
    },
    "result": {
     "kind": "ref",
-    "name": "RemoteHostAppResult"
+    "name": "HelperHostAppResult"
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "cmux Computer Use (docs/computer-use-helper.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "The verified app connection only; the secret admits only that app process and is never logged or journaled."
    ]
   },

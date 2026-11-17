@@ -33,6 +33,7 @@ mod cua_recovery;
 mod customize_library_tool;
 mod customize_tools;
 mod device_tools;
+mod helper_tools;
 mod keybinding_tools;
 mod keys_tools;
 mod live_code_tools;
@@ -41,7 +42,6 @@ mod messages;
 mod open_tool;
 mod placement;
 mod pptx_view;
-mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
@@ -187,7 +187,7 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
-    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    /// One legacy daemon command (cmux Computer Use's `helper-host-*`).
     fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
             FailureKind::NotRun,
@@ -391,8 +391,8 @@ impl Backend for LiveBackend {
         if let Some(fields) = request.as_object_mut() {
             fields.insert("id".into(), json!(1));
         }
-        super::remote_host::daemon_value(&self.global, &request)
-            .map_err(remote_tools::daemon_failure)
+        super::helper_host::daemon_value(&self.global, &request)
+            .map_err(helper_tools::daemon_failure)
     }
 
     fn resource(
@@ -1118,7 +1118,7 @@ impl<B: Backend> Server<B> {
         if let Some(result) = device_tools::call(name, &arguments) {
             return Ok(result);
         }
-        if let Some(tool) = remote_tools::find(name) {
+        if let Some(tool) = helper_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {

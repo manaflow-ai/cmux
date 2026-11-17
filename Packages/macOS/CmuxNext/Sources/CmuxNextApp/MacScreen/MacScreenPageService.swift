@@ -194,21 +194,21 @@ extension AppServices {
         macScreenPages.registerControl(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
     }
 
-    var cmuxRemoteActions: CmuxRemoteActionEnvironment {
-        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
+    var cmuxRemoteActions: CmuxHelperActionEnvironment {
+        CmuxHelperActionEnvironment(remote: helperHost, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
                                     window: { [weak self] in self?.windows.active?.window },
                                     openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
     }
 
-    /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
-    /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
+    /// cmux Computer Use (docs/computer-use-helper.md): the daemon's signed host for Computer Use and Screen
+    /// Sharing; ``CmuxHelperService`` does the work, this only passes it the app's parts.
     func startCmuxRemote(_ settings: SettingsController) {
         let auth = cloud.auth
-        guard let devices = cmuxRemote.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
+        guard let devices = helperHost.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
-        let syncConsent = cmuxRemote.bindConsent(devices) { [weak consent] in
+        let syncConsent = helperHost.bindConsent(devices) { [weak consent] in
             guard let consent else { return (true, false, false) }
             return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
         }
@@ -216,7 +216,7 @@ extension AppServices {
             previous()
             syncConsent()
         }
-        cmuxRemote.follow(settings) { [weak self] in
+        helperHost.follow(settings) { [weak self] in
             guard let self else { return (false, false) }
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
             return (cloud.isSignedIn, !registry.disabledFeatures.contains(.computerUse))
@@ -225,7 +225,7 @@ extension AppServices {
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
-        // cmux Remote (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
+        // cmux Computer Use (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
         startCmuxRemote(settings)
         ShareHostDevice.prefer(in: deviceHub, build: environment.build, bundleID: environment.launch.bundleID, loginKeychain: loginKeychain) { [auth = cloud.auth] in try await auth.tokens().access }
         deviceHub.start(settings: settings)

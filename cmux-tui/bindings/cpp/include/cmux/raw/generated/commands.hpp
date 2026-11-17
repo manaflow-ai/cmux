@@ -168,6 +168,10 @@ public:
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GetHostSizePolicyResult> get_host_size_policy(const GetHostSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetSizeStateResult> get_size_state(const GetSizeStateRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<HelperHostAppResult> helper_host_app(const HelperHostAppRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> helper_host_call(const HelperHostCallRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> helper_host_config(const HelperHostConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> helper_host_status(const HelperHostStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<HistorySearchResult> history_search(const HistorySearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<HomeInboxResult> home_inbox(const HomeInboxRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
@@ -242,10 +246,6 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
-    [[nodiscard]] Result<RemoteHostAppResult> remote_host_app(const RemoteHostAppRequest& request = {}, RequestOptions options = {});
-    [[nodiscard]] Result<JsonValue> remote_host_call(const RemoteHostCallRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<JsonValue> remote_host_config(const RemoteHostConfigRequest& request = {}, RequestOptions options = {});
-    [[nodiscard]] Result<JsonValue> remote_host_status(const RemoteHostStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remote_terminal_snapshot(const RemoteTerminalSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remove_screens_from_screen_group(const RemoveScreensFromScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RemoveTabsFromTabGroupResult> remove_tabs_from_tab_group(const RemoveTabsFromTabGroupRequest& request, RequestOptions options = {});

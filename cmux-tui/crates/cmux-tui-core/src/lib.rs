@@ -27,8 +27,8 @@ mod browser_provider;
 pub mod first_party_dir;
 #[cfg(all(test, unix))]
 mod fork_tests;
+pub mod helper_host;
 mod lock_rank;
-pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;

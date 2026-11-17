@@ -162,7 +162,7 @@ struct Asker {
     feed: String,
     mint: Result<String, AskError>,
     team: Option<String>,
-    /// The agents permission; `None`: this cmux has no `remote-host agents` verb.
+    /// The agents permission; `None`: this cmux has no `helper-host agents` verb.
     agents: RefCell<Option<bool>>,
     /// The app's answer to `remote.confirm {"action":"allow_agents","on":true}`.
     allow: Result<Value, Value>,

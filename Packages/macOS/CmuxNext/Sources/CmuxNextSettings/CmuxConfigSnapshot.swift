@@ -316,7 +316,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var mobile = MobileSettings()
     /// `macScreen.*`: Mac Screen tabs (system shortcuts to the remote Mac).
     public var macScreen = MacScreenSettings()
-    /// `remote.*`: cmux Remote (sharing this Mac while cmux is quit).
+    /// `remote.*`: cmux Computer Use (sharing this Mac while cmux is quit).
     public var remote = RemoteSettings()
     /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
     public var macScreenDebug = MacScreenDebugSettings()

@@ -1,7 +1,7 @@
 @testable import CmuxNextSettings
 import Testing
 
-/// cmux Remote is the default (docs/cmux-remote.md): Computer Use runs the Upstream driver
+/// cmux Computer Use is the default (docs/computer-use-helper.md): Computer Use runs the Upstream driver
 /// unless the person picks Legacy, and only a driver the person picked is "set", so a build
 /// without the helper v2 falls back to Legacy without a note about a choice nobody made.
 struct ComputerUseDriverDefaultTests {

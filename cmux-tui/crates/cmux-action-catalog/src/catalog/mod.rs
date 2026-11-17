@@ -31,7 +31,6 @@ mod cloud;
 mod cloud_port;
 mod cloud_session;
 mod cloud_team;
-mod cmux_remote;
 mod density;
 mod divider;
 mod extension;
@@ -40,6 +39,7 @@ mod files_pane;
 mod git;
 mod hang_reports;
 mod help_link;
+mod helper_host;
 mod hibernation;
 mod history;
 mod home;
@@ -105,7 +105,7 @@ pub static GROUPS: &[&[Action]] = &[
     tab::ACTIONS,
     vertical_tabs::ACTIONS,
     agent_chat_rail::ACTIONS,
-    cmux_remote::ACTIONS,
+    helper_host::ACTIONS,
     tab_icon::ACTIONS,
     resource::ACTIONS,
     home::ACTIONS,

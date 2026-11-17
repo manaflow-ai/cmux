@@ -54,13 +54,13 @@ impl Asking for ThisMachine {
     }
 
     fn agents_allowed(&self) -> Result<bool, AskError> {
-        let value = local_json(&["remote-host", "agents", "status", "--json"])?;
+        let value = local_json(&["helper-host", "agents", "status", "--json"])?;
         let value = value.get("data").filter(|d| d.is_object()).unwrap_or(&value);
         ["allowed", "on", "enabled"]
             .iter()
             .find_map(|key| value.get(*key).and_then(Value::as_bool))
             .ok_or_else(|| {
-                AskError::Failed("`cmux remote-host agents status` said no state".into())
+                AskError::Failed("`cmux helper-host agents status` said no state".into())
             })
     }
 
@@ -90,7 +90,7 @@ pub(super) fn local_json(args: &[&str]) -> Result<Value, AskError> {
         let text = format!("{stdout}\n{stderr}");
         let unknown = out.status.code() == Some(2)
             || unknown_verb(&text)
-            || text.to_ascii_lowercase().contains("usage: cmux remote-host");
+            || text.to_ascii_lowercase().contains("usage: cmux helper-host");
         return Err(if unknown {
             AskError::Unsupported
         } else {

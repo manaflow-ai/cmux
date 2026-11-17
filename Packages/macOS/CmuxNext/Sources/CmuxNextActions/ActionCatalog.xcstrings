@@ -111085,788 +111085,788 @@
         }
       }
     },
-    "action.remote.allowAccessibility": {
+    "action.helperHost.allowAccessibility": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: السماح بتسهيلات الاستخدام"
+            "value": "cmux Computer Use: السماح بتسهيلات الاستخدام"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Dozvoli Pristupačnost"
+            "value": "cmux Computer Use: Dozvoli Pristupačnost"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Tillad Tilgængelighed"
+            "value": "cmux Computer Use: Tillad Tilgængelighed"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Bedienungshilfen erlauben"
+            "value": "cmux Computer Use: Bedienungshilfen erlauben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Allow Accessibility"
+            "value": "cmux Computer Use: Allow Accessibility"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Permitir Accesibilidad"
+            "value": "cmux Computer Use: Permitir Accesibilidad"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : autoriser Accessibilité"
+            "value": "cmux Computer Use : autoriser Accessibilité"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Consenti Accessibilità"
+            "value": "cmux Computer Use: Consenti Accessibilità"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: アクセシビリティを許可"
+            "value": "cmux Computer Use: アクセシビリティを許可"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: អនុញ្ញាតភាពងាយស្រួល"
+            "value": "cmux Computer Use: អនុញ្ញាតភាពងាយស្រួល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 손쉬운 사용 허용"
+            "value": "cmux Computer Use: 손쉬운 사용 허용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Tillat Tilgjengelighet"
+            "value": "cmux Computer Use: Tillat Tilgjengelighet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Zezwól na Dostępność"
+            "value": "cmux Computer Use: Zezwól na Dostępność"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Permitir Acessibilidade"
+            "value": "cmux Computer Use: Permitir Acessibilidade"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Разрешить Универсальный доступ"
+            "value": "cmux Computer Use: Разрешить Универсальный доступ"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: อนุญาตการช่วยการเข้าถึง"
+            "value": "cmux Computer Use: อนุญาตการช่วยการเข้าถึง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Erişilebilirliğe İzin Ver"
+            "value": "cmux Computer Use: Erişilebilirliğe İzin Ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Дозволити Доступність"
+            "value": "cmux Computer Use: Дозволити Доступність"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Cho phép Trợ năng"
+            "value": "cmux Computer Use: Cho phép Trợ năng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：允许辅助功能"
+            "value": "cmux Computer Use：允许辅助功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：允許輔助使用"
+            "value": "cmux Computer Use：允許輔助使用"
           }
         }
       }
     },
-    "action.remote.allowScreenRecording": {
+    "action.helperHost.allowScreenRecording": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: السماح بتسجيل الشاشة"
+            "value": "cmux Computer Use: السماح بتسجيل الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Dozvoli Snimanje ekrana"
+            "value": "cmux Computer Use: Dozvoli Snimanje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Tillad Skærmoptagelse"
+            "value": "cmux Computer Use: Tillad Skærmoptagelse"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Bildschirmaufnahme erlauben"
+            "value": "cmux Computer Use: Bildschirmaufnahme erlauben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Allow Screen Recording"
+            "value": "cmux Computer Use: Allow Screen Recording"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Permitir Grabación de pantalla"
+            "value": "cmux Computer Use: Permitir Grabación de pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : autoriser Enregistrement de l’écran"
+            "value": "cmux Computer Use : autoriser Enregistrement de l’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Consenti Registrazione schermo"
+            "value": "cmux Computer Use: Consenti Registrazione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 画面収録を許可"
+            "value": "cmux Computer Use: 画面収録を許可"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: អនុញ្ញាតការថតអេក្រង់"
+            "value": "cmux Computer Use: អនុញ្ញាតការថតអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 화면 기록 허용"
+            "value": "cmux Computer Use: 화면 기록 허용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Tillat Skjermopptak"
+            "value": "cmux Computer Use: Tillat Skjermopptak"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Zezwól na Nagrywanie ekranu"
+            "value": "cmux Computer Use: Zezwól na Nagrywanie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Permitir Gravação de Tela"
+            "value": "cmux Computer Use: Permitir Gravação de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Разрешить Запись экрана"
+            "value": "cmux Computer Use: Разрешить Запись экрана"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: อนุญาตการบันทึกหน้าจอ"
+            "value": "cmux Computer Use: อนุญาตการบันทึกหน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Ekran Kaydına İzin Ver"
+            "value": "cmux Computer Use: Ekran Kaydına İzin Ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Дозволити Запис екрана"
+            "value": "cmux Computer Use: Дозволити Запис екрана"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Cho phép Ghi màn hình"
+            "value": "cmux Computer Use: Cho phép Ghi màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：允许屏幕录制"
+            "value": "cmux Computer Use：允许屏幕录制"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：允許螢幕錄製"
+            "value": "cmux Computer Use：允許螢幕錄製"
           }
         }
       }
     },
-    "action.remote.refreshPermissions": {
+    "action.helperHost.refreshPermissions": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: تحديث الأذونات"
+            "value": "cmux Computer Use: تحديث الأذونات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Osvježi dozvole"
+            "value": "cmux Computer Use: Osvježi dozvole"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Opdater tilladelser"
+            "value": "cmux Computer Use: Opdater tilladelser"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Berechtigungen aktualisieren"
+            "value": "cmux Computer Use: Berechtigungen aktualisieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Refresh Permissions"
+            "value": "cmux Computer Use: Refresh Permissions"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Actualizar permisos"
+            "value": "cmux Computer Use: Actualizar permisos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : actualiser les autorisations"
+            "value": "cmux Computer Use : actualiser les autorisations"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Aggiorna autorizzazioni"
+            "value": "cmux Computer Use: Aggiorna autorizzazioni"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 権限を更新"
+            "value": "cmux Computer Use: 権限を更新"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: ផ្ទុកការអនុញ្ញាតឡើងវិញ"
+            "value": "cmux Computer Use: ផ្ទុកការអនុញ្ញាតឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 권한 새로 고침"
+            "value": "cmux Computer Use: 권한 새로 고침"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Oppdater tillatelser"
+            "value": "cmux Computer Use: Oppdater tillatelser"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Odśwież uprawnienia"
+            "value": "cmux Computer Use: Odśwież uprawnienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Atualizar Permissões"
+            "value": "cmux Computer Use: Atualizar Permissões"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Обновить разрешения"
+            "value": "cmux Computer Use: Обновить разрешения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: รีเฟรชสิทธิ์"
+            "value": "cmux Computer Use: รีเฟรชสิทธิ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: İzinleri Yenile"
+            "value": "cmux Computer Use: İzinleri Yenile"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Оновити дозволи"
+            "value": "cmux Computer Use: Оновити дозволи"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Làm mới quyền"
+            "value": "cmux Computer Use: Làm mới quyền"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：刷新权限"
+            "value": "cmux Computer Use：刷新权限"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：重新整理權限"
+            "value": "cmux Computer Use：重新整理權限"
           }
         }
       }
     },
-    "action.remote.restartComputerUse": {
+    "action.helperHost.restartComputerUse": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: إعادة تشغيل Computer Use"
+            "value": "cmux Computer Use: إعادة تشغيل Computer Use"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Ponovo pokreni Computer Use"
+            "value": "cmux Computer Use: Ponovo pokreni Computer Use"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Genstart Computer Use"
+            "value": "cmux Computer Use: Genstart Computer Use"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Computer Use neu starten"
+            "value": "cmux Computer Use: Computer Use neu starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Restart Computer Use"
+            "value": "cmux Computer Use: Restart Computer Use"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Reiniciar Computer Use"
+            "value": "cmux Computer Use: Reiniciar Computer Use"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : redémarrer Computer Use"
+            "value": "cmux Computer Use : redémarrer Computer Use"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Riavvia Computer Use"
+            "value": "cmux Computer Use: Riavvia Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Computer Use を再起動"
+            "value": "cmux Computer Use: Computer Use を再起動"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: ចាប់ផ្ដើម Computer Use ឡើងវិញ"
+            "value": "cmux Computer Use: ចាប់ផ្ដើម Computer Use ឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Computer Use 재시작"
+            "value": "cmux Computer Use: Computer Use 재시작"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Start Computer Use på nytt"
+            "value": "cmux Computer Use: Start Computer Use på nytt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Uruchom ponownie Computer Use"
+            "value": "cmux Computer Use: Uruchom ponownie Computer Use"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Reiniciar Computer Use"
+            "value": "cmux Computer Use: Reiniciar Computer Use"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Перезапустить Computer Use"
+            "value": "cmux Computer Use: Перезапустить Computer Use"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: เริ่ม Computer Use ใหม่"
+            "value": "cmux Computer Use: เริ่ม Computer Use ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Computer Use’u Yeniden Başlat"
+            "value": "cmux Computer Use: Computer Use’u Yeniden Başlat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Перезапустити Computer Use"
+            "value": "cmux Computer Use: Перезапустити Computer Use"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Khởi động lại Computer Use"
+            "value": "cmux Computer Use: Khởi động lại Computer Use"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：重启 Computer Use"
+            "value": "cmux Computer Use：重启 Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：重新啟動 Computer Use"
+            "value": "cmux Computer Use：重新啟動 Computer Use"
           }
         }
       }
     },
-    "action.remote.restartScreenSharing": {
+    "action.helperHost.restartScreenSharing": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: إعادة تشغيل مشاركة الشاشة"
+            "value": "cmux Computer Use: إعادة تشغيل مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Ponovo pokreni Dijeljenje ekrana"
+            "value": "cmux Computer Use: Ponovo pokreni Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Genstart Skærmdeling"
+            "value": "cmux Computer Use: Genstart Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Bildschirmfreigabe neu starten"
+            "value": "cmux Computer Use: Bildschirmfreigabe neu starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Restart Screen Sharing"
+            "value": "cmux Computer Use: Restart Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Reiniciar Compartir pantalla"
+            "value": "cmux Computer Use: Reiniciar Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : redémarrer Partage d’écran"
+            "value": "cmux Computer Use : redémarrer Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Riavvia Condivisione schermo"
+            "value": "cmux Computer Use: Riavvia Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 画面共有を再起動"
+            "value": "cmux Computer Use: 画面共有を再起動"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: ចាប់ផ្ដើមការចែករំលែកអេក្រង់ឡើងវិញ"
+            "value": "cmux Computer Use: ចាប់ផ្ដើមការចែករំលែកអេក្រង់ឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 화면 공유 재시작"
+            "value": "cmux Computer Use: 화면 공유 재시작"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Start Skjermdeling på nytt"
+            "value": "cmux Computer Use: Start Skjermdeling på nytt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Uruchom ponownie Udostępnianie ekranu"
+            "value": "cmux Computer Use: Uruchom ponownie Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Reiniciar Compartilhamento de Tela"
+            "value": "cmux Computer Use: Reiniciar Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Перезапустить Общий экран"
+            "value": "cmux Computer Use: Перезапустить Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: เริ่มการแชร์หน้าจอใหม่"
+            "value": "cmux Computer Use: เริ่มการแชร์หน้าจอใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Ekran Paylaşmayı Yeniden Başlat"
+            "value": "cmux Computer Use: Ekran Paylaşmayı Yeniden Başlat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Перезапустити Спільний екран"
+            "value": "cmux Computer Use: Перезапустити Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Khởi động lại Chia sẻ màn hình"
+            "value": "cmux Computer Use: Khởi động lại Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：重启屏幕共享"
+            "value": "cmux Computer Use：重启屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：重新啟動螢幕共享"
+            "value": "cmux Computer Use：重新啟動螢幕共享"
           }
         }
       }
     },
-    "action.remote.showStatus": {
+    "action.helperHost.showStatus": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: عرض الحالة"
+            "value": "cmux Computer Use: عرض الحالة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Prikaži status"
+            "value": "cmux Computer Use: Prikaži status"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Vis status"
+            "value": "cmux Computer Use: Vis status"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Status anzeigen"
+            "value": "cmux Computer Use: Status anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Show Status"
+            "value": "cmux Computer Use: Show Status"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Mostrar estado"
+            "value": "cmux Computer Use: Mostrar estado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote : afficher l’état"
+            "value": "cmux Computer Use : afficher l’état"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Mostra stato"
+            "value": "cmux Computer Use: Mostra stato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 状態を表示"
+            "value": "cmux Computer Use: 状態を表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: បង្ហាញស្ថានភាព"
+            "value": "cmux Computer Use: បង្ហាញស្ថានភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: 상태 보기"
+            "value": "cmux Computer Use: 상태 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Vis status"
+            "value": "cmux Computer Use: Vis status"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Pokaż stan"
+            "value": "cmux Computer Use: Pokaż stan"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Mostrar Status"
+            "value": "cmux Computer Use: Mostrar Status"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Показать статус"
+            "value": "cmux Computer Use: Показать статус"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: แสดงสถานะ"
+            "value": "cmux Computer Use: แสดงสถานะ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Durumu Göster"
+            "value": "cmux Computer Use: Durumu Göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Показати стан"
+            "value": "cmux Computer Use: Показати стан"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: Hiển thị trạng thái"
+            "value": "cmux Computer Use: Hiển thị trạng thái"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：显示状态"
+            "value": "cmux Computer Use：显示状态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote：顯示狀態"
+            "value": "cmux Computer Use：顯示狀態"
           }
         }
       }
@@ -113583,133 +113583,133 @@
         }
       }
     },
-    "action.remote.stopScreenSession": {
+    "action.helperHost.stopScreenSession": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote: End Screen Sharing Session"
+            "value": "cmux Computer Use: End Screen Sharing Session"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: إنهاء جلسة مشاركة الشاشة"
+            "value": "cmux Computer Use: إنهاء جلسة مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Završi sesiju Dijeljenja ekrana"
+            "value": "cmux Computer Use: Završi sesiju Dijeljenja ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Afslut skærmdelingssession"
+            "value": "cmux Computer Use: Afslut skærmdelingssession"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Bildschirmfreigabe-Sitzung beenden"
+            "value": "cmux Computer Use: Bildschirmfreigabe-Sitzung beenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Finalizar sesión de Compartir pantalla"
+            "value": "cmux Computer Use: Finalizar sesión de Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote : terminer la session Partage d’écran"
+            "value": "cmux Computer Use : terminer la session Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Termina sessione di Condivisione schermo"
+            "value": "cmux Computer Use: Termina sessione di Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: 画面共有セッションを終了"
+            "value": "cmux Computer Use: 画面共有セッションを終了"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: បញ្ចប់វគ្គចែករំលែកអេក្រង់"
+            "value": "cmux Computer Use: បញ្ចប់វគ្គចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: 화면 공유 세션 종료"
+            "value": "cmux Computer Use: 화면 공유 세션 종료"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Avslutt skjermdelingsøkt"
+            "value": "cmux Computer Use: Avslutt skjermdelingsøkt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Zakończ sesję Udostępniania ekranu"
+            "value": "cmux Computer Use: Zakończ sesję Udostępniania ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Encerrar Sessão de Compartilhamento de Tela"
+            "value": "cmux Computer Use: Encerrar Sessão de Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Завершить сеанс общего экрана"
+            "value": "cmux Computer Use: Завершить сеанс общего экрана"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: สิ้นสุดเซสชันการแชร์หน้าจอ"
+            "value": "cmux Computer Use: สิ้นสุดเซสชันการแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Ekran Paylaşma Oturumunu Sonlandır"
+            "value": "cmux Computer Use: Ekran Paylaşma Oturumunu Sonlandır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Завершити сеанс спільного екрана"
+            "value": "cmux Computer Use: Завершити сеанс спільного екрана"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote: Kết thúc phiên chia sẻ màn hình"
+            "value": "cmux Computer Use: Kết thúc phiên chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote：结束屏幕共享会话"
+            "value": "cmux Computer Use：结束屏幕共享会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Remote：結束螢幕共享工作階段"
+            "value": "cmux Computer Use：結束螢幕共享工作階段"
           }
         }
       }

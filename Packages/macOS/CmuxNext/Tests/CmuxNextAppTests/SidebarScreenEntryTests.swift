@@ -59,7 +59,7 @@ import Testing
         }
         #expect(performed.isEmpty, "a remote machine's header cannot share this Mac")
         actions.handle(.shareScreen(.local), sections: Self.examples)
-        // A build without cmux Remote (Release, NIGHTLY), or signed out: the guided Allow Mac Screen flow.
+        // A build without cmux Computer Use (Release, NIGHTLY), or signed out: the guided Allow Mac Screen flow.
         direct = false
         actions.handle(.shareScreen(.local), sections: Self.examples)
         #expect(performed.map(\.0) == ["macScreen.shareThisMac", "macScreen.open"])

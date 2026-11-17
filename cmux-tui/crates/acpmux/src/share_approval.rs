@@ -64,7 +64,7 @@ fn unix_seconds<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64
 
 impl ShareApproval {
     /// The signed bytes, one field per line. The app builds the same string
-    /// (`CmuxRemoteShareApproval.canonical`); `share_approval_vectors.json`
+    /// (`CmuxHelperShareApproval.canonical`); `share_approval_vectors.json`
     /// holds both sides to it.
     pub fn canonical(&self) -> String {
         format!(

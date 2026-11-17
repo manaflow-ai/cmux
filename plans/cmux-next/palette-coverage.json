@@ -1411,52 +1411,52 @@
       "reason": "keep: stops replaceable SSH sidecars the daemon started"
     },
     {
-      "verb": "remote-host access",
+      "verb": "helper-host access",
       "palette": "macScreen.deviceAccess"
     },
     {
-      "verb": "remote-host open-settings accessibility",
+      "verb": "helper-host open-settings accessibility",
       "palette": "palette.computerUse.accessibility"
     },
     {
-      "verb": "remote-host open-settings screen-recording",
+      "verb": "helper-host open-settings screen-recording",
       "palette": "palette.computerUse.screenRecording"
     },
     {
-      "verb": "remote-host refresh",
-      "reason": "keep: re-reads the macOS grants after the person changed them; the status row (remote.showStatus) reads them fresh"
+      "verb": "helper-host refresh",
+      "reason": "keep: re-reads the macOS grants after the person changed them; the status row (helperHost.showStatus) reads them fresh"
     },
     {
-      "verb": "remote-host request accessibility",
+      "verb": "helper-host request accessibility",
       "palette": "palette.computerUse.accessibility"
     },
     {
-      "verb": "remote-host request screen-recording",
+      "verb": "helper-host request screen-recording",
       "palette": "palette.computerUse.screenRecording"
     },
     {
-      "verb": "remote-host restart computer-use",
-      "palette": "remote.restartComputerUse"
+      "verb": "helper-host restart computer-use",
+      "palette": "helperHost.restartComputerUse"
     },
     {
-      "verb": "remote-host restart screen-sharing",
-      "palette": "remote.restartScreenSharing"
+      "verb": "helper-host restart screen-sharing",
+      "palette": "helperHost.restartScreenSharing"
     },
     {
-      "verb": "remote-host share off",
+      "verb": "helper-host share off",
       "palette": "macScreen.shareThisMac"
     },
     {
-      "verb": "remote-host share on",
+      "verb": "helper-host share on",
       "palette": "macScreen.shareThisMac"
     },
     {
-      "verb": "remote-host status",
-      "palette": "remote.showStatus"
+      "verb": "helper-host status",
+      "palette": "helperHost.showStatus"
     },
     {
-      "verb": "remote-host stop",
-      "palette": "remote.stopScreenSession"
+      "verb": "helper-host stop",
+      "palette": "helperHost.stopScreenSession"
     },
     {
       "verb": "room create",

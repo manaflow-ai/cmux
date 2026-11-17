@@ -46,8 +46,8 @@ class TheTreeHasNoUnrunTarget(unittest.TestCase):
         targets = coverage.discover(ROOT)
         self.assertGreater(len(targets), 90)
         self.assertIn(coverage.Target("Packages/macOS/CmuxNext", "CmuxNextAppTests"), set(targets))
-        # A comment between `.testTarget(` and `name:` (CmuxRemote's manifest) is still a target.
-        self.assertIn(coverage.Target("Packages/macOS/CmuxRemote", "CmuxRemoteProcessTests"), set(targets))
+        # A comment between `.testTarget(` and `name:` (CmuxHelperHost's manifest) is still a target.
+        self.assertIn(coverage.Target("Packages/macOS/CmuxHelperHost", "CmuxHelperHostProcessTests"), set(targets))
 
     def test_every_not_run_reason_says_something(self):
         for entry in coverage.load_registry(ROOT):

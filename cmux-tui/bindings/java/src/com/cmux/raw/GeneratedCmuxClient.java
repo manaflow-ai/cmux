@@ -648,6 +648,26 @@ public abstract class GeneratedCmuxClient {
         return GetSizeStateResult.fromWire(result);
     }
 
+    public final HelperHostAppResult helperHostApp() throws CmuxException {
+        Object result = execute(Commands.HELPER_HOST_APP, Map.of());
+        return HelperHostAppResult.fromWire(result);
+    }
+
+    public final Object helperHostCall(HelperHostCallRequest request) throws CmuxException {
+        Object result = execute(Commands.HELPER_HOST_CALL, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object helperHostConfig(HelperHostConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.HELPER_HOST_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object helperHostStatus() throws CmuxException {
+        Object result = execute(Commands.HELPER_HOST_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final HistorySearchResult historySearch(HistorySearchRequest request) throws CmuxException {
         Object result = execute(Commands.HISTORY_SEARCH, request.toWire());
         return HistorySearchResult.fromWire(result);
@@ -1024,26 +1044,6 @@ public abstract class GeneratedCmuxClient {
     public final ReloadConfigResult reloadConfig() throws CmuxException {
         Object result = execute(Commands.RELOAD_CONFIG, Map.of());
         return ReloadConfigResult.fromWire(result);
-    }
-
-    public final RemoteHostAppResult remoteHostApp() throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_APP, Map.of());
-        return RemoteHostAppResult.fromWire(result);
-    }
-
-    public final Object remoteHostCall(RemoteHostCallRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_CALL, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object remoteHostConfig(RemoteHostConfigRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_CONFIG, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object remoteHostStatus() throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_STATUS, Map.of());
-        return Wire.immutableJson(result);
     }
 
     public final Object remoteTerminalSnapshot(RemoteTerminalSnapshotRequest request) throws CmuxException {

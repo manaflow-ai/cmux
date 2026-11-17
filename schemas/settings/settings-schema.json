@@ -1371,14 +1371,14 @@
             }
           },
           {
-            "key" : "settings.group.cmuxRemote",
+            "key" : "settings.group.helperHost",
             "rows" : [
               "remote.endSharingOnQuit",
               "remote.ultra"
             ],
             "title" : {
-              "key" : "settings.group.cmuxRemote",
-              "text" : "cmux Remote"
+              "key" : "settings.group.helperHost",
+              "text" : "cmux Computer Use"
             }
           },
           {
@@ -105559,8 +105559,8 @@
       "default" : false,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.cmuxRemote",
-        "text" : "cmux Remote"
+        "key" : "settings.group.helperHost",
+        "text" : "cmux Computer Use"
       },
       "help" : {
         "key" : "settings.remote.endSharingOnQuit.help",
@@ -105719,8 +105719,8 @@
       "default" : "auto",
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.cmuxRemote",
-        "text" : "cmux Remote"
+        "key" : "settings.group.helperHost",
+        "text" : "cmux Computer Use"
       },
       "help" : {
         "key" : "settings.remote.ultra.help",

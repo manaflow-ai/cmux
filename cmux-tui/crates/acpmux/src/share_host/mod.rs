@@ -12,7 +12,7 @@
 //! - A session process per share ([`session`], `acpmux share-host session`): its own session
 //!   (`setsid`), so it outlives a daemon handoff; its record under `sessions/` lets the next
 //!   daemon adopt it.
-//! - The app's device channel ([`channel`], `device.sock`): the JSON lines cmux Remote's worker
+//! - The app's device channel ([`channel`], `device.sock`): the JSON lines cmux Computer Use's worker
 //!   speaks, so the app signs and opens with this same device.
 //!
 //! A machine that is not joined, or whose join record was copied from another box, runs none of

@@ -29682,9 +29682,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote show-status",
+      "cliName" : "helper-host show-status",
       "computed" : {
-        "canonical_action_id" : "remote.showStatus",
+        "canonical_action_id" : "helperHost.showStatus",
         "cli" : false,
         "default_aliases" : [
 
@@ -29698,9 +29698,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.showStatus",
+      "id" : "helperHost.showStatus",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -29742,7 +29742,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Show Status",
+      "title" : "cmux Computer Use: Show Status",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -29752,9 +29752,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote refresh-permissions",
+      "cliName" : "helper-host refresh-permissions",
       "computed" : {
-        "canonical_action_id" : "remote.refreshPermissions",
+        "canonical_action_id" : "helperHost.refreshPermissions",
         "cli" : false,
         "default_aliases" : [
 
@@ -29768,9 +29768,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.refreshPermissions",
+      "id" : "helperHost.refreshPermissions",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -29812,7 +29812,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Refresh Permissions",
+      "title" : "cmux Computer Use: Refresh Permissions",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -29822,9 +29822,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote allow-accessibility",
+      "cliName" : "helper-host allow-accessibility",
       "computed" : {
-        "canonical_action_id" : "remote.allowAccessibility",
+        "canonical_action_id" : "helperHost.allowAccessibility",
         "cli" : false,
         "default_aliases" : [
 
@@ -29838,9 +29838,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.allowAccessibility",
+      "id" : "helperHost.allowAccessibility",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -29882,7 +29882,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Allow Accessibility",
+      "title" : "cmux Computer Use: Allow Accessibility",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -29892,9 +29892,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote allow-screen-recording",
+      "cliName" : "helper-host allow-screen-recording",
       "computed" : {
-        "canonical_action_id" : "remote.allowScreenRecording",
+        "canonical_action_id" : "helperHost.allowScreenRecording",
         "cli" : false,
         "default_aliases" : [
 
@@ -29908,9 +29908,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.allowScreenRecording",
+      "id" : "helperHost.allowScreenRecording",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -29952,7 +29952,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Allow Screen Recording",
+      "title" : "cmux Computer Use: Allow Screen Recording",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -29962,9 +29962,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote restart-computer-use",
+      "cliName" : "helper-host restart-computer-use",
       "computed" : {
-        "canonical_action_id" : "remote.restartComputerUse",
+        "canonical_action_id" : "helperHost.restartComputerUse",
         "cli" : false,
         "default_aliases" : [
 
@@ -29978,9 +29978,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.restartComputerUse",
+      "id" : "helperHost.restartComputerUse",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -30020,7 +30020,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Restart Computer Use",
+      "title" : "cmux Computer Use: Restart Computer Use",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30030,9 +30030,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote restart-screen-sharing",
+      "cliName" : "helper-host restart-screen-sharing",
       "computed" : {
-        "canonical_action_id" : "remote.restartScreenSharing",
+        "canonical_action_id" : "helperHost.restartScreenSharing",
         "cli" : false,
         "default_aliases" : [
 
@@ -30046,9 +30046,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.restartScreenSharing",
+      "id" : "helperHost.restartScreenSharing",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -30088,7 +30088,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: Restart Screen Sharing",
+      "title" : "cmux Computer Use: Restart Screen Sharing",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30098,9 +30098,9 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote stop-screen-session",
+      "cliName" : "helper-host stop-screen-session",
       "computed" : {
-        "canonical_action_id" : "remote.stopScreenSession",
+        "canonical_action_id" : "helperHost.stopScreenSession",
         "cli" : false,
         "default_aliases" : [
 
@@ -30114,9 +30114,9 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
-      "id" : "remote.stopScreenSession",
+      "id" : "helperHost.stopScreenSession",
       "isDebugOnly" : false,
       "isDestructive" : false,
       "isGlobalHotKey" : false,
@@ -30159,7 +30159,7 @@
       "targets" : [
 
       ],
-      "title" : "cmux Remote: End Screen Sharing Session",
+      "title" : "cmux Computer Use: End Screen Sharing Session",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30169,7 +30169,7 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote share-this-mac",
+      "cliName" : "mac-screen share-this-mac",
       "computed" : {
         "canonical_action_id" : "macScreen.shareThisMac",
         "cli" : false,
@@ -30185,7 +30185,7 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
       "id" : "macScreen.shareThisMac",
       "isDebugOnly" : false,
@@ -30247,7 +30247,7 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote stop-sharing-this-mac",
+      "cliName" : "mac-screen stop-sharing-this-mac",
       "computed" : {
         "canonical_action_id" : "macScreen.stopSharingThisMac",
         "cli" : false,
@@ -30263,7 +30263,7 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
       "id" : "macScreen.stopSharingThisMac",
       "isDebugOnly" : false,
@@ -30323,7 +30323,7 @@
 
       ],
       "category" : "remote",
-      "cliName" : "remote device-access",
+      "cliName" : "mac-screen device-access",
       "computed" : {
         "canonical_action_id" : "macScreen.deviceAccess",
         "cli" : false,
@@ -30339,7 +30339,7 @@
       "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
-      "group" : "CmuxRemoteActionCatalog",
+      "group" : "CmuxHelperActionCatalog",
       "hint" : null,
       "id" : "macScreen.deviceAccess",
       "isDebugOnly" : false,

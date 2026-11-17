@@ -253,12 +253,12 @@ struct ShareHostDeviceTests {
             guard connection >= 0 else { return [] }
             defer { Darwin.close(connection) }
             var methods: [String] = []
-            while let line = RemoteSocket.readLine(connection),
+            while let line = HelperSocket.readLine(connection),
                   let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                   let requestID = request["id"] as? Int, let method = request["method"] as? String {
                 methods.append(method)
                 let result = encoded[method].flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                guard RemoteSocket.writeAll(connection, Data(#"{"id":\#(requestID),"ok":true,"result":\#(result)}"#.utf8) + Data([0x0A])) else { break }
+                guard HelperSocket.writeAll(connection, Data(#"{"id":\#(requestID),"ok":true,"result":\#(result)}"#.utf8) + Data([0x0A])) else { break }
                 if method == "device.identity" { break }
             }
             return methods

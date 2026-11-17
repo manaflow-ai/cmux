@@ -458,19 +458,19 @@ class CheckBundleNoticesTest(unittest.TestCase):
                 self.assertRegex(need, r"^(first-party|rust-std|zig-std|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
             self.assertFalse(re.search(r"/Versions/[A-Z]/", entry["path"]), "match Versions with *, not a fixed letter")
 
-    # cmux Remote --------------------------------------------------------------
+    # cmux Computer Use --------------------------------------------------------------
 
-    # Release builds embed the pinned cmux Remote (embed-cmux-remote-dev.sh, build-cmux-remote-dev.sh).
+    # Release builds embed the pinned cmux Computer Use (embed-helper-host-dev.sh, build-helper-host-dev.sh).
     # nightly-next run 43864670865 (97eacf0d, 2026-11-16) failed the signed-app checks: these three
     # Mach-O files had no bundle-map entry.
-    REMOTE = "Contents/Library/cmux Remote (dev).app"
+    REMOTE = "Contents/Library/cmux Helper Host (dev).app"
     REMOTE_SDK = f"{REMOTE}/Contents/Frameworks/libcua_driver_sdk.dylib"
     # cua-driver-sdk.pin.json: upstream trycua/cua cua-driver-rs-v0.38.0, built with rustc 1.97.1.
     REMOTE_SDK_RUSTC = "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
 
     def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
-        for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
+        for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-helper-host", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
                     self.REMOTE_SDK):
             entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
             self.assertTrue(entries, f"{rel}: no bundle-map entry")

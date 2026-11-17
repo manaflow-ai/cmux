@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What an agent on another machine feels through cmux Remote, against one enrolled daemon:
+# What an agent on another machine feels through cmux Computer Use, against one enrolled daemon:
 #   scripts/measure/remote-agent-path.sh BIN ROUTE STATE_DIR [n=20] [mib=64]
 # REMOTE_ROUTE_FLAGS adds route options to every call, split on spaces, e.g.
 #   REMOTE_ROUTE_FLAGS="--via-machine FLEET_HOST" for a loopback route on another machine through

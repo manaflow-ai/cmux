@@ -1,0 +1,227 @@
+import CmuxNextCompat
+public import CmuxNextComputerUse
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
+public import CmuxNextDevices
+import CmuxNextWakeups
+import Darwin
+public import Foundation
+import os
+
+private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cmux-helper-host")
+
+/// cmux Computer Use from the app (docs/computer-use-helper.md): the daemon supervises the one signed host
+/// that holds Accessibility and Screen Recording; this app tells the daemon which features are
+/// on, opens Computer Use channels through the host, signs its own device hub requests with the
+/// Screen Sharing worker's device keys (this Mac is one device), reads hub pushes from the
+/// worker's one User DO socket, and anchors the worker's device-key renewal while signed in.
+@MainActor
+public final class CmuxHelperService {
+    /// This build embeds cmux Computer Use (``start(_:)`` ran).
+    public private(set) var started = false
+    /// This app's local daemon connection when it serves `helper-host-v1`, else nil.
+    private let connectionSource: @MainActor () -> DaemonConnection?
+    /// The app socket's credentials, until the host restarts (a refusal asks again).
+    private var grant: HelperHostAppRequest.Response?
+    /// Whether the daemon runs cmux Computer Use (`helper-host-v1` and an embedded bundle).
+    public private(set) var available = false
+    /// The hub made with cmux Computer Use's device identity, while it is the one running.
+    var remoteHub: DeviceHub?
+    private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
+    /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
+    private let anchorTimer = DemandTimer(owner: "cmux-helper-host.anchor")
+    /// The person's switches now (``follow`` sets it once the settings load): Computer Use on with
+    /// cmux Computer Use, signed in, headless. Callers before that wait for it (``waitAvailable()``).
+    public var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))? {
+        didSet {
+            guard currentConfig != nil else { return }
+            let waiting = configWaiters
+            configWaiters = [:]
+            for waiter in waiting.values { waiter.resume() }
+        }
+    }
+    private var configWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private let configClock: any Clock<Duration>
+
+    public init(clock: any Clock<Duration> = ContinuousClock(), connection: @escaping @MainActor () -> DaemonConnection?) {
+        configClock = clock
+        connectionSource = connection
+    }
+
+    /// This app's local daemon: its connection while it serves `helper-host-v1`.
+    public convenience init(daemon: DaemonService) {
+        self.init { [weak daemon] in daemon?.supports(DaemonCapability.helperHost.rawValue) == true ? daemon?.connection : nil }
+    }
+
+    func markStarted() { started = true }
+
+    // MARK: Daemon
+
+    private var connection: DaemonConnection? { connectionSource() }
+
+    /// The person's switches to the daemon (it saves them and starts or stops the host).
+    public func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
+        let next = (computerUse, screenSharing, headless)
+        if let lastConfig, lastConfig == next { return }
+        guard let connection else {
+            available = false
+            return
+        }
+        do {
+            _ = try await connection.request(HelperHostConfigRequest(computerUse: computerUse, screenSharing: screenSharing,
+                                                                     headless: headless))
+            lastConfig = next
+            available = true
+        } catch {
+            remoteLogger.notice("cmux Computer Use config refused: \(String(describing: error), privacy: .public)")
+            available = false
+        }
+    }
+
+    /// Applies the current switches once when none were sent yet; whether the daemon runs cmux Computer Use.
+    public func waitAvailable() async -> Bool {
+        (try? await configuredAvailability()) ?? false
+    }
+
+    /// Hub startup must distinguish an absent worker from settings that never arrived.
+    func configuredAvailability() async throws -> Bool {
+        try Task.checkCancellation()
+        if currentConfig == nil {
+            let id = UUID()
+            // Platform continuation lifetime only; use the shared one-shot deadline adapter.
+            let timer = DemandTimer(owner: "cmux-helper-host.configuration", clock: configClock)
+            defer { timer.cancel() }
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<Void, any Error>) in
+                    guard !Task.isCancelled else { waiter.resume(throwing: CancellationError()); return }
+                    configWaiters[id] = waiter
+                    timer.schedule(after: .seconds(30)) { @MainActor [weak self] in
+                        self?.configWaiters.removeValue(forKey: id)?.resume(throwing: CmuxHelperError.configurationTimeout)
+                    }
+                }
+            } onCancel: {
+                // Cancellation may arrive on any executor; remove only this caller's waiter.
+                MainDelivery().run { [weak self] in
+                    self?.configWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+                }
+            }
+        }
+        try Task.checkCancellation()
+        guard let config = currentConfig?() else { return false }
+        if lastConfig == nil {
+            await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
+        }
+        // Both switches off (Computer Use off or not Upstream, and signed out): the app's own helper and host serve.
+        return available && (config.computerUse || config.screenSharing)
+    }
+
+    /// The worker as Stop Sharing This Mac sees it (``MacScreenActions``): running once started, and its
+    /// `screen.stop_session` ends the session it hosts.
+    public var screenSessionWorker: MacScreenWorkerSession {
+        MacScreenWorkerSession(running: { [weak self] in self?.started == true },
+                               stop: { [weak self] in
+                                   guard let self else { throw CmuxHelperError.unavailable }
+                                   _ = try await self.call("screen.stop_session")
+                               })
+    }
+
+    /// One host request over the daemon (status, refresh, request, restart, screen.*).
+    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:]),
+                     timeout: Duration = .seconds(25)) async throws -> CmuxNextDaemon.JSONValue {
+        guard let connection else { throw CmuxHelperError.unavailable }
+        return try await connection.request(HelperHostCallRequest(method: method, params: params), timeout: timeout)
+    }
+
+    public func status() async throws -> CmuxNextDaemon.JSONValue {
+        guard let connection else { throw CmuxHelperError.unavailable }
+        return try await connection.request(HelperHostStatusRequest())
+    }
+
+    // MARK: App socket
+
+    /// A channel to cmux Computer Use: hello with this launch's grant, then `channel`. The returned
+    /// descriptor is past the host's answer; the result names the process behind it.
+    nonisolated static func open(_ channel: String, grant: HelperHostAppRequest.Response,
+                                 extra: [String: String] = [:]) async throws -> (socket: Int32, pid: pid_t) {
+        try await Task.detached(priority: .userInitiated) {
+            let descriptor = try HelperSocket.connect(grant.socket)
+            guard HelperSocket.peerPID(descriptor) == grant.hostPID else {
+                close(descriptor)
+                throw CmuxHelperError.notTheHost
+            }
+            var open: [String: String] = ["channel": channel]
+            for (key, value) in extra { open[key] = value }
+            let hello = try JSONSerialization.data(withJSONObject: ["type": "hello", "secret": grant.secret]) + Data([0x0A])
+            let request = try JSONSerialization.data(withJSONObject: ["id": 1].merging(open) { $1 } as [String: Any]) + Data([0x0A])
+            guard HelperSocket.writeAll(descriptor, hello + request), let line = HelperSocket.readLine(descriptor),
+                  let answer = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
+                close(descriptor)
+                throw CmuxHelperError.refused("cmux Computer Use closed the channel")
+            }
+            guard answer["ok"] as? Bool == true else {
+                close(descriptor)
+                let message = (answer["error"] as? [String: Any])?["message"] as? String ?? "refused"
+                throw CmuxHelperError.refused(message)
+            }
+            let pid = ((answer["result"] as? [String: Any])?["pid"] as? Int).map { pid_t($0) } ?? pid_t(grant.hostPID)
+            return (descriptor, pid)
+        }.value
+    }
+
+    /// This launch's app grant, asked again after the host refused it (a restarted host).
+    func appGrant(refresh: Bool = false) async throws -> HelperHostAppRequest.Response {
+        if let grant, !refresh { return grant }
+        guard let connection else { throw CmuxHelperError.unavailable }
+        let fresh = try await connection.request(HelperHostAppRequest(), timeout: .seconds(25))
+        grant = fresh
+        return fresh
+    }
+
+    /// Opens `channel`, asking for a fresh grant once when the host refuses this one.
+    public func openChannel(_ channel: String, extra: [String: String] = [:]) async throws -> (socket: Int32, pid: pid_t, grant: HelperHostAppRequest.Response) {
+        var grant = try await appGrant()
+        let opened: (socket: Int32, pid: pid_t)
+        do {
+            opened = try await Self.open(channel, grant: grant, extra: extra)
+        } catch CmuxHelperError.refused, CmuxHelperError.notTheHost {
+            grant = try await appGrant(refresh: true)
+            opened = try await Self.open(channel, grant: grant, extra: extra)
+        }
+        let result = (socket: opened.socket, pid: opened.pid, grant: grant)
+        return result
+    }
+
+    // MARK: Hub anchoring
+
+    /// While signed in: anchor the worker's device-key renewal now and every hour, and tell the
+    /// worker the account and hub it serves. Stops on sign-out.
+    public func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxHelperDevices) {
+        anchorTimer.cancel()
+        guard let hub, let userID, !userID.isEmpty, let hubURL else {
+            // Only a running cmux Computer Use hears it: with both switches off nothing opens a channel.
+            // task-owner: one sign-out line to the worker; nothing waits on it.
+            Task { [weak self] in
+                guard await self?.waitAvailable() == true else { return }
+                await devices.signedOut()
+            }
+            return
+        }
+        anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
+    }
+
+    /// One anchor now, and the next in an hour (the timer is cancelled by the next followHub).
+    private func anchor(_ hub: DeviceHub, userID: String, hubURL: URL, devices: CmuxHelperDevices) {
+        // task-owner: one anchor write; the next one is the timer's.
+        Task {
+            do {
+                _ = try await hub.client.anchorDevice()
+                await devices.anchored(userID: userID, hubURL: hubURL)
+            } catch {
+                remoteLogger.notice("cmux Computer Use anchor failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        anchorTimer.schedule(after: .seconds(3600)) { @MainActor [weak self] in
+            self?.anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
+        }
+    }
+}

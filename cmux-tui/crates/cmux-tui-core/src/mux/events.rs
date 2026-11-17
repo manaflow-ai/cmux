@@ -21,7 +21,7 @@ pub enum GraphicsStatus {
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
-    /// The authenticated cmux Remote worker's screen device identity changed.
+    /// The authenticated cmux Computer Use worker's screen device identity changed.
     /// Delivered only to trusted local app subscribers.
     ScreenDeviceChanged(Option<String>),
     /// New output arrived in a surface (coalesced; cleared when rendered).

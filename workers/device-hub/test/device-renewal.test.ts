@@ -23,7 +23,7 @@ async function anchored() {
   return { account, mac, phone, anchoredUntil: anchor.json.anchoredUntil as number };
 }
 
-describe("device-key renewal (cmux Remote with the app quit)", () => {
+describe("device-key renewal (cmux Computer Use with the app quit)", () => {
   it("an anchored Mac renews a host session with its device key alone", async () => {
     const { mac, anchoredUntil } = await anchored();
     expect(anchoredUntil - Date.now()).toBeGreaterThan(ANCHOR_TTL_MS - 60_000);

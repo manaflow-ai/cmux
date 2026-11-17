@@ -107,7 +107,7 @@ pub(super) fn identify(
         // authenticated local supervisor cache and omitted from legacy
         // identify replies.
         identity
-            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
+            .insert("screen_device_id", json!(mux.control_clients.helper_host.screen_device_id()));
     }
     Ok(identity)
 }

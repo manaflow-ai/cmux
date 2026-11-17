@@ -9,9 +9,9 @@
 # fetching the Chromium engine" joins it before the Release build and fails where it failed.
 # x86_64: a universal build embeds both engine slices (none: arm64 only). The remote browser host
 # (Contents/Helpers, phone tabs) comes from R2 too; missing, the phase warns; a digest mismatch fails.
-# The pinned cmux Remote (cmux-remote-dev.pin.json) is required in Release (embed-cmux-remote-dev.sh, #43516),
+# The pinned cmux Computer Use (helper-host-dev.pin.json) is required in Release (embed-helper-host-dev.sh, #43516),
 # but the Release build step has no R2 key and its copy in the controller store is readable only by the lane
-# that staged it, so every nightly failed with "cmux-remote-dev.pin.json unavailable: no CMUX_CEF_R2_* read
+# that staged it, so every nightly failed with "helper-host-dev.pin.json unavailable: no CMUX_CEF_R2_* read
 # credentials" (2026-11-16, runs 43836933442 and 43846986617). This fetch puts it in the same cache
 # (cef-cache-root.sh/cua-helper-v2) the build reads first; a failure here still fails the build there.
 python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
@@ -21,6 +21,6 @@ python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helpe
     if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
       CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
     fi
-    if [[ -f scripts/cmux-next/cmux-remote-dev.pin.json ]]; then
-      CMUX_CUA_ASSET_NO_STORE=1 scripts/cmux-next/ensure-cua-pinned-asset.sh scripts/cmux-next/cmux-remote-dev.pin.json --optional >/dev/null
+    if [[ -f scripts/cmux-next/helper-host-dev.pin.json ]]; then
+      CMUX_CUA_ASSET_NO_STORE=1 scripts/cmux-next/ensure-cua-pinned-asset.sh scripts/cmux-next/helper-host-dev.pin.json --optional >/dev/null
     fi'

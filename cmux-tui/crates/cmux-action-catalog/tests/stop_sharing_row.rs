@@ -1,5 +1,5 @@
 //! One row stops this Mac being shared: Stop Sharing This Mac (`macScreen.stopSharing`). The
-//! row it replaced, cmux Remote: End Screen Sharing Session, did the same thing for cmux Remote's
+//! row it replaced, cmux Computer Use: End Screen Sharing Session, did the same thing for cmux Computer Use's
 //! worker, so its title is a built-in alias of the survivor and a search for it still lands
 //! there. The other stop rows do different things and stay their own rows.
 use cmux_action_catalog::{find, palette};

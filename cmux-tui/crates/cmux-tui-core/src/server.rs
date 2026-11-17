@@ -200,7 +200,7 @@ mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
 mod device_setup_command;
-mod remote_host_command;
+mod helper_host_command;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -874,14 +874,14 @@ enum Command {
         revisions: bool,
     },
     BrowserHostProvider,
-    /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
-    RemoteHostStatus,
-    RemoteHostCall {
+    /// cmux Computer Use (`helper-host-v1`, server/helper_host_command.rs).
+    HelperHostStatus,
+    HelperHostCall {
         method: String,
         #[serde(default)]
         params: Value,
     },
-    RemoteHostConfig {
+    HelperHostConfig {
         #[serde(default)]
         computer_use: Option<bool>,
         #[serde(default)]
@@ -889,7 +889,7 @@ enum Command {
         #[serde(default)]
         headless: Option<bool>,
     },
-    RemoteHostApp,
+    HelperHostApp,
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,

@@ -37,9 +37,9 @@ pub(crate) struct AppControlMessages {
     pub agents_waiting_progress: &'static str,
     /// A request past its read window while the app still answers: it is busy, not gone (#32724).
     pub app_busy_waiting: &'static str,
-    /// `cmux remote-host share on|access` past its wait: the dialog in cmux stays open and still counts.
+    /// `cmux helper-host share on|access` past its wait: the dialog in cmux stays open and still counts.
     pub remote_confirm_still_open: &'static str,
-    /// `cmux remote-host status` in a cmux build without cmux Remote: not "sharing off", only no cmux Remote.
+    /// `cmux helper-host status` in a cmux build without cmux Computer Use: not "sharing off", only no cmux Computer Use.
     pub remote_not_bundled: &'static str,
     pub closed: &'static str,
     pub invalid_response: &'static str,
@@ -231,8 +231,8 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     waiting_progress: "waiting for the cmux app to run {what} ({elapsed} s of {total} s)",
     agents_waiting_progress: "waiting for {what} ({elapsed} s of {total} s)",
     app_busy_waiting: "the cmux app is busy; still waiting for {what} ({elapsed} s)",
-    remote_confirm_still_open: "no answer yet in cmux: the dialog stays open there, and Allow still makes the change. `cmux remote-host status` shows whether it did.",
-    remote_not_bundled: "cmux Remote is not part of this cmux build (DEV builds embed it; Release and NIGHTLY do not), so the state and config above do not mean Screen Sharing is off. Screen Sharing uses the cmux app here: Share This Mac and Stop Sharing in cmux, or `cmux remote-host share on|off` and `cmux remote-host stop`, which go to the app.",
+    remote_confirm_still_open: "no answer yet in cmux: the dialog stays open there, and Allow still makes the change. `cmux helper-host status` shows whether it did.",
+    remote_not_bundled: "cmux Computer Use is not part of this cmux build (DEV builds embed it; Release and NIGHTLY do not), so the state and config above do not mean Screen Sharing is off. Screen Sharing uses the cmux app here: Share This Mac and Stop Sharing in cmux, or `cmux helper-host share on|off` and `cmux helper-host stop`, which go to the app.",
     closed: "the cmux app closed the connection without an answer",
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
@@ -382,8 +382,8 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     waiting_progress: "cmux アプリが {what} を実行するのを待っています ({total} 秒中 {elapsed} 秒経過)",
     agents_waiting_progress: "{what} を待っています ({total} 秒中 {elapsed} 秒経過)",
     app_busy_waiting: "cmux アプリが混み合っています。{what} を引き続き待っています ({elapsed} 秒経過)",
-    remote_confirm_still_open: "cmux でまだ応答がありません。ダイアログは開いたままで、そこで許可すると変更されます。反映されたかは `cmux remote-host status` で確認できます。",
-    remote_not_bundled: "この cmux ビルドには cmux Remote が含まれていません (DEV ビルドのみ同梱、Release と NIGHTLY には含まれません)。上の state と config は画面共有がオフという意味ではありません。ここでは画面共有は cmux アプリが行います: cmux の「この Mac を共有」と「共有を停止」、または cmux アプリに送られる `cmux remote-host share on|off` と `cmux remote-host stop` を使ってください。",
+    remote_confirm_still_open: "cmux でまだ応答がありません。ダイアログは開いたままで、そこで許可すると変更されます。反映されたかは `cmux helper-host status` で確認できます。",
+    remote_not_bundled: "この cmux ビルドには cmux Computer Use が含まれていません (DEV ビルドのみ同梱、Release と NIGHTLY には含まれません)。上の state と config は画面共有がオフという意味ではありません。ここでは画面共有は cmux アプリが行います: cmux の「この Mac を共有」と「共有を停止」、または cmux アプリに送られる `cmux helper-host share on|off` と `cmux helper-host stop` を使ってください。",
     closed: "cmux アプリが応答せずに接続を閉じました",
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",

@@ -427,7 +427,7 @@ pub fn chief_homes_root(user_home: &Path) -> PathBuf {
 }
 
 /// The name a NEXT state path is known by wherever its name is hashed into an
-/// identity (cmux Remote's Keychain scope, a terminal holder's socket, the
+/// identity (cmux Computer Use's Keychain scope, a terminal holder's socket, the
 /// daemon's runtime sockets): the path before CmuxNext `StateFolderMove`
 /// moved `Application Support/cmux/{tags,builds}/...` to
 /// `Application Support/cmux-next/{tags,builds}/...`. So the move keeps the

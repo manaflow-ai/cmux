@@ -1190,7 +1190,7 @@
           "help": "Off: this Mac stays available to your devices while cmux is quit.",
           "kind": "toggle",
           "default": false,
-          "group": "cmux Remote"
+          "group": "cmux Computer Use"
         },
         {
           "key": "remote.ultra",
@@ -1198,7 +1198,7 @@
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
           "kind": "choice",
           "default": "auto",
-          "group": "cmux Remote",
+          "group": "cmux Computer Use",
           "values": [
             "off",
             "auto",

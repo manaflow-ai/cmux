@@ -6,7 +6,7 @@ public import CmuxNextSidebar
 ///
 /// View screen on a Cloud machine opens its desktop (`cloudOpenDesktop` on that machine). Share on This Mac turns
 /// sharing on at once (`macScreen.shareThisMac`) only where that also asks for Screen Recording, which is cmux
-/// Remote's host; otherwise it opens Screen Sharing (`macScreen.open`), whose Allow Mac Screen switch walks the
+/// Computer Use's host; otherwise it opens Screen Sharing (`macScreen.open`), whose Allow Mac Screen switch walks the
 /// person through the permissions and sign-in. SSH and server machines show no screen button.
 @MainActor
 public struct SidebarIntentActions {
@@ -15,7 +15,7 @@ public struct SidebarIntentActions {
 
     /// - Parameters:
     ///   - perform: Runs an action (the App's registry).
-    ///   - sharesDirectly: Whether `macScreen.shareThisMac` can do the whole job now: it is available and cmux Remote,
+    ///   - sharesDirectly: Whether `macScreen.shareThisMac` can do the whole job now: it is available and cmux Computer Use,
     ///     which asks for Screen Recording, runs in this build (Release and NIGHTLY embed none).
     public init(perform: @escaping (ActionID, ActionInvocation) -> Void, sharesDirectly: @escaping () -> Bool) {
         self.perform = perform

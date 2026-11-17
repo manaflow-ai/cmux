@@ -53,9 +53,9 @@ struct MacScreenGrantHolderTests {
     }
 
     /// The guide's permission steps name the app whose switch the person turns on.
-    @Test(arguments: CmuxRemoteSharingSetup.Step.allCases.filter { $0 != .overview })
-    func theGuideNamesTheGrantHolder(_ step: CmuxRemoteSharingSetup.Step) {
-        let spec = CmuxRemoteSharingSetup.spec(step, holder: "cmux Computer Use")
+    @Test(arguments: CmuxHelperSharingSetup.Step.allCases.filter { $0 != .overview })
+    func theGuideNamesTheGrantHolder(_ step: CmuxHelperSharingSetup.Step) {
+        let spec = CmuxHelperSharingSetup.spec(step, holder: "cmux Computer Use")
         #expect(spec.lines.contains { $0.contains("cmux Computer Use") }, "\(spec.lines)")
         if step == .screen || step == .screenCheck {
             #expect(spec.lines.allSatisfy { $0.contains("cmux Computer Use") }, "\(spec.lines)")
@@ -75,12 +75,12 @@ struct MacScreenGrantHolderTests {
         #expect(MacScreenGrantCopy.setupAllow(nil, app: bundle).contains("cmux TEST"))
         #expect(MacScreenGrantCopy.setupScreenBody(nil, app: bundle).contains("cmux TEST"))
         let main = MacScreenGrantCopy.holder(nil)
-        #expect(CmuxRemoteSharingSetup.spec(.screen).lines.allSatisfy { $0.contains(main) })
+        #expect(CmuxHelperSharingSetup.spec(.screen).lines.allSatisfy { $0.contains(main) })
     }
 
     /// The running guide reads the holder from the share host after its grant check.
     @Test func theRunningGuideNamesTheHostsHolder() async throws {
-        var setup = CmuxRemoteSharingSetup(host: MacScreenHubHost(share: MacScreenShareHost()))
+        var setup = CmuxHelperSharingSetup(host: MacScreenHubHost(share: MacScreenShareHost()))
         setup.refresh = { (false, false) }
         setup.enable = {}
         setup.holder = { "cmux Computer Use" }

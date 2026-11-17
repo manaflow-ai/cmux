@@ -57,7 +57,7 @@
   the world". This Mac's header (the sole machine's "Projects" header too) shows Share (`action.share`), a Cloud
   machine's View screen (`remote.display`); SSH and server machines show none yet. From the trailing edge: +, the
   screen button, the chevron, each on the shared pitch and visible at rest. View screen runs `cloudOpenDesktop` on
-  the machine; Share runs `macScreen.shareThisMac` where cmux Remote runs, else `macScreen.open`
+  the machine; Share runs `macScreen.shareThisMac` where cmux Computer Use runs, else `macScreen.open`
   (`SidebarIntentActions`). The one-list sidebar (the default) draws no This Mac header: it shows View screen on
   Cloud headers but has no Share entry yet. Regression: `SidebarScreenEntryTests`.
 - 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.

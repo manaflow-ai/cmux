@@ -32,8 +32,8 @@ extension SettingsSchema {
         "sidebar.showWorkspaceTabs": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
         // Kept for one release after the docked Home (hq-6d cx-ebm.59.5); retired with the stale Labs flags (Leo 2026-11-05: "i ok them i know most are super stale/superseded/obsolete").
         "labs.classicHome": "Home is the workspace with the Chief docked on the left",
-        // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
-        "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // The default-off switch that landed cmux Computer Use dormant (#28584); retired so cmux Computer Use is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
+        "remote.enabled": "cmux Computer Use is how cmux runs Computer Use and Screen Sharing",
         // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
         "cloud.useMyClaudeLoginOnMyCloudMachines": "Cloud machines reach Claude through the Cloud service; no login is copied",
         // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).

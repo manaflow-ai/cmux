@@ -1,5 +1,5 @@
 {
-  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Computer Use, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
   "lists": [
     {
       "name": "computerUse",
@@ -516,8 +516,8 @@
       "name": "remote",
       "section": "general",
       "group": {
-        "key": "settings.group.cmuxRemote",
-        "text": "cmux Remote"
+        "key": "settings.group.helperHost",
+        "text": "cmux Computer Use"
       },
       "rows": [
         {

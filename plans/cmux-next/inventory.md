@@ -510,6 +510,6 @@ Every one of these files is already DELETE in section 3. Removing Bonsplit there
 | D2 | Move agent resume/restore (CMUXAgentLaunch, 18.6k) into cmux-tui? | Keep as a Swift library for v1 |
 | D3 | Canvas layout (CmuxCanvas + UI + socket `canvas.*`, ~6k): delete, since strip columns replace it? | DELETE; the `canvas` config key becomes a deprecation diagnostic |
 | D4 | Custom sidebars / sidebar extensions (SwiftRender, interpreter service, ExtensionKit, ProviderKit, LiveEval, ~13k). Is `CMUXSidebarExtension` a public third-party API we must honor? | DELETE; point `customSidebars` at cmux-tui `sidebar-plugin` |
-| D5 | Delete the Go remote daemon (29.8k) and CmuxRemote* (20.5k) in favor of cmux-tui cmux-remote? Needs parity for SSH, relay, port forward, cloud attach. | DELETE, gated on the parity check |
+| D5 | Delete the Go remote daemon (29.8k) and CmuxHelperHost* (20.5k) in favor of cmux-tui cmux-remote? Needs parity for SSH, relay, port forward, cloud attach. | DELETE, gated on the parity check |
 | D6 | Terminal rendering: does the Swift app render cmux-tui attachments through libghostty (keep CmuxGhosttyKit + Ghostty config parsing) or through cmux-tui `vt-state` cells? | Keep libghostty as renderer fed by the attachment stream; to be confirmed by the design wave |
 | D7 | Keep `tests_v2` forwarded namespaces as the contract suite? | Yes |
