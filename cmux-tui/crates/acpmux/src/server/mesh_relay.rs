@@ -1156,6 +1156,54 @@ mod tests {
         target.await.unwrap();
     }
 
+    /// A browser enrolled as its own device (RFD 0005) is a machine of the person who minted its
+    /// join, and the hub stamps its reads with that person. This daemon runs a read only for its
+    /// own person (`controlFrom` `sameUser`): another account's browser is refused before
+    /// anything runs, whatever the hub let through.
+    #[tokio::test]
+    async fn a_read_from_another_users_device_is_refused() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let dir = tempfile::tempdir().unwrap();
+        let hook = MeshControlHook::new(
+            vec![MeshControlFrom::same_user()],
+            Some(dir.path().join("mesh-controls.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned())));
+        let read = |user: &str| {
+            let mut message = from("", "");
+            message.message_id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+            message.kind = Kind::Control;
+            message.op = Some("read".into());
+            message.mode = Mode::Now;
+            message.start_work = None;
+            message.to = Target { name: Some("own-e2e".into()), ..Target::default() };
+            // The hub's stamp for a web device: its machine id and the person who minted it.
+            message.from = Sender {
+                daemon_id: Some("mch_web_1".into()),
+                user: Some(user.into()),
+                ..Sender::default()
+            };
+            message.body =
+                json!({"version": 1, "method": "_acpmux/info", "params": {}}).to_string();
+            message
+        };
+        let refused = hook.control(&hub, &read("person-2")).await.unwrap();
+        assert_eq!(refused.state, AckState::Refused);
+        assert_eq!(refused.detail.as_deref(), Some("mesh.control_not_allowed"));
+        // A device the hub stamped with no person is refused too.
+        let mut unstamped = read("person-1");
+        unstamped.from.user = None;
+        let refused = hook.control(&hub, &unstamped).await.unwrap();
+        assert_eq!(refused.detail.as_deref(), Some("mesh.control_not_allowed"));
+        // The same person's device passes the check; the read then runs (no such session here).
+        let own = hook.control(&hub, &read("person-1")).await.unwrap();
+        assert_ne!(own.detail.as_deref(), Some("mesh.control_not_allowed"), "{own:?}");
+    }
+
     #[test]
     fn an_ack_detail_is_clipped_to_what_the_hub_takes() {
         let ack = clip(Ack::refused("é".repeat(5000)));
