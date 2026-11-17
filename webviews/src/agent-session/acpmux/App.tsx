@@ -755,6 +755,7 @@ import {
   type CmuxCommandResult,
   PLACED_ACTIONS,
 } from "./cmuxCommands";
+import { withoutCliOnly } from "./cliOnlyCommands";
 import { newChatRunsElsewhere } from "./customizeCommand";
 import {
   commandPlace,
@@ -7454,7 +7455,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+      commands: withExtensionCommands(
+        mergedCommands(snapshot.commands, enabledCmuxActions, snapshot.summary?.harness),
+        extensionCommands,
+      ),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -11225,7 +11229,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
   );
-  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  // New Tab's `/` menu leaves out what runs only in Claude Code's terminal, as chat's does (cliOnlyCommands.ts).
+  const sessionCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  const pendingCommands = withoutCliOnly(sessionCommands ?? [], switchView.intent?.harness ?? commandRevision?.harness);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -13614,7 +13620,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
                     commandSession
-                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands, extensionCommands) }
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}

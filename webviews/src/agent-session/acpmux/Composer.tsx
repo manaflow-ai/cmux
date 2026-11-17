@@ -48,7 +48,7 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
-import { type Choice } from "./composerPickerModel";
+import { PICKER_LABELS, type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
@@ -158,7 +158,7 @@ import {
 } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
-import { openPicker } from "./pickerOpeners";
+import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import {
   SLASH_MAX_VIEWPORT_PX,
@@ -1736,7 +1736,15 @@ function ComposerFrame({
     )
       return false;
     if (command?.kind === "cliOnly") {
-      setAttachError(t(command.key, { command: command.name }));
+      // /permissions and /allowed-tools: the access menu next to + is where a chat's access is chosen.
+      if (command.use === "access" && pickerLabels().includes(t(PICKER_LABELS.mode))) {
+        setAttachError(undefined);
+        plusDraft.current = undefined;
+        edit("", 0);
+        openPicker(t(PICKER_LABELS.mode));
+        return true;
+      }
+      setAttachError(t("composer.cliOnly.terminal", { command: command.name }));
       return false;
     }
     if (!prompt.trim() && placed.attachments.length === 0) {

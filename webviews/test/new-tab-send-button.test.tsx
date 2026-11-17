@@ -352,6 +352,31 @@ async function commandPage(
   };
 }
 
+for (const template of ["screen", "classic"] as const) {
+  test(`${template}: a typed /permissions opens the access menu; /logout gets one line and sends nothing`, async () => {
+    const { registerPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+    const page = await commandPage(template);
+    let opened = 0;
+    const unregister = registerPicker("Mode", () => {
+      opened += 1;
+    });
+    try {
+      await page.edit("/permissions");
+      await page.send();
+      expect(opened).toBe(1);
+      expect(page.prompts).toEqual([]);
+      expect(page.field.value).toBe("");
+      expect(host.textContent).not.toContain("available in cmux");
+      await page.edit("/logout");
+      await page.send();
+      expect(page.prompts).toEqual([]);
+      expect(host.textContent).toContain("/logout isn't available in cmux.");
+    } finally {
+      unregister();
+    }
+  });
+}
+
 test("screen: a ready inline attachment survives /model passthrough", async () => {
   const page = await commandPage("screen", undefined, undefined, false, () => CMUX_PASS_THROUGH);
   await page.paste();

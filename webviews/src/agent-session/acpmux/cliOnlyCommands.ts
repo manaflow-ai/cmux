@@ -2,11 +2,11 @@ import { agentKey } from "../shared/agentKey";
 
 /// Claude Code slash commands that need its terminal UI. Sent through acpmux, Claude Code answers
 /// them only with "isn't available in this environment" (2.1.299), and before acpmux ended such a
-/// turn they left the chat running (cosmic-gray, 2026-10-14). The composer keeps them and names
-/// the cmux control that does the job instead.
+/// turn they left the chat running (cosmic-gray, 2026-10-14). The `/` menu leaves them out
+/// (`withoutCliOnly`); typed anyway, /permissions opens the access menu and the rest get one line.
 
-/// What to use instead: the access menu, the model picker, or nothing in cmux.
-export type CliOnlyUse = "access" | "model" | "terminal";
+/// What runs instead: the access menu, or nothing in cmux.
+export type CliOnlyUse = "access" | "terminal";
 
 /// Any form of these needs the terminal.
 const ALWAYS: Record<string, CliOnlyUse> = {
@@ -46,6 +46,12 @@ export function cliOnlyCommand(
       ? BARE[name]
       : undefined;
   return use ? { name, use } : undefined;
+}
+
+/// The `/` menu's commands without the ones `cliOnlyCommand` sends nowhere: a row that cannot run in
+/// cmux is not offered (Leo, 2026-11-17: "just... stop showijg the toggle on gui").
+export function withoutCliOnly<T extends { name: string }>(commands: readonly T[], harness: string | undefined): T[] {
+  return commands.filter((command) => !cliOnlyCommand(`/${command.name.trim()}`, harness));
 }
 
 /// Whether `prompt` is one of the agent's own slash commands (`commands`, its

@@ -6,7 +6,9 @@ import {
   type CmuxCommand,
   type CmuxCommandResult,
 } from "../cmuxCommands";
+import { PICKER_LABELS } from "../composerPickerModel";
 import { useT } from "../i18n";
+import { openPicker } from "../pickerOpeners";
 import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
@@ -50,7 +52,11 @@ export function useNewTabCommand(
     const refuse = (message: string) => setRefusal({ text, message });
     if (command.kind === "cliOnly") {
       if (ownedOnly) return false;
-      refuse(t(command.key, { command: command.name }));
+      // /permissions and /allowed-tools open the access menu, as in chat (Composer.tsx).
+      if (command.use === "access" && openPicker(t(PICKER_LABELS.mode))) {
+        setText((current) => (current === text ? "" : current));
+        setRefusal(undefined);
+      } else refuse(t("composer.cliOnly.terminal", { command: command.name }));
       return true;
     }
     if (pending.current) return true;
