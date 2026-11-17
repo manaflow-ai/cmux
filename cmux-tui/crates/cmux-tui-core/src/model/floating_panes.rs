@@ -99,6 +99,22 @@ impl Screen {
         self.set_floating_panes(floating);
     }
 
+    /// Puts back the list of a layout snapshot, as an undo of the layout does it. A hide and a show are acts of
+    /// the focus, not changes of the layout: the quick terminal of now keeps the mark of now, and a hidden one
+    /// stays at the back of the list.
+    pub(crate) fn restore_floating_panes(&mut self, mut floating: Vec<Floating<PaneId>>) {
+        if let Some((pane, mark)) = self.quick_terminal()
+            && let Some(entry) =
+                floating.iter_mut().find(|entry| entry.pane == pane && entry.quick.is_some())
+        {
+            entry.quick = Some(mark);
+        }
+        self.set_floating_panes(floating);
+        if self.floating.iter().any(Floating::is_hidden) {
+            self.floating = rules::hidden(&self.root.pane_ids_vec(), &self.floating);
+        }
+    }
+
     /// Whether `pane` never floats: a member of a stack, and a pane of a docked column or of a column with rows.
     pub(crate) fn pane_never_floats(&self, pane: PaneId) -> bool {
         never_floats(&self.root, &self.layout_columns, pane)
