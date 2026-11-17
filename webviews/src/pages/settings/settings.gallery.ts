@@ -1718,7 +1718,7 @@ variants["github-connect-empty"] = variant("accounts", {
         ...githubConnection,
         connections: [],
         canConnect: true,
-        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+        detail: "Connect the cmux GitHub App.",
       },
     },
   ),

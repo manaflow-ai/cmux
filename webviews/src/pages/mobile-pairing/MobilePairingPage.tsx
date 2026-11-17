@@ -26,7 +26,6 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
     <div className="pairing">
       <header className="pairing-header">
         <h1 className="pairing-title">{strings.t("mobilePairing.page.title")}</h1>
-        <p className="pairing-subtitle">{strings.t("mobilePairing.page.subtitle")}</p>
       </header>
       {snapshot.unavailable ? (
         <p className="pairing-message">{strings.t("mobilePairing.page.unavailable")}</p>

@@ -7,55 +7,55 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "بعد اختيار «السماح»، سيطلب macOS كلمة المرور لإلغاء قفل ملفات تعريف الارتباط الخاصة بالمتصفح. لا شيء يغادر هذا الـ Mac."
+            "value" : "بعد اختيار «السماح»، سيطلب macOS كلمة المرور لإلغاء قفل ملفات تعريف الارتباط الخاصة بالمتصفح."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nakon što odaberete Dozvoli, macOS traži vašu lozinku da otključa kolačiće preglednika. Ništa ne napušta ovaj Mac."
+            "value" : "Nakon što odaberete Dozvoli, macOS traži vašu lozinku da otključa kolačiće preglednika."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Efter Tillad beder macOS om din adgangskode for at låse browserens cookies op. Intet forlader denne Mac."
+            "value" : "Efter Tillad beder macOS om din adgangskode for at låse browserens cookies op."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nach „Erlauben“ fragt macOS nach deinem Passwort, um die Cookies des Browsers zu entsperren. Nichts verlässt diesen Mac."
+            "value" : "Nach „Erlauben“ fragt macOS nach deinem Passwort, um die Cookies des Browsers zu entsperren."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "After Allow, macOS asks for your password to unlock the browser’s cookies. Nothing leaves this Mac."
+            "value" : "After Allow, macOS asks for your password to unlock the browser’s cookies."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tras pulsar Permitir, macOS te pedirá la contraseña para desbloquear las cookies del navegador. Nada sale de este Mac."
+            "value" : "Tras pulsar Permitir, macOS te pedirá la contraseña para desbloquear las cookies del navegador."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Après « Autoriser », macOS demande votre mot de passe pour déverrouiller les cookies du navigateur. Rien ne quitte ce Mac."
+            "value" : "Après « Autoriser », macOS demande votre mot de passe pour déverrouiller les cookies du navigateur."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dopo aver premuto Consenti, macOS chiede la password per sbloccare i cookie del browser. Nulla lascia questo Mac."
+            "value" : "Dopo aver premuto Consenti, macOS chiede la password per sbloccare i cookie del browser."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "許可すると、ブラウザのCookieのロックを解除するためにmacOSがパスワードを求めます。データはこのMacの外に出ません。"
+            "state" : "needs_review",
+            "value" : "許可すると、ブラウザのCookieのロックを解除するためにmacOSがパスワードを求めます。"
           }
         },
         "km" : {
@@ -67,31 +67,31 @@
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "허용하면 macOS가 브라우저의 쿠키 잠금을 해제하기 위해 암호를 요청합니다. 어떤 데이터도 이 Mac을 벗어나지 않습니다."
+            "value" : "허용하면 macOS가 브라우저의 쿠키 잠금을 해제하기 위해 암호를 요청합니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Etter Tillat ber macOS om passordet ditt for å låse opp nettleserens informasjonskapsler. Ingenting forlater denne Macen."
+            "value" : "Etter Tillat ber macOS om passordet ditt for å låse opp nettleserens informasjonskapsler."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Po kliknięciu Zezwól macOS poprosi o hasło, aby odblokować pliki cookie przeglądarki. Nic nie opuszcza tego Maca."
+            "value" : "Po kliknięciu Zezwól macOS poprosi o hasło, aby odblokować pliki cookie przeglądarki."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Depois de Permitir, o macOS pede sua senha para desbloquear os cookies do navegador. Nada sai deste Mac."
+            "value" : "Depois de Permitir, o macOS pede sua senha para desbloquear os cookies do navegador."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "После нажатия «Разрешить» macOS запросит ваш пароль, чтобы разблокировать cookie браузера. Ничто не покидает этот Mac."
+            "value" : "После нажатия «Разрешить» macOS запросит ваш пароль, чтобы разблокировать cookie браузера."
           }
         },
         "th" : {
@@ -103,31 +103,31 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "İzin Ver’den sonra macOS, tarayıcının çerezlerinin kilidini açmak için parolanızı ister. Hiçbir şey bu Mac’ten çıkmaz."
+            "value" : "İzin Ver’den sonra macOS, tarayıcının çerezlerinin kilidini açmak için parolanızı ister."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Після натискання «Дозволити» macOS запитає ваш пароль, щоб розблокувати файли cookie браузера. Ніщо не залишає цей Mac."
+            "value" : "Після натискання «Дозволити» macOS запитає ваш пароль, щоб розблокувати файли cookie браузера."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sau khi chọn Cho phép, macOS sẽ yêu cầu mật khẩu của bạn để mở khóa cookie của trình duyệt. Không có gì rời khỏi Mac này."
+            "value" : "Sau khi chọn Cho phép, macOS sẽ yêu cầu mật khẩu của bạn để mở khóa cookie của trình duyệt."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允许后，macOS 会要求你输入密码以解锁浏览器的 Cookie。任何内容都不会离开这台 Mac。"
+            "value" : "允许后，macOS 会要求你输入密码以解锁浏览器的 Cookie。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允許後，macOS 會要求你輸入密碼以解鎖瀏覽器的 Cookie。任何內容都不會離開這台 Mac。"
+            "value" : "允許後，macOS 會要求你輸入密碼以解鎖瀏覽器的 Cookie。"
           }
         }
       }
@@ -138,55 +138,55 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تحتاج ملفات تعريف الارتباط في Safari إلى «الوصول الكامل إلى القرص» لـ cmux في إعدادات النظام. لا شيء يغادر هذا الـ Mac."
+            "value" : "تحتاج ملفات تعريف الارتباط في Safari إلى «الوصول الكامل إلى القرص» لـ cmux في إعدادات النظام."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safarijevi kolačići zahtijevaju Full Disk Access za cmux u System Settings. Ništa ne napušta ovaj Mac."
+            "value" : "Safarijevi kolačići zahtijevaju Full Disk Access za cmux u System Settings."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safaris cookies kræver Fuld diskadgang til cmux i Systemindstillinger. Intet forlader denne Mac."
+            "value" : "Safaris cookies kræver Fuld diskadgang til cmux i Systemindstillinger."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Für die Cookies von Safari braucht cmux „Festplattenvollzugriff“ in den Systemeinstellungen. Nichts verlässt diesen Mac."
+            "value" : "Für die Cookies von Safari braucht cmux „Festplattenvollzugriff“ in den Systemeinstellungen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Safari’s cookies need Full Disk Access for cmux in System Settings. Nothing leaves this Mac."
+            "value" : "Safari’s cookies need Full Disk Access for cmux in System Settings."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Las cookies de Safari requieren «Acceso total al disco» para cmux en Ajustes del Sistema. Nada sale de este Mac."
+            "value" : "Las cookies de Safari requieren «Acceso total al disco» para cmux en Ajustes del Sistema."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Les cookies de Safari nécessitent « Accès complet au disque » pour cmux dans Réglages Système. Rien ne quitte ce Mac."
+            "value" : "Les cookies de Safari nécessitent « Accès complet au disque » pour cmux dans Réglages Système."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "I cookie di Safari richiedono «Accesso completo al disco» per cmux in Impostazioni di Sistema. Nulla lascia questo Mac."
+            "value" : "I cookie di Safari richiedono «Accesso completo al disco» per cmux in Impostazioni di Sistema."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "SafariのCookieを読むには、システム設定でcmuxにフルディスクアクセスが必要です。データはこのMacの外に出ません。"
+            "state" : "needs_review",
+            "value" : "SafariのCookieを読むには、システム設定でcmuxにフルディスクアクセスが必要です。"
           }
         },
         "km" : {
@@ -198,31 +198,31 @@
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari의 쿠키를 읽으려면 시스템 설정에서 cmux에 전체 디스크 접근 권한이(가) 필요합니다. 어떤 데이터도 이 Mac을 벗어나지 않습니다."
+            "value" : "Safari의 쿠키를 읽으려면 시스템 설정에서 cmux에 전체 디스크 접근 권한이(가) 필요합니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safaris informasjonskapsler krever «Full disktilgang» for cmux i Systeminnstillinger. Ingenting forlater denne Macen."
+            "value" : "Safaris informasjonskapsler krever «Full disktilgang» for cmux i Systeminnstillinger."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pliki cookie Safari wymagają dla cmux uprawnienia „Pełny dostęp do dysku” w sekcji Ustawienia systemowe. Nic nie opuszcza tego Maca."
+            "value" : "Pliki cookie Safari wymagają dla cmux uprawnienia „Pełny dostęp do dysku” w sekcji Ustawienia systemowe."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Os cookies do Safari exigem “Acesso Total ao Disco” para o cmux em Ajustes do Sistema. Nada sai deste Mac."
+            "value" : "Os cookies do Safari exigem “Acesso Total ao Disco” para o cmux em Ajustes do Sistema."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Для cookie Safari cmux требуется «Полный доступ к диску» в разделе «Системные настройки». Ничто не покидает этот Mac."
+            "value" : "Для cookie Safari cmux требуется «Полный доступ к диску» в разделе «Системные настройки»."
           }
         },
         "th" : {
@@ -234,31 +234,31 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari çerezleri için Sistem Ayarları’nde cmux’a “Tam Disk Erişimi” izni gerekir. Hiçbir şey bu Mac’ten çıkmaz."
+            "value" : "Safari çerezleri için Sistem Ayarları’nde cmux’a “Tam Disk Erişimi” izni gerekir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Для файлів cookie Safari потрібен «Повний доступ до диска» для cmux у розділі «Системні параметри». Ніщо не залишає цей Mac."
+            "value" : "Для файлів cookie Safari потрібен «Повний доступ до диска» для cmux у розділі «Системні параметри»."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cookie của Safari cần quyền “Truy cập toàn bộ ổ đĩa” cho cmux trong Cài đặt hệ thống. Không có gì rời khỏi Mac này."
+            "value" : "Cookie của Safari cần quyền “Truy cập toàn bộ ổ đĩa” cho cmux trong Cài đặt hệ thống."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari 的 Cookie 需要在“系统设置”中为 cmux 开启“完全磁盘访问权限”。任何内容都不会离开这台 Mac。"
+            "value" : "Safari 的 Cookie 需要在“系统设置”中为 cmux 开启“完全磁盘访问权限”。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari 的 Cookie 需要在「系統設定」中為 cmux 開啟「完整磁碟取用權限」。任何內容都不會離開這台 Mac。"
+            "value" : "Safari 的 Cookie 需要在「系統設定」中為 cmux 開啟「完整磁碟取用權限」。"
           }
         }
       }

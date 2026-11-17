@@ -34,8 +34,7 @@ const asks: Record<string, CloudStartAsk> = {
     kind: "loginCopy",
     title: "Use my Claude login on my own Cloud machines?",
     lines: [
-      "cmux copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. It never goes to team or shared machines, and cmux never stores it.",
-      "You can turn this off in Settings > Machines. Without it, each machine offers Sign in to Claude.",
+      "cmux copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in.",
     ],
     buttons: [
       { id: "cancel", title: "Don't Use", role: "cancel" },
@@ -47,7 +46,7 @@ const asks: Record<string, CloudStartAsk> = {
     kind: "codexConsent",
     title: "Use my Codex login on my own Cloud machines?",
     lines: [
-      "cmux gives Cloud machines you own short-lived access from the Codex sign-in on this Mac. This Mac keeps the refresh token, so you stay signed in here, and cmux never stores it.",
+      "cmux gives Cloud machines you own short-lived access from the Codex sign-in on this Mac.",
       "You can turn this off in Settings > Machines.",
     ],
     buttons: [
@@ -61,7 +60,7 @@ const asks: Record<string, CloudStartAsk> = {
     title: "Sign in to Codex",
     lines: [
       "Use Codex sign-in on this Mac. Enter this one-time code: WXYZ-1234",
-      "Only short-lived access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.",
+      "Only short-lived access moves to the VM; the refresh token stays on this Mac.",
     ],
     buttons: [decline, { id: "signedIn", title: "I signed in", role: "default" }],
     code: "WXYZ-1234",

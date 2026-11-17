@@ -39,11 +39,8 @@
   letter-spacing: var(--text-heading--letter-spacing);
   font-weight: var(--weight-emphasis);
 }
-.history-lead {
-  margin: var(--ds-space-2) 0 var(--ds-space-5);
-  color: var(--page-text-2);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+.history-header {
+  margin-bottom: var(--ds-space-5);
 }
 
 /* Tools: one inset list, one row per tool with its checkbox, mark, name, summary and Sources. */

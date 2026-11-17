@@ -8,7 +8,7 @@ nonisolated enum PasswordCSVGuideStrings {
 
     static var sourceTitle: String { t("passwords.csv.guide.title", "Import Passwords from CSV") }
     static var sourceMessage: String {
-        t("passwords.csv.guide.message", "cmux imports a CSV file that the app with your passwords exports. Where are your passwords now?")
+        t("passwords.csv.guide.message", "Where are your passwords now?")
     }
     static var sourceLabel: String { t("passwords.csv.guide.source", "Passwords from:") }
     static var continueTitle: String { t("passwords.csv.guide.continue", "Continue") }

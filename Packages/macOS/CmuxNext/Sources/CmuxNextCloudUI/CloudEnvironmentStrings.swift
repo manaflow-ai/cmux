@@ -54,7 +54,7 @@ public nonisolated struct CloudEnvironmentStrings: Sendable {
     /// What a build does and costs.
     public var buildBody: String {
         String(localized: "cloud.environments.buildBody",
-               defaultValue: "A builder machine clones the repository and runs the setup, is saved as a snapshot, and is deleted. It runs for a few minutes, and the snapshot counts toward your saved snapshots. New machines in this environment then start in about a second.",
+               defaultValue: "It runs for a few minutes, and the snapshot counts toward your saved snapshots.",
                table: "Cloud", bundle: .module)
     }
 
@@ -70,7 +70,7 @@ public nonisolated struct CloudEnvironmentStrings: Sendable {
     /// What a delete removes, and what stays.
     public var deleteBody: String {
         String(localized: "cloud.environments.deleteBody",
-               defaultValue: "This deletes the environment and its snapshot. Machines started from it keep running.",
+               defaultValue: "Machines started from it keep running.",
                table: "Cloud", bundle: .module)
     }
 

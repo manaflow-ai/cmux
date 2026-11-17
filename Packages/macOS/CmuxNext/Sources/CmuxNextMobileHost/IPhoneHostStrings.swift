@@ -13,7 +13,7 @@ enum IPhoneHostStrings {
     static var remove: String { String(localized: "iphone.phone.remove", defaultValue: "Remove", table: "IPhone", bundle: .module) }
     static var removeHelp: String {
         String(localized: "iphone.phone.removeHelp",
-               defaultValue: "Removes this phone from your account's devices and ends its connection. A phone still signed in adds itself again when it reconnects.",
+               defaultValue: "Removes this phone from your account's devices and ends its connection.",
                table: "IPhone", bundle: .module)
     }
     static var listFailed: String {
@@ -24,7 +24,7 @@ enum IPhoneHostStrings {
     }
     static var removed: String {
         String(localized: "iphone.status.removed",
-               defaultValue: "This Mac was removed from your account's devices, so your iPhone can't reach it. Choose Allow Again to let your iPhone connect.",
+               defaultValue: "This Mac was removed from your account's devices, so your iPhone can't reach it.",
                table: "IPhone", bundle: .module)
     }
     static var allowAgain: String { String(localized: "iphone.allowAgain", defaultValue: "Allow Again", table: "IPhone", bundle: .module) }
@@ -39,7 +39,7 @@ enum IPhoneHostStrings {
     }
     /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
     static var keychainLocked: String {
-        String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock. iPhones connect once it does.",
+        String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock.",
                table: "IPhone", bundle: .module)
     }
     static var connecting: String { String(localized: "iphone.status.connecting", defaultValue: "Connecting…", table: "IPhone", bundle: .module) }
@@ -54,7 +54,7 @@ enum IPhoneHostStrings {
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .module) }
     static var how: String {
         String(localized: "iphone.how.body",
-               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac.",
                table: "IPhone", bundle: .module)
     }
     static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .module) }
@@ -82,7 +82,7 @@ enum IPhoneHostStrings {
     /// starts with `view` only, so the prompt says that and where to widen it.
     static func machinePairBody(_ account: String) -> String {
         String(format: String(localized: "iphone.pair.machineBody",
-                              defaultValue: "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once.",
+                              defaultValue: "It is your Mac, signed in as %@.",
                               table: "IPhone", bundle: .module), account)
     }
     static func pairKey(_ fingerprint: String) -> String {

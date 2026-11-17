@@ -9,26 +9,26 @@ nonisolated extension CloudStrings {
 
     static func gitHubConfirmBody(name: String, email: String) -> String {
         String(format: String(localized: "cloud.github.confirmBody",
-                              defaultValue: "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, then starts GitHub sign-in in your browser. Your GitHub token on this Mac is not copied.",
+                              defaultValue: "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, then starts GitHub sign-in in your browser.",
                               table: "Cloud", bundle: .module), name, email)
     }
 
     static var gitHubConfirmNoIdentity: String {
         String(localized: "cloud.github.confirmNoIdentity",
-               defaultValue: "This Mac has no global git user.name or user.email, so only GitHub sign-in starts, in your browser. Your GitHub token on this Mac is not copied.",
+               defaultValue: "This Mac has no global git user.name or user.email, so only GitHub sign-in starts, in your browser.",
                table: "Cloud", bundle: .module)
     }
 
     /// The confirm when the machine's git will use the cmux GitHub App.
     static func gitHubAppConfirmBody(name: String, email: String) -> String {
         String(format: String(localized: "cloud.github.appConfirmBody",
-                              defaultValue: "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, and lets its git get a short-lived token for each repo from cmux's GitHub App. No GitHub token is stored on the machine.",
+                              defaultValue: "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, and lets its git get a short-lived token for each repo from cmux's GitHub App.",
                               table: "Cloud", bundle: .module), name, email)
     }
 
     static var gitHubAppConfirmNoIdentity: String {
         String(localized: "cloud.github.appConfirmNoIdentity",
-               defaultValue: "This Mac has no global git user.name or user.email, so only GitHub is set up: the machine's git gets a short-lived token for each repo from cmux's GitHub App. No GitHub token is stored on the machine.",
+               defaultValue: "This Mac has no global git user.name or user.email, so only GitHub is set up: the machine's git gets a short-lived token for each repo from cmux's GitHub App.",
                table: "Cloud", bundle: .module)
     }
 

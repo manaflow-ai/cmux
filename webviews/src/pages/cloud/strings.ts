@@ -252,7 +252,6 @@ export const L = {
   storeTierHuge: "store.tier.huge",
   storeAvailability: "store.availability",
   storeAvailabilityFull: "store.availabilityFull",
-  storeNote: "store.note",
   storeBrowse: "store.browse",
   storeYourMachines: "store.yourMachines",
   capNear: "cap.near",

@@ -5,7 +5,7 @@ import Foundation
 extension AccountsStrings {
     static var teamsTitle: String { text("accounts.teams.title", "Teams") }
     static var teamsNew: String { text("accounts.teams.new", "New Team…") }
-    static var teamsEmpty: String { text("accounts.teams.empty", "You are not in a team yet. Create one to share Cloud machines and settings.") }
+    static var teamsEmpty: String { text("accounts.teams.empty", "You are not in a team yet.") }
     static var teamsActive: String { text("accounts.teams.active", "Active") }
     static var teamsDetails: String { text("accounts.teams.details", "Details") }
     static var teamsHideDetails: String { text("accounts.teams.hideDetails", "Hide Details") }

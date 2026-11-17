@@ -44,7 +44,7 @@ extension CloudStrings {
     static var newCloudWorkspaceTitle: String { text("cloud.progress.title.new", "New Cloud Workspace") }
 
     static func progressFailed(_ reason: String) -> String {
-        String(format: text("cloud.progress.failed", "The Cloud machine did not start. Click Retry; Copy Error copies the details. Reason: %@"), reason)
+        String(format: text("cloud.progress.failed", "The Cloud machine did not start. Reason: %@"), reason)
     }
 
     static func elapsed(_ duration: Duration) -> String {
