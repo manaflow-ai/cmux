@@ -39,6 +39,9 @@ open class ComposerReturnTextView: UITextView {
         isScrollEnabled = true
         alwaysBounceVertical = false
         showsHorizontalScrollIndicator = false
+        // A long draft scrolls inside the field with no scroll bar: the
+        // field's rounded edge already shows where the text is cut.
+        showsVerticalScrollIndicator = false
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .tertiaryLabel

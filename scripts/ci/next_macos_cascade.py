@@ -260,8 +260,10 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
 # queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
 # Only a cmux-next.yml pull_request run honors it (pr_rescue()): its placement takes Blacksmith macOS once the
 # owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
-# MAX_PER_RUN caps as `on`, and its re-run attempts' runs-on fall back to Blacksmith (cmux-next.yml). Every
-# other workflow compares the variable with exactly `on`, so for them it is off.
+# MAX_PER_RUN caps as `on`. A re-run attempt takes Blacksmith only through that placement's retry label, which is
+# empty for a dead or stalled label (cmux#44966: a plain vars.MACOS_RUNNER_26 fallback queued re-runs on a label with
+# no runner online); otherwise it keeps the side lane. Every other workflow compares the variable with exactly
+# `on`, so for them it is off.
 PR_RESCUE = "pr-rescue"
 RESCUE_ROUTE_MINUTES = 45.0
 RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"
@@ -548,6 +550,30 @@ def late_waits(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str
             if _field(pools, label, "queued")}
 
 
+def queued_full(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
+    """The LABELS a snapshot at most RESERVED_SNAPSHOT_MINUTES old, fresh or not, shows with CAPACITY or more
+    jobs queued: a job sent there waits behind a full set of slots' worth of jobs, so it queues on its owned
+    label instead.
+
+    The cloud label is judged by its queue against its slots, not by whether it is online or moving. On
+    2026-11-17 at 04:42Z cmux#44204's DEV Release compile (run 44018999063) found no owned runner idle and no
+    pool snapshot under QUEUE_SNAPSHOT_MINUTES old, took blacksmith-6vcpu-macos-26 unverified, and sat there
+    over an hour while that label ran 10 jobs with 56 queued; at 02:23Z the same label held 17 in flight and 91
+    queued when cmux#43307's daemon tests were placed on it."""
+    if not isinstance(snapshot, Mapping):
+        return frozenset()
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return frozenset()
+    pools = snapshot.get("pools")
+    if generated.tzinfo is None or not isinstance(pools, Mapping):
+        return frozenset()
+    if not -5 <= (now - generated).total_seconds() / 60 <= RESERVED_SNAPSHOT_MINUTES:
+        return frozenset()
+    return frozenset(label for label in LABELS if _field(pools, label, "queued") >= CAPACITY[label])
+
+
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
     """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
     nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
@@ -648,7 +674,7 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
     if not reserved:
         return None
     return Seen(waits=late_waits(snapshot, now), age=max(0.0, age), reserved=reserved, observed_at=now, stale=True,
-                dead=dead(snapshot, now))
+                snapshot=snapshot, dead=dead(snapshot, now))
 
 
 def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -657,7 +683,8 @@ def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | N
     if found is not None:
         return found
     gone, waits = dead(snapshot, now), late_waits(snapshot, now)
-    return Seen(waits=waits, stale=True, dead=gone) if gone or waits else None
+    return (Seen(waits=waits, stale=True, dead=gone, snapshot=snapshot, observed_at=now)
+            if gone or waits else None)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -766,7 +793,8 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
 
     `dead_end` (dead_end(): the owned route the jobs would otherwise wait on has started nothing for longer
     than SMALL's oldest job has waited, or one host alone serves it) waives SMALL's stall and backlog rules:
-    the shorter queue wins. MAX_PER_RUN, freshness work and a fresh-stalled label still hold.
+    the shorter queue wins. MAX_PER_RUN, freshness work and a fresh-stalled label still hold. It compares
+    measured waits; the blind paths (no fresh count) instead refuse a label queued_full() shows full.
     """
     if SMALL in stall and not dead_end:
         return ()
@@ -950,8 +978,14 @@ def _place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int]
             # A label the snapshot, however old, shows dead is never that last resort.
             if SMALL in seen_dead(seen):
                 why += f"; `{SMALL}` is dead (nothing running, no job started in an hour)"
-            elif SMALL in fresh_stall:
-                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+            elif SMALL in fresh_stall or seen is not None and SMALL in queued_full(
+                    seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
+                # Both reasons are named when both hold: a stalled wait and a queue at the slot count.
+                if SMALL in fresh_stall:
+                    why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                if seen is not None and SMALL in queued_full(
+                        seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
+                    why += f"; the snapshot shows `{SMALL}` queued at its {CAPACITY[SMALL]} slots or more"
             else:
                 reason = ("no idle mini can take them" if saturated else "a feed's freshness waits on them")
                 return Placement({**empty, SMALL: fresh}, "",

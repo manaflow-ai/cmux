@@ -9471,11 +9471,11 @@ terminal whose agent is something else, and any connection without the
 capability gets the byte stream, and the two fields change nothing for it.
 A connection that also declared `agent-cli-hybrid-v2` gets each frame as an
 `agent-cli-lean` event instead (the same frames in a lean form; see `events.md`).
-A connection that declared both and `terminal-shell-lines-v1` gets a plain
-shell's terminal (its own program is a shell: bash, zsh, fish, sh and the
-like) as the same `agent-cli-lean` frames, its lines and cursor. A full-screen
-program the shell runs (the alternate screen, or mouse tracking 1000, 1002 or
-1003) goes as `output` PTY bytes from the byte that starts it, after a last
+A connection that declared both and `terminal-shell-lines-v1` gets every
+other terminal (a shell or any other program, known or not) as the same
+`agent-cli-lean` frames, its lines and cursor. A full-screen program (the
+alternate screen, or mouse tracking 1000, 1002 or 1003) goes as `output` PTY
+bytes from the byte that starts it, after a last
 frame of what came before; when it ends, frames go on from the screen the
 viewer then shows, with no keyframe (the next frame names its `frame` and
 `base`). The input modes frames do not carry (cursor keys 1, focus 1004,
@@ -9483,10 +9483,8 @@ bracketed paste 2004, mouse encodings 1005/1006/1015, keypad `ESC =`/`ESC >`)
 reach every viewer that declared `terminal-shell-lines-v1`, agent CLI or shell,
 as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
-encode the way the program expects. A shell that is full-screen when it attaches starts with `vt-state`,
-and a `resized` while full-screen (or leaving it) passes as `resized`. A
-terminal whose own program is neither a shell nor an agent CLI keeps the byte
-stream.
+encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
+and a `resized` while full-screen (or leaving it) passes as `resized`.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -10507,6 +10505,36 @@ filed under this store's `registry:` host with its session in
 chat in a tab of its own and shows it with `agent-session-attach`); any other
 session there is `conversation_tab.machine_mismatch`.
 
+### agent-session-side
+
+`agent-session-side-v1`: `{id, cmd:"agent-session-side", surface, through_seq |
+live:true, prompt?, prompt_id?}` on the owner's own attached tab opens a side
+chat of the attached chat (the app's New side chat and `/side [prompt]` for a
+chat on another machine). Everything runs on this machine's acpmux.
+
+Exactly one boundary: `through_seq` (a completed turn, above 0) or `live:true`
+(the chat as it is now). The daemon forks the attached chat (acpmux
+`acp.session.fork`) and tags the fork its side chat (`_acpmux/side`) in one
+step; a fork whose tag is refused, or that the attachment has no room to
+follow (`agent_session.limit`), is ended, so no untagged copy stays. With
+`prompt` and `prompt_id` (both or neither, the id as `agent-session-prompt`'s)
+the text is sent to the side chat as its first prompt. Answers `{sessionId,
+prompted}`, and `notSent` (a refusal code) when acpmux did not take the
+prompt: the side chat is open either way.
+
+The frame names no folder, command, agent, model, name, tag or session; any
+other field is `agent_session.bad_request`. The side chat's id may be filed in
+`new-conversation-tab` like a child chat's.
+
+Owner only. A teammate link, a Cloud team member, a link guest and a phone
+are refused the verb (`agent_session.not_trusted`, or their entry's own
+refusal), an observer gets `agent_session.read_only`. A side chat is its
+owner's alone: an authored `agent-session-attach` to a tab whose session the
+daemon opened as a side chat, or whose acpmux summary carries the `side` tag,
+is `agent_session.not_trusted`. `agent-session-team-list` reads acpmux's
+`side` tags (`_acpmux/sessions`) each time and leaves such tabs out, also on a
+daemon that just restarted; when that list cannot be read it lists no chat.
+
 ### agent-session-typing, agent-session-view
 
 `agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is
@@ -10704,7 +10732,10 @@ it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; `model` is only accepted with the additive
-`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
+`agent-session-start-model-v1` capability and is passed to the first session; `permission_mode` (`fullAccess`,
+`standard` or `ask`, with `agent-session-start-permission-mode-v1`, advertised wherever the start is served) is
+the person's `agents.defaultPermissionMode`, read only on the caller's own Cloud VM, where `fullAccess` and `standard`
+start the chat with no `ask` policy (anywhere else, and for a phone, the start keeps `ask`); an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
@@ -11381,7 +11412,7 @@ or null), hidden?, target_kind?}`.
 
 | Command | Params | Data | Error codes |
 | --- | --- | --- | --- |
-| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}` | `fs.not_found` |
+| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}`, and for a folder `available_bytes` (what a writer may still use on its file system; an older daemon leaves it out) | `fs.not_found` |
 | `fs.list` | `{path, sort?, filter?, limit (1..1000, default 200), cursor?, listing?}` | `{entries, listing, cursor, total, revision}` | `fs.not_a_directory`, `fs.too_large`, `cursor.expired` |
 | `fs.read` | `{path, offset?, max_bytes}` | `{text \| bytes_base64, truncated, size, encoding: "utf-8"\|"base64"}` | `fs.not_a_file` |
 | `fs.write` | `{path, text \| bytes_base64, mode: "create"\|"overwrite"\|"replace"\|"append", expected?, permissions?}` (`append` adds the bytes in place to a regular, singly linked file while it has the revision `expected`, for files over the single-write limit; a failed append is cut back. `permissions` gives the written file 0644, 0755, 0600 or 0700, as a decimal number) | `{entry}` (with `revision`) | `fs.exists`, `fs.revision_mismatch` (`error_details.current`), `fs.too_large`, `fs.no_space`, `fs.read_only` |
@@ -11539,9 +11570,16 @@ the verified app's only (`origin.forbidden`).
 
 ### remote-host-config
 
-`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B}`,
+`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B,"app_permissions":{"screen_recording":B,"accessibility":B}}`,
 each optional. The verified app's switches; the daemon saves them and starts or
-stops the host.
+stops the host. `app_permissions` is the app's own Screen Recording
+(`CGPreflightScreenCaptureAccess()`) and Accessibility (`AXIsProcessTrusted()`),
+the grants that matter in a build without cmux Remote (Release and NIGHTLY,
+`bundled: false`), where the app captures the screen itself. The daemon keeps
+them in memory only (never in `config.json`) and shows them as
+`remote-host-status` `app.permissions`; a call that sets no switch never saves,
+starts or stops anything. The app sends them at each daemon connect and when it
+becomes active.
 
 ### remote-host-app
 
