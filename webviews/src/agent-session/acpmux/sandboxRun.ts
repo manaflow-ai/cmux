@@ -16,6 +16,8 @@ export type RunModeRows = {
   onMode(mode: RunMode): void;
   /// The new chat's Cloud environment (CloudEnvironmentChip.tsx), held per chat with its mode.
   environment?: CloudEnvironmentPick;
+  /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
+  sandbox?: false;
 };
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
