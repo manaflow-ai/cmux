@@ -31,6 +31,11 @@ public final class LaunchShell {
     private let bareTimer = DemandTimer(owner: "LaunchShell.bareBound")
     /// Stage 0 shows the bare launch's content (its swap waits for Home: `presented`).
     private var showsBare = false
+    /// Stage 0 drew the saved image, so a held click aimed at a place in it (`replays`).
+    private var showedImage = false
+    /// The real window did not take stage 0's place (or none was there at the dismissal): held
+    /// clicks aimed at nothing it shows, so only keys replay.
+    private var mismatched = false
     private var shownAt = ContinuousClock.now
     /// Held input with no real window to take it yet (stage 0 was dismissed first).
     private var heldForReal: [NSEvent] = []
@@ -52,31 +57,35 @@ public final class LaunchShell {
                        build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]), mark: mark)
     }
 
-    /// Reads the plan (one ≤64 KiB file and 24 bytes of the image) and starts the image's decode
-    /// on its own queue. In `main`, after `NSApplication.shared`. `support` is the app's
-    /// Application Support folder (the launch record's and the image store's).
+    /// Reads the plan (one ≤64 KiB file, 24 bytes of the image, and one stat for an earlier run's
+    /// state) and starts the image's decode on its own queue. In `main`, after
+    /// `NSApplication.shared`; nothing waits for it. `launch_shell.plan_start` and `plan_ready` time
+    /// the read. `support` is the app's Application Support folder (the launch record's, the image
+    /// store's, and `launch-times.jsonl`).
     public static func prepare(support: URL, build: String, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
         let displays = NSScreen.screens.map { screen in
             CmuxLaunchShellDisplay(x: screen.frame.minX, y: screen.frame.minY, width: screen.frame.width,
                                    height: screen.frame.height, scale: screen.backingScaleFactor)
         }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        mark("launch_shell.plan_start")
         var plan = CmuxLaunchShellPlan()
-        let read = build.withCString { build in
+        let read = build.withCString { build in support.path.withCString { supportDir in
             displays.withUnsafeBufferPointer { displays in
-                var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count)
+                var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count, support_dir: supportDir)
                 return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
             }
-        }
-        mark("launch_shell.planned")
+        } }
+        mark("launch_shell.plan_ready")
         guard read, plan.shows_window else { return LaunchShell(prepared: nil, mark: mark) }
         let prepared = Prepared(plan: plan)
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
         return LaunchShell(prepared: prepared, mark: mark)
     }
 
-    /// Makes the window and commits its first frame, marking `first_window_frame_committed` when
-    /// the commit completes. Does nothing when the plan made no window.
+    /// Makes the window and commits its first frame, marking `launch_shell.committed` when the
+    /// commit completes (`first_window_frame_committed` stays the real window's). Does nothing when
+    /// the plan made no window.
     public func show(title: String) {
         guard let prepared else { return framedNow() }
         shownAt = .now
@@ -89,7 +98,7 @@ public final class LaunchShell {
         if let image = prepared.image() {
             view = LaunchShellImageView(image: image, scale: window.backingScaleFactor)
             kind = "image"
-        } else if prepared.reason == 2, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
+        } else if prepared.usesDefaultFrame, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
             view = bare
             kind = "bare"
         } else {
@@ -101,7 +110,6 @@ public final class LaunchShell {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         CATransaction.setMainCompletion { [weak self, mark] in
-            mark("first_window_frame_committed")
             mark("launch_shell.committed")
             self?.framedNow()
         }
@@ -112,6 +120,7 @@ public final class LaunchShell {
         CATransaction.commit()
         self.window = window
         showsBare = kind == "bare"
+        showedImage = kind == "image"
         window.holdsInput = !showsBare
         mark("launch_shell.\(kind)")
         backstopTimer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.dismiss() }
@@ -148,8 +157,10 @@ public final class LaunchShell {
     /// kind waits below: the real window shows native Home there, nothing that stops drawing
     /// when covered (a terminal, a Chromium page).
     public func presented(_ real: NSWindow?) {
-        guard let frame, let real, let window, self.real == nil else { return }
+        guard let real, self.real == nil else { return }
         self.real = real
+        // Stage 0 went first (the backstop): what it held goes to this window now.
+        guard let frame, let window else { return replay(to: real) }
         if real.frame != frame { real.setFrame(frame, display: false) }
         guard showsBare, let bareReady = content.bareReady else {
             CATransaction.setMainCompletion { [weak self, weak real] in if let real { self?.swap(to: real) } }
@@ -170,26 +181,35 @@ public final class LaunchShell {
         }
     }
 
-    /// The real launch window took over: this one goes, and the input it held (now or before a
-    /// dismissal) is posted to `real` in arrival order. `front`: `real` waited below this one.
+    /// The real launch window took over: this one goes, and the input it held is posted to `real`
+    /// in arrival order (`replay`). `front`: `real` waited below this one.
     public func swap(to real: NSWindow, front: Bool = false) {
         if front { FocusRoute(.system, "the real launch window takes over from stage 0").makeKey(real, front: true) }
         dismiss(swappedTo: real)
+        replay(to: real)
+    }
+
+    /// Posts the held input to `real`, in arrival order: every key, and a click, drag or scroll
+    /// only when it aimed at the saved image and `real` took its place (Rust `replays`).
+    private func replay(to real: NSWindow) {
         guard !heldForReal.isEmpty else { return }
         let held = heldForReal
         heldForReal.removeAll()
-        for event in held { if let moved = LaunchShellReplay.event(event, to: real) { NSApp.postEvent(moved, atStart: false) } }
+        for event in held where cmux_launch_shell_replays(LaunchShellReplay.kind(event), showedImage, mismatched) {
+            if let moved = LaunchShellReplay.event(event, to: real) { NSApp.postEvent(moved, atStart: false) }
+        }
     }
 
     /// Closes the window (the backstop, or the swap). Its held input waits for the real window
-    /// (`swap`): nothing typed is dropped.
+    /// (`swap`, or `presented` after a backstop): nothing typed is dropped.
     public func dismiss(swappedTo real: NSWindow? = nil) {
         guard let window else { return }
         self.window = nil
         backstopTimer.cancel()
         if showsBare, let view = window.contentView { content.handoff?(view) }
         heldForReal += window.takeHeld()
-        let kind = real == nil ? "dismissed" : real?.frame == window.frame ? "swapped" : "swapped.mismatch"
+        mismatched = real?.frame != window.frame
+        let kind = real == nil ? "dismissed" : mismatched ? "swapped.mismatch" : "swapped"
         window.orderOut(nil)
         window.close()
         mark("launch_shell.\(kind)")
@@ -238,6 +258,8 @@ public enum LaunchShellPaths {
     let frame: CGRect
     let look: LaunchShellLook
     let reason: UInt8
+    /// Nothing to restore (a fresh install, or no window at the last quit): the bare launch's content.
+    let usesDefaultFrame: Bool
     let imagePath: String?
     private let decoded = DecodedImage()
 
@@ -255,6 +277,7 @@ public enum LaunchShellPaths {
         }
         look = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
         reason = plan.reason
+        usesDefaultFrame = plan.uses_default_frame
         let path = withUnsafeBytes(of: &plan.image_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         imagePath = plan.reason == 0 && !path.isEmpty ? path : nil
     }
