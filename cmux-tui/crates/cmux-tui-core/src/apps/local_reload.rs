@@ -263,12 +263,18 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let mut outs = Vec::new();
-            for (dir, issue) in &catalog.rejected {
-                if is_watched_dir(&self.config.sources, dir) {
+            // A refused folder is said once: when it is new or its reason
+            // changed. Base red: every other app's save logged every refused
+            // folder again (5 malformed folders, 30 saves: 155 warn lines,
+            // pushing real lines out of the 500-line ring).
+            let refused_now: HashMap<PathBuf, String> = rejected.iter().cloned().collect();
+            for (dir, issue) in &rejected {
+                if inner.local_rejected_logged.get(dir) != Some(issue) {
                     let message = format!("{}: {issue}", dir.display());
                     outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "warn", message));
                 }
             }
+            inner.local_rejected_logged = refused_now;
             if inner.customize_reads_offered.is_none() {
                 let declared =
                     inner.catalog.packages.get(CUSTOMIZE_APP).map(|p| p.facts().requested);
@@ -540,20 +546,83 @@ pub(super) const UNREAD: u64 = 0;
 pub(super) fn fingerprint(dir: &Path) -> u64 {
     let mut files = Vec::new();
     collect(dir, &mut files);
-    files.sort();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     let mut hasher = DefaultHasher::new();
     let mut budget = MAX_HASHED_BYTES;
-    for (path, len, modified) in files {
-        (&path, len).hash(&mut hasher);
-        if let Some(rest) = budget.checked_sub(len) {
+    for file in files {
+        (&file.path, file.len).hash(&mut hasher);
+        if let Some(rest) = budget.checked_sub(file.len) {
             budget = rest;
-            hash_contents(&path, len, &mut hasher);
+            content_hash(&file).hash(&mut hasher);
         } else {
-            modified.hash(&mut hasher);
+            file.modified.hash(&mut hasher);
         }
     }
     // UNREAD is reserved (a 1 in 2^64 collision costs one more read).
     hasher.finish().max(1)
+}
+
+/// One file `collect` found: its path, size and modification time, and the
+/// identity a write changes (inode and change time, which no tool sets back).
+struct Found {
+    path: PathBuf,
+    len: u64,
+    modified: u128,
+    stamp: Stamp,
+}
+
+/// What a file's cached content hash is valid for: the same inode, size,
+/// modification and change time.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    inode: u64,
+    len: u64,
+    modified: u128,
+    changed: u128,
+}
+
+/// A change time this close to when the file was hashed may hide a later
+/// write in the same clock tick (a timer tick on Linux before 6.13, one
+/// second on some file systems): such a hash is not reused.
+const RACY_NANOS: u128 = 2_000_000_000;
+
+/// The most files whose content hash is kept; past it the cache starts over.
+const CACHED_FILES: usize = 50_000;
+
+/// Content hashes by path, with the stamp they hold for and when they were
+/// taken. A reload pass reads every watched app, so without this one save
+/// re-read every app's bundle (200 apps of 256 KiB: 50 MiB per save). The
+/// rule is git's racy-clean check: a file is read again unless its stamp is
+/// unchanged and its last change is older than the hash by `RACY_NANOS`.
+static HASHES: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, (Stamp, u128, u64)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn now_nanos() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
+}
+
+/// The hash of `file`'s first `len` bytes, from the cache when its stamp
+/// says the file has not been written since it was safely hashed.
+fn content_hash(file: &Found) -> u64 {
+    {
+        let hashes = HASHES.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((stamp, hashed_at, hash)) = hashes.get(&file.path)
+            && *stamp == file.stamp
+            && file.stamp.changed.saturating_add(RACY_NANOS) < *hashed_at
+        {
+            return *hash;
+        }
+    }
+    let hashed_at = now_nanos();
+    let mut hasher = DefaultHasher::new();
+    hash_contents(&file.path, file.len, &mut hasher);
+    let hash = hasher.finish();
+    let mut hashes = HASHES.lock().unwrap_or_else(PoisonError::into_inner);
+    if hashes.len() >= CACHED_FILES {
+        hashes.clear();
+    }
+    hashes.insert(file.path.clone(), (file.stamp, hashed_at, hash));
+    hash
 }
 
 /// Feeds at most `len` of `path`'s bytes to `hasher` (fewer when it cannot be
@@ -571,7 +640,22 @@ fn hash_contents(path: &Path, len: u64, hasher: &mut DefaultHasher) {
     }
 }
 
-fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
+/// The inode and change time (ns) of `meta`; `(0, 0)` where the platform has
+/// none, which keeps that file's hash from being reused.
+#[cfg(unix)]
+fn identity(meta: &std::fs::Metadata) -> (u64, u128) {
+    use std::os::unix::fs::MetadataExt as _;
+    let changed = u128::try_from(meta.ctime()).unwrap_or(0) * 1_000_000_000
+        + u128::try_from(meta.ctime_nsec()).unwrap_or(0);
+    (meta.ino(), changed)
+}
+
+#[cfg(not(unix))]
+fn identity(_meta: &std::fs::Metadata) -> (u64, u128) {
+    (0, u128::MAX - RACY_NANOS)
+}
+
+fn collect(dir: &Path, files: &mut Vec<Found>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         if files.len() >= MAX_FILES {
@@ -593,7 +677,10 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map_or(0, |d| d.as_nanos());
-            files.push((path, meta.len(), modified));
+            let (inode, changed) = identity(&meta);
+            let len = meta.len();
+            let stamp = Stamp { inode, len, modified, changed };
+            files.push(Found { path, len, modified, stamp });
         }
     }
 }

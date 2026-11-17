@@ -276,6 +276,10 @@ pub(super) struct Inner {
     pub failed: HashMap<String, String>,
     /// The local apps' folder fingerprints the catalog was last read with.
     pub local_prints: HashMap<String, u64>,
+    /// The watched folders the catalog refused at the last reload pass that
+    /// logged, with why: a refusal is logged when it is new or its reason
+    /// changed, not again on every other app's save.
+    pub local_rejected_logged: HashMap<std::path::PathBuf, String>,
     /// Each local app's last good copy (`rollback.rs`), and the fingerprint
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
@@ -461,6 +465,7 @@ impl Supervisor {
                 launches,
                 failed: HashMap::new(),
                 local_prints,
+                local_rejected_logged: HashMap::new(),
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
