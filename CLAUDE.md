@@ -81,21 +81,33 @@ use it before the build is done. The agent itself runs it there only when asked;
 
   ```bash
   JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+      --workspace <PR URL, else the branch name> --backend-mode local \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
   cmux-ci wait "$JOB_ID"
   cmux-ci publish-hq "$JOB_ID"
   ```
 
+  `--workspace` is required (queued builds with the same workspace and tag supersede each other).
+  `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
+  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
+  When you run `ios/scripts/reload.sh --review` below, skip this step: it builds and publishes the
+  same-tag Mac app itself, and a second Mac build replaces the first.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
 - **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
-  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. For the classic app, run
+  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. Its one-command hand-off
+  (`cmux-next-ios/scripts/review.sh`, PR #43379) has not landed yet; until it does, do the Mac step
+  above, report the `cmux-next-ios/` change as not installed on a phone, and name that as the
+  blocker. For the classic app, run
   `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
   fleet (the Mac build above included, same tag, published to HQ), installs on every connected
   iPhone, not only the configured one, through the authenticated install
   (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
   fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
-  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+  boots in a simulator on the person's Mac. If it fails before the iOS build with "Development
+  backend is unreachable or returned an HTTP error" (hq probes the dev backend once, unretried),
+  rerun the same command: it reuses the saved fleet jobs instead of resubmitting.
+  Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
   you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
   iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
@@ -118,7 +130,9 @@ use it before the build is done. The agent itself runs it there only when asked;
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
 too): a few seconds of static checks, no build, refusing only violations your commits add.
-Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks install:
+Swift/Rust builds and tests stay on the fleet. If it warns that this clone's installed hook copy
+is not `origin/feat-cmux-next`'s, run `scripts/install-git-hooks.sh` once from a checkout at
+`origin/feat-cmux-next` (a fresh worktree is one); rebase and fetch do not refresh it. What it runs and how the hooks install:
 [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md).
 
 - Never `--no-verify` and never `CMUX_NEXT_CHECKS_SKIP_REASON`, unless the failure is
