@@ -113,7 +113,7 @@ export const CODEX_CATALOG = [
 function freePort(): number {
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
   const port = server.port;
-  server.stop(true);
+  void server.stop(true);
   return port!;
 }
 
@@ -205,7 +205,7 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
       { cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
     );
     for (const stream of [daemon.stdout, daemon.stderr] as ReadableStream<Uint8Array>[]) {
-      (async () => {
+      void (async () => {
         const decoder = new TextDecoder();
         for await (const chunk of stream) logText += decoder.decode(chunk);
       })();
@@ -413,7 +413,7 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
     },
     async stop() {
       await stopDaemon();
-      relay.stop(true);
+      await relay.stop(true);
       rmSync(scratch, { recursive: true, force: true });
     },
     log: () => logText,
