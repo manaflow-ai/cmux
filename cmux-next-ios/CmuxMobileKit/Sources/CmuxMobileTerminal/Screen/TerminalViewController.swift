@@ -3338,6 +3338,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return super.canPerformAction(action, withSender: sender)
     }
 
+    #if DEBUG
+    /// The terminal demo's tap (`-CmuxMobileTerminalDemoToggle tap`): the
+    /// handler a tap on the terminal runs.
+    func debugTapTerminal() { terminalTapped() }
+    #endif
+
     @objc private func terminalTapped() {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd tap t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }

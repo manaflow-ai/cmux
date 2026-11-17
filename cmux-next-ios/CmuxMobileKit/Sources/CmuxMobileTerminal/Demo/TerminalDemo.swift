@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -13,6 +14,15 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
+        // `-CmuxMobileTerminalDemoLight`: a light terminal theme (the Mac's
+        // Solarized Light), set before the terminal engine reads its colors.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoLight") {
+            CmuxMobileMacTheme.shared.matchesMac = true
+            CmuxMobileMacTheme.shared.apply(CmuxMobileMacAppearance(theme: .init(
+                background: "#fdf6e3", foreground: "#657b83",
+                palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
+                accent: "blue")))
+        }
         let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
             .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
@@ -256,12 +266,51 @@ final class TerminalDemoDriver {
         // the UI test's screenshot on a slow simulator host: a toggle before
         // the last one settled reverses it and sends no resize.
         await wait(2.5)
+        // `-CmuxMobileTerminalDemoToggle` picks how the keyboard moves:
+        // `key` (the keyboard key, the default), `tap` (a tap on the
+        // terminal shows it; the key hides it), `system` (shown by the key,
+        // hidden from outside our code: the terminal resigns, as a swipe or
+        // the system does, so only will-hide claims the rows), `reverse`
+        // (shown, then hidden 80 ms later, before the Mac answers) and
+        // `double` (shown, hidden and shown again 100 ms apart).
+        let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
         for round in 0..<5 {
-            note("show\(round)")
-            model.toggleKeyboard()
-            await wait(2.5)
-            note("hide\(round)")
-            model.toggleKeyboard()
+            switch mode {
+            case "tap":
+                note("show\(round)")
+                model.controller?.debugTapTerminal()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "system":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                _ = model.controller?.surface.resignFirstResponder()
+            case "reverse":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.08)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "double":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            default:
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            }
             await wait(2.5)
         }
         await wait(0.5)

@@ -31,6 +31,47 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-slow", defaults: ["CmuxMobileTerminalDemoMacMs": "150"]))
     }
 
+    /// A tap on the terminal shows the keyboard (the handler a tap runs).
+    @MainActor
+    func testFullScreenAppWithATapToShow() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-tap", defaults: ["CmuxMobileTerminalDemoToggle": "tap"]))
+    }
+
+    /// Hidden from outside our code (the terminal resigns, as a swipe or the
+    /// system does): only will-hide claims the rows.
+    @MainActor
+    func testFullScreenAppHiddenFromOutside() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-system", defaults: ["CmuxMobileTerminalDemoToggle": "system"]))
+    }
+
+    /// Shown, then hidden 80 ms later on a 150 ms link: the revert goes at
+    /// once and the page ends on its resting rows.
+    @MainActor
+    func testFullScreenAppToggleReversedBeforeTheMacAnswers() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-reverse", defaults: ["CmuxMobileTerminalDemoToggle": "reverse",
+                                                                                          "CmuxMobileTerminalDemoMacMs": "150"]),
+                               exactResizes: false)
+    }
+
+    /// Shown, hidden and shown again 100 ms apart.
+    @MainActor
+    func testFullScreenAppRapidDoubleToggle() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-double", defaults: ["CmuxMobileTerminalDemoToggle": "double"]),
+                               exactResizes: false)
+    }
+
+    /// Landscape on the default iPhone.
+    @MainActor
+    func testFullScreenAppInLandscape() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-landscape", orientation: .landscapeLeft))
+    }
+
+    /// A light terminal theme (the Mac's Solarized Light).
+    @MainActor
+    func testFullScreenAppInALightTheme() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-light", arguments: ["-CmuxMobileTerminalDemoLight"]))
+    }
+
     /// htop reports the mouse; its screen redraws every 0.9 s on its own.
     @MainActor
     func testMouseReportingAppKeepsItsGridOnTheComposerAcrossToggles() throws {
@@ -77,11 +118,15 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         checkShell(try runDemo(phase: "kbshell", name: "inline", defaults: ["CmuxMobileTerminalDemoShell": "inline"]), following: false)
     }
 
-    private func checkFullScreenApp(_ values: [String: String]) throws {
+    /// `exactResizes`: one resize per settled toggle (a reversed or doubled
+    /// toggle sends its revert at once, recorded, not asserted).
+    private func checkFullScreenApp(_ values: [String: String], exactResizes: Bool = true) throws {
         let steps = resizeSteps(values)
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
-        for (step, resizes) in steps {
-            XCTAssertEqual(resizes, 1, "one resize for the settled toggle \(step) (\(values["demo"] ?? "-"))")
+        if exactResizes {
+            for (step, resizes) in steps {
+                XCTAssertEqual(resizes, 1, "one resize for the settled toggle \(step) (\(values["demo"] ?? "-"))")
+            }
         }
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
@@ -119,15 +164,18 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     /// The demo's toggles, then the trace's counts (`key=value`).
     @MainActor
-    private func runDemo(phase: String, name: String, defaults: [String: String] = [:]) throws -> [String: String] {
+    private func runDemo(phase: String, name: String, defaults: [String: String] = [:], arguments: [String] = [],
+                         orientation: UIDeviceOrientation = .portrait) throws -> [String: String] {
         let label = "\(phase)-\(name)"
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.orientation = orientation
+        defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoMac", "-CmuxMobileTerminalFlickerTrace",
                                 "-CmuxMobileTerminalDemoPhases", phase]
         for (key, value) in defaults { app.launchArguments += ["-\(key)", value] }
+        app.launchArguments += arguments
         app.launch()
 
         let demo = app.staticTexts["debug.terminal-demo"]
