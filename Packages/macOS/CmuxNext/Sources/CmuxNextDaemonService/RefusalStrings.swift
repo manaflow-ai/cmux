@@ -147,12 +147,26 @@ public nonisolated enum RefusalStrings {
         text("handlers.refusal.daemonRestoreTimedOut",
              "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying.")
     }
-    /// A daemon error as a user-facing reason: a missing capability goes
-    /// through the capability gate's text, never its id.
+    /// An error as a user-facing reason. A ``DaemonError`` is never its own description (a command
+    /// name, a socket path, "[code]", "cmux-tui connection closed: ..."): a refusal reads the daemon's
+    /// own sentence, a lost connection that cmux is starting the service again, a missed deadline
+    /// that it may still apply, anything else that cmux could not start the service. The raw error
+    /// stays with the caller for the log and Copy Details.
     public static func describe(_ error: any Error) -> String {
-        if case DaemonError.missingCapabilities(let names) = error { return needsDaemonCapability(names.first ?? "") }
-        if case DaemonError.sessionRestoreTimedOut = error { return daemonRestoreTimedOut }
-        return String(describing: error)
+        guard let daemonError = error as? DaemonError else { return String(describing: error) }
+        // The one reason a full disk shows everywhere (restore fuzz h3), as `ActionWorkFailure` reads it.
+        if daemonError.isDiskFull { return diskFull }
+        switch daemonError {
+        case .missingCapabilities(let names): return needsDaemonCapability(names.first ?? "")
+        case .sessionRestoreTimedOut: return daemonRestoreTimedOut
+        case .command(_, let message, _, _, _): return message
+        case .endpointBlocked(let reason): return reason
+        case .unsupportedProtocol: return restartToUpdateDaemon
+        case .timedOut, .terminalStartTimedOut: return daemonTimedOut
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed: return daemonConnecting
+        case .socketPathTooLong, .malformedResponse, .wrongApp, .binaryNotFound, .launchFailed, .invalidSessionName:
+            return daemonUnavailable
+        }
     }
     /// The home session's spaces and workspace groups are not loaded yet.
     static var personalStateLoading: String {
