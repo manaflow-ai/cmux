@@ -325,6 +325,151 @@ def escape_flag_unknown(stderr: str) -> bool:
     return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
+# Settled reads (2026-11-17): GitHub answers that can no longer change are read once per host and kept, so a merge
+# check run again after a quota refusal reads none of them again. merge_hold refused cmux#45097 at 6aa5d9938d5f five
+# times with "[quota: not judged, retry]" while it read "ok: may merge": each run re-read the same finished head and
+# base runs over the shared login's REST, which other callers spent within minutes of each reset. Kept (in
+# jobs_cache(), so BASE_RED_EXCUSE_JOBS_CACHE=off turns it off): a completed job (a re-run is a new job id), a commit, a
+# compare of two commits, and a completed run's record and job lists. A run's record and job lists are served only
+# while the run is the same completed attempt GitHub serves now (run_now: a run record or list this process read live,
+# else this host's glaeda-gh at most GLAEDA_RUN_FRESH_SECONDS old); a run re-run since, still in progress, or not known
+# now is read live, as before. Never kept: lists of a branch's runs, a commit's checks or statuses, compares of a
+# branch: they are answers about now.
+SETTLED_KEEP_SECONDS = 14 * 24 * 3600
+GLAEDA_RUN_FRESH_SECONDS = 600
+_SETTLED_REPO = r"repos/(?P<repo>[\w.-]+/[\w.-]+)"
+SETTLED_JOB = re.compile(rf"{_SETTLED_REPO}/actions/jobs/\d+")
+SETTLED_RUN = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)")
+SETTLED_RUN_JOBS = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)/jobs\?filter=(?:all|latest)&per_page=\d+")
+SETTLED_FOREVER = re.compile(rf"{_SETTLED_REPO}/(?:commits/[0-9a-f]{{40}}|compare/[0-9a-f]{{40}}\.\.\.[0-9a-f]{{40}}"
+                             r"(?:\?per_page=\d+)?)")
+RUNS_LIST = re.compile(rf"{_SETTLED_REPO}/actions/(?:workflows/[^/?]+/)?runs\?.*")
+_SETTLED_PRUNED: list[bool] = []
+NOT_KEPT = object()
+
+
+def live_runs() -> dict[tuple[str, int], dict]:
+    """Every run record this judgement read live (a run, or a list of runs), by (repo, run id): what GitHub serves
+    now. Kept in the judgement's memo (JUDGEMENT_READS), so it lives no longer than that; outside a judgement, none."""
+    memo = JUDGEMENT_READS.get()
+    return {} if memo is None else memo.setdefault(("live runs",), {})
+
+
+def settled_file(route: str, state: tuple | None = None) -> Path | None:
+    where = jobs_cache()
+    if where is None:
+        return None
+    import hashlib
+    name = hashlib.sha256(json.dumps([route, state]).encode()).hexdigest()[:40]
+    return where / "settled" / f"{name}.json"
+
+
+def settled_get(route: str, state: tuple | None = None):
+    """The answer kept for ROUTE (in STATE), or NOT_KEPT."""
+    path = settled_file(route, state)
+    if path is None:
+        return NOT_KEPT
+    try:
+        kept = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return NOT_KEPT
+    return kept.get("answer", NOT_KEPT) if isinstance(kept, dict) and kept.get("route") == route else NOT_KEPT
+
+
+def settled_put(route: str, found, state: tuple | None = None) -> None:
+    path = settled_file(route, state)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        spare = path.with_name(f".{path.name}.{os.getpid()}")
+        spare.write_text(json.dumps({"route": route, "state": state, "answer": found}))
+        os.replace(spare, path)
+        if not _SETTLED_PRUNED:
+            _SETTLED_PRUNED.append(True)
+            for old in path.parent.glob("*.json"):
+                if time.time() - old.stat().st_mtime > SETTLED_KEEP_SECONDS:
+                    old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def completed_state(run: object) -> tuple[int, str] | None:
+    """(run_attempt, updated_at) of a completed RUN, or None for one in progress or that names neither."""
+    if not isinstance(run, dict) or run.get("status") != "completed":
+        return None
+    attempt, updated = run.get("run_attempt"), run.get("updated_at")
+    if not isinstance(attempt, int) or not isinstance(updated, str) or not updated:
+        return None
+    return attempt, updated
+
+
+def run_now(repo: str, run: int) -> dict | None:
+    """RUN's record as GitHub serves it now: one this process read live, else this host's glaeda-gh's when it read
+    the run within GLAEDA_RUN_FRESH_SECONDS (its state alone), else None."""
+    if (repo, run) in live_runs():
+        return live_runs()[(repo, run)]
+    kept = read_once(("glaeda run", repo, run), lambda: glaeda_log.cached_run(repo, run)
+                     if glaeda_log is not None and hasattr(glaeda_log, "cached_run") else None)
+    if isinstance(kept, dict) and time.time() - float(kept.get("at") or 0) <= GLAEDA_RUN_FRESH_SECONDS:
+        return kept
+    return None
+
+
+def note_live_runs(repo: str, found) -> None:
+    """Remember every full run record in FOUND (a run, a list of runs, or pages of one), read live just now."""
+    pages, live = found if isinstance(found, list) else [found], live_runs()
+    for page in pages:
+        runs = page.get("workflow_runs") if isinstance(page, dict) and "workflow_runs" in page else [page]
+        for run in runs or []:
+            if isinstance(run, dict) and isinstance(run.get("id"), int) and isinstance(run.get("workflow_id"), int):
+                live[(repo, run["id"])] = run
+                route = f"repos/{repo}/actions/runs/{run['id']}"
+                # A list names up to 100 runs: each is written once, and again only when re-run since.
+                if completed_state(run) not in (None, completed_state(settled_get(route))):
+                    settled_put(route, run)
+
+
+def settled_answer(route: str):
+    """ROUTE's kept answer when it is still what GitHub would serve, else NOT_KEPT."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        return settled_get(route)
+    if SETTLED_JOB.fullmatch(route) is not None:
+        kept = settled_get(route)
+        return kept if isinstance(kept, dict) and kept.get("status") == "completed" else NOT_KEPT
+    if (found := SETTLED_RUN.fullmatch(route)) is not None:
+        repo, run = found["repo"], int(found["run"])
+        if (repo, run) in live_runs():
+            return copy.deepcopy(live_runs()[(repo, run)])
+        state = completed_state(run_now(repo, run))
+        kept = settled_get(route) if state is not None else NOT_KEPT
+        return kept if completed_state(kept) == state else NOT_KEPT
+    if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(found["repo"], int(found["run"])))
+        return settled_get(route, state) if state is not None else NOT_KEPT
+    return NOT_KEPT
+
+
+def settle(route: str, found) -> None:
+    """Keep FOUND, ROUTE's live answer, when it can no longer change (settled_answer serves it)."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        settled_put(route, found)
+    elif SETTLED_JOB.fullmatch(route) is not None:
+        if isinstance(found, dict) and found.get("status") == "completed":
+            settled_put(route, found)
+    elif (match := SETTLED_RUN.fullmatch(route) or RUNS_LIST.fullmatch(route)) is not None:
+        note_live_runs(match["repo"], found)
+    elif (match := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(match["repo"], int(match["run"])))
+        jobs = [job for page in (found if isinstance(found, list) else [found]) if isinstance(page, dict)
+                for job in page.get("jobs") or []]
+        # Only the attempt the run's state names, every job of it done: a list read while a re-run started is not.
+        if (state is not None and jobs and all(isinstance(job, dict) and job.get("status") == "completed"
+                                               for job in jobs)
+                and max((job.get("run_attempt") or 1) for job in jobs) == state[0]):
+            settled_put(route, found, state)
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
@@ -358,6 +503,16 @@ class GitHub(_evidence.GitHub):
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
+        """ROUTE's answer: kept on this host when it is settled (settled_answer), else read live and kept when it
+        can no longer change (settle)."""
+        kept = settled_answer(route)
+        if kept is not NOT_KEPT:
+            return kept
+        found = self.live_json(route, paginate=paginate, per_page=per_page)
+        settle(route, found)
+        return found
+
+    def live_json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
