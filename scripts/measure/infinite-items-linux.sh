@@ -6,6 +6,9 @@
 #   infinite-items-linux.sh before=own-exe ...: first runs the same build with no cmux-tui-host beside its daemon (a
 #     copy of cmux-tui alone), so every terminal host re-execs the daemon's own file as before host_exe/linux.rs: the
 #     slim host's before (BEFORE lines) and after from one build on one runner in one job.
+#   infinite-items-linux.sh before=ref:REF repeat=3 ...: also builds REF (a commit or branch, e.g. the merge base) in a
+#     worktree of its own and runs it and this head in turn, REPEAT times each (BEFORE rI and AFTER rI lines): a
+#     change's before and after from one harness on one runner in one job.
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
@@ -14,6 +17,7 @@ pages=1
 page_counts=""
 build_only=0
 before=""
+repeat=1
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -22,6 +26,7 @@ for arg in "$@"; do
     pages=*) pages="${arg#pages=}" ;;
     build-only) build_only=1 ;;
     before=*) before="${arg#before=}" ;;
+    repeat=*) repeat="${arg#repeat=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -66,8 +71,38 @@ if [[ "$before" == own-exe ]]; then
   python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$own_dir/cmux-tui" \
     --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/BEFORE /' || status=$?
   rm -rf "$own_dir"
+elif [[ "$before" == ref:* ]]; then
+  ref="${before#ref:}"
+  ab="$(mktemp -d)"
+  # Each arm's three binaries side by side in a folder of its own: the daemon runs its hosts from the
+  # cmux-tui-host beside it. The base builds into the same target folder, so only the workspace crates rebuild.
+  mkdir "$ab/after" "$ab/before"
+  cp "$target/release/acpmux" "$target/release/cmux-tui" "$target/release/cmux-tui-host" "$ab/after/"
+  git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q --depth 1 origin "$ref"
+  base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
+  git worktree add -q --detach "$ab/src" "$base_sha"
+  ghostty_src="${CMUX_GHOSTTY_SRC:-}"
+  if [ "$(git -C "$ab/src" rev-parse HEAD:ghostty-next)" == "$(git rev-parse HEAD:ghostty-next)" ]; then
+    ghostty_src="${ghostty_src:-$root/ghostty-next}"
+  else
+    git -C "$ab/src" submodule update --init --depth 1 ghostty-next
+  fi
+  (cd "$ab/src/cmux-tui" && CMUX_GHOSTTY_SRC="$ghostty_src" CARGO_TARGET_DIR="$target" cargo build --locked --release \
+    -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3)
+  cp "$target/release/acpmux" "$target/release/cmux-tui" "$target/release/cmux-tui-host" "$ab/before/"
+  git worktree remove --force "$ab/src"
+  echo "INFINITE-AB before=$base_sha after=$(git rev-parse HEAD) repeat=$repeat counts=$counts days=$days"
+  for i in $(seq 1 "$repeat"); do
+    for arm in before after; do
+      tag="$(echo "$arm" | tr a-z A-Z) r$i"
+      python3 scripts/measure/infinite-items.py --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
+        --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u "s/^/$tag /" || status=$?
+    done
+  done
+  rm -rf "$ab"
+  exit "$status"
 elif [ -n "$before" ]; then
-  echo "infinite-items-linux.sh: unknown before=$before (own-exe)" >&2
+  echo "infinite-items-linux.sh: unknown before=$before (own-exe, ref:REF)" >&2
   exit 2
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$target/release/cmux-tui" \
