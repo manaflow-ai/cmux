@@ -573,7 +573,14 @@ def surface_chat(phase, pid):
         if other:
             streams.append(other)
     LOAD["focus"] = focus_report()
+    # The page's own per-key marks, so the chat's dispatch->frame splits into webview delivery (the app's
+    # dispatch end to the page's first keydown listener), the page's edit and render (`to_work`) and the
+    # frame after it (`to_frame`, `to_paint`): debug.agent_pane typing_stats (webviews perf.ts AcpmuxPerf).
+    rpc("debug.agent_pane", {"action": "reset_typing", **({"pane": pane} if pane else {})}, timeout=20)
     entry = measure("chat", phase, {}, "contents_ms", pid, streams)
+    page = rpc("debug.agent_pane", {"action": "typing_stats", **({"pane": pane} if pane else {})}, timeout=20)
+    if entry is not None:
+        entry["page_typing"] = page
     # Leave the composer empty for the next round: select all, then delete.
     rpc("debug.key", {"key": "a", "modifiers": ["command"]})
     rpc("debug.key", {"key": "delete"})
