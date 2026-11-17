@@ -3777,6 +3777,17 @@
      "nullable": false,
      "since": 12,
      "capability": "terminal-public-ids-v1"
+    },
+    "transaction": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "tab-create-place-v1",
+     "description": "The transaction of a new-tab request, when it sent one."
     }
    },
    "additional_properties": false
@@ -10072,6 +10083,65 @@
    },
    "additional_properties": false
   },
+  "TabPlace": {
+   "kind": "object",
+   "fields": {
+    "after": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right after this tab of pane."
+    },
+    "after_creation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet."
+    },
+    "before": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right before this tab of pane."
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "true: the first tab after the pinned tabs."
+    },
+    "joins": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Exactly one of after, after_creation, before and start:true."
+   ]
+  },
   "ConversationTabRecord": {
    "kind": "object",
    "fields": {
@@ -13778,6 +13848,30 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane. Needs pane."
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-create-place-v1",
+      "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation."
      }
     },
     "additional_properties": false,
@@ -18660,6 +18754,7 @@
     "kind": "attach",
     "event_names": [
      "agent-cli-frame",
+     "agent-cli-lean",
      "browser-state",
      "colors-changed",
      "detached",
@@ -18678,6 +18773,7 @@
      "bytes": [
       "vt-state",
       "agent-cli-frame",
+      "agent-cli-lean",
       "output",
       "resized",
       "colors-changed",
@@ -18710,7 +18806,7 @@
     "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
     "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
     "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once.",
-    "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored."
+    "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored. With agent-cli-hybrid-v2 declared too, each frame goes as an agent-cli-lean event instead (the same frames in the lean form)."
    ]
   },
   "register-browser-provider": {
@@ -19842,6 +19938,17 @@
       "default": null,
       "capability": "conversation-tab-split-v1",
       "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split."
      }
     },
     "additional_properties": false
@@ -20120,6 +20227,28 @@
       "default": null,
       "capability": "frontend-browser-tab-split-v1",
       "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after."
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split."
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split."
      }
     },
     "additional_properties": false
@@ -25394,6 +25523,89 @@
    "since": 12,
    "stream": null
   },
+  "float-pane": {
+   "authority": "control",
+   "since": 12,
+   "capability": "floating-panes-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "x": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "y": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "w": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "h": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
+    "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
+    "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
+   ]
+  },
   "cloud-session-set": {
    "authority": "local-admin",
    "since": 12,
@@ -26431,6 +26643,62 @@
    "constraints": [
     "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+   ]
+  },
+  "device-setup": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "device-setup-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "A device id, name or address, as `cmux device list` shows it."
+     },
+     "verb": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "setup (every step) or start (reach, login item and start)."
+     },
+     "allow_agents": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Turn on the agents permission (the person's click in the app)."
+     },
+     "dry_run": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+    "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+    "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
    ]
   },
   "subscribe-activity": {
@@ -29943,6 +30211,44 @@
     "additional_properties": false
    }
   },
+  "agent-cli-lean": {
+   "since": 12,
+   "capability": "agent-cli-hybrid-v2",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-cli-lean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "f": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "overflow": {
    "since": 7,
    "capability": null,
@@ -31184,6 +31490,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1)."
      }
     },
     "additional_properties": false
@@ -32091,6 +32407,68 @@
       "nullable": false
      },
      "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "device-setup-step": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "device-setup-step"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "step": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "detail": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "fix": {
       "type": {
        "kind": "scalar",
        "name": "string"

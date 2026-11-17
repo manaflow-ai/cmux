@@ -382,34 +382,37 @@ pub(crate) fn load_topology_frame(
 
 /// Add each of `screens`, its panes and their tabs to `topology`: what the
 /// public value of a screen and of its panes is built from. A screen that
-/// `topology` holds already is not read again.
+/// `topology` holds already is not read again. The side tables are read one
+/// time for all of `screens`, not one time for each screen.
 fn load_screen_subtrees(
     connection: &Connection,
     topology: &mut ResourceTopologySnapshot,
     screens: &[ScreenPublicId],
 ) -> anyhow::Result<()> {
+    let mut rows: Vec<RegistryScreen> = Vec::new();
     for id in screens {
-        if topology.screens.iter().any(|screen| &screen.public_id == id) {
+        let held = |screen: &RegistryScreen| &screen.public_id == id;
+        if topology.screens.iter().any(held) || rows.iter().any(held) {
             continue;
         }
-        let loaded = screen_rows::with_side_tables(
-            connection,
-            load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?,
-        )?;
-        for screen in &loaded {
-            let panes =
-                load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
-            for pane in &panes {
-                topology.tabs.extend(load_tabs(
-                    connection,
-                    " AND t.pane_id = ?1",
-                    &[&pane.public_id.as_str()],
-                )?);
-            }
-            topology.panes.extend(panes);
-        }
-        topology.screens.extend(loaded);
+        rows.extend(load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?);
     }
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let loaded = screen_rows::with_side_tables(connection, rows)?;
+    for screen in &loaded {
+        let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
+        for pane in &panes {
+            topology.tabs.extend(load_tabs(
+                connection,
+                " AND t.pane_id = ?1",
+                &[&pane.public_id.as_str()],
+            )?);
+        }
+        topology.panes.extend(panes);
+    }
+    topology.screens.extend(loaded);
     Ok(())
 }
 

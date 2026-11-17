@@ -15,6 +15,8 @@ mod floating_panes;
 mod layout_columns;
 mod layout_fit;
 mod layout_rows;
+mod layout_snapshot;
+mod one_pane_screen;
 mod split_around;
 
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
@@ -26,18 +28,7 @@ pub(crate) use layout_columns::{
 #[cfg(test)]
 pub(crate) use layout_columns::{LONE_DOCK_WIDTH, normalize_dock_columns};
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
-
-#[derive(Debug, Clone)]
-pub(crate) struct ScreenLayoutSnapshot {
-    pub root: Node,
-    pub active_pane: PaneId,
-    pub zoomed_pane: Option<PaneId>,
-    pub creation_order_auto_layout: Option<Vec<PaneId>>,
-    pub viewport_splits: BTreeMap<SplitId, f32>,
-    pub viewport_base_width: Option<f32>,
-    pub layout_columns: Vec<LayoutColumn>,
-    pub floating: Vec<cmux_layout_reducer::floating_panes::Floating<PaneId>>,
-}
+pub(crate) use layout_snapshot::ScreenLayoutSnapshot;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
@@ -524,19 +515,6 @@ pub struct Screen {
 }
 
 impl Screen {
-    pub(crate) fn layout_snapshot(&self) -> ScreenLayoutSnapshot {
-        ScreenLayoutSnapshot {
-            root: self.root.clone(),
-            active_pane: self.active_pane,
-            zoomed_pane: self.zoomed_pane,
-            creation_order_auto_layout: self.creation_order_auto_layout.clone(),
-            viewport_splits: self.viewport_splits.clone(),
-            viewport_base_width: self.viewport_base_width,
-            layout_columns: self.layout_columns.clone(),
-            floating: self.floating.clone(),
-        }
-    }
-
     fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {
         self.layout_undo.back().is_some_and(|entry| {
             entry.created_panes.is_empty()
@@ -651,6 +629,8 @@ impl Screen {
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
         self.set_floating_panes(snapshot.floating);
+        // The pane that has the focus now is the front pane, also in a list from before it got the focus.
+        self.raise_floating_pane(self.active_pane);
     }
 }
 
@@ -708,6 +688,8 @@ pub struct State {
     pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
+    /// The tab creations that have a place (`tab-create-place-v1`): one value for each copy.
+    pub(crate) tab_places: crate::mux::tab_strip::tab_place::SharedPlaceLists,
 }
 
 impl State {

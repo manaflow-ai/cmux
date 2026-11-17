@@ -5,7 +5,7 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod beads;
-pub(crate) mod bounded_child;
+pub(crate) use crate::bounded_child;
 pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
@@ -48,10 +48,10 @@ pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
 pub mod ls_table;
-pub(crate) mod machine_consent;
+pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;
-pub mod mesh_node_key;
+pub use crate::mesh_node_key;
 pub mod orchestrate;
 pub mod output;
 pub mod pairing;

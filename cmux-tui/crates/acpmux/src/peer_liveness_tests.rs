@@ -123,6 +123,62 @@ async fn a_silent_peer_still_loses_the_link_within_8_s() {
     assert!(started.elapsed() <= Duration::from_secs(8), "{:?}", started.elapsed());
 }
 
+/// Run 43783279032: the network went for 10 s without a reset and a request went out on the
+/// link. It is dropped within `NETWORK_PROBE` of that request, not after the silence budget.
+#[tokio::test(start_paused = true)]
+async fn an_unanswered_request_drops_a_silent_link_within_2_s() {
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    // A budget long enough that only the request's probe can end the link in time.
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_misses = 30;
+    timings.handshake = Duration::from_secs(3_600);
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let asked = tokio::time::Instant::now();
+    peer.out.try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() }).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("after a request"), "{ended}");
+    let took = asked.elapsed();
+    assert!(took <= crate::peer::network::NETWORK_PROBE + Duration::from_millis(100), "{took:?}");
+}
+
+/// A request on a link that answers keeps it: the probe's ping is answered.
+#[tokio::test(start_paused = true)]
+async fn a_request_on_a_link_that_answers_keeps_it() {
+    use futures_util::StreamExt;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // Says nothing for 3 s (a loaded peer), then reads, which answers each ping with a pong.
+    let answering = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        while server.next().await.is_some() {}
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    // Sent on a link silent 2.5 s: the probe goes out, and the pong at 3 s keeps the link.
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    peer.out.try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() }).unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(!serving.is_finished(), "a link that answers the probe is kept");
+    serving.abort();
+    answering.abort();
+}
+
 /// This computer's network as a peer sees it (`peer_network.rs`), driven by the test: the sender
 /// stands in for the kernel's routing watch.
 fn own_network(peer: &Peer) -> tokio::sync::watch::Sender<u64> {

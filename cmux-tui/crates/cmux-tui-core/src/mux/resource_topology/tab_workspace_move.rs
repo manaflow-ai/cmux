@@ -181,7 +181,8 @@ impl Mux {
                     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
                     if source_screen_remains {
                         if source_layout.active_pane == source_pane {
-                            source_layout.active_pane = source_layout.root.first_visible_pane();
+                            let next = source_layout.root.first_visible_pane();
+                            source_layout.set_active_pane(next);
                         }
                         if source_layout.zoomed_pane == Some(source_pane) {
                             source_layout.zoomed_pane = None;
@@ -499,21 +500,12 @@ impl Mux {
                         new_pane: target_pane,
                     }
                 };
-                target_ws.screens.push(Screen {
-                    id: target_screen,
-                    public_id: target_screen_id,
-                    name: None,
-                    root: Node::Leaf(target_pane),
-                    active_pane: target_pane,
-                    zoomed_pane: None,
-                    creation_order_auto_layout: Some(vec![target_pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    floating: Vec::new(),
-                    layout_undo: Default::default(),
-                });
+                target_ws.screens.push(Screen::with_one_pane(
+                    target_screen,
+                    target_screen_id,
+                    None,
+                    target_pane,
+                ));
                 let pane = Pane {
                     id: target_pane,
                     public_id: target_pane_id,

@@ -112,3 +112,7 @@ pub(super) fn floating_json(list: &[Floating<PaneId>]) -> Value {
             .collect(),
     )
 }
+
+#[cfg(test)]
+#[path = "floating_panes_tests.rs"]
+mod tests;
