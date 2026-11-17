@@ -6,10 +6,9 @@ rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
 workspace = "../cmux-app-ffi"
-description = "What the stage-0 launch window shows (saved image, plain shell or nothing) and which input it holds for the real window"
+description = "Which input the stage-0 launch window holds, in order, for the real window"
 
 [dependencies]
-cmux-launch-record = { path = "../cmux-launch-record" }
 
 [dev-dependencies]
 proptest = "1"
