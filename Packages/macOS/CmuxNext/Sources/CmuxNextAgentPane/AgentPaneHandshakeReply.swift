@@ -39,6 +39,7 @@ enum AgentPaneHandshakeReply {
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.effort = seed.effort
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }

@@ -28,7 +28,7 @@ struct FirstRunPageAppShortcutsTests {
         func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
     }
 
-    /// Onboarding is off at a plain launch (the decision of 2026-11-09, `AppEnvironment.skipsOnboarding`). These tests
+    /// Onboarding is off at a plain launch (since 5bef23242326, `AppEnvironment.skipsOnboarding`). These tests
     /// turn it on, as `CMUX_NEXT_ONBOARDING=1` does for a person, so that the first-run page can show.
     private static let onboardingOn = ["CMUX_NEXT_ONBOARDING": "1"]
 
