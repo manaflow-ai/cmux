@@ -44,6 +44,11 @@
 //!   all that needs a mesh with several addresses per peer; without them
 //!   the mode runs against a mesh that holds one.
 //!
+//! `--workload rpc` (`tcp`, `wg-tcp`) replaces the desktop stream with an
+//! acpmux peer's traffic on the same connection: bursts of small requests and
+//! their replies, and a few-MB transfer (a replay or a git fetch) 1 s in.
+//! It reports `rpc_ms` (each request's round trip) and `transfer_ms`.
+//!
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
@@ -128,6 +133,16 @@ struct Args {
     rd_frames_in_flight: u32,
     /// `--rd-deadline-ms`: how long the rd viewer waits for a frame's shards.
     rd_deadline_ms: u64,
+    /// `--workload stream|rpc`: the desktop stream, or an acpmux peer's
+    /// traffic (see [`rpc_session`]).
+    workload: String,
+    /// `--rpc-burst`, `--rpc-interval-ms`, `--rpc-request-bytes`,
+    /// `--rpc-reply-bytes`, `--rpc-transfer-bytes`: the rpc workload's shape.
+    rpc_burst: u32,
+    rpc_interval_ms: u64,
+    rpc_request_bytes: usize,
+    rpc_reply_bytes: usize,
+    rpc_transfer_bytes: usize,
 }
 
 fn args() -> Args {
@@ -152,6 +167,12 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
         seed: 1,
         rd_frames_in_flight: 0,
         rd_deadline_ms: 200,
+        workload: "stream".into(),
+        rpc_burst: 8,
+        rpc_interval_ms: 100,
+        rpc_request_bytes: 200,
+        rpc_reply_bytes: 2_000,
+        rpc_transfer_bytes: 3_000_000,
     };
     let mut iter = flags.into_iter();
     while let Some(flag) = iter.next() {
@@ -184,6 +205,12 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
             "--seed" => parsed.seed = number(),
             "--rd-frames-in-flight" => parsed.rd_frames_in_flight = number() as u32,
             "--rd-deadline-ms" => parsed.rd_deadline_ms = number(),
+            "--workload" => parsed.workload = value.clone(),
+            "--rpc-burst" => parsed.rpc_burst = number() as u32,
+            "--rpc-interval-ms" => parsed.rpc_interval_ms = number(),
+            "--rpc-request-bytes" => parsed.rpc_request_bytes = number() as usize,
+            "--rpc-reply-bytes" => parsed.rpc_reply_bytes = number() as usize,
+            "--rpc-transfer-bytes" => parsed.rpc_transfer_bytes = number() as usize,
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -220,6 +247,11 @@ struct Record {
     longest_frame_gap_us: u64,
     /// The label of the path that carried the stream at its end.
     final_path: Option<String>,
+    /// Rpc workload: each answered request's round trip, the requests sent,
+    /// and the transfer's time from its request to its last byte.
+    rpc_us: Vec<u64>,
+    rpcs_sent: u64,
+    transfer_us: Option<u64>,
 }
 
 type Shared = Arc<Mutex<Record>>;
@@ -279,6 +311,10 @@ where
     V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let end = Instant::now() + Duration::from_secs(args.seconds);
+    if args.workload == "rpc" {
+        rpc_session(host, viewer, args, clock, record, end).await;
+        return;
+    }
     let host = host_half(host, args, clock.clone(), record.clone(), end);
     let viewer = viewer_half(viewer, args, clock, record, end);
     tokio::join!(host, viewer);
@@ -411,6 +447,169 @@ where
         let _ = tx.shutdown().await;
     }
     viewer_writer_abort.abort();
+}
+
+const KIND_REQUEST: u8 = 2;
+const KIND_REPLY: u8 = 3;
+const KIND_TRANSFER_REQUEST: u8 = 4;
+const KIND_TRANSFER: u8 = 5;
+const KIND_TRANSFER_END: u8 = 6;
+/// Largest piece of the transfer the host writes at once; replies go out
+/// between pieces, as a multiplexing peer link interleaves them.
+const TRANSFER_PIECE: usize = 16 * 1024;
+/// When the viewer asks for the transfer, after the session starts.
+const TRANSFER_AT: Duration = Duration::from_secs(1);
+
+fn message(kind: u8, seq: u32, sent_us: u64, payload: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + HEADER + payload);
+    out.extend_from_slice(&u32::try_from(HEADER + payload).unwrap_or(0).to_be_bytes());
+    out.extend_from_slice(&header(kind, seq, sent_us, 0));
+    out.resize(4 + HEADER + payload, 0x3c);
+    out
+}
+
+/// One length-prefixed message into `body`; `None` at EOF or on garbage.
+async fn read_message<R: AsyncRead + Unpin>(reader: &mut R, body: &mut Vec<u8>) -> Option<()> {
+    let mut len = [0u8; 4];
+    reader.read_exact(&mut len).await.ok()?;
+    let len = u32::from_be_bytes(len) as usize;
+    if !(HEADER..=HEADER + (1 << 20)).contains(&len) {
+        return None;
+    }
+    body.resize(len, 0);
+    reader.read_exact(body).await.ok()?;
+    Some(())
+}
+
+/// An acpmux peer's traffic on one connection: every `--rpc-interval-ms`
+/// the viewer sends a burst of `--rpc-burst` small requests and the host
+/// answers each; [`TRANSFER_AT`] in, the viewer also asks for a
+/// `--rpc-transfer-bytes` transfer (a session replay or a git fetch), which
+/// the host sends in pieces with the replies in between. Records each
+/// request's round trip and the transfer's time to its last byte.
+async fn rpc_session<H, V>(
+    host: H,
+    viewer: V,
+    args: &Args,
+    clock: Arc<Clock>,
+    record: Shared,
+    end: Instant,
+) where
+    H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut host_rx, mut host_tx) = tokio::io::split(host);
+    let (mut viewer_rx, mut viewer_tx) = tokio::io::split(viewer);
+    let (reply_tx, mut reply_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let (piece_tx, mut piece_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4);
+    let host_reader = {
+        let args = args.clone();
+        tokio::spawn(async move {
+            let mut body = Vec::new();
+            while read_message(&mut host_rx, &mut body).await.is_some() {
+                let (kind, seq, sent, _) = parse_header(&body);
+                if kind == KIND_REQUEST {
+                    let _ = reply_tx.send(message(KIND_REPLY, seq, sent, args.rpc_reply_bytes));
+                } else if kind == KIND_TRANSFER_REQUEST {
+                    let piece_tx = piece_tx.clone();
+                    let mut left = args.rpc_transfer_bytes;
+                    tokio::spawn(async move {
+                        while left > 0 {
+                            let n = left.min(TRANSFER_PIECE);
+                            left -= n;
+                            let kind = if left == 0 { KIND_TRANSFER_END } else { KIND_TRANSFER };
+                            if piece_tx.send(message(kind, 0, sent, n)).await.is_err() {
+                                break;
+                            }
+                        }
+                    });
+                }
+            }
+        })
+    };
+    let host_writer = tokio::spawn(async move {
+        let (mut replies_open, mut pieces_open) = (true, true);
+        while replies_open || pieces_open {
+            // Replies first: a multiplexing link never queues a reply behind
+            // the transfer's pieces it has not written yet.
+            let next = tokio::select! {
+                biased;
+                reply = reply_rx.recv(), if replies_open => {
+                    replies_open = reply.is_some();
+                    reply
+                }
+                piece = piece_rx.recv(), if pieces_open => {
+                    pieces_open = piece.is_some();
+                    piece
+                }
+            };
+            let Some(bytes) = next else { continue };
+            if host_tx.write_all(&bytes).await.is_err() {
+                break;
+            }
+        }
+        let _ = host_tx.shutdown().await;
+    });
+    let viewer_reader = {
+        let (clock, record) = (clock.clone(), record.clone());
+        tokio::spawn(async move {
+            let mut body = Vec::new();
+            while read_message(&mut viewer_rx, &mut body).await.is_some() {
+                let (kind, _, sent, _) = parse_header(&body);
+                let now = clock.us();
+                match kind {
+                    KIND_REPLY => lock(&record).rpc_us.push(now.saturating_sub(sent)),
+                    KIND_TRANSFER_END => {
+                        lock(&record).transfer_us = Some(now.saturating_sub(sent));
+                    }
+                    _ => {}
+                }
+            }
+        })
+    };
+    let viewer_writer = {
+        let (clock, record, args) = (clock.clone(), record.clone(), args.clone());
+        tokio::spawn(async move {
+            let interval = Duration::from_millis(args.rpc_interval_ms.max(1));
+            let transfer_at = Instant::now() + TRANSFER_AT;
+            let mut transfer_asked = args.rpc_transfer_bytes == 0;
+            let mut next = Instant::now();
+            let mut seq = 0u32;
+            while next < end {
+                if !transfer_asked && Instant::now() >= transfer_at {
+                    transfer_asked = true;
+                    let ask = message(KIND_TRANSFER_REQUEST, 0, clock.us(), 0);
+                    if viewer_tx.write_all(&ask).await.is_err() {
+                        break;
+                    }
+                }
+                for _ in 0..args.rpc_burst {
+                    let request = message(KIND_REQUEST, seq, clock.us(), args.rpc_request_bytes);
+                    if viewer_tx.write_all(&request).await.is_err() {
+                        return viewer_tx;
+                    }
+                    seq += 1;
+                    lock(&record).rpcs_sent += 1;
+                }
+                next = next_tick(next, interval);
+                sleep_until(next).await;
+            }
+            viewer_tx
+        })
+    };
+    // Requests stop at the end; the host closes once it has answered them
+    // and its reader saw EOF, and the viewer reads until then.
+    let drain = Duration::from_secs(args.seconds + 30);
+    let viewer_writer_abort = viewer_writer.abort_handle();
+    if let Ok(Ok(mut tx)) = timeout(drain, viewer_writer).await {
+        let _ = tx.shutdown().await;
+    }
+    viewer_writer_abort.abort();
+    let viewer_reader_abort = viewer_reader.abort_handle();
+    let _ = timeout(drain, viewer_reader).await;
+    viewer_reader_abort.abort();
+    host_reader.abort();
+    host_writer.abort();
 }
 
 /// Mbit/s from host to viewer on a fresh stream, over `bytes` or 60 s.
@@ -1146,12 +1345,14 @@ fn print_record(args: &Args, record: &Shared) {
     let frame_ms = percentiles(&mut record.frame_us);
     let input_ms = percentiles(&mut record.input_us);
     let photon_ms = percentiles(&mut record.photon_us);
+    let rpc_ms = percentiles(&mut record.rpc_us);
     println!(
         "{{\"path\":\"{}\",\"rtt_ms\":{},\"loss_pct\":{},\"frame_bytes\":{},\"fps_target\":{},\"seconds\":{},\
          \"first_frame_ms\":{},\"frames_sent\":{},\"frames_received\":{},\"fps\":{:.1},\
          \"fps_on_time\":{:.1},\"frame_ms\":{},\"inputs_sent\":{},\"input_ms\":{},\
          \"input_to_photon_ms\":{},\"bulk_mbit_s\":{},\"longest_frame_gap_ms\":{:.1},\
-         \"final_path\":\"{}\",\"paths\":\"{}\",\"drop_at\":\"{}\",\"note\":\"{}\"}}",
+         \"final_path\":\"{}\",\"paths\":\"{}\",\"drop_at\":\"{}\",\"note\":\"{}\",\
+         \"workload\":\"{}\",\"rpcs_sent\":{},\"rpc_ms\":{},\"transfer_ms\":{}}}",
         args.path,
         args.rtt_ms,
         args.loss_pct,
@@ -1185,5 +1386,9 @@ fn print_record(args: &Args, record: &Shared) {
         },
         args.drop_at.map(|(at, index)| format!("{at}:{index}")).unwrap_or_default(),
         note,
+        args.workload,
+        record.rpcs_sent,
+        rpc_ms,
+        json_number(record.transfer_us.map(|us| us as f64 / 1000.0)),
     );
 }
