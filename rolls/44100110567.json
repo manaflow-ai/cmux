@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44100110567",
+  "recorded_at": "2026-11-17T14:25:27Z",
+  "reason": "cmux-tui 36d32da4f2b5 changes the image's cmux-tui (pinned 5fd5677273a8)",
+  "dry_run": false,
+  "cmux_tui": "36d32da4f2b59afb8d580501e547fc0610c8a295",
+  "fixes": [
+    {
+      "sha": "36d32da4f2b59afb8d580501e547fc0610c8a295",
+      "mergedAt": "2026-11-17T05:48:03-08:00",
+      "subject": "cmux Remote: a person's Quit quits it; only System Settings' Quit & Reopen restarts workers (#44457)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T14:25:27Z",
+    "snapshot_id": "sh-d8d482eba4824e548a9e69d58514f27a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44100110567): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1fd8ee1f5551b338b8d0fe512f4db9923b08e402",
+    "image": "cloud-native-auto-36d32da4-44100110567-1",
+    "revision": "ci-44100110567-1",
+    "at": "2026-11-17T14:25:27Z"
+  },
+  "rolled_back": false
+}
