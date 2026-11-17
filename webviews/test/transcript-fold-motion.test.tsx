@@ -120,15 +120,16 @@ afterEach(async () => {
   saved.clear();
 });
 
+// A fetch, not a read: since the 2026-11-14 change a read row is static and does not open.
 const tool = (id: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({
   kind: "tool",
   text: "",
-  tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: `contents of ${id}`, ...extra },
+  tool: { id, title: `Fetch ${id}`, kind: "fetch", status: "completed", output: `contents of ${id}`, ...extra },
 });
 
 /// Each collapsible, closed, and the body its toggle opens.
 const collapsibles: Array<{ name: string; node: () => ReactNode; body: string }> = [
-  { name: "a tool row", node: () => <ToolRow item={tool("read")} />, body: ".cv-tool-output-card" },
+  { name: "a tool row", node: () => <ToolRow item={tool("fetch")} />, body: ".cv-tool-output-card" },
   {
     name: "a command row",
     node: () => <CommandRow item={tool("cmd", { kind: "execute", command: "bun test", title: "bun test" })} />,
