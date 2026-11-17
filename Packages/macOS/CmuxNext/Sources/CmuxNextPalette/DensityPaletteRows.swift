@@ -22,6 +22,26 @@ public struct DensityPaletteRows {
         self.useTitle = useTitle
     }
 
+    /// Binds each built-in's catalog row (`appearance.density.<id>`): Return runs `apply` with its id, and the row is
+    /// checked and titled "… (current)" while that density is in use.
+    @MainActor
+    public func bindPresets(into registry: ActionRegistry, design: DesignSettings, apply: @escaping @MainActor (String) throws -> Void) {
+        let currentMark = currentMark
+        for preset in DensityPreset.allCases {
+            let id = ActionID(rawValue: "appearance.density.\(preset.rawValue)")
+            // Applying is a local settings change: it shows in this turn, nothing waits on a reply.
+            registry.bindEffect(id, effect: { _ in
+                do { try apply(preset.rawValue) } catch { return .refused("\(error)") }
+                return .done
+            })
+            ActionTargetTitles.setPaletteState(id, in: registry) { design.densityTokens.id == preset.rawValue }
+            ActionTargetTitles.setPaletteTitle(id, in: registry) { [weak registry] in
+                guard design.densityTokens.id == preset.rawValue, let title = registry?.descriptor(for: id)?.title else { return nil }
+                return "\(title) (\(currentMark))"
+            }
+        }
+    }
+
     /// One row per custom density of `design`, each running `appearance.density.set` on `registry`.
     @MainActor
     public func items(design: DesignSettings, registry: ActionRegistry) -> [PaletteItem] {
@@ -45,5 +65,23 @@ public struct DensityPaletteRows {
             item.actionRefs = [PaletteActionRef("appearance.density.set", arguments: ["density": .string(id)])]
             return item
         }
+    }
+
+    /// The Density Playground's row ("Density Playground"): Return opens the playground, where every density value
+    /// tunes live and new densities are made. Shown when the query matches it (density, playground, tune, spacing).
+    /// - Parameters:
+    ///   - title: The row's title.
+    ///   - open: Opens the playground.
+    @MainActor
+    public static func playground(title: String, open: @escaping @MainActor () -> Void) -> PaletteItem {
+        PaletteItem(
+            id: "density:playground",
+            title: title,
+            symbol: "slider.vertical.3",
+            section: RegistryPaletteProvider.section(for: .settings),
+            keywords: ["density", "playground", "tune", "tuner", "spacing", "padding", "size", "tabs", "vertical", "horizontal", "custom"],
+            primary: PaletteCommand(id: "run", title: title, symbol: "return", effect: .perform { open() }),
+            frecencyKey: "density:playground"
+        )
     }
 }
