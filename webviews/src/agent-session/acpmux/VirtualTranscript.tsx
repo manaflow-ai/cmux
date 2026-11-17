@@ -3215,15 +3215,24 @@ function TranscriptView({
                 foldHolding(foldAnchor.current) ||
                 inSight(ref.current, targets))
             ) {
-              // One synchronous placement per callback (one flush, one read of what it placed). A
-              // height that changed again under that placement goes in the next commit, not in
-              // another synchronous render and forced layout in this task.
-              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-              else {
+              // Placed, then read again, until the heights hold (at most 3 passes): the placement's
+              // render also commits a streaming reply's next reveal step, which this observer (the
+              // rows are one depth) reports only in the next frame. Left to a commit after the paint,
+              // the turn's end moved the rows by that step at once (turn-transition-jumps `end`,
+              // 29 px; send-stream-motion). A second pass runs only when a height moved under the
+              // first, and none while input waits (above): a streamed token still places once.
+              // Still moving after them (or input came): the next commit places it.
+              for (let pass = 0; ; pass += 1) {
+                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+                  pendingDrawn.current = new Map();
+                  break;
+                }
+                if (pass === 3 || (pass > 0 && inputPending())) {
+                  flushDrawn();
+                  break;
+                }
                 acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
                 measure();
-                if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
-                else pendingDrawn.current = new Map();
               }
             } else flushDrawn();
           }),

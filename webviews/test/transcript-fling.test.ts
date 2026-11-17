@@ -126,7 +126,13 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         }, version);
         const writes = result.trace.filter((entry) => entry.startsWith("write:"));
         expect(writes.length).toBe(version === 1 ? 12 : 11);
-        const firstRead = result.trace.findIndex((entry) => entry.startsWith("read:"));
+        // New rows are read in the commit, after every sibling's write. Rows whose commit changed only
+        // their version (a streamed token's) are not read there at all: their observer reports a
+        // size the writes changed, in the browser's own layout pass, before the paint (cmux#44498),
+        // so the geometry below is what holds them to it.
+        const readAt = result.trace.findIndex((entry) => entry.startsWith("read:"));
+        if (version === 1) expect(readAt).not.toBe(-1);
+        const firstRead = readAt === -1 ? result.trace.length : readAt;
         expect(firstRead).toBeGreaterThanOrEqual(writes.length);
         expect(result.trace.slice(0, firstRead).filter((entry) => entry.startsWith("write:"))).toEqual(writes);
         expect(result.trace.some((entry) => entry.startsWith("stale:"))).toBe(false);
