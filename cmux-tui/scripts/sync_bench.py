@@ -500,7 +500,7 @@ def store_args():
     if not platform or not cred or not Path(cred).is_file():
         return None, ("no dev store endpoint and credential: set SYNC_BENCH_STORE=PLATFORM_URL and "
                       "SYNC_BENCH_STORE_CREDENTIAL=FILE (a dev cmux credential); /v1/sync answers only where "
-                      "the platform has its R2 bucket bound")
+                      "the platform has its store bucket bound")
     return (["--store", platform], Path(cred).read_bytes()), None
 
 
