@@ -31,8 +31,9 @@ reload head
 
 app="$(cd "$repo" && source "$lib" && measure_app_at_commit "$base" mytag "$root/scratch/at" --config bench 2>/dev/null)"
 [[ "$app" == "$root/base.app" ]] || { echo "app-at-commit: printed '$app', want $root/base.app (the asked commit's build)" >&2; exit 1; }
+want_dd="$(cd "$repo" && pwd -P)/.build/DerivedData/cmux-measure-at-${base:0:12}"
 args="$(cat "$root/base.args")"
-[[ "$args" == "--tag mytag --derived-data $repo/.build/DerivedData/cmux-measure-at --config bench" ]] \
+[[ "$args" == "--tag mytag --derived-data $want_dd --config bench" ]] \
   || { echo "app-at-commit: reload.sh got '$args'" >&2; exit 1; }
 [[ ! -e "$root/head.app" ]] || { echo "app-at-commit: the harness checkout's reload.sh ran" >&2; exit 1; }
 

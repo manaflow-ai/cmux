@@ -9,8 +9,9 @@
 # checks SHA out whole into the scratch worktree DIR (under the caller's scratch folder, which its EXIT trap
 # removes), runs that commit's own scripts/reload.sh --tag TAG there, and prints the app's path on stdout (the
 # build's log goes to stderr and DIR.reload.log). The build's DerivedData is this checkout's
-# .build/DerivedData/cmux-measure-at, which a fleet worker keeps between steps, so a second commit near the first
-# builds incrementally. Returns non-zero when the commit cannot be fetched or its build prints no app.
+# .build/DerivedData/cmux-measure-at-<sha12> (arm-derived-data.sh): one DerivedData per commit, as two commits built
+# in one tree meet a stale precompiled module. Returns non-zero when the commit cannot be fetched or its build prints no app.
+. "$(dirname "${BASH_SOURCE[0]}")/arm-derived-data.sh"
 
 measure_app_at_commit() {
   local sha="$1" tag="$2" tree="$3" root full status=0 app
@@ -41,9 +42,11 @@ measure_app_at_commit() {
     fi
     (cd "$tree" && ./scripts/download-prebuilt-ghosttykit.sh) >&2 || return 1
   fi
+  local derived
+  derived="$(measure_arm_derived_data "at-${full:0:12}")" || return 1
   mkdir -p "$root/.build/DerivedData"
   (cd "$tree" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
-    --derived-data "$root/.build/DerivedData/cmux-measure-at" "$@") 2>&1 | tee "$tree.reload.log" >&2 || status=$?
+    --derived-data "$derived" "$@") 2>&1 | tee "$tree.reload.log" >&2 || status=$?
   [[ "$status" == 0 ]] || return "$status"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tree.reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

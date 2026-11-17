@@ -21,6 +21,7 @@ set -uo pipefail
 # One function, called on the last line: bash has read all of it before a checkout changes this file.
 main() {
   cd "$(dirname "$0")/../.." || exit 3
+  . scripts/measure/arm-derived-data.sh  # before a side is checked out: a base may predate it
   local out="$PWD/.build/update-click-ab" tools
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
@@ -97,8 +98,7 @@ fetch_checkout() {
   git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 
-# Builds the checkout's bench app with tag ucab (both sides one bundle id; the second build recompiles only what the
-# two commits change) and copies it to OUT/SIDE/.
+# Builds the checkout's bench app with tag ucab (both sides one bundle id, each side its own DerivedData: arm-derived-data.sh) and copies it to OUT/SIDE/.
 build_app() {
   local out="$1" side="$2" app started=$SECONDS
   for sub in ghostty ghostty-next; do
@@ -112,7 +112,7 @@ build_app() {
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA GhosttyKit download failed" >&2; return 3; }
   fi
   CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
+  CMUX_DERIVED_DATA="$(measure_arm_derived_data "$side")" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "UCA build $side failed: no app path" >&2
