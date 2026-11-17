@@ -236,49 +236,74 @@ import Testing
     }
 
     /// The grid with the zoom key just pressed on p4 and two frames stepped: the dim comes over the grid, which the
-    /// screen still shows. `zoomed` is the layout the zoom shows at the screen's size of now.
-    static func whileTheDimComes() throws -> (harness: Commit.Harness, screen: ScreenContentView, zoomed: @MainActor () -> Commit.Rest) {
+    /// screen still shows. `grid` is the grid as it rests at the screen's size before the key.
+    static func whileTheDimComes() throws -> (harness: Commit.Harness, screen: ScreenContentView, grid: Commit.Rest) {
         let harness = Commit.Harness(Zoom.screens(), focused: "p4", holds: false)
         Commit.rest(harness)
         let screen = try #require(harness.screen)
         _ = try Self.fade()
+        let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
         harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
         harness.root.syncWithModel()
         for _ in 0..<2 { _ = harness.root.advanceFrame(Self.dt) }
-        let zoomed: @MainActor () -> Commit.Rest = { Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style) }
-        try #require(Self.dim(harness) != nil && !zoomed().isShown(by: Commit.shown(screen)), "SETUP: two frames after the zoom key the dim does not show over the grid")
-        return (harness, screen, zoomed)
+        try #require(Self.dim(harness) != nil && grid.isShown(by: Commit.shown(screen)), "SETUP: two frames after the zoom key the dim does not show over the grid")
+        return (harness, screen, grid)
     }
 
     /// Panes stop animating while the dim comes (Reduce Motion turned on, a full-screen transition, a live resize of
-    /// the window): the dim's time is counted no more, so the dim ends in the next frame and the zoom shows. It never
-    /// waits for a time that nothing counts.
+    /// the window): the dim's time is counted no more, so the zoom never waits for a time that nothing counts. The
+    /// rule is the one of every layout change: a pane hears its new size one frame before the frame that shows it.
+    /// So the next frame ends the dim and gives the panes their sizes, with the grid still on the screen, whole and
+    /// with no dim, and the frame after it shows the zoom.
     @Test func whenPanesStopAnimatingWhileTheDimComesTheZoomShows() throws {
-        let (harness, screen, zoomed) = try Self.whileTheDimComes()
+        let (harness, screen, grid) = try Self.whileTheDimComes()
         defer { harness.window.closeAfterTest() }
+        let zoomed = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
         harness.root.context.reduceMotionOverride = true
+        // The frame that ends the dim: the panes hear their sizes in it, and it asks for the frame that shows the zoom.
         var asks = harness.root.advanceFrame(Self.dt)
+        var frame = Commit.shown(screen)
         #expect(Self.dim(harness) == nil, "the dim stays in the frame after panes stopped animating")
-        // The zoom shows in that frame, or in the one after it when its panes hear their sizes only then.
-        if !zoomed().isShown(by: Commit.shown(screen)) { asks = harness.root.advanceFrame(Self.dt) }
-        #expect(zoomed().isShown(by: Commit.shown(screen)), "two frames after panes stopped animating the zoom does not show: \(Commit.shown(screen).panes)")
+        #expect(grid.isShown(by: frame), "the frame that ends the dim does not show the grid, whole: \(frame.panes)")
+        #expect(frame.misfits.isEmpty, "the frame that ends the dim: a pane's content is not at the rect its pane gives it: \(frame.misfits)")
+        #expect(asks, "the frame that ends the dim asks for no frame: nothing shows the zoom that waits")
+        asks = harness.root.advanceFrame(Self.dt)
+        frame = Commit.shown(screen)
+        #expect(zoomed.isShown(by: frame), "the second frame after panes stopped animating does not show the zoom: \(frame.panes)")
+        #expect(frame.misfits.isEmpty, "the frame that shows the zoom: a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         #expect(!asks, "the frame that shows the zoom asks for more frames")
         #expect(!harness.root.advanceFrame(Self.dt) && Self.dim(harness) == nil, "frames run on, or a dim shows, after the zoom showed")
     }
 
     /// A change of the screen's size while the dim comes (the window's edge moves): the dim was placed for the old
-    /// size, so it ends in that turn, and the zoom shows at the new size.
+    /// size, so it ends in that turn. The zoom still waits for its frame, and the size change joins it, as a second
+    /// layout change does: the screen goes on showing the grid as it was placed, whole and with no dim, the next frame
+    /// gives the panes their sizes at the screen's new size, and the frame after it shows the zoom at that size.
+    ///
+    /// A limit, not of the dim alone: a layout change that waits for its frame does not follow the window's size
+    /// until it shows. For those frames (two here) the screen shows the layout as it was placed for the old size.
     @Test func aChangeOfTheScreensSizeWhileTheDimComesEndsIt() throws {
-        let (harness, screen, zoomed) = try Self.whileTheDimComes()
+        let (harness, screen, grid) = try Self.whileTheDimComes()
         defer { harness.window.closeAfterTest() }
         harness.window.setContentSize(NSSize(width: 1400, height: 900))
         harness.root.layoutSubtreeIfNeeded()
         try #require(screen.bounds.size == NSSize(width: 1400, height: 900), "SETUP: the screen did not take the window's new size: \(screen.bounds.size)")
+        // The zoom as it rests at the screen's new size.
+        let zoomed = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
         #expect(Self.dim(harness) == nil, "the dim stays, at its old place, after the screen's size changed")
-        // The zoom shows in the next frame, or in the one after it when its panes hear their sizes only then.
+        var frame = Commit.shown(screen)
+        #expect(grid.isShown(by: frame), "the turn of the size change shows another layout than the grid as it was placed: \(frame.panes)")
+        // The frame that gives the panes their sizes: it asks for the frame that shows the zoom.
+        let asks = harness.root.advanceFrame(Self.dt)
+        frame = Commit.shown(screen)
+        #expect(grid.isShown(by: frame) && Self.dim(harness) == nil,
+                "the first frame after the size change shows another layout than the grid as it was placed, or a dim: \(frame.panes)")
+        #expect(frame.misfits.isEmpty, "the first frame after the size change: a pane's content is not at the rect its pane gives it: \(frame.misfits)")
+        #expect(asks, "the first frame after the size change asks for no frame: nothing shows the zoom that waits")
         _ = harness.root.advanceFrame(Self.dt)
-        if !zoomed().isShown(by: Commit.shown(screen)) { _ = harness.root.advanceFrame(Self.dt) }
-        #expect(zoomed().isShown(by: Commit.shown(screen)), "two frames after the size change the zoom does not show at the new size: \(Commit.shown(screen).panes)")
+        frame = Commit.shown(screen)
+        #expect(zoomed.isShown(by: frame), "the second frame after the size change does not show the zoom at the new size: \(frame.panes)")
+        #expect(frame.misfits.isEmpty, "the frame that shows the zoom: a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         #expect(Self.dim(harness) == nil, "a dim shows with the zoomed pane")
     }
 
