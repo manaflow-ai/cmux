@@ -309,8 +309,10 @@ export default async function TermsOfServicePage() {
 
       <h3>Meeting recording and consent</h3>
       <p>
-        The cmux notetaker records the audio of, and transcribes, the meetings
-        that you send it to, or that match the calendar rules you turn on.
+        The cmux notetaker records the audio of the meetings that you send it
+        to, or that match the calendar rules you turn on, and, on Google Meet,
+        Zoom, and Microsoft Teams, their chat, and makes a transcript and
+        notes.
         While it is in a meeting, the notetaker also reads the live transcript
         and the meeting chat, to obey &ldquo;cmux pause&rdquo; and &ldquo;cmux
         leave&rdquo; from any participant and to answer questions typed to it.
@@ -333,7 +335,10 @@ export default async function TermsOfServicePage() {
         is in the meeting; in that case nobody can do this check.] On Webex the notetaker cannot post a
         notice, so you must tell every participant before the recording starts
         that cmux is an AI notetaker from Manaflow that records the audio and
-        makes a transcript. If the notice or consent that the law requires is
+        makes a transcript and notes, that the audio is deleted within 24 hours
+        after the meeting and the transcript and notes are kept with no set
+        time limit, and where our Privacy Policy is. Give the same information
+        to participants on the other platforms who cannot see the notices. If the notice or consent that the law requires is
         not in place, remove the notetaker. If a participant objects and the
         law requires that participant&rsquo;s consent, you must remove the
         notetaker promptly and delete the live lines, questions, answers,
@@ -455,8 +460,9 @@ export default async function TermsOfServicePage() {
         archive copy of agent conversations; we delete those within 30 days
         after your written request to founders@cmux.com. [LEGAL REVIEW: owner
         decision on a fixed limit for these records.] Until we delete Your Content from our live systems, you can ask
-        for a copy. We delete Your Content from our live systems 30 days after
-        the account ends, or sooner if you ask; backups that still hold it
+        for a copy. We delete Your Content from our live systems when you ask
+        (at once or 30 days after the request) and, once the automatic deletion
+        after the account ends is on, 30 days after the account ends; backups that still hold it
         expire within 35 days after that deletion, and copies in provider logs
         expire as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}

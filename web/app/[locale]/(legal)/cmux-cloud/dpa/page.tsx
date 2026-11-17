@@ -162,8 +162,9 @@ export default function CmuxCloudDpaPage() {
         Customer&rsquo;s choice, Company returns (gives a copy of) or deletes
         Customer Personal Data when the account ends. Until Company deletes the
         data from its live systems, Customer can ask for a copy. Company deletes
-        Customer Personal Data from its live systems 30 days after the account
-        ends, or sooner if Customer asks; backups that still hold it expire
+        Customer Personal Data from its live systems when Customer asks (at
+        once or 30 days after the request) and, once the automatic deletion
+        after the account ends is on, 30 days after the account ends; backups that still hold it expire
         within 35 days after that deletion. Copies in the logs, traces, and
         error reports of Company&rsquo;s log and error monitoring providers and
         in the logs of AI model providers expire after the periods listed in
