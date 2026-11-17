@@ -753,7 +753,8 @@ export function NewTabScreen(props: Props) {
       if (isStartCancelled(error)) return;
       const code = startFailureCode(error);
       const cause = startFailureCause(error);
-      logStartFailure(args[0], undefined, cause);
+      // A start HarnessSwitch failed is in the log already (its prompts come back with `startCause`).
+      if (!(error as { startCause?: unknown } | undefined)?.startCause) logStartFailure(args[0], undefined, cause);
       setStartError({
         harness: args[0],
         error: startErrorMessage(error) || t("switch.unknownError"),
