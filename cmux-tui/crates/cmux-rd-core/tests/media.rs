@@ -550,6 +550,74 @@ fn a_hold_then_a_burst_completes_the_frame_in_flight_without_recovery() {
     assert!(!r.need_recovery());
 }
 
+/// A hold shorter than the outage threshold (90 ms against max(100 ms, 4 RTT),
+/// a wifi-gate hold) is not an outage, so the give-up pause never starts; the
+/// frame in flight must still complete from the burst. Before, its give-up
+/// (two repair windows, about 67 ms) fell inside the hold, and the burst's
+/// first datagram expired it before its own shard was taken: a loss and a
+/// recovery request on every such hold (wifi-gate: 3-10 recovery keyframes a
+/// run, none on base).
+#[test]
+fn a_hold_shorter_than_the_outage_threshold_completes_the_frame_without_recovery() {
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_path_rtt_us(Some(8_000));
+    let mut now = 0;
+    for frame in 1..=10 {
+        let out = p.packetize(frame, 0, &body(frame, 600, frame == 1), 0).expect("packetize");
+        let mut released = Vec::new();
+        for d in &out.datagrams {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            released.extend(r.push(&h, payload, now));
+        }
+        assert_eq!(released.len(), 1, "frame {frame} released");
+        now += 16_667;
+    }
+    let out = p.packetize(11, 0, &body(11, 600, false), 0).expect("packetize");
+    assert!(out.datagrams.len() >= 3);
+    let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    assert!(r.push(&h, payload, now).is_empty());
+    let hold_end = now + 90_000;
+    let mut t = now;
+    while t < hold_end {
+        t += 5_000;
+        assert!(r.tick(t).is_empty());
+        let _ = r.take_nacks(t);
+    }
+    let mut released = Vec::new();
+    for d in &out.datagrams[1..] {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        released.extend(r.push(&h, payload, hold_end));
+    }
+    assert!(r.take_losses().is_empty(), "a 90 ms hold cost the frame in flight");
+    assert!(!r.need_recovery(), "a 90 ms hold asked for a recovery frame");
+    assert_eq!(released.len(), 1, "the frame in flight completes after the hold");
+}
+
+/// Real loss still gives a frame up within the outage threshold, not the
+/// 200 ms deadline: the link stays live, the shard never comes.
+#[test]
+fn a_lost_shard_on_a_live_link_is_given_up_at_the_outage_threshold() {
+    use cmux_rd_core::cc::outage_threshold_us;
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_path_rtt_us(Some(8_000));
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 600, true), 0).expect("packetize");
+    assert!(out.datagrams.len() >= 3);
+    for d in &out.datagrams[..out.datagrams.len() - 1] {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert!(r.push(&h, payload, 0).is_empty());
+    }
+    let floor = outage_threshold_us(Some(8_000));
+    keep_alive(&mut r, 0, floor);
+    assert!(r.tick(floor).is_empty());
+    assert!(r.take_losses().is_empty(), "given up before the outage threshold");
+    keep_alive(&mut r, floor, floor + 1_000);
+    assert!(r.tick(floor + 1_000).is_empty());
+    assert_eq!(r.take_losses().len(), 1, "a real loss waits no longer than the threshold");
+    assert!(r.need_recovery());
+}
+
 /// A link that stays silent past the pause gives the frame up after all.
 #[test]
 fn a_silence_longer_than_the_pause_still_gives_the_frame_up() {
