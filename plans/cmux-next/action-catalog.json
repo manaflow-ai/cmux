@@ -30166,6 +30166,118 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Auto",
+                "value" : "auto"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sharp Text",
+                "value" : "sharpText"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Smooth Motion",
+                "value" : "smoothMotion"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Low Bandwidth",
+                "value" : "lowBandwidth"
+              }
+            ]
+          },
+          "name" : "quality",
+          "suggestions" : null,
+          "title" : "Quality"
+        }
+      ],
+      "category" : "remote",
+      "cliName" : "action remote-set-quality",
+      "computed" : {
+        "canonical_action_id" : "remote.setQuality",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "remote.setQuality",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "screen sharing",
+        "screen share",
+        "remote desktop",
+        "vnc",
+        "quality",
+        "sharp text",
+        "smooth motion",
+        "low bandwidth",
+        "auto",
+        "bitrate",
+        "resolution",
+        "lag"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "dial.medium",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Set Screen Sharing Quality…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "remote",
@@ -45417,6 +45529,95 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "entry",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserBackForwardEntries"
+          },
+          "title" : "Page"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-go-to-history-entry",
+      "computed" : {
+        "canonical_action_id" : "browser.goToHistoryEntry",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.goToHistoryEntry",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "history",
+        "back",
+        "forward",
+        "page",
+        "earlier page",
+        "navigate",
+        "back list",
+        "forward list"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "clock.arrow.circlepath",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Go Back or Forward to…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "browser",
@@ -48172,6 +48373,287 @@
 
       ],
       "category" : "browser",
+      "cliName" : "action browser-save-page-as",
+      "computed" : {
+        "canonical_action_id" : "browser.savePageAs",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.savePageAs",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "save",
+        "page",
+        "download",
+        "html",
+        "web archive",
+        "save as"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "square.and.arrow.down",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Save Page As…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-cast",
+      "computed" : {
+        "canonical_action_id" : "browser.cast",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.cast",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "cast",
+        "chromecast",
+        "tv",
+        "stream",
+        "media",
+        "route",
+        "speaker"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "tv",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Cast…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-create-qr-code",
+      "computed" : {
+        "canonical_action_id" : "browser.createQRCode",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.createQRCode",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "qr",
+        "qr code",
+        "share",
+        "phone",
+        "page",
+        "link",
+        "url"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "qrcode",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Create QR Code for This Page",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-translate",
+      "computed" : {
+        "canonical_action_id" : "browser.translate",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.translate",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "translate",
+        "translation",
+        "language",
+        "google translate",
+        "page"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "character.bubble",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Translate Page…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
       "cliName" : "browser screenshot-page",
       "computed" : {
         "canonical_action_id" : "browserScreenshotPage",
@@ -50845,6 +51327,76 @@
         "pane"
       ],
       "title" : "Developer Tools: Open Docked",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action devtools-open-docked-left",
+      "computed" : {
+        "canonical_action_id" : "devtools.openDockedLeft",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "devtools",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "devtools.openDockedLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "developer tools",
+        "web inspector",
+        "devtools",
+        "inspector",
+        "dock",
+        "left",
+        "side"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Developer Tools: Dock to Left",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -53788,6 +54340,538 @@
         "pane"
       ],
       "title" : "Show Downloads…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-open",
+      "computed" : {
+        "canonical_action_id" : "browser.download.open",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.open",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "open",
+        "file",
+        "launch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.up.forward.app",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Open Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-reveal",
+      "computed" : {
+        "canonical_action_id" : "browser.download.reveal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.reveal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "show in finder",
+        "reveal",
+        "finder",
+        "folder",
+        "file"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "folder",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Download in Finder",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-toggle-pause",
+      "computed" : {
+        "canonical_action_id" : "browser.download.togglePause",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.togglePause",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "pause",
+        "resume",
+        "continue",
+        "stop"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pause.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Pause or Resume Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-retry",
+      "computed" : {
+        "canonical_action_id" : "browser.download.retry",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.retry",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "retry",
+        "again",
+        "failed",
+        "restart"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.clockwise",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Retry Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-cancel",
+      "computed" : {
+        "canonical_action_id" : "browser.download.cancel",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.cancel",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "cancel",
+        "stop",
+        "abort"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "xmark.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Cancel Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-copy-link",
+      "computed" : {
+        "canonical_action_id" : "browser.download.copyLink",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.copyLink",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "copy",
+        "link",
+        "url",
+        "address"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "clipboard"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "link",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Copy Download Link",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -59255,6 +60339,355 @@
         "pane"
       ],
       "title" : "Remove Extension",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension home-page",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.homePage",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.homePage",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "home page",
+        "web store",
+        "store page",
+        "website",
+        "about"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "house",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Open Extension Home Page",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension details",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.details",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.details",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "manage",
+        "details",
+        "settings",
+        "chrome://extensions",
+        "permissions",
+        "info"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "info.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Extension Details",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension web-permissions",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.webPermissions",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.webPermissions",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "web permissions",
+        "permissions",
+        "site settings",
+        "camera",
+        "microphone",
+        "notifications",
+        "privacy"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "hand.raised",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "View Extension Web Permissions",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension site-access",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.siteAccess",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.siteAccess",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "site access",
+        "sites",
+        "on click",
+        "on this site",
+        "on all sites",
+        "host permissions",
+        "access"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "globe",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Extension Site Access…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88904,6 +90337,117 @@
 
       ],
       "title" : "Install an Earlier Nightly…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Hide Until a Newer Version",
+                "value" : "update-hide-version"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 1 Day",
+                "value" : "update-remind-day"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 3 Days",
+                "value" : "update-remind-3-days"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 1 Week",
+                "value" : "update-remind-week"
+              }
+            ]
+          },
+          "name" : "option",
+          "suggestions" : null,
+          "title" : "Snooze"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action updates-snooze",
+      "computed" : {
+        "canonical_action_id" : "updates.snooze",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "updates.snooze",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "snooze",
+        "remind",
+        "remind me later",
+        "later",
+        "hide",
+        "dismiss",
+        "close",
+        "card",
+        "nightly",
+        "version"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "clock.badge.xmark",
+      "targets" : [
+
+      ],
+      "title" : "Snooze Update Card…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -123889,6 +125433,7 @@
         "id" : "devtools",
         "members" : [
           "devtools.openDocked",
+          "devtools.openDockedLeft",
           "devtools.openDockedRight",
           "devtools.openInWindow",
           "devtools.close",
@@ -123938,15 +125483,19 @@
         "id" : "extensions",
         "members" : [
           "browser.extension.command",
+          "browser.extension.details",
           "browser.extension.disable",
           "browser.extension.enable",
+          "browser.extension.homePage",
           "browser.extension.move",
           "browser.extension.options",
           "browser.extension.pin",
           "browser.extension.reload",
           "browser.extension.remove",
           "browser.extension.run",
-          "browser.extension.unpin"
+          "browser.extension.siteAccess",
+          "browser.extension.unpin",
+          "browser.extension.webPermissions"
         ],
         "parent" : "browser.extensions.menu",
         "symbol" : "",
