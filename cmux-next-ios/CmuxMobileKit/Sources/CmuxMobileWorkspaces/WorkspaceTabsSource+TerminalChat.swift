@@ -64,7 +64,7 @@ extension WorkspaceTabsSource {
     /// Off (Settings → Terminal → Terminal and Chat Toggle, the default), no tab offers the toggle
     /// and nothing below reads the Mac's chats for it.
     func terminalChatFacts(_ tab: WorkspaceTab, in workspace: Workspace) -> TerminalChatFacts {
-        let on = CmuxMobilePreferences.terminalChatToggle()
+        let on = terminalChatToggleOn()
         switch tab.kind {
         case .terminal where on:
             let refused = terminalChatRefusingMacs.contains(workspace.macID) && terminalChatSessionID(tab, in: workspace) == nil
