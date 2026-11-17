@@ -22,6 +22,15 @@ type DeletionFetch = (url: string, init: RequestInit) => Promise<Response>;
 const RETRYABLE_STATUSES = new Set([409, 425, 429, 502, 503, 504]);
 
 /**
+ * How long the dialog waits for `DELETE /api/account`: the route's
+ * `maxDuration` (600 s) plus a margin, so a server that is still deleting is
+ * never cut off, but a connection that hangs past the route's own limit ends
+ * as `retryable` instead of leaving the dialog spinning. Deletion is
+ * idempotent on the server, so the retry is safe.
+ */
+export const ACCOUNT_DELETION_TIMEOUT_MS = 610_000;
+
+/**
  * Resolves once the account is deleted. A 202 with `cleanupIncomplete` is a
  * deleted account whose follow-up cleanup the server finishes on its own; a
  * 202 with `deletionPending` is another deletion of this account still
@@ -29,7 +38,7 @@ const RETRYABLE_STATUSES = new Set([409, 425, 429, 502, 503, 504]);
  */
 export async function deleteAccountThroughCmux(
   session: DeletionSession,
-  fetchImpl: DeletionFetch = (url, init) => fetch(url, init),
+  fetchImpl: DeletionFetch = (url, { signal, ...init }) => fetch(url, { ...init, signal }),
 ): Promise<void> {
   const { accessToken, refreshToken } = await session.getAuthJson();
   if (!accessToken || !refreshToken) throw new AccountDeletionRequestError("signed_out");
@@ -39,10 +48,11 @@ export async function deleteAccountThroughCmux(
       method: "DELETE",
       headers: { authorization: `Bearer ${accessToken}`, "x-stack-refresh-token": refreshToken },
       cache: "no-store",
+      signal: AbortSignal.timeout(ACCOUNT_DELETION_TIMEOUT_MS),
     });
   } catch {
-    // Offline, or the connection dropped. Deletion is idempotent on the
-    // server, so trying again is safe.
+    // Offline, the connection dropped, or the deadline passed. Deletion is
+    // idempotent on the server, so trying again is safe.
     throw new AccountDeletionRequestError("retryable");
   }
   const body = (await response.json().catch(() => null)) as { deletionPending?: unknown; retryable?: unknown } | null;

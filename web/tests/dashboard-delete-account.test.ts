@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { AccountDeletionRequestError, deleteAccountThroughCmux } from "../dashboard-app/lib/delete-account";
+import { ACCOUNT_DELETION_TIMEOUT_MS, AccountDeletionRequestError, deleteAccountThroughCmux } from "../dashboard-app/lib/delete-account";
 
 type Call = { readonly url: string; readonly init: RequestInit };
 
@@ -39,6 +39,25 @@ describe("dashboard account deletion", () => {
     const headers = new Headers(call!.init.headers);
     expect(headers.get("authorization")).toBe("Bearer access");
     expect(headers.get("x-stack-refresh-token")).toBe("refresh");
+    expect(call!.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a request that never answers ends as retryable once its deadline passes", async () => {
+    const hung = (_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    });
+    const realTimeout = AbortSignal.timeout;
+    let requestedMs: number | undefined;
+    AbortSignal.timeout = (ms: number) => {
+      requestedMs = ms;
+      return realTimeout.call(AbortSignal, 1);
+    };
+    try {
+      expect(await failure(deleteAccountThroughCmux(session(), hung))).toBe("retryable");
+    } finally {
+      AbortSignal.timeout = realTimeout;
+    }
+    expect(requestedMs).toBe(ACCOUNT_DELETION_TIMEOUT_MS);
   });
 
   test("a deleted account whose follow-up cleanup is still running counts as deleted", async () => {
