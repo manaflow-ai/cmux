@@ -185,6 +185,8 @@ struct RttEstimator {
     /// cmux patch: the smallest RTT sample of the connection, in ms
     /// (`u32::MAX` before the first).
     min_rtt: u32,
+    /// cmux patch: the newest RTT sample in ms (0 before the first).
+    latest_rtt: u32,
 }
 
 impl Default for RttEstimator {
@@ -200,6 +202,7 @@ impl Default for RttEstimator {
             max_seq_sent: None,
             rto_count: 0,
             min_rtt: u32::MAX,
+            latest_rtt: 0,
         }
     }
 }
@@ -231,8 +234,18 @@ impl RttEstimator {
         (self.min_rtt != u32::MAX).then_some(self.min_rtt)
     }
 
+    /// cmux patch: the newest RTT sample in ms, 0 before the first. One
+    /// segment is timed per round trip and the smoothed RTT moves 1/8 a
+    /// sample, so a queue slow start built in one round trip shows here
+    /// about eight round trips before it shows in `smoothed_rtt`.
+    #[cfg(feature = "socket-tcp-cubic")]
+    fn latest_rtt(&self) -> u32 {
+        self.latest_rtt
+    }
+
     fn sample(&mut self, new_rtt: u32) {
         self.min_rtt = self.min_rtt.min(new_rtt);
+        self.latest_rtt = new_rtt;
         if self.have_measurement {
             // RFC 6298 (2.3) When a subsequent RTT measurement R' is made, a host MUST set (...)
             let diff = (self.srtt as i32 - new_rtt as i32).unsigned_abs();

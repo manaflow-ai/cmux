@@ -50,10 +50,10 @@ pub struct Cubic {
     rate: f64,
     rate_bytes: usize,
     rate_since: Option<Instant>,
-    // cmux patch: the connection's smallest RTT sample and its smoothed
-    // RTT, in microseconds.
+    // cmux patch: the connection's smallest RTT sample and the larger of its
+    // smoothed RTT and newest sample, in microseconds.
     min_rtt_us: Option<f64>,
-    srtt_us: f64,
+    rtt_us: f64,
     // cmux patch: bytes ACKed since the last loss event, and the average
     // segments between loss events (`None` before the first).
     delivered_since_loss: usize,
@@ -82,7 +82,7 @@ impl Cubic {
             rate_bytes: 0,
             rate_since: None,
             min_rtt_us: None,
-            srtt_us: 0.0,
+            rtt_us: 0.0,
             delivered_since_loss: 0,
             loss_interval: None,
         };
@@ -94,7 +94,7 @@ impl Cubic {
     // Mascolo et al. 2001; Linux `tcp_westwood`).
     fn sample_rate(&mut self, now: Instant, len: usize, rtt: &RttEstimator) {
         self.min_rtt_us = rtt.min_rtt().map(|ms| ms as f64 * 1000.0);
-        self.srtt_us = rtt.smoothed_rtt() as f64 * 1000.0;
+        self.rtt_us = rtt.smoothed_rtt().max(rtt.latest_rtt()) as f64 * 1000.0;
         self.rate_bytes = self.rate_bytes.saturating_add(len);
         self.delivered_since_loss = self.delivered_since_loss.saturating_add(len);
         let since = *self.rate_since.get_or_insert(now);
@@ -244,15 +244,17 @@ impl Controller for Cubic {
         self.cwnd = (self.cwnd + increment).min(self.rwnd).max(self.mss);
     }
 
-    // cmux patch: a loss is the link's, not a queue's, when the smoothed RTT
-    // has not grown past min RTT / β (no standing queue; the window a β cut
-    // would leave still covers the path) and losses are sparse: the average
-    // loss interval (RFC 5348's loss event rate, smoothed 3/4 old, 1/4 new)
-    // is at least RANDOM_LOSS_SEGMENTS, the 2% loss BBRv2 tolerates. The
-    // first loss has no history and is judged by the RTT alone. A
-    // shallow-buffer bottleneck that drops without delaying pulls the average
-    // under that within about ten losses and is cut as usual from then on.
-    fn loss_is_congestion(&mut self, _now: Instant, _in_flight: usize) -> bool {
+    // cmux patch: a loss is the link's, not a queue's, when three things hold.
+    // No queue: neither the smoothed RTT nor the newest sample has grown past
+    // min RTT / β (the window a β cut would leave still covers the path).
+    // Sparse: the average loss interval (RFC 5348's loss event rate, smoothed
+    // 3/4 old, 1/4 new) is at least RANDOM_LOSS_SEGMENTS, the 2% loss BBRv2
+    // tolerates. Late: this loss came more than two flights after the last.
+    // A random loss arrives after some number of segments whatever the window
+    // is; a bottleneck left uncut drops again within about a flight, and slow
+    // start's first loss comes about one flight in. That last test is what
+    // catches a shallow buffer, whose queue is too short to show in the RTT.
+    fn loss_is_congestion(&mut self, _now: Instant, in_flight: usize) -> bool {
         let interval = self.delivered_since_loss as f64 / self.mss as f64;
         self.delivered_since_loss = 0;
         let average = match self.loss_interval {
@@ -261,8 +263,9 @@ impl Controller for Cubic {
         };
         self.loss_interval = Some(average);
         let sparse = average >= RANDOM_LOSS_SEGMENTS as f64;
-        let unqueued = self.min_rtt_us.is_some_and(|min_rtt| self.srtt_us * BETA_CUBIC <= min_rtt);
-        !(sparse && unqueued)
+        let late = interval > 2.0 * in_flight as f64 / self.mss as f64;
+        let unqueued = self.min_rtt_us.is_some_and(|min_rtt| self.rtt_us * BETA_CUBIC <= min_rtt);
+        !(sparse && late && unqueued)
     }
 
     fn on_dup_ack(&mut self, _now: Instant, len: usize, _in_flight: usize) {
@@ -484,6 +487,31 @@ mod test {
         assert!(cubic.loss_is_congestion(now, per_rtt));
         cubic.on_sack_loss(now, per_rtt);
         assert_eq!(cubic.ssthresh, (per_rtt as f64 * BETA_CUBIC) as usize);
+    }
+
+    // cmux patch: slow start fills a bottleneck's queue in a round trip or
+    // two, while the smoothed RTT takes about eight to follow. The tail drops
+    // that end it are congestion as soon as the newest sample shows the queue.
+    #[test]
+    fn slow_start_overshoot_cuts_before_srtt_catches_up() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[50, 50, 50, 100]);
+        assert!(cubic.loss_is_congestion(now, per_rtt));
+    }
+
+    // cmux patch: a shallow buffer queues too little to show in the RTT, but
+    // left uncut it drops again within a flight: congestion.
+    #[test]
+    fn loss_within_two_flights_is_congestion() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
+        assert!(!cubic.loss_is_congestion(now, per_rtt));
+        let mut rtt = RttEstimator::default();
+        rtt.sample(100);
+        for _ in 0..per_rtt / MSS {
+            cubic.on_ack(now, MSS, per_rtt, &rtt);
+        }
+        assert!(cubic.loss_is_congestion(now, per_rtt));
     }
 
     // cmux patch: sparse losses on a path with no queue are no congestion;
