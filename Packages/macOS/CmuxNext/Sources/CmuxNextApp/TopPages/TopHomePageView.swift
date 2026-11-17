@@ -48,7 +48,7 @@ final class TopHomePageView: NSView {
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
-    /// A bare launch's message box, keys before the Chief's owner answers (``HomeLaunchComposer``).
+    /// A bare launch's Chief page, keys before the Chief's owner answers (``HomeLaunchComposer``; `host` while it shows).
     private(set) var launch: HomeLaunchComposer?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
@@ -203,10 +203,9 @@ final class TopHomePageView: NSView {
                     followedChief = first.rawValue
                 } else if launch == nil, let services, HomeLaunchComposer.shows(shown: shown, composing: isComposingNewMessage, defaultConversation: first,
                                                                                 launchChief: store.launchChief, classic: HomeDock.classic) {
-                    // A bare launch's box over its provisional Chief; `shown` stays nil, so the first conversation listed still opens.
-                    launch = HomeLaunchComposer(home: store, me: home.homeSource.me, title: HomeStrings.chiefName, openPanel: services.openPanel,
-                                                spellChecking: services.settings?.snapshot.agentPaneComposer.spellChecking ?? false, in: transcriptColumn)
-                    DebugTimings.markLaunch("home.launch_composer")
+                    // A bare launch's page: the Chief's own view over a provisional Chief, as `host` (`shown` stays nil, so the first conversation listed opens).
+                    launch = HomeLaunchComposer(home: store, me: home.homeSource.me, title: HomeStrings.chiefName, in: transcriptColumn) { HomeHostView(services: services, conversation: $1.rawValue, owner: $0) }
+                    (host, home.launchPage) = (launch?.view as? HomeHostView, launch); DebugTimings.markLaunch("home.launch_composer")
                     if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
                 }
                 launch = launch?.handingOff(toChief: Self.chief(home), showing: shown)
@@ -389,9 +388,9 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        // The Chief answered: the launch box's draft and sends are its, and the box goes as its view comes (no blank frame).
+        // The Chief: the launch page's draft and sends (or a quit one's) are its, and it replaces that page in one transaction.
         let launched = Self.chief(services.home) == id.rawValue ? launch : nil, hadKeyboard = launch?.holdsKeyboard == true
-        if let launched { launched.handOff(to: id); launch = nil }
+        if let launched { launched.handOff(to: id); launch = nil } else if Self.chief(services.home) == id.rawValue { HomeLaunchComposer.claimParked(to: id, in: services.home.homeStore) }
         CATransaction.begin(); host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
@@ -399,7 +398,7 @@ final class TopHomePageView: NSView {
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
-        launched?.end(); launch?.view.isHidden = true; CATransaction.commit()
+        launched?.end(); CATransaction.commit()
         services.home.homeDidOpen(asked: true)
         if hadKeyboard { view.takeKeyboardOnOpen() } else if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
@@ -436,7 +435,6 @@ final class TopHomePageView: NSView {
             if let target = newMessage?.focusTarget { FocusRoute(.system, "Home's new message field").moveKeyboard(in: window, to: target) }
             return
         }
-        if host == nil, let key = launch?.takeKeyboard(in: window) { return DebugTimings.markLaunch(key ? "window_usable" : "home.composer_focused_not_key") }
         host?.takeKeyboardOnOpen()
     }
 
@@ -456,7 +454,7 @@ final class TopHomePageView: NSView {
             transcriptColumn.addSubview(page)
         }
         page.isHidden = false
-        host?.isHidden = true; launch?.view.isHidden = true
+        host?.isHidden = true
         split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
@@ -492,7 +490,7 @@ final class TopHomePageView: NSView {
             endNewMessage()
         } else {
             page.isHidden = true
-            host?.isHidden = false; launch?.view.isHidden = host != nil
+            host?.isHidden = false
             split.composing = false
         }
         return true
@@ -517,7 +515,7 @@ final class TopHomePageView: NSView {
         newMessage = nil
         page.stop()
         page.removeFromSuperview()
-        host?.isHidden = false; launch?.view.isHidden = host != nil
+        host?.isHidden = false
         split.composing = false
         list.setDraftRow(nil)
     }

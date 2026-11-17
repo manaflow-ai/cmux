@@ -10,8 +10,9 @@ public import Foundation
 public struct HomeLaunchChiefSource: HomeSource {
     /// The provisional conversation's id (never an owner's id).
     public static let conversation = ConversationID("cmux.home.launch-chief")
-    /// The provisional Chief member's id (never an owner's id).
-    public static let chiefID = ParticipantID("cmux.home.launch-chief.agent")
+    /// The provisional Chief member: this Mac's default Chief's id (`HomeChiefName.muxID`), so the
+    /// Chief view reads the same Chief home (avatar, engine, settings) the default Chief's page does.
+    public static let chiefID = ParticipantID("agent_mux")
     public let me: Participant
     /// The header's name: the Chief's.
     public let title: String

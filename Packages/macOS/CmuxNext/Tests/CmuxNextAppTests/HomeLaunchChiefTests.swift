@@ -1,3 +1,4 @@
+import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
 import Foundation
@@ -127,11 +128,49 @@ struct HomeLaunchChiefTests {
         }
     }
 
+    // MARK: Quit
+
+    @Test func quitsSaveKeepsHeldAndTypedTextForTheNextLaunchsPage() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("home-launch-chief-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let home = Self.store(LaunchChiefHold(), cache: HomeCache(url: url))
+        home.start()
+        let page = HomeLaunchComposer(home: home, me: Self.me, title: "Chief") { _, _ in NSView() }
+        let send = Task { try await page.hold.hold([.text("held")], key: .make()) }
+        for _ in 0..<100 where page.hold.heldParts.isEmpty { await Task.yield() }
+        page.store.setDraft("typed", for: Self.launch)
+        // Quit's save step (HomeService.flushCacheForQuit): the page's text, then Home's cache on disk.
+        page.saveForQuit()
+        await home.flushCache()
+        // A quit can be cancelled: the page goes on holding its send.
+        #expect(page.hold.heldParts == [[.text("held")]])
+        #expect(!page.hold.isCancelled)
+        home.stop()
+        // The next launch: Home's store reads the cache, and its launch page starts with the text.
+        let next = Self.store(LaunchChiefHold(), cache: HomeCache(url: url))
+        next.start()
+        defer { next.stop() }
+        #expect(next.draft(for: Self.launch) == "held\ntyped")
+        let again = HomeLaunchComposer(home: next, me: Self.me, title: "Chief") { _, _ in NSView() }
+        #expect(again.store.draft(for: Self.launch) == "held\ntyped")
+        #expect(next.draft(for: Self.launch) == nil)
+        // A launch whose Chief answers at once mounts no page: the kept text goes to the Chief's draft.
+        next.setDraft("kept", for: Self.launch)
+        HomeLaunchComposer.claimParked(to: Self.chief, in: next)
+        #expect(next.draft(for: Self.chief) == "kept")
+        #expect(next.draft(for: Self.launch) == nil)
+        page.hold.resolve(Self.chief) { _, _, _ in }
+        _ = try await send.value
+        again.end()
+        page.end()
+    }
+
     // MARK: Helpers
 
-    static func store(_ hold: LaunchChiefHold) -> HomeStore {
+    static func store(_ hold: LaunchChiefHold, cache: HomeCache? = nil) -> HomeStore {
         HomeStore(source: HomeLaunchChiefSource(me: me, title: "Chief", hold: hold),
-                  blobCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("home-launch-chief-\(UUID().uuidString)"))
+                  blobCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("home-launch-chief-\(UUID().uuidString)"),
+                  cache: cache, cacheWriteDelay: .zero)
     }
 }
 

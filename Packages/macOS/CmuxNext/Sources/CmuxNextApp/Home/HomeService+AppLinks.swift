@@ -34,7 +34,7 @@ extension HomeService {
     /// Quit's save step: the Home cache's last batch reaches disk (written on the cache actor;
     /// the quit only waits), before the process can end.
     func flushCacheForQuit() async {
-        await homeStore.flushCache()
+        launchPage?.saveForQuit(); await homeStore.flushCache()
     }
 
     /// Quit: the links that still point at this app go (another build that took them over keeps
