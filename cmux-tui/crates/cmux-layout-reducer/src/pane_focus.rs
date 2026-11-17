@@ -164,7 +164,7 @@ impl FocusDirection {
 pub fn is_valid(panes: &[FocusPane]) -> bool {
     fn each_once(mut values: Vec<u32>) -> bool {
         values.sort_unstable();
-        values.windows(2).all(|pair| pair[0] != pair[1])
+        values.iter().zip(values.iter().skip(1)).all(|(value, next)| value != next)
     }
     panes.iter().all(|pane| pane.frame.is_none_or(FocusFrame::is_valid))
         && each_once(panes.iter().map(|pane| pane.order).collect())
