@@ -15,7 +15,8 @@
 use std::time::{Duration, Instant};
 
 use cmux_feed_core::client::{
-    FeedItem, IntegrationOwner, Intent, IntentKind, Mirror, Owner, Poster,
+    FeedItem, IntegrationOwner, Intent, IntentKind, Mirror, Owner, Place, Poster, Priority, Row,
+    ViewContext, ViewRequest,
 };
 use cmux_feed_core::{Context, Feed, MAX_ITEMS, Notice};
 
@@ -321,5 +322,176 @@ fn hook_storm_keeps_up_and_stays_bounded() {
         storm.p95 <= BUDGET_P95,
         "a hook costs {:?} at p95, over the {BUDGET_P95:?} budget (arrivals are 1 ms apart)",
         storm.p95,
+    );
+}
+
+// MARK: Views (`feed.view.read`)
+
+/// Item `n` of a view fixture: every 5th in one of 97 threads, every 11th an
+/// open request, every 4th read, 7 s apart (so 100k items span 8 days).
+fn view_item(n: usize) -> FeedItem {
+    let mut item = FeedItem::notice(
+        &format!("fi_{n:020}"),
+        &format!("Notice {n} — résumé ✅"),
+        poster(),
+        NOW - (n as i64) * 7_000,
+    );
+    item.body = format!("Body {n}\nsecond line");
+    item.thread = n.is_multiple_of(5).then(|| format!("thread_{}", n % 97));
+    item.context.insert("workspace".into(), serde_json::json!(format!("ws_{:02}", n % 16)));
+    item.context.insert("terminal".into(), serde_json::json!(format!("term_{:03}", n % 64)));
+    if n.is_multiple_of(11) {
+        item.kind = "question".into();
+        item.priority = Priority::High;
+        item.prompt = serde_json::json!({"question": "Ship?"});
+    }
+    if n.is_multiple_of(4) {
+        item.read_at = Some(item.created_at);
+    }
+    item
+}
+
+fn view_mirror(n: usize) -> Mirror {
+    let mut mirror = Mirror::new("device_1");
+    mirror.cloud_snapshot("user_1", (0..n).map(view_item).collect(), NOW);
+    mirror
+}
+
+fn a_place(_: &FeedItem) -> Option<Place> {
+    Some(Place { agent: Some("Claude Code".into()), workspace: Some("cmux".into()), tab: None })
+}
+
+/// One `feed.view.read` as the daemon answers it: the view, then its bytes.
+fn read_view(mirror: &Mirror, request: &ViewRequest) -> usize {
+    let view = ViewContext {
+        mirror,
+        account: None,
+        now: NOW,
+        github: None,
+        github_enabled: false,
+        reports_available: false,
+        place: &a_place,
+    }
+    .view(request);
+    serde_json::to_vec(&view).expect("view bytes").len()
+}
+
+fn request(value: serde_json::Value) -> ViewRequest {
+    serde_json::from_value(value).expect("view request")
+}
+
+/// Reads `request` `samples` times on a mirror of each size.
+fn view_costs(request: &ViewRequest, samples: usize) -> Vec<(usize, Cost)> {
+    [1_000, 100_000]
+        .into_iter()
+        .map(|n| {
+            let mirror = view_mirror(n);
+            let rounds = (0..ROUNDS).map(|_| {
+                cost(
+                    (0..samples)
+                        .map(|_| {
+                            time(|| {
+                                std::hint::black_box(read_view(&mirror, request));
+                            })
+                        })
+                        .collect(),
+                )
+            });
+            (n, best(rounds.collect::<Vec<_>>()))
+        })
+        .collect()
+}
+
+/// A 50-entry Inbox page (what a short window shows), unfiltered and
+/// filtered: its cost must not follow the items the mirror holds. Known red:
+/// the Inbox and every filtered view scan the whole mirror (60 ms at 100k
+/// items, 0.3 ms at 1k; cmuxterm-hq#12452). `should_panic` fails once a fix makes
+/// the page flat: take the mark off then.
+#[test]
+#[ignore = "stress: run in release with --run-ignored only --no-capture (perf-hot-benches.json feed-view-read)"]
+#[should_panic(expected = "the per-op cost grows with the feed")]
+fn an_inbox_page_costs_the_page_not_the_mirror() {
+    // Every scenario runs and prints its rows before the first failure.
+    let failures: Vec<String> = [
+        ("inbox page 50", serde_json::json!(null)),
+        ("inbox page 50, unread", serde_json::json!({"category": "unread"})),
+    ]
+    .into_iter()
+    .filter_map(|(scenario, filter)| {
+        let page = request(serde_json::json!({"layout": "inbox", "limit": 50, "filter": filter}));
+        let costs = view_costs(&page, 50);
+        let failed = std::panic::catch_unwind(|| assert_flat(scenario, &costs)).err()?;
+        Some(failed.downcast::<String>().map_or_else(|_| scenario.to_owned(), |message| *message))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("; "));
+}
+
+/// The read the Feed page sends on open and on every change (an Inbox with
+/// no limit) builds under the feed lock: at a real feed's size (the two
+/// owners hold at most 500 items each) it stays within the 10 ms action
+/// budget plus room for its bytes.
+#[test]
+#[ignore = "stress: run in release with --run-ignored only --no-capture (perf-hot-benches.json feed-view-read)"]
+fn the_pages_view_read_stays_in_budget() {
+    const BUDGET_P95: Duration = Duration::from_millis(12);
+    let page = request(serde_json::json!({"layout": "inbox"}));
+    let costs = view_costs(&page, 20);
+    for (n, cost) in &costs {
+        eprintln!(
+            "stress {:<28} N={n:>7} p50={:>9.2?} p95={:>9.2?}",
+            "inbox view (page's read)", cost.p50, cost.p95
+        );
+    }
+    // Where an entry's time goes, at 1k items.
+    let mirror = view_mirror(1_000);
+    let items: Vec<&FeedItem> = mirror.list().collect();
+    for (part, run) in [
+        (
+            "entry: item to_value",
+            &(|item: &FeedItem| drop(std::hint::black_box(item.to_value()))) as &dyn Fn(&FeedItem),
+        ),
+        ("entry: Row::of", &|item: &FeedItem| {
+            drop(std::hint::black_box(Row::of(item, a_place(item).as_ref())))
+        }),
+        ("entry: is_pending", &|item: &FeedItem| {
+            drop(std::hint::black_box(mirror.is_pending(&item.id)))
+        }),
+    ] {
+        let spent = time(|| items.iter().for_each(|item| run(item)));
+        eprintln!("stress   {part:<26} {:>9.2?} per item", spent / items.len() as u32);
+    }
+    let context = ViewContext {
+        mirror: &mirror,
+        account: None,
+        now: NOW,
+        github: None,
+        github_enabled: false,
+        reports_available: false,
+        place: &a_place,
+    };
+    let spent =
+        time(|| items.iter().for_each(|item| drop(std::hint::black_box(context.item(item)))));
+    eprintln!(
+        "stress   {:<26} {:>9.2?} per item",
+        "entry: ViewContext::item",
+        spent / items.len() as u32
+    );
+    for layout in ["inbox", "list"] {
+        let layout_request = request(serde_json::json!({"layout": layout}));
+        let mut built = None;
+        let build = time(|| built = Some(context.view(&layout_request)));
+        let built = built.expect("view");
+        let bytes = time(|| drop(std::hint::black_box(serde_json::to_vec(&built))));
+        let dropped = time(|| drop(built));
+        eprintln!(
+            "stress   {layout} view: build {build:.2?}, to bytes {bytes:.2?}, drop {dropped:.2?}"
+        );
+    }
+    let (_, at_1k) = costs[0];
+    assert!(
+        at_1k.p95 <= BUDGET_P95,
+        "the page's view read takes {:?} at p95 on 1k items, over its {BUDGET_P95:?} budget",
+        at_1k.p95,
     );
 }
