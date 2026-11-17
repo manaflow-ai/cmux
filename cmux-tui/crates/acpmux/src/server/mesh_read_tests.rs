@@ -490,16 +490,20 @@ async fn http_hub(respond: Respond) -> (String, Arc<Mutex<Vec<Seen>>>) {
     (url, seen)
 }
 
-/// The hub's answer to a mesh message: a read is answered at once with `info`; a prompt is
-/// queued.
+/// The hub's answer to a mesh message, as cmux-platform gives it: a send (a read's `control` or
+/// a prompt) is queued; the read's answer comes on the sender's wait for its receipt
+/// (`GET /v1/mesh/messages/:id?waitSeconds=N`), with `info` as its result.
 fn mesh_answer(seen: &Seen, info: &Value) -> (u16, Value) {
-    let id = format!("msg_{}", uuid::Uuid::now_v7().simple());
-    if seen.body.get("kind").and_then(Value::as_str) == Some("control") {
+    if let Some(rest) = seen.line.strip_prefix("GET /v1/mesh/messages/") {
+        let id = rest.split(['?', ' ']).next().unwrap_or_default();
         let result = info.to_string();
-        (200, json!({"messageId": id, "state": "delivered", "createdAt": 1, "result": result}))
-    } else {
-        (200, json!({"messageId": id, "state": "queued", "createdAt": 1}))
+        return (
+            200,
+            json!({"messageId": id, "state": "delivered", "createdAt": 1, "result": result}),
+        );
     }
+    let id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+    (200, json!({"messageId": id, "state": "queued", "createdAt": 1}))
 }
 
 const LISTED: &str = "019a5d1e-8f00-7000-8000-0000000000b1";
@@ -636,6 +640,14 @@ async fn a_web_device_reads_and_prompts_with_its_own_credential() {
         assert_eq!(request.bearer, format!("Bearer {DEVICE}"), "{}", request.line);
     }
     assert!(seen.iter().any(|s| s.body["kind"] == "prompt"), "{seen:?}");
+    // The read went as cmux-platform takes it: a `read` control, then the sender's wait on its
+    // receipt. Nothing registered the device (no heartbeat, no inbox).
+    assert!(seen.iter().any(|s| s.body["op"] == "read"), "{seen:?}");
+    assert!(seen.iter().any(|s| s.line.contains("waitSeconds=")), "{seen:?}");
+    assert!(
+        !seen.iter().any(|s| s.line.contains("/heartbeat") || s.line.contains("/inbox")),
+        "{seen:?}"
+    );
     assert_eq!(own.used(), 0, "the daemon's own identity was used");
 
     // Another browser on the same daemon has no device of its own: nothing is shared.
@@ -650,7 +662,8 @@ async fn a_web_device_reads_and_prompts_with_its_own_credential() {
 async fn a_revoked_device_is_dropped() {
     let info = json!({"sessionId": LISTED});
     let (url, seen) = http_hub(Box::new(move |index, s| {
-        if index == 0 {
+        // The first read's send and its receipt wait; then the hub revokes the device.
+        if index < 2 {
             mesh_answer(s, &info)
         } else {
             (401, json!({"code": "machine.revoked", "message": "revoked"}))
@@ -679,27 +692,46 @@ async fn a_revoked_device_is_dropped() {
     assert_eq!(own.used(), 0, "the daemon's own identity was used after the revoke");
 }
 
-/// A credential the hub does not know (a stranger's, or made up) is refused by the hub; the
-/// browser learns `device.revoked` or `device.unauthorized`, and nothing falls back to the
-/// daemon's identity.
+/// A credential the hub does not know is refused by the hub (cmux-platform: a junk bearer is 401
+/// `mesh.unauthorized`, an unknown `cmm_` one 401 `machine.revoked`); the browser learns
+/// `device.unauthorized` or `device.revoked`, the device is dropped after one call, and nothing
+/// falls back to the daemon's identity.
 #[tokio::test]
 async fn a_strangers_credential_is_refused() {
-    let (url, seen) =
-        http_hub(Box::new(|_, _| (401, json!({"code": "mesh.unauthorized", "message": "no"}))))
-            .await;
-    let own = Arc::new(DaemonIdentity::default());
-    let a = daemon_a(&url, Arc::clone(&own));
-    let mut web = Client::connect(&a, Origin::Web);
-    let stranger = "cmm_a_strangers_credential";
-    web.request("_acpmux/device_hello", json!({"credential": stranger})).await.unwrap();
-    for refused in [web.read().await.unwrap_err(), web.prompt().await.unwrap_err()] {
-        assert!(matches!(reason(&refused), "device.revoked" | "device.unauthorized"), "{refused}");
-        assert!(!refused.to_string().contains(stranger), "{refused}");
+    for (code, expected, stranger) in [
+        ("mesh.unauthorized", "device.unauthorized", "a-junk-bearer-for-tests"),
+        ("machine.revoked", "device.revoked", "cmm_a_strangers_credential"),
+    ] {
+        let (url, seen) =
+            http_hub(Box::new(move |_, _| (401, json!({"code": code, "message": "no"})))).await;
+        let own = Arc::new(DaemonIdentity::default());
+        let a = daemon_a(&url, Arc::clone(&own));
+        let mut web = Client::connect(&a, Origin::Web);
+        web.request("_acpmux/device_hello", json!({"credential": stranger})).await.unwrap();
+        for refused in [web.read().await.unwrap_err(), web.prompt().await.unwrap_err()] {
+            assert_eq!(reason(&refused), expected, "{refused}");
+            assert!(!refused.to_string().contains(stranger), "{refused}");
+        }
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "the hub was asked again after it refused: {seen:?}");
+        assert!(seen.iter().all(|s| s.bearer == format!("Bearer {stranger}")), "{seen:?}");
+        assert_eq!(own.used(), 0, "the daemon's own identity was used as a fallback");
     }
-    let seen = seen.lock().unwrap().clone();
-    assert!(!seen.is_empty(), "the hub never checked the credential");
-    assert!(seen.iter().all(|s| s.bearer == format!("Bearer {stranger}")), "{seen:?}");
-    assert_eq!(own.used(), 0, "the daemon's own identity was used as a fallback");
+}
+
+/// A browser's device client registers nothing at the hub: no heartbeat (so no session rows) and
+/// no inbox or ack, refused before any request (cmux-platform answers each 403 for a web caller).
+#[tokio::test]
+async fn a_web_devices_hub_client_never_registers() {
+    let (url, seen) = http_hub(Box::new(|_, _| (200, json!({})))).await;
+    let hub =
+        crate::mesh_http::HttpHub::with_credential(url, zeroize::Zeroizing::new(DEVICE.into()))
+            .unwrap();
+    let inbox = hub.inbox(Duration::from_secs(1), 1).await.unwrap_err();
+    assert_eq!(inbox.code.as_deref(), Some("mesh.forbidden"), "{inbox:?}");
+    let ack = hub.ack("msg_1", &Ack::refused("x")).await.unwrap_err();
+    assert_eq!(ack.code.as_deref(), Some("mesh.forbidden"), "{ack:?}");
+    assert!(seen.lock().unwrap().is_empty(), "a device client called the hub");
 }
 
 /// `_acpmux/device_enroll` mints a join token with the person's access token and redeems it as a
@@ -710,12 +742,13 @@ async fn a_web_device_enrolls_through_the_join_path() {
     let key = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
     let (url, seen) = http_hub(Box::new(|_, s| {
         if s.line.contains("/v1/machines/join-tokens/redeem") {
-            let credential = s.body["proposedCredential"].clone();
+            // cmux-platform's web redeem answer: the hub mints the device's credential.
             (
                 200,
-                json!({"machineId": "mch_web_1", "joinTokenId": "join_1", "teamId": "team_1",
-                       "userId": "user_1", "wgPublicKey": s.body["wgPublicKey"],
-                       "credential": credential}),
+                json!({"credential": "cmm_minted_by_the_hub", "machineId": "mch_web_1",
+                       "joinTokenId": "join_1", "teamId": "team_1",
+                       "wgPublicKey": s.body["wgPublicKey"],
+                       "expiresAt": "2027-11-17T12:00:00.000Z", "userId": "user_1"}),
             )
         } else if s.line.contains("/v1/machines/join-tokens") {
             (
@@ -736,8 +769,7 @@ async fn a_web_device_enrolls_through_the_join_path() {
         .request("_acpmux/device_enroll", json!({"accessToken": access, "publicKey": key}))
         .await
         .unwrap();
-    let credential = enrolled["credential"].as_str().unwrap_or_default().to_owned();
-    assert!(credential.starts_with("cmm_"), "{enrolled}");
+    assert_eq!(enrolled["credential"], "cmm_minted_by_the_hub", "{enrolled}");
     assert_eq!(
         (enrolled["machineId"].as_str(), enrolled["userId"].as_str()),
         (Some("mch_web_1"), Some("user_1"))
@@ -750,6 +782,9 @@ async fn a_web_device_enrolls_through_the_join_path() {
     assert_eq!(redeem["platform"], "web", "{redeem}");
     assert_eq!(redeem["wgPublicKey"], key.as_str(), "{redeem}");
     assert_eq!(redeem["token"], "cmj_minted_for_web", "{redeem}");
+    assert!(redeem["hostname"].as_str().is_some_and(|h| !h.is_empty()), "{redeem}");
+    // The hub mints the credential; no client proposal and no name go with a web redeem.
+    assert!(redeem.get("proposedCredential").is_none() && redeem.get("name").is_none(), "{redeem}");
     assert_eq!(own.used(), 0);
     // A malformed key is refused before the hub is asked.
     let bad = web

@@ -42,8 +42,9 @@ pub(crate) enum Slot {
     Empty,
     /// The browser's own device client (`_acpmux/device_hello`).
     Device(Arc<HttpHub>),
-    /// The hub revoked it: dropped, and no other may be presented on this connection.
-    Revoked,
+    /// The hub refused its credential (401): dropped, and no other may be presented on this
+    /// connection. The reason the browser is told (`HttpHub::refused`).
+    Revoked(&'static str),
 }
 
 /// The longest credential or access token taken.
@@ -96,10 +97,15 @@ fn token_param(params: &Value, key: &str) -> Result<Zeroizing<String>, RpcError>
         .ok_or_else(|| RpcError::invalid_params(format!("{key} is required")))
 }
 
-/// The refusal a connection whose device the hub revoked gets for every hub call.
-pub(super) fn revoked() -> RpcError {
-    RpcError::new(-32003, "this device was revoked on the mesh hub: enroll it again")
-        .with_data(json!({"reason": "device.revoked"}))
+/// The refusal a connection whose device the hub refused gets for every hub call: `reason` is
+/// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`).
+pub(super) fn revoked(reason: &'static str) -> RpcError {
+    let message = if reason == "device.unauthorized" {
+        "the mesh hub does not know this device's credential: enroll it again"
+    } else {
+        "this device was revoked on the mesh hub: enroll it again"
+    };
+    RpcError::new(-32003, message).with_data(json!({"reason": reason}))
 }
 
 /// `_acpmux/device_hello {credential}` -> `{auth: "webDevice"}`.
@@ -117,7 +123,7 @@ async fn hello(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError
                 return Err(RpcError::invalid_params("this connection already presented a device")
                     .with_data(json!({"reason": "device.already_presented"})));
             }
-            Slot::Revoked => return Err(revoked()),
+            Slot::Revoked(reason) => return Err(revoked(reason)),
         }
     }
     Ok(json!({"auth": conn.proof().as_str()}))
@@ -141,21 +147,13 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
     let token = crate::cli::cloud_join::mint_join_token(&origin, &access, "web")
         .await
         .map_err(|_| refused("the hub refused to mint a join token for this device"))?;
-    // The credential is proposed here, as a machine's join proposes its own (`recovery.rs`).
-    let mut random = Zeroizing::new([0u8; 32]);
-    getrandom::fill(&mut *random).map_err(|_| RpcError::internal("no randomness"))?;
-    let proposed = Zeroizing::new(format!(
-        "cmm_{}",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(*random)
-    ));
-    let id = uuid::Uuid::now_v7().simple().to_string();
-    let name = format!("web-{}", id.get(id.len() - 8..).unwrap_or_default());
+    // cmux-platform's web redeem: `{token, platform: "web", hostname, wgPublicKey}`. The hub
+    // mints the `cmm_` credential and names the device by `wgPublicKey` on the mesh (its
+    // `from.daemonId`). The generated body always carries `capabilities` (`build.rs`): none here.
     let body: cmux_cloud_client::types::JoinRedeem = serde_json::from_value(json!({
         "token": token.as_str(),
-        "proposedCredential": proposed.as_str(),
-        "name": name,
-        "hostname": "web",
         "platform": "web",
+        "hostname": "web",
         "wgPublicKey": key,
         "capabilities": [],
     }))
@@ -167,8 +165,11 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
         Err(_) => return Err(refused("the hub refused this device's join")),
     };
     let text = |key: &str| redeemed.get(key).and_then(Value::as_str).map(str::to_owned);
-    // The hub's credential when it names one, else the one this join proposed.
-    let credential = Zeroizing::new(text("credential").unwrap_or_else(|| proposed.to_string()));
+    let credential = Zeroizing::new(
+        text("credential")
+            .filter(|c| c.starts_with("cmm_"))
+            .ok_or_else(|| refused("the hub minted no device credential"))?,
+    );
     let machine = text("machineId").ok_or_else(|| refused("the hub named no machine"))?;
     Ok(json!({
         "credential": credential.as_str(),

@@ -272,7 +272,7 @@ fn read_hub(
             let mesh: Arc<dyn crate::mesh::MeshHub> = device.clone();
             return Some(Ok((mesh, Some(Arc::clone(device)))));
         }
-        Slot::Revoked => return Some(Err(super::super::web_device::revoked())),
+        Slot::Revoked(reason) => return Some(Err(super::super::web_device::revoked(reason))),
         Slot::Empty => {}
     }
     if !may_read(conn) {
@@ -289,20 +289,21 @@ fn may_reach_hub(conn: &Conn) -> bool {
         || !matches!(*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()), Slot::Empty)
 }
 
-/// `reply` from the hub through `device`: when the hub refused the device's credential (401,
-/// `machine.revoked` or a credential it never issued), the connection drops the device for good
-/// (its credential is wiped with the client) and the answer is `device.revoked`.
+/// `reply` from the hub through `device`: when the hub refused the device's credential (401
+/// `machine.revoked`: revoked or unknown; 401 `mesh.unauthorized`: no credential of its own),
+/// the connection drops the device for good (its credential is wiped with the client) and the
+/// answer is `device.revoked` or `device.unauthorized`.
 fn settle(
     conn: &Conn,
     device: Option<&crate::mesh_http::HttpHub>,
     reply: Result<Value, RpcError>,
 ) -> Result<Value, RpcError> {
-    if !device.is_some_and(crate::mesh_http::HttpHub::refused) {
+    let Some(reason) = device.and_then(crate::mesh_http::HttpHub::refused) else {
         return reply;
-    }
+    };
     *conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) =
-        super::super::web_device::Slot::Revoked;
-    Err(super::super::web_device::revoked())
+        super::super::web_device::Slot::Revoked(reason);
+    Err(super::super::web_device::revoked(reason))
 }
 
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or

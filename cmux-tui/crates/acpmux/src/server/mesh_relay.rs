@@ -1181,9 +1181,9 @@ mod tests {
             message.mode = Mode::Now;
             message.start_work = None;
             message.to = Target { name: Some("own-e2e".into()), ..Target::default() };
-            // The hub's stamp for a web device: its machine id and the person who minted it.
+            // The hub's stamp for a web device: its wgPublicKey and the person who minted it.
             message.from = Sender {
-                daemon_id: Some("mch_web_1".into()),
+                daemon_id: Some("BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".into()),
                 user: Some(user.into()),
                 ..Sender::default()
             };
