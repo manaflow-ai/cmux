@@ -181,7 +181,8 @@ impl Mux {
                     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
                     if source_screen_remains {
                         if source_layout.active_pane == source_pane {
-                            source_layout.active_pane = source_layout.root.first_visible_pane();
+                            let next = source_layout.root.first_visible_pane();
+                            source_layout.set_active_pane(next);
                         }
                         if source_layout.zoomed_pane == Some(source_pane) {
                             source_layout.zoomed_pane = None;
