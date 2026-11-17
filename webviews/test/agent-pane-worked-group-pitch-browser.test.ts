@@ -254,14 +254,10 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
         to: line.text,
         pitch: Math.round((line.top - prev.top) * 10) / 10,
       }));
-    console.log(`worked-group-pitch[${process.env.WGP_LABEL ?? "run"}] rows\n${dump.join("\n")}`);
-    console.log(`worked-group-pitch[${process.env.WGP_LABEL ?? "run"}] pitches ${JSON.stringify(pitches)}`);
+    // Base drew thought->next 26 and notice->next 54 (cmux#44818). WORKED_GROUP_PITCH_LOG=1 prints the rows.
+    if (process.env.WORKED_GROUP_PITCH_LOG === "1") console.log(`rows\n${dump.join("\n")}\n${JSON.stringify(pitches)}`);
     const thought = pitches.find((pitch) => pitch.from.startsWith("The question is about Linux"));
     const notice = pitches.find((pitch) => pitch.from.includes("Background command finished"));
-    console.log(
-      `worked-group-pitch[${process.env.WGP_LABEL ?? "run"}] thought->next=${thought?.pitch} notice->next=${notice?.pitch}`,
-    );
-    if (process.env.WGP_REPORT_ONLY === "1") return void (await page.close());
     expect(thought).toBeDefined();
     expect(notice).toBeDefined();
     for (const pitch of pitches) expect({ ...pitch, pitch: Math.round(pitch.pitch) }).toEqual({ ...pitch, pitch: 22 });
