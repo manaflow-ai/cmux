@@ -908,6 +908,41 @@ try {
         } catch (error) {
           console.log(`heap-retainers ${name}: no memory-infra dump (${String(error).slice(0, 200)})`);
         }
+        // Each React component on the shown page drawn from a `rows` list, with that list's length: the rows a view
+        // holds, beside the rows its chat holds.
+        const rowLists = await shownPage.page.evaluate(() => {
+          const out: string[] = [];
+          const seen = new Set<unknown>();
+          type Fiber = { child?: Fiber; sibling?: Fiber; memoizedProps?: Record<string, unknown>; type?: unknown };
+          const nameOf = (type: unknown): string =>
+            typeof type === "function"
+              ? (type as { displayName?: string; name?: string }).displayName || (type as { name: string }).name
+              : typeof type === "object" && type !== null
+                ? nameOf((type as { type?: unknown; render?: unknown }).type ?? (type as { render?: unknown }).render)
+                : String(type);
+          const roots = [document, ...document.querySelectorAll("body, body > *")];
+          for (const node of roots) {
+            const key = Object.keys(node).find(
+              (k) => k.startsWith("__reactContainer$") || k.startsWith("__reactFiber$"),
+            );
+            if (!key) continue;
+            const stack: Fiber[] = [(node as unknown as Record<string, Fiber>)[key]!];
+            while (stack.length && out.length < 40) {
+              const fiber = stack.pop()!;
+              if (!fiber || seen.has(fiber)) continue;
+              seen.add(fiber);
+              for (const [prop, value] of Object.entries(fiber.memoizedProps ?? {}))
+                if (Array.isArray(value) && value.length > 200 && !seen.has(value)) {
+                  seen.add(value);
+                  out.push(`${nameOf(fiber.type)}.${prop}=${value.length}`);
+                }
+              if (fiber.sibling) stack.push(fiber.sibling);
+              if (fiber.child) stack.push(fiber.child);
+            }
+          }
+          return out;
+        });
+        console.log(`heap-retainers ${name}: row lists ${rowLists.join(" ")}`);
         const domCounters = (await shownPage.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
         console.log(`heap-retainers ${name}: shown page DOM counters ${JSON.stringify(domCounters)}`);
         const snapshot = await takeSnapshot(shownPage.cdp);
