@@ -187,7 +187,7 @@
       "owner": "agent chat transcript"
     },
     "ios-terminal-chat-swap": {
-      "what": "a tap on the iPhone's Chat | Terminal control (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
+      "what": "a tap on the iPhone page menu's Show Chat / Show Terminal row (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
       "bench": "swift test --package-path cmux-next-ios/CmuxMobileKit --filter terminal_chat_swap on an iOS simulator (CmuxMobileInstantPerfTests TerminalChatSwapPerfTests: INSTANTPERF terminal_chat_swap with p50 and p95 of each way, small vs god chat; Leo's target p95 under 100 ms)",
       "owner": "iOS"
     },

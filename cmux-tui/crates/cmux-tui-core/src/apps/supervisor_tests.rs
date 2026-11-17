@@ -517,6 +517,38 @@ fn unverified_apps_start_sandboxed_with_read_scopes() {
     assert_eq!(spy["source"], "local");
 }
 
+/// An App Store package (`CMUX_APPS_DIRS`, tier unverified) installed with
+/// one click: the consent card listed its `net:` scope, so the confirmed
+/// install grants it and the app reaches that host at once (base red: the
+/// install granted read scopes only and stayed sandboxed, so a weather
+/// widget fetched nothing until the person changed two settings).
+#[test]
+fn a_store_install_grants_the_scopes_its_consent_card_listed() {
+    let f = fixture();
+    let extra = f.state.parent().unwrap().join("extra");
+    write_app(
+        &extra,
+        "weather",
+        "acme/weather",
+        json!({ "workspace:read": "r", "net:api.example.com": "forecasts" }),
+    );
+    let path = extra.join("weather/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/weather");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/weather")["tier"], "unverified");
+    let args = json!({ "app": "acme/weather", "idempotency_key": "one-click" });
+    f.supervisor.store_call(CLIENT, "apps.install", args, Origin::User).unwrap();
+    let weather = app_entry(&f.supervisor.list(), "acme/weather");
+    assert_eq!(weather["grants"], json!(["net:api.example.com", "workspace:read"]), "{weather}");
+    assert_eq!(weather["sandboxed"], false, "{weather}");
+    f.mount("m1", "acme/weather", "cmux.section/1", json!({}));
+    let fetched = f.call("m1", "net.fetch", json!({ "url": "https://api.example.com/x" }), false);
+    assert_eq!(fetched["body"]["value"]["body"], "hi", "{fetched}");
+}
+
 #[test]
 fn default_apps_are_installed_with_required_scopes() {
     let f = fixture_with(&["cmux/demo"], Duration::from_secs(60), temp_dir());
@@ -1095,6 +1127,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
+#[path = "supervisor_community_tests.rs"]
+mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
 #[path = "supervisor_github_tests.rs"]
