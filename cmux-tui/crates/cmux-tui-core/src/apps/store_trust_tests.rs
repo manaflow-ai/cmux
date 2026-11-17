@@ -198,3 +198,14 @@ fn the_shipped_store_keys_are_not_the_web_update_keys() {
     let shipped = super::trusted_keys();
     assert!(shipped.iter().all(|(id, _)| id != "e5d7bbcacc70703d"), "{shipped:?}");
 }
+
+/// The store signing key (CI secret CMUX_STORE_SIGNING_KEY, env `artifacts`) ships, and its
+/// listed id is its own: keys_from_json drops an entry whose id is not sha256(raw)[..16 hex].
+#[test]
+fn the_shipped_store_keys_hold_the_store_signing_key() {
+    TEST_KEYS.with(|cell| *cell.borrow_mut() = None);
+    let shipped = super::trusted_keys();
+    let ids: Vec<&str> = shipped.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["4d2c4b445e2193fb"], "{shipped:?}");
+    assert_ne!(ids[0], "e5d7bbcacc70703d", "the store key is not the web update key");
+}
