@@ -50,7 +50,42 @@ function storageValue(): Record<string, Record<string, boolean>> {
 }
 
 function notify(): void {
+  named.clear();
   for (const listener of listeners) listener();
+}
+
+/// Per chat (with its views), each id a stored key names (every stretch between colons) to the
+/// choices that name it, built once per change (`notify` clears it) for a chat a row asks about.
+const named = new Map<string, Map<string, string>>();
+
+/// The reader's choices on the lines of chat `sessionId` (all its views) whose keys name one of `ids`
+/// (a row's id, its calls' ids), as one string: "" when there are none. A row's placed height is
+/// valid only for the string it was drawn with (rowOpenState.ts). O(ids) after one O(choices) index
+/// per change.
+export function choicesNaming(sessionId: string | undefined, ids: Iterable<string>): string {
+  const chat = sessionId || DEFAULT_SESSION;
+  let index = named.get(chat);
+  if (!index) {
+    index = new Map();
+    for (const [id, session] of load()) {
+      if (id !== chat && !id.startsWith(`${chat}#`)) continue;
+      const view = id.slice(chat.length);
+      for (const [key, value] of session)
+        for (const part of new Set(key.split(":"))) {
+          if (part === "") continue;
+          const entry = `${view}${key}=${value ? 1 : 0}`;
+          const before = index.get(part);
+          index.set(part, before === undefined ? entry : `${before},${entry}`);
+        }
+    }
+    named.set(chat, index);
+  }
+  let out = "";
+  for (const id of ids) {
+    const found = index.get(id);
+    if (found !== undefined) out += out === "" ? found : `;${found}`;
+  }
+  return out;
 }
 
 function save(sessionId: string, key: string, value: boolean): void {
@@ -142,6 +177,12 @@ export function forgetInsideTurn(
 
 function read(sessionId: string, key: string): boolean | undefined {
   return load().get(sessionId)?.get(key);
+}
+
+/// The reader's own choice on line `key` of chat `sessionId` in the Normal view, for the row
+/// estimator (model.ts): undefined when they never set it.
+export function disclosureChoice(sessionId: string | undefined, key: string): boolean | undefined {
+  return read(sessionId || DEFAULT_SESSION, key);
 }
 
 const subscribe = (listener: () => void) => {

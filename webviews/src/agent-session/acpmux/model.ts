@@ -1787,12 +1787,35 @@ const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
 /// summary line, with its steps under it when the line starts open (`runOpen`; ToolRunSteps.tsx draws
 /// each call on its own line, a quiet thought not at all); another stretch is its entries, groups
 /// closed or open alike.
-function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
+/// The reader's own choice on a run's summary line (ToolRun.tsx keys it `runDisclosureKey`), from the
+/// store the line opens from (transcriptDisclosureModel.ts); undefined when they never set it.
+function runLineChoice(
+  sessionId: string | undefined,
+  row: AcpmuxRow,
+  stretch: Pick<RunStretch, "items" | "from">,
+): boolean | undefined {
+  return disclosureChoice(sessionId, runDisclosureKey(stretch, row.id));
+}
+
+/// Whether the reader opened one of a folded run's summary lines: the run then draws its stretches,
+/// not its one closed line. A row with no choice on any of its calls reads nothing more (O(calls)).
+function readerOpenedRun(sessionId: string | undefined, row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
+  const ids: string[] = [row.id];
+  for (const item of row.items ?? []) if (item.tool?.id) ids.push(item.tool.id);
+  if (choicesNaming(sessionId, ids) === "") return false;
+  return runStretches(row, groups).some((stretch) => stretch.fold && runLineChoice(sessionId, row, stretch) === true);
+}
+
+/// A line the reader opened or closed is estimated as they left it (`runLineChoice`), as ToolRun.tsx
+/// draws it, not as it starts: a run they closed in a steered turn was estimated open, a hole of its
+/// steps under it wherever its drawn height was not the one placing it (Leo, 2026-11-17).
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number, sessionId?: string): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
   return stretches.reduce((height, stretch) => {
     const start = stretchStart(row, stretch);
-    if (stretch.fold) return height + toolRowHeight() + (start.lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
+    const lineOpen = (stretch.fold && runLineChoice(sessionId, row, stretch)) ?? start.lineOpen;
+    if (stretch.fold) return height + toolRowHeight() + (lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
     return height + stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width, start.groupsClosed), 0);
   }, 0);
 }
@@ -2277,6 +2300,7 @@ function fallbackRowHeight(
   beforeFooter = false,
   lastTurn = false,
   actions = false,
+  sessionId?: string,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn
@@ -2307,8 +2331,8 @@ function fallbackRowHeight(
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps.
-      if (row.runOpen || groups.some(staysInSight))
-        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
+      if (row.runOpen || groups.some(staysInSight) || readerOpenedRun(sessionId, row, groups))
+        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
       if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     let steps = items.length
@@ -2792,7 +2816,7 @@ function measuredRowHeight(
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
-  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
   // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
   if (row.kind === MESSAGE_RUN) return finish(lineRow());
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
@@ -2915,11 +2939,11 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
   // A prompt with only attachments in its recorded parts draws them in the strip and no bubble
   // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
-    return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+    return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
   const entry = preparedRow(cache, row.id);
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
@@ -3002,7 +3026,7 @@ function measuredRowHeight(
             ),
           );
     } else {
-      if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+      if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
       contentHeight = (entry.blocks.length - 1) * blockGap();
       for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
     }
@@ -3269,7 +3293,10 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
+export type RowHeights = WeakMap<
+  AcpmuxRow,
+  { width: number; height: number; edge?: string; scale?: number; open?: string }
+>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3355,7 +3382,10 @@ export function layoutConversation(
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
     let height: number;
-    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    // A height estimated in another open state (rowOpenState.ts) is estimated again: a run the reader
+    // closed since is never placed at its open height.
+    if (kept && kept.width === width && kept.edge === edge && (kept.open ?? "") === rowOpenState(sessionId, row))
+      height = kept.height;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3373,6 +3403,7 @@ export function layoutConversation(
         near &&
         kept &&
         kept.edge === edge &&
+        (kept.open ?? "") === rowOpenState(sessionId, row) &&
         (kept.scale ?? 1) === scale &&
         (index < near.from || index >= near.to) &&
         row.text &&
@@ -3400,7 +3431,7 @@ export function layoutConversation(
               );
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, { width, height, edge, scale });
+        known?.set(row, { width, height, edge, scale, open: rowOpenState(sessionId, row) });
       }
     }
     if (height > 0) {
@@ -3738,7 +3769,17 @@ import {
   type PreparedTextWithSegments,
 } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import {
+  runStretches,
+  staysInSight,
+  stretchStart,
+  toolGroups,
+  type RunStretch,
+  type ToolGroup,
+} from "./conversation/toolGroups";
+import { choicesNaming, disclosureChoice } from "./conversation/transcriptDisclosureModel";
+import { runDisclosureKey } from "./conversation/turnRowsModel";
+import { rowOpenState } from "./conversation/rowOpenState";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
