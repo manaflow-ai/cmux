@@ -424,7 +424,14 @@ export function watch<T = unknown>(name: string, params?: unknown, options: { ev
           log("error", `watch ${name}: ${asError(err).message}`)
           return
         }
-        if (e === current.peek()) return
+        if (e === current.peek()) {
+          // Only the pace in the params changed (http.json's everySeconds): same entry, new pace.
+          if (e.readers.get(id) !== every && e.readers.has(id)) {
+            e.readers.set(id, every)
+            if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
+          }
+          return
+        }
         const old = release
         release = join(e, id, every)
         setCurrent(e)

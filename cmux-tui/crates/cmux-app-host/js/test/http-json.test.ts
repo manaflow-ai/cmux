@@ -72,6 +72,24 @@ describe("cmux.watch http.json", () => {
     expect(host.timers.size).toBe(0)
   })
 
+  test("a pace that changes in params moves the timer, not the entry", async () => {
+    const source = app(`
+      const [every, setEvery] = signal(600)
+      globalThis.setEvery = setEvery
+      return { render: () => {
+        const w = cmux.watch("http.json", () => ({ url: ${JSON.stringify(URL_A)}, everySeconds: every() }))
+        return Text(() => "t=" + (w.value()?.current?.temperature_2m ?? "-"))
+      } }`)
+    const host = weatherHost(source)
+    host.mount("a", "render")
+    await host.settle()
+    expect([...host.timers.values()].map((t) => t.ms)).toEqual([300_000])
+    ;(host.ctx as any).setEvery(60)
+    await host.settle()
+    expect([...host.timers.values()].map((t) => t.ms)).toEqual([60_000])
+    expect(fetches(host)).toHaveLength(1)
+  })
+
   test("polling stops when the last view unmounts", async () => {
     const host = weatherHost(twoViews(`{ url: ${JSON.stringify(URL_A)} }`, `{ url: ${JSON.stringify(URL_A)} }`))
     host.mount("a", "one")

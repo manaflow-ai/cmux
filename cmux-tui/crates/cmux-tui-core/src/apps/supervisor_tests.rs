@@ -612,9 +612,18 @@ fn shared_fetches_are_one_request_per_url_and_still_need_the_grant() {
     assert_eq!(second["body"]["value"]["cache"]["hit"], true);
     assert_eq!(second["body"]["value"]["cache"]["maxAgeSeconds"], 60);
     assert_eq!(f.fetcher.requests.lock().unwrap().len(), 1, "one request for both mounts");
-    // The sandboxed spy holds net:api.example.com but may not reach the network: refused, cached or not.
+    // The spy is sandboxed: no network, so it is refused before the cache, cached or not.
     assert_eq!(f.call("s1", "net.fetch", shared, false)["body"]["code"], "scope.missing");
-    let other = json!({ "url": "https://other.example.org/", "cache": "shared" });
+    // A body another reader cached for a host this app holds no grant for stays out of reach.
+    let theirs = FetchRequest {
+        url: "https://other.example.org/x".into(),
+        method: "GET".into(),
+        headers: vec![],
+        body: None,
+    };
+    let priming = Arc::new(FakeFetcher::default());
+    f.supervisor.http_cache.get(&priming, theirs, Instant::now()).unwrap();
+    let other = json!({ "url": "https://other.example.org/x", "cache": "shared" });
     assert_eq!(f.call("m1", "net.fetch", other, false)["body"]["code"], "scope.missing");
     let post =
         json!({ "url": "https://api.example.com/weather", "method": "POST", "cache": "shared" });

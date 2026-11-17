@@ -290,3 +290,27 @@ fn a_fetcher_that_panics_does_not_leave_the_url_in_flight() {
     let fetcher = Scripted::new(vec![ok("1", &[])]);
     assert_eq!(cache.get(&fetcher, request(), t0 + FLOOR).unwrap().response.body, "1");
 }
+
+#[test]
+fn a_remembered_failure_keeps_only_a_short_body_and_its_time() {
+    let page = "<html>".repeat(10_000);
+    let fetcher = Scripted::new(vec![Ok(FetchResponse {
+        status: 404,
+        headers: vec![
+            ("Set-Cookie".into(), "s=1".into()),
+            ("Content-Type".into(), "text/html".into()),
+        ],
+        body: page,
+    })]);
+    let cache = HttpCache::default();
+    let t0 = Instant::now();
+    cache.get(&fetcher, request(), t0).unwrap();
+    let again = cache.get(&fetcher, request(), t0 + secs(5)).unwrap();
+    assert_eq!(again.response.status, 404);
+    assert!(again.response.body.len() <= 4 * 1024);
+    assert_eq!(again.response.headers, vec![("Content-Type".to_string(), "text/html".to_string())]);
+    assert!(again.fetched_ms > 0);
+    assert_eq!(fetcher.count(), 1);
+    let spaced = vec![("Cache-Control".to_string(), "max-age = 600".to_string())];
+    assert_eq!(freshness(&spaced), secs(600));
+}

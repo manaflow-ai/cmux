@@ -2731,8 +2731,14 @@
             log("error", `watch ${name}: ${asError(err).message}`);
             return;
           }
-          if (e === current.peek())
+          if (e === current.peek()) {
+            if (e.readers.get(id) !== every && e.readers.has(id)) {
+              e.readers.set(id, every);
+              if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+                schedule(e, pollMs(e));
+            }
             return;
+          }
           const old = release;
           release = join(e, id, every);
           setCurrent(e);

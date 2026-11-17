@@ -39,6 +39,8 @@ pub const MAX_STALE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const MAX_BODY: usize = 1024 * 1024;
 pub const MAX_ENTRIES: usize = 128;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
+/// The most of a failed response's body that is remembered.
+const FAILURE_BODY: usize = 4 * 1024;
 /// How long a reader waits for another reader's fetch of the same URL.
 const WAIT: Duration = Duration::from_secs(egress::TIMEOUT.as_secs() + 5);
 /// Response headers a shared reply keeps (the rest are dropped with the body's origin).
@@ -78,6 +80,7 @@ impl Kept {
 #[derive(Debug, Clone)]
 struct Failure {
     at: Instant,
+    at_ms: u64,
     outcome: Result<FetchResponse, EgressError>,
 }
 
@@ -152,6 +155,14 @@ pub fn shared_request(request: FetchRequest) -> Result<FetchRequest, EgressError
     })
 }
 
+/// The response headers a shared reply carries (`KEPT_HEADERS`).
+fn kept_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
+    headers
+        .into_iter()
+        .filter(|(k, _)| KEPT_HEADERS.contains(&k.to_ascii_lowercase().as_str()))
+        .collect()
+}
+
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
 }
@@ -162,7 +173,11 @@ pub fn freshness(headers: &[(String, String)]) -> Duration {
     let mut max_age = None;
     let mut s_maxage = None;
     for directive in header(headers, "cache-control").unwrap_or("").split(',') {
-        let directive = directive.trim().to_ascii_lowercase();
+        let directive: String = directive
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .to_ascii_lowercase();
         let seconds = |v: &str| v.trim_matches('"').parse::<u64>().ok();
         if let Some(v) = directive.strip_prefix("s-maxage=") {
             s_maxage = seconds(v);
@@ -220,7 +235,7 @@ impl HttpCache {
                     stale: false,
                     age: now.saturating_duration_since(failure.at),
                     fresh_for: FLOOR,
-                    fetched_ms: 0,
+                    fetched_ms: failure.at_ms,
                 });
             }
             if e.inflight {
@@ -302,11 +317,7 @@ impl HttpCache {
                     Err(too_large())
                 } else {
                     let fresh_for = freshness(&response.headers);
-                    let headers = response
-                        .headers
-                        .into_iter()
-                        .filter(|(k, _)| KEPT_HEADERS.contains(&k.to_ascii_lowercase().as_str()))
-                        .collect::<Vec<_>>();
+                    let headers = kept_headers(response.headers);
                     let kept = Kept {
                         response: FetchResponse {
                             status: response.status,
@@ -323,15 +334,26 @@ impl HttpCache {
                     return Ok(reply);
                 }
             }
-            Ok(mut response) => {
-                if response.body.len() > MAX_BODY {
-                    response.body.truncate(0);
+            // A failure is remembered, not kept: its body is cut to
+            // FAILURE_BODY so failed URLs stay small next to MAX_BYTES.
+            Ok(response) => {
+                let mut body = response.body;
+                if body.len() > FAILURE_BODY {
+                    let mut cut = FAILURE_BODY;
+                    while !body.is_char_boundary(cut) {
+                        cut -= 1;
+                    }
+                    body.truncate(cut);
                 }
-                Ok(response)
+                Ok(FetchResponse {
+                    status: response.status,
+                    headers: kept_headers(response.headers),
+                    body,
+                })
             }
             Err(error) => Err(error),
         };
-        e.failure = Some(Failure { at: now, outcome: outcome.clone() });
+        e.failure = Some(Failure { at: now, at_ms: fetched_ms, outcome: outcome.clone() });
         if let Some(kept) = e.kept.as_ref().filter(|k| k.servable(now)) {
             return Ok(kept.reply(now, false, true));
         }
