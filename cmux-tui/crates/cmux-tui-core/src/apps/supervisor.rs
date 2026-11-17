@@ -147,6 +147,9 @@ pub struct Config {
     pub safe_mode_file: Option<PathBuf>,
     /// `CMUX_SAFE_MODE` asked for safe mode when the daemon started.
     pub safe_mode_env: bool,
+    /// The release of the session's owner: the storage database is a store
+    /// of the session folder and takes no commit after it (`storage.rs`).
+    pub(crate) owner_release: crate::workspace_registry::wal_durability::OwnerRelease,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -836,17 +839,6 @@ impl Supervisor {
         if let Some(retry) = activate {
             self.activate_background(&retry);
         }
-    }
-
-    /// The storage database, opened on first use. Lock order: `inner`, then
-    /// `storage`.
-    pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
-        let mut guard = self.storage.lock().unwrap();
-        if guard.is_none() {
-            let path = self.config.state_dir.as_ref().map(|d| d.join("apps-storage.sqlite"));
-            *guard = Storage::open(path.as_deref()).ok();
-        }
-        guard
     }
 
     /// Writes `apps.json` durably: temp file, fsync, rename.

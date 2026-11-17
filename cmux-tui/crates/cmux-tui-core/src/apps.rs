@@ -188,6 +188,7 @@ impl AppsSlot {
                         provider_user_deadline: std::time::Duration::from_secs(600),
                         safe_mode_file,
                         safe_mode_env,
+                        owner_release: mux.owner_release().clone(),
                     },
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),

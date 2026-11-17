@@ -8,6 +8,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::workspace_registry::wal_durability::{self, OwnerRelease};
+
 pub const MAX_KEY_BYTES: usize = 256;
 pub const MAX_VALUE_BYTES: usize = 64 * 1024;
 pub const MAX_APP_BYTES: i64 = 4 * 1024 * 1024;
@@ -39,12 +41,16 @@ fn table(app: &str) -> String {
 
 impl Storage {
     /// Opens (or creates) the database; `None` opens an in-memory one.
-    pub fn open(path: Option<&Path>) -> Result<Self, StorageError> {
+    ///
+    /// A database on disk is a store of the session folder, so it opens the
+    /// one way such a store opens: after the release of the session's owner
+    /// (`released`) each commit of it is refused.
+    pub(crate) fn open(path: Option<&Path>, released: &OwnerRelease) -> Result<Self, StorageError> {
         let db = match path {
-            Some(path) => Connection::open(path),
-            None => Connection::open_in_memory(),
-        }
-        .map_err(failed)?;
+            Some(path) => wal_durability::open_store(path, "apps storage", released)
+                .map_err(|error| failed(format!("{error:#}")))?,
+            None => Connection::open_in_memory().map_err(failed)?,
+        };
         db.pragma_update(None, "journal_mode", "WAL").ok();
         Ok(Self { db })
     }
@@ -139,13 +145,26 @@ impl Storage {
     }
 }
 
+impl super::supervisor::Supervisor {
+    /// The storage database, opened on first use. Lock order: `inner`, then
+    /// `storage`.
+    pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
+        let mut guard = self.storage.lock().unwrap();
+        if guard.is_none() {
+            let path = self.config.state_dir.as_ref().map(|d| d.join("apps-storage.sqlite"));
+            *guard = Storage::open(path.as_deref(), &self.config.owner_release).ok();
+        }
+        guard
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn set_get_keys_delete_and_clear_are_per_app() {
-        let s = Storage::open(None).unwrap();
+        let s = Storage::open(None, &OwnerRelease::default()).unwrap();
         s.call("cmux/a", "app.storage.set", &json!({ "key": "k", "value": { "n": 1 } })).unwrap();
         s.call("cmux/b", "app.storage.set", &json!({ "key": "k", "value": 2 })).unwrap();
         assert_eq!(
@@ -165,7 +184,7 @@ mod tests {
 
     #[test]
     fn limits_are_enforced() {
-        let s = Storage::open(None).unwrap();
+        let s = Storage::open(None, &OwnerRelease::default()).unwrap();
         let big = "x".repeat(MAX_VALUE_BYTES);
         assert_eq!(
             s.call("a", "app.storage.set", &json!({ "key": "k", "value": big })).unwrap_err().code,
