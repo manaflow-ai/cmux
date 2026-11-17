@@ -234,6 +234,7 @@ pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod live_name;
 mod profile_respawn;
+mod rediscover;
 pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
@@ -393,6 +394,8 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;

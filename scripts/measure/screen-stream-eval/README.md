@@ -119,10 +119,14 @@ Today's targets:
   the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
   The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
   so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
-  over Apple's own encodings. The login is a file in the viewer account's real home,
-  `~/.config/screen-stream-eval/login` (mode 0600): the host account's password, for the account
-  with the viewer's name (the fleet Macs share one), or a user name line first. Never argv,
-  environment or logs. Each view runs under a hard time limit.
+  over Apple's own encodings. The login is the one Screen Sharing.app saved in the viewer
+  account's keychain for the host ("Remember this password"; the first read may show macOS's
+  keychain prompt once), or a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600), which wins when present: the host account's
+  password, for the account with the viewer's name (the fleet Macs share one), or a user name line
+  first. Never argv, environment or logs. Each view runs under a hard time limit. Its viewer opens
+  no window and posts nothing on its own Mac, so `viewer-of=` runs it from a person's Mac too;
+  `person_guard.py` still refuses a person's Mac as its host, where its input lands.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
@@ -319,6 +323,14 @@ cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp 
 
 DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
 prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
 
 The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
 (the script exits 3 before measuring when `modprobe sch_netem` fails):

@@ -468,6 +468,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
+            | "apps.community.synced.put"
     )
 }
 
@@ -482,6 +483,13 @@ impl Supervisor {
         origin: Origin,
     ) -> Result<Value, ApiError> {
         match op.strip_prefix("cmux.").unwrap_or(op) {
+            // The Community source (community.rs): `{source: "community"}`.
+            "apps.catalog.list" | "apps.catalog.get" if super::community::wants(&args) => {
+                self.community_call(op, args)
+            }
+            "apps.community.installs" | "apps.community.synced.put" => {
+                self.community_call(op, args)
+            }
             "apps.catalog.list" => params(args).and_then(|p| to_value(self.catalog_list(p)?)),
             "apps.catalog.get" => params(args).and_then(|p| to_value(self.catalog_get(p)?)),
             "apps.installed.list" => {
