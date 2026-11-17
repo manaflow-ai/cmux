@@ -217,9 +217,20 @@ final class CEFRuntime {
     }
 
     /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    ///
+    /// The new load reads the framework binary into the file cache at once (no lock), then maps it only once
+    /// ``initializeAfter`` is open. The map holds dyld's loader lock for seconds on a loaded Mac, and while the
+    /// first window builds the main thread takes that lock for each AppKit class it makes first
+    /// (`+[NSView clipsToBounds]` asks dyld for the linked SDK): Leo's NIGHTLY held the main thread 3.5 s in
+    /// `SidebarRailCardView.init`'s first `NSStackView` while launch's preload mapped (hq#12524).
     private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
         if let early = earlyLoad?.task(for: candidate) { return early }
-        return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
+        let gate = initializeAfter
+        return Task.detached(priority: priority) { [libraryLoader] in
+            if let candidate { CEFFrameworkPrefetch.readBinary(candidate) }
+            if await CEFRuntime.waitForInitializeGate(gate) { await CEFStartSteps.shared.point("map_waited_first_frame") }
+            return libraryLoader(candidate)
+        }
     }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
