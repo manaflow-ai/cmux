@@ -7,12 +7,16 @@ import dataclasses
 import datetime as dt
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from unittest import mock
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = ROOT / ".github" / "workflows"
 spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
 assert spec and spec.loader
 picker = importlib.util.module_from_spec(spec)
@@ -864,19 +868,51 @@ class BlacksmithSwitchTests(unittest.TestCase):
         for value in ("", "off", "pr-rescue", "1"):
             self.assertFalse(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
 
-    def test_the_owned_wait_names_no_blacksmith_retry_runner_while_off(self):
+    @staticmethod
+    def owned_job_keys() -> set[str]:
+        """Every owned_jobs key a ci.yml or ci-macos.yml job tests, its matrix shards expanded."""
+        keys = set()
+        literal = re.compile(r"contains\((?:inputs\.pr_owned_jobs|needs\.changes\.outputs\.macos_pr_owned_jobs), '\s*([a-z0-9-]+)\s*'\)")
+        shard = re.compile(r"contains\(inputs\.pr_owned_jobs, format\('\s*([a-z0-9-]+)\{0\}\s*', matrix\.shard\)\)")
+        for name in ("ci.yml", "ci-macos.yml"):
+            for job in (yaml.safe_load((WORKFLOWS / name).read_text()).get("jobs") or {}).values():
+                runs_on = str(job.get("runs-on", ""))
+                keys.update(literal.findall(runs_on))
+                for prefix in shard.findall(runs_on):
+                    keys.update(f"{prefix}{index}" for index in job["strategy"]["matrix"]["shard"])
+        return keys
+
+    def test_the_owned_wait_owns_every_job_and_keeps_the_paid_escape_while_off(self):
+        """Off, every job the run has takes the owned labels on attempts 1 and 2 (none reads retry_runner through
+        `!contains(owned_jobs, key)`, run 43990120167's shards), and retry_runner stays the paid label: the bot's
+        attempt 3 (owned_pool_rescue's OWNED_WAIT_BOUND_SECONDS move) escapes to it, so no owned wait is unbounded."""
         choice = picker.pick(self.state(switch=""))
         self.assertEqual(choice.label, self.LIGHT_POOL)
-        values = picker.write_outputs(choice, 8, env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true"})
-        for key in ("runner", "retry_runner", "shard_runner", "side_runner"):
+        env = {"RUN_MACOS": "true", "RUN_UNIT_SUITE": "true", "RUN_CLI": "true", "RUN_CLAUDE_WRAPPER": "true",
+               "CI_BLACKSMITH_MACOS": ""}
+        values = picker.write_outputs(choice, 8, env=env)
+        for key in ("runner", "shard_runner", "side_runner"):
             self.assertFalse(values[key].startswith("blacksmith-"), (key, values[key]))
-        self.assertEqual(values["retry_runner"], self.LIGHT_POOL)
+        self.assertTrue(values["retry_runner"].startswith("blacksmith-"), values["retry_runner"])
+        keys = self.owned_job_keys()
+        self.assertTrue({"admission", "shard-1", "cli-regressions-1", "claude-wrapper"} <= keys, keys)
+        self.assertEqual(keys - set(values["owned_jobs"].split()), set())
+        # On: today's owned_jobs, by the run's lanes.
+        values = picker.write_outputs(picker.pick(self.state(switch="on")), 8, env={**env, "CI_BLACKSMITH_MACOS": "on"})
+        self.assertNotIn("cli-regressions-1", values["owned_jobs"].split())
+
+    def test_a_helper_build_keeps_swift_package_on_the_paid_label_while_off(self):
+        # The SDK 15 helper build runs only on the Blacksmith macOS 15 image, whatever the switch.
+        env = {"RUN_FULL_SUITE": "true", "RUN_RELEASE_BUILD": "true", "RUN_SWIFT_PACKAGES": "true",
+               "CI_BLACKSMITH_MACOS": ""}
+        values = picker.write_outputs(picker.pick(self.state(switch="")), 8, env=env)
+        self.assertNotIn("swift-package", values["owned_jobs"].split())
 
     def test_a_free_blacksmith_slot_takes_nothing_while_off(self):
         choice = picker.pick(self.state(switch="", blacksmith=self.FREE, wait_on_owned=False))
         self.assertEqual(choice.label, self.LIGHT_POOL)
         self.assertTrue(choice.owned)
-        self.assertEqual(picker.write_outputs(choice, 8)["retry_runner"], self.LIGHT_POOL)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
 
     def test_on_keeps_the_blacksmith_retry_runner(self):
         choice = picker.pick(self.state(switch="on"))

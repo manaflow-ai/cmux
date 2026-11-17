@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime as dt
 import importlib.util
@@ -4128,39 +4129,74 @@ class IOSBlacksmithSwitch(unittest.TestCase):
         for value in ("", "off", "pr-rescue"):
             self.assertFalse(ios_pool.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
 
-    def test_a_busy_pool_waits_on_the_minis_while_off(self):
-        snap = sim_fleet(busy=40, small=0, large=0)
-        self.assertFalse(ios_route(snap, variable=SMALL)[0].persistent)  # on: today's default
-        route, _ = ios_route(snap, variable=SMALL, blacksmith_on=False)
+    @staticmethod
+    def live(pool=0, sim=0, online=4, sim_online=2):
+        return ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool, sim=sim, online=online, sim_online=sim_online))
+
+    def assert_waits_on_the_minis(self, route):
         self.assertTrue(route.persistent)
         self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
         self.assertEqual(json.loads(route.package_runs_on), MINI)
-        # A re-run keeps the simulator label too: the minis are the only iOS runners left.
-        self.assertEqual(json.loads(route.retry_runs_on), [MINI, IOS_SIM])
-        self.assertEqual(self.blacksmith(route), [])
+        # A re-run is the escape (owned_pool_rescue.PICKED_PERSISTENT_RETRY): the paid label, so the rescue's
+        # OWNED_WAIT_BOUND_SECONDS move from attempt 1 leaves the minis (bot_rerun_leaves_owned()).
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+        self.assertEqual(route.retry_label, SMALL)
+        self.assertEqual(self.blacksmith(route), [SMALL, SMALL])
 
-    def test_busy_simulators_wait_on_the_minis_while_off(self):
-        route, _ = ios_route(sim_fleet(running=2), blacksmith_on=False)
+    def test_a_full_pool_with_runners_online_waits_on_the_minis_while_off(self):
+        self.assertFalse(ios_route(measure=self.live, variable=SMALL)[0].persistent)  # on: today's default
+        route, calls = ios_route(measure=self.live, variable=SMALL, blacksmith_on=False)
+        self.assert_waits_on_the_minis(route)
+        self.assertEqual(calls, 1)  # one runners read decides both
+
+    def test_no_owned_runner_online_keeps_the_paid_route_while_off(self):
+        # Every owned Mac offline: waiting there would sit out GitHub's queue limit (as simple_pool_picker's
+        # `pool.capacity > 0`).
+        route, _ = ios_route(measure=lambda: self.live(online=0, sim_online=0), blacksmith_on=False)
+        self.assertFalse(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), SMALL)
+
+    def test_no_simulator_runner_online_keeps_the_paid_route_while_off(self):
+        route, _ = ios_route(measure=lambda: self.live(online=4, sim_online=0), blacksmith_on=False)
+        self.assertFalse(route.persistent)
+        # The package lane needs no simulator: an online pool runner is enough.
+        route, _ = ios_route(measure=lambda: self.live(online=4, sim_online=0), blacksmith_on=False,
+                             swift_package="CmuxMobileCore")
         self.assertTrue(route.persistent)
-        self.assertEqual(self.blacksmith(route), [])
 
-    def test_an_unreadable_queue_waits_on_the_minis_while_off(self):
+    def test_no_live_runner_read_keeps_the_paid_route_while_off(self):
+        # The snapshot counts jobs, not online runners; an unreadable queue proves nothing either.
+        self.assertFalse(ios_route(sim_fleet(busy=40, small=0, large=0), variable=SMALL,
+                                   blacksmith_on=False)[0].persistent)
+
         def broken():
             raise RuntimeError("no snapshot")
-        route, _ = ios_route(measure=broken, blacksmith_on=False)
-        self.assertTrue(route.persistent)
-        self.assertEqual(self.blacksmith(route), [])
+        self.assertFalse(ios_route(measure=broken, blacksmith_on=False)[0].persistent)
 
-    def test_a_live_read_with_no_room_waits_on_the_minis_while_off(self):
-        live = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=0, sim=0))
-        route, _ = ios_route(measure=lambda: live, blacksmith_on=False)
-        self.assertTrue(route.persistent)
-        self.assertEqual(self.blacksmith(route), [])
-
-    def test_an_owned_pick_retries_on_the_minis_while_off(self):
+    def test_an_owned_pick_still_retries_on_the_paid_label_while_off(self):
         route, _ = ios_route(sim_fleet(), blacksmith_on=False)
         self.assertTrue(route.persistent)
-        self.assertEqual(self.blacksmith(route), [])
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+
+    def test_live_free_counts_the_online_runners(self):
+        def runner(name, labels, status="online", busy=False):
+            return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+        runners = [runner("m1-a", [MINI, IOS_SIM], busy=True), runner("m2-a", [MINI]),
+                   runner("m3-a", [MINI, IOS_SIM], status="offline")]
+        live = ios_pool.live_free(runners, MINI, [], now=NOW, capacity=4)
+        self.assertEqual((live.online, live.sim_online), (2, 1))
+
+    def test_the_no_token_path_retries_on_the_paid_label_while_off(self):
+        lines = io.StringIO()
+        env = {"CI_BLACKSMITH_MACOS": "", "CI_PR_POOL_OWNED": "1"}
+        choice = ios_pool.simple_pool_picker.Choice(MINI, "owned", PR_XCODE, True)
+        with unittest.mock.patch.object(ios_pool.simple_pool_picker, "pick", return_value=choice), \
+                unittest.mock.patch.object(ios_pool.simple_pool_picker, "observe", return_value=None), \
+                contextlib.redirect_stdout(lines):
+            ios_pool.main(["--lane", "test-ios", "--owned", "1", "--ios-owned", "1"], env=env)
+        out = dict(line.split("=", 1) for line in lines.getvalue().splitlines() if "=" in line)
+        self.assertEqual(out["retry_label"], SMALL)
+        self.assertEqual(json.loads(out["retry_runs_on"]), SMALL)
 
     def test_what_the_minis_cannot_run_still_takes_blacksmith(self):
         for kwargs in ({"fork": True}, {"ios_version": "18.4"}, {"seed_cache": "true"}, {"called": "true"},
