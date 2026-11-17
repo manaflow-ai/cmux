@@ -26,8 +26,9 @@ use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::files::{self, Folders, LOOKS};
-use super::list;
+use super::kept::KeptTree;
 use super::work_tree_entry::Kind;
+use super::{kept_watch, list};
 
 fn bench_selected() -> bool {
     if std::env::var_os("CMUX_STRESS").is_some_and(|v| v == "1") {
@@ -173,6 +174,11 @@ fn list_folder(repo: &Path, folder: &str) -> (Value, usize) {
 fn warm(repo: &Path) -> std::time::Duration {
     let start = Instant::now();
     let _ = list_folder(repo, "");
+    assert!(
+        kept_watch::wait_ready(repo, std::time::Duration::from_secs(300)),
+        "the kept listing of {} is ready",
+        repo.display()
+    );
     start.elapsed()
 }
 
@@ -393,6 +399,11 @@ fn looks_lazy_listing_equals_a_look_at_every_path() {
         assert_eq!(entries(&reply), expected, "folder {folder:?}");
         assert_eq!(reply["truncated"].as_bool().unwrap(), cut, "folder {folder:?}");
     }
+    // The kept tree lists the same.
+    let tree = KeptTree::build(&Repository::open(&repo).unwrap()).unwrap();
+    for folder in ["", "empty", "half", "deep", "deep/a", "real", "huge", "ünïcode", "swap"] {
+        assert_eq!(kept_entries(&tree, folder), every_path_look(&repo, folder), "kept {folder:?}");
+    }
     let (top, _) = list_folder(&repo, "");
     let names: Vec<String> = entries(&top).into_iter().map(|(name, _)| name).collect();
     assert!(
@@ -408,6 +419,298 @@ fn looks_lazy_listing_equals_a_look_at_every_path() {
     let repo = repository(&empty, &[], &[]);
     let (reply, looks) = list_folder(&repo, "");
     assert!(entries(&reply).is_empty() && looks == 0, "{reply} {looks}");
+}
+
+/// The kept tree's listing of `folder`, ordered and cut as the reply has it.
+fn kept_entries(tree: &KeptTree, folder: &str) -> (Vec<(String, bool)>, bool) {
+    let mut children: Vec<(String, bool)> =
+        tree.list(folder).into_iter().map(|(name, dir)| (name.to_owned(), dir)).collect();
+    children.sort_by(|l, r| {
+        r.1.cmp(&l.1)
+            .then_with(|| l.0.to_lowercase().cmp(&r.0.to_lowercase()))
+            .then_with(|| l.0.cmp(&r.0))
+    });
+    let total = children.len();
+    children.truncate(list::DEFAULT_LIMIT);
+    (children, total > list::DEFAULT_LIMIT)
+}
+
+/// The direct listing of `folder` (no kept tree).
+fn direct_entries(repo: &Path, folder: &str) -> (Vec<(String, bool)>, bool) {
+    let directory = if folder.is_empty() { repo.to_path_buf() } else { repo.join(folder) };
+    let repository = Repository::open(&directory).unwrap();
+    let reply = list::list_direct(&repository, &directory, &Map::new()).unwrap();
+    (entries(&reply), reply["truncated"].as_bool().unwrap())
+}
+
+/// The kept tree's search reply fields, as the direct reply has them.
+fn kept_search(tree: &mut KeptTree, query: &str) -> Value {
+    let wanted: Vec<char> = query.chars().filter(|c| !c.is_whitespace()).collect();
+    let found = tree.search("", &wanted, files::DEFAULT_LIMIT);
+    let results: Vec<Value> = found
+        .results
+        .iter()
+        .map(
+            |(path, matches)| json!({"path": path, "matches": files::utf16_offsets(path, matches)}),
+        )
+        .collect();
+    json!({
+        "results": results,
+        "truncated": found.cut || found.total > files::DEFAULT_LIMIT,
+        "total_matches": found.total,
+    })
+}
+
+fn direct_search(repo: &Path, query: &str) -> Value {
+    let repository = Repository::open(repo).unwrap();
+    let mut fields = Map::new();
+    fields.insert("query".into(), json!(query));
+    let reply = files::search_direct(&repository, repo, &fields).unwrap();
+    json!({
+        "results": reply["results"],
+        "truncated": reply["truncated"],
+        "total_matches": reply["total_matches"],
+    })
+}
+
+/// Every real folder of the work tree that the repository itself holds
+/// (none inside `.git` or a nested repository, none below a link).
+fn real_folders(repo: &Path, folder: &str, out: &mut Vec<String>) {
+    out.push(folder.to_owned());
+    let at = if folder.is_empty() { repo.to_path_buf() } else { repo.join(folder) };
+    let Ok(names) = std::fs::read_dir(&at) else { return };
+    let mut names: Vec<_> = names.filter_map(Result::ok).collect();
+    names.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in names {
+        let name = entry.file_name().into_string().unwrap();
+        let below = if folder.is_empty() { name.clone() } else { format!("{folder}/{name}") };
+        if name == ".git"
+            || !entry.file_type().unwrap().is_dir()
+            || repo.join(&below).join(".git").exists()
+        {
+            continue;
+        }
+        real_folders(repo, &below, out);
+    }
+}
+
+/// Every file of the work tree (no `.git`, none below a link).
+fn real_files(repo: &Path) -> Vec<String> {
+    let mut folders = Vec::new();
+    real_folders(repo, "", &mut folders);
+    let mut files = Vec::new();
+    for folder in folders {
+        let at = if folder.is_empty() { repo.to_path_buf() } else { repo.join(&folder) };
+        for entry in std::fs::read_dir(at).unwrap().filter_map(Result::ok) {
+            let name = entry.file_name().into_string().unwrap();
+            if name != ".git" && !entry.file_type().unwrap().is_dir() {
+                files.push(if folder.is_empty() { name } else { format!("{folder}/{name}") });
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// A small deterministic generator (xorshift).
+struct Dice(u64);
+
+impl Dice {
+    fn below(&mut self, count: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % count.max(1) as u64) as usize
+    }
+
+    fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+        (!items.is_empty()).then(|| &items[self.below(items.len())])
+    }
+}
+
+/// The kept tree, followed through random edits the way the watch follows
+/// them (the changed path to `apply`, an index change to `apply_index`, an
+/// ignore file to a rebuild), lists every folder and finds every query
+/// exactly as the direct path does after each edit: new, gone and ignored
+/// files, new and removed folders, a file made a folder, a folder made a
+/// link, a nested repository, `git add` and `git rm --cached`, a tracked
+/// file in an ignored folder, unicode names.
+#[test]
+fn kept_tree_equals_the_direct_path_through_random_edits() {
+    let temp = Temp::new("kept-random");
+    let tracked: Vec<String> = [
+        "a/one.txt",
+        "a/b/two.rs",
+        "c/three.md",
+        "d/e/f/four.txt",
+        "top.txt",
+        "build/kept.txt",
+        "ünï/файл.txt",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let untracked: Vec<String> = ["u.txt", "a/u2.txt", "x.log"].map(str::to_owned).to_vec();
+    let repo = repository(&temp, &tracked, &untracked);
+    std::fs::write(repo.join(".gitignore"), "*.log\nbuild/\n").unwrap();
+    let open = || Repository::open(&repo).unwrap();
+    let mut tree = KeptTree::build(&open()).unwrap();
+    assert!(tree.apply_index(&open()));
+    let names = ["x.txt", "y.log", "Zed.md", "ü.txt", "f12.rs", "needle.txt"];
+    let places = ["", "a", "a/b", "c", "build", "new", "new/deep", "d/e", "ünï"];
+    let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
+    for step in 0..120 {
+        let files = real_files(&repo);
+        let mut folders = Vec::new();
+        real_folders(&repo, "", &mut folders);
+        let inner: Vec<String> = folders.iter().filter(|f| !f.is_empty()).cloned().collect();
+        let mut changed: Vec<String> = Vec::new();
+        let mut index = false;
+        let mut ignore_file = false;
+        let what = dice.below(11);
+        match what {
+            0 | 1 => {
+                let place = *dice.pick(&places).unwrap();
+                let name = *dice.pick(&names).unwrap();
+                let path =
+                    if place.is_empty() { name.to_owned() } else { format!("{place}/{name}") };
+                if let Some(parent) = repo.join(&path).parent()
+                    && !parent.is_dir()
+                {
+                    if parent.symlink_metadata().is_ok() {
+                        continue;
+                    }
+                    std::fs::create_dir_all(parent).unwrap();
+                    changed.push(place.split('/').next().unwrap().to_owned());
+                }
+                std::fs::write(repo.join(&path), "").unwrap();
+                changed.push(path);
+            }
+            2 => {
+                let Some(file) = dice.pick(&files) else { continue };
+                if file == ".gitignore" {
+                    continue;
+                }
+                std::fs::remove_file(repo.join(file)).unwrap();
+                changed.push(file.clone());
+            }
+            3 => {
+                let Some(folder) = dice.pick(&inner) else { continue };
+                std::fs::remove_dir_all(repo.join(folder)).unwrap();
+                changed.push(folder.clone());
+            }
+            4 => {
+                let folder = format!("made{}", dice.below(4));
+                if repo.join(&folder).symlink_metadata().is_ok() {
+                    continue;
+                }
+                std::fs::create_dir_all(repo.join(&folder).join("in")).unwrap();
+                for name in ["p.txt", "q.log", "in/r.md"] {
+                    std::fs::write(repo.join(&folder).join(name), "").unwrap();
+                }
+                changed.push(folder);
+            }
+            5 => {
+                // A file made a folder.
+                let Some(file) = dice.pick(&files) else { continue };
+                if file == ".gitignore" {
+                    continue;
+                }
+                std::fs::remove_file(repo.join(file)).unwrap();
+                std::fs::create_dir_all(repo.join(file)).unwrap();
+                std::fs::write(repo.join(file).join("inner.txt"), "").unwrap();
+                changed.push(file.clone());
+            }
+            6 => {
+                // A folder made a link.
+                let Some(folder) = dice.pick(&inner) else { continue };
+                std::fs::remove_dir_all(repo.join(folder)).unwrap();
+                std::fs::create_dir_all(temp.0.join("outside")).unwrap();
+                std::os::unix::fs::symlink(temp.0.join("outside"), repo.join(folder)).unwrap();
+                changed.push(folder.clone());
+            }
+            7 => {
+                let untracked: Vec<&String> =
+                    files.iter().filter(|f| !f.ends_with(".log")).collect();
+                let Some(file) = dice.pick(&untracked) else { continue };
+                run(&repo, &["add", "-f", "--", file.as_str()]);
+                index = true;
+            }
+            8 => {
+                let Some(file) = dice.pick(&tracked) else { continue };
+                if git(&repo).args(["rm", "--cached", "-q", "--", file]).status().unwrap().success()
+                {
+                    index = true;
+                } else {
+                    continue;
+                }
+            }
+            9 => {
+                let folder = format!("nested{}", dice.below(2));
+                if repo.join(&folder).symlink_metadata().is_ok() {
+                    continue;
+                }
+                std::fs::create_dir_all(repo.join(&folder)).unwrap();
+                run(&repo.join(&folder), &["init", "--quiet"]);
+                std::fs::write(repo.join(&folder).join("in.txt"), "").unwrap();
+                changed.push(folder);
+            }
+            _ => {
+                let rules = ["*.log\nbuild/\n", "*.log\n", "*.md\nnew/\n"];
+                std::fs::write(repo.join(".gitignore"), dice.pick(&rules).unwrap()).unwrap();
+                ignore_file = true;
+            }
+        }
+        if ignore_file {
+            tree = KeptTree::build(&open()).unwrap();
+            assert!(tree.apply_index(&open()));
+        } else {
+            if index {
+                assert!(tree.apply_index(&open()), "step {step}");
+            }
+            assert!(tree.apply(&changed), "step {step}");
+        }
+        let mut folders = Vec::new();
+        real_folders(&repo, "", &mut folders);
+        for folder in &folders {
+            assert_eq!(
+                kept_entries(&tree, folder),
+                direct_entries(&repo, folder),
+                "step {step} (edit {what}, {changed:?}), folder {folder:?}"
+            );
+        }
+        for query in ["x", "xt", "f12", "ü", "md", "a/", "needle", "inner"] {
+            assert_eq!(
+                kept_search(&mut tree, query),
+                direct_search(&repo, query),
+                "step {step} (edit {what}, {changed:?}), query {query:?}"
+            );
+        }
+    }
+}
+
+/// Through the real watch: a file made, a file removed and a folder removed
+/// are in the next listing and search, with no wait but the request's own.
+#[test]
+fn kept_listing_follows_the_watch() {
+    let temp = Temp::new("kept-watch");
+    let repo = repository(&temp, &["a/one.txt".into(), "top.txt".into()], &[]);
+    warm(&repo);
+    let names = |repo: &Path, folder: &str| -> Vec<String> {
+        entries(&list_folder(repo, folder).0).into_iter().map(|(name, _)| name).collect()
+    };
+    assert_eq!(names(&repo, ""), ["a", "top.txt"]);
+    std::fs::create_dir_all(repo.join("made/in")).unwrap();
+    std::fs::write(repo.join("made/in/new.txt"), "").unwrap();
+    assert_eq!(names(&repo, ""), ["a", "made", "top.txt"]);
+    assert_eq!(names(&repo, "made/in"), ["new.txt"]);
+    let (found, _) = search(&repo, "new");
+    assert_eq!(found["results"][0]["path"], "made/in/new.txt");
+    std::fs::remove_file(repo.join("top.txt")).unwrap();
+    std::fs::remove_dir_all(repo.join("made")).unwrap();
+    assert_eq!(names(&repo, ""), ["a"]);
+    for folder in ["", "a"] {
+        assert_eq!(entries(&list_folder(&repo, folder).0), direct_entries(&repo, folder).0);
+    }
 }
 
 /// Milliseconds, as sampled.

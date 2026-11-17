@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use super::kept_watch;
 use super::run::run_git;
 use super::work_tree_entry::{Kind, Tree};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
@@ -40,6 +41,25 @@ pub(super) fn search(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    search_with(repository, directory, fields, true)
+}
+
+/// [`search`] that never answers from the kept tree: what the kept tree must equal.
+#[cfg(test)]
+pub(super) fn search_direct(
+    repository: &Repository,
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    search_with(repository, directory, fields, false)
+}
+
+fn search_with(
+    repository: &Repository,
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+    use_kept: bool,
+) -> Result<Value, ResourceError> {
     let query: Vec<char> = fields
         .get("query")
         .and_then(Value::as_str)
@@ -52,7 +72,10 @@ pub(super) fn search(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
-    let below = folder(repository, directory, OPERATION)?;
+    let below = match kept_below(repository, directory) {
+        Some(below) => below,
+        None => folder(repository, directory, OPERATION)?,
+    };
     let mut reply = json!({
         "root": repository.root.to_string_lossy(),
         "search_root": spelled(repository, &below),
@@ -61,6 +84,21 @@ pub(super) fn search(
         "total_matches": 0,
     });
     if query.is_empty() {
+        return Ok(reply);
+    }
+    // From the kept tree when it is ready: no git run and no look.
+    let kept = below.to_str().filter(|_| use_kept).and_then(|spelled_below| {
+        kept_watch::with_tree(repository, |tree| tree.search(spelled_below, &query, limit))
+    });
+    if let Some(found) = kept {
+        let results: Vec<Value> = found
+            .results
+            .iter()
+            .map(|(path, matches)| json!({"path": path, "matches": utf16_offsets(path, matches)}))
+            .collect();
+        reply.set("results", Value::Array(results));
+        reply.set("truncated", json!(found.cut || found.total > limit));
+        reply.set("total_matches", json!(u32::try_from(found.total).unwrap_or(u32::MAX)));
         return Ok(reply);
     }
     let (listed, mut cut) = listed(repository, directory, OPERATION)?;
@@ -140,6 +178,22 @@ pub(super) fn folder(
     let prefix = prefix.strip_suffix(b"\n").unwrap_or(prefix);
     let prefix = prefix.strip_suffix(b"/").unwrap_or(prefix);
     Ok(path_of(prefix))
+}
+
+/// [`folder`] with no git run, for an answer from the kept tree: the
+/// folder's real path from the work tree's top folder, which is what git's
+/// prefix is (git gives the top folder as a real path, and the prefix of the
+/// real folder it runs in). `None` when that cannot be made (the folder is
+/// not there, is outside the work tree or in its git folder, or has a name
+/// that is not UTF-8): the caller asks git.
+pub(super) fn kept_below(repository: &Repository, directory: &Path) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(directory).ok()?;
+    let below = real.strip_prefix(&repository.root).ok()?;
+    let text = below.to_str()?;
+    if text.split('/').next() == Some(".git") {
+        return None;
+    }
+    Some(below.to_path_buf())
 }
 
 #[cfg(unix)]
@@ -315,12 +369,65 @@ impl Scorer {
     /// The best alignment of the query in `path`, or `NoMatch` when `path`
     /// does not contain every query character in order (case-insensitively).
     pub(super) fn score(&mut self, path: &str) -> Scored {
+        let (mut column, best) = match self.fill(path) {
+            Filled::Best { column, best } => (column, best),
+            Filled::NoMatch => return Scored::NoMatch,
+            Filled::OutOfBudget => return Scored::OutOfBudget,
+        };
         let rows = self.wanted.len();
+        let columns = self.original.len();
+        let mut matches = vec![0; rows];
+        for i in (0..rows).rev() {
+            matches[i] = column;
+            if i > 0 {
+                column = self.from[i * columns + column];
+            }
+        }
+        Scored::Match(best, matches)
+    }
+
+    /// [`Scorer::score`] without the matched characters: no allocation per
+    /// match, for a pass over many candidates.
+    pub(super) fn best(&mut self, path: &str) -> Best {
+        match self.fill(path) {
+            Filled::Best { best, .. } => Best::Score(best),
+            Filled::NoMatch => Best::NoMatch,
+            Filled::OutOfBudget => Best::OutOfBudget,
+        }
+    }
+
+    /// True when `path` cannot match, by a look at its bytes: an ASCII path
+    /// and an ASCII query whose characters are not all in it in order. Says
+    /// nothing (false) of any other path.
+    fn surely_no_match(&self, path: &str) -> bool {
+        if !path.is_ascii() || !self.wanted.iter().all(char::is_ascii) {
+            return false;
+        }
+        let mut wanted = self.wanted.iter();
+        let mut next = wanted.next();
+        for byte in path.bytes() {
+            match next {
+                None => return false,
+                Some(character) if byte.to_ascii_lowercase() as char == *character => {
+                    next = wanted.next();
+                }
+                Some(_) => {}
+            }
+        }
+        next.is_some()
+    }
+
+    /// Fills the score table of `path`: the best last column and its score.
+    fn fill(&mut self, path: &str) -> Filled {
+        let rows = self.wanted.len();
+        if rows == 0 || self.surely_no_match(path) {
+            return Filled::NoMatch;
+        }
         self.original.clear();
         self.original.extend(path.chars());
         let columns = self.original.len();
         if rows == 0 || columns > MAX_RANKED_PATH_CHARS || rows > columns {
-            return Scored::NoMatch;
+            return Filled::NoMatch;
         }
         self.lower.clear();
         self.lower.extend(self.original.iter().map(|character| fold(*character)));
@@ -332,11 +439,11 @@ impl Scorer {
             }
         }
         if next < rows {
-            return Scored::NoMatch;
+            return Filled::NoMatch;
         }
         let cells = rows * columns;
         if cells > self.cells_left {
-            return Scored::OutOfBudget;
+            return Filled::OutOfBudget;
         }
         self.cells_left -= cells;
         self.scores.clear();
@@ -399,22 +506,31 @@ impl Scorer {
             }
         }
         let last = rows - 1;
-        let Some((mut column, best)) = (0..columns)
+        (0..columns)
             .map(|j| (j, scores[at(last, j)]))
             .filter(|(_, score)| *score > NONE)
             .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))
-        else {
-            return Scored::NoMatch;
-        };
-        let mut matches = vec![0; rows];
-        for i in (0..rows).rev() {
-            matches[i] = column;
-            if i > 0 {
-                column = from[at(i, column)];
-            }
-        }
-        Scored::Match(best, matches)
+            .map_or(Filled::NoMatch, |(column, best)| Filled::Best { column, best })
     }
+}
+
+/// What filling one path's score table found.
+enum Filled {
+    /// The best score and the column of its last query character.
+    Best {
+        column: usize,
+        best: i32,
+    },
+    NoMatch,
+    OutOfBudget,
+}
+
+/// What [`Scorer::best`] found.
+pub(super) enum Best {
+    Score(i32),
+    NoMatch,
+    /// The search's work budget is spent; this path was not scored.
+    OutOfBudget,
 }
 
 fn fold(character: char) -> char {
@@ -422,7 +538,7 @@ fn fold(character: char) -> char {
 }
 
 /// Character indexes as UTF-16 offsets, the way the page indexes a string.
-fn utf16_offsets(path: &str, matches: &[usize]) -> Vec<usize> {
+pub(super) fn utf16_offsets(path: &str, matches: &[usize]) -> Vec<usize> {
     let mut offsets = Vec::with_capacity(matches.len());
     let mut wanted = matches.iter().peekable();
     let mut offset = 0;
