@@ -200,7 +200,7 @@ extension NotificationCenterService {
                 marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChatLook)
             }
         }
-        if let ring = workspace.markRing(dismissed: dismissedMarks[key]), marks[LayoutPaneID(ring.pane.id)] == nil { marks[LayoutPaneID(ring.pane.id)] = AttentionMark(color: nil, generation: Self.markRingBase | ring.generation, agentChat: false) }
+        if attention.rings(agentChat: false), let ring = workspace.markRing(dismissed: dismissedMarks[key]), marks[LayoutPaneID(ring.pane.id)] == nil { marks[LayoutPaneID(ring.pane.id)] = AttentionMark(color: nil, generation: Self.markRingBase | ring.generation, agentChat: false) }
         return marks
     }
 
