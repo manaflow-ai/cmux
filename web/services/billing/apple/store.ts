@@ -71,9 +71,25 @@ export type AppleSubscriptionWritePlan =
  */
 function isNewerTransaction(state: AppleSubscriptionState, previous: OwnedSubscription): boolean {
   if (state.lastTransactionId === previous.lastTransactionId) return false;
-  if (state.fromAppleStatus) return true;
+  if (replacesEarlyRenewal(state, previous)) return true;
   if (!state.purchaseDate) return false;
   return !previous.purchaseDate || state.purchaseDate.getTime() > previous.purchaseDate.getTime();
+}
+
+/**
+ * Apple's current status names a different transaction while the stored one
+ * is an early renewal whose period had not started when Apple signed that
+ * status: an upgrade bought after Apple charged the next period early.
+ * Only then does Apple's status win over purchase-date order.
+ */
+function replacesEarlyRenewal(
+  state: Pick<AppleSubscriptionState, "fromAppleStatus" | "lastTransactionId" | "stateSignedAt">,
+  previous: Pick<AppleSubscriptionRow, "lastTransactionId" | "purchaseDate">,
+): boolean {
+  return state.fromAppleStatus === true &&
+    state.lastTransactionId !== previous.lastTransactionId &&
+    previous.purchaseDate !== null &&
+    previous.purchaseDate.getTime() > state.stateSignedAt.getTime();
 }
 
 /**
@@ -100,10 +116,11 @@ export function isOlderAppleTransaction(
  * account, the subscription moves to that account. A token-less transaction,
  * an unknown token, or an older transaction never moves it.
  *
- * A state from Apple's current status is never "older": a renewal is dated
- * from the start of its period, so an upgrade bought after Apple charged
- * the next period early has the earlier `purchaseDate` and is still the
- * current transaction. The signed-date check still applies to it.
+ * Apple dates a renewal from the start of its period, so an upgrade bought
+ * after Apple charged the next period early has the earlier `purchaseDate`
+ * yet is current. Apple's current status names it (replacesEarlyRenewal),
+ * and a transaction Apple marked upgraded never replaces another. The
+ * signed-date check applies to every write.
  */
 export function planAppleSubscriptionWrite(
   previous: OwnedSubscription | null,
@@ -120,7 +137,8 @@ export function planAppleSubscriptionWrite(
   // The row describes the latest transaction: an older signed date or an
   // older transaction (a refund of a past period) leaves it alone.
   const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime() &&
-    (state.fromAppleStatus === true || !isOlderAppleTransaction(state, previous));
+    !(state.upgraded === true && state.lastTransactionId !== previous.lastTransactionId) &&
+    (replacesEarlyRenewal(state, previous) || !isOlderAppleTransaction(state, previous));
   const moves = fresh &&
     claim.tokenOwner !== null &&
     claim.tokenOwner !== previous.userId &&
@@ -136,7 +154,7 @@ export function planAppleSubscriptionWrite(
 /** The paid higher plan a row keeps after an early renewal into a lower one (schema: `carried_*`). */
 export type AppleCarriedPlan = Pick<AppleSubscriptionRow, "carriedPlanId" | "carriedUntil" | "carriedTransactionId">;
 
-const NO_CARRIED_PLAN: AppleCarriedPlan = { carriedPlanId: null, carriedUntil: null, carriedTransactionId: null };
+export const NO_CARRIED_PLAN: AppleCarriedPlan = { carriedPlanId: null, carriedUntil: null, carriedTransactionId: null };
 
 type CarrySource = Pick<
   AppleSubscriptionRow,
@@ -396,7 +414,9 @@ async function writeSubscriptionState(
     const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
     if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
     const now = new Date();
-    const values = { ...subscriptionValues(state, plan.userId, now), ...carriedPlanFor(previous ?? null, state, now) };
+    // A paid plan carries over only for the account that paid it.
+    const carry = plan.transferredFrom ? NO_CARRIED_PLAN : carriedPlanFor(previous ?? null, state, now);
+    const values = { ...subscriptionValues(state, plan.userId, now), ...carry };
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)

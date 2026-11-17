@@ -40,6 +40,11 @@ export type AppleSubscriptionState = {
    * period (dated from that period's start). Not persisted.
    */
   readonly fromAppleStatus?: boolean;
+  /**
+   * Apple marked the transaction `isUpgraded`: the subscriber upgraded away
+   * from it, so it never replaces a different stored transaction. Not persisted.
+   */
+  readonly upgraded?: boolean;
 };
 
 export type AppleStateInput = {
@@ -168,6 +173,7 @@ export function appleSubscriptionStateFrom(input: AppleStateInput): AppleSubscri
     revocationReason: typeof transaction.revocationReason === "number" ? transaction.revocationReason : null,
     stateSignedAt: stateSignedAt(input, now),
     ...(input.fromAppleStatus ? { fromAppleStatus: true } : {}),
+    ...(transaction.isUpgraded === true ? { upgraded: true } : {}),
   };
 }
 

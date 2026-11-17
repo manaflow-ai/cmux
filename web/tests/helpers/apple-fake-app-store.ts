@@ -61,6 +61,8 @@ type FakeSubscription = {
   autoRenewProductId: string;
   isInBillingRetryPeriod: boolean;
   gracePeriodExpiresDate: number | null;
+  /** The token a plan change made from another cmux account puts on the next renewal. */
+  nextRenewalToken?: string;
 };
 
 /** One App Store Server Notification. Apple keeps it in history whether or not it reached the server. */
@@ -221,10 +223,11 @@ export class FakeAppStore {
       purchaseDate: previous.expiresDate,
       originalPurchaseDate: previous.originalPurchaseDate,
       expiresDate: previous.expiresDate + SUBSCRIPTION_PERIOD_MS,
-      appAccountToken: previous.appAccountToken,
+      appAccountToken: sub.nextRenewalToken ?? previous.appAccountToken,
       inAppOwnershipType: previous.inAppOwnershipType,
       transactionReason: "RENEWAL",
     });
+    delete sub.nextRenewalToken;
     this.advance(sub, tx, 1);
     return { transactionId: tx.transactionId, notification: this.notify(sub, "DID_RENEW") };
   }
@@ -258,10 +261,14 @@ export class FakeAppStore {
     return { originalTransactionId, transactionId: tx.transactionId, jws: this.sign(tx), notification };
   }
 
-  /** A downgrade only changes what the next renewal buys. */
-  downgrade(originalTransactionId: string, plan: FakePlan): FakeNotification {
+  /**
+   * A downgrade only changes what the next renewal buys. Made from another
+   * cmux account (`token`), the next renewal carries that account's token.
+   */
+  downgrade(originalTransactionId: string, plan: FakePlan, options: { readonly token?: string } = {}): FakeNotification {
     const sub = this.subscription(originalTransactionId);
     sub.autoRenewProductId = fakeProductId(plan);
+    if (options.token) sub.nextRenewalToken = options.token;
     return this.notify(sub, "DID_CHANGE_RENEWAL_PREF", "DOWNGRADE");
   }
 

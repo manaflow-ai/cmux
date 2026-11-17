@@ -749,7 +749,36 @@ describe("Apple in-app purchase scenarios, end to end", () => {
     clock.advance(MINUTE);
     expect(await deliver(upgrade.notification)).toBe("processed");
     await expectPlan("user-a", "max");
+
+    // A newly signed event about the upgraded-away renewal (here a refund of
+    // it) must not replace the upgrade, though its period is dated later.
+    clock.advance(HOUR);
+    expect(await deliver(apple.refund(purchase.originalTransactionId, renewal.transactionId))).toBe("processed");
+    expect(await subscriptionRow(purchase.originalTransactionId))
+      .toMatchObject({ plan_id: "max", status: "active", last_transaction_id: upgrade.transactionId });
+    await expectPlan("user-a", "max");
     await cronEveryHalfHour(E - 6 * HOUR, E + HOUR, "user-a", "max");
+  });
+
+  dbTest("9d. a downgrade made from account B moves the subscription at renewal; B never gets A's paid Max", async () => {
+    const tokenA = await app.accountToken("user-a");
+    const purchase = apple.purchase({ token: tokenA, plan: "max" });
+    clock.advance(MINUTE);
+    expect(await deliver(purchase.notification)).toBe("processed");
+    await expectPlan("user-a", "max");
+
+    clock.set(T0 + 10 * DAY);
+    const tokenB = await app.accountToken("user-b");
+    expect(await deliver(apple.downgrade(purchase.originalTransactionId, "pro", { token: tokenB }))).toBe("processed");
+    await expectPlan("user-a", "max");
+
+    clock.set(E - 20 * HOUR);
+    expect(await deliver(apple.renew(purchase.originalTransactionId).notification)).toBe("processed");
+    const [row] = await sql!<{ user_id: string; plan_id: string; carried_plan_id: string | null }[]>`
+      select user_id, plan_id, carried_plan_id from apple_subscriptions`;
+    expect(row).toEqual({ user_id: "user-b", plan_id: "pro", carried_plan_id: null });
+    await expectPlan("user-b", "pro");
+    await expectPlan("user-a", "free");
   });
 
   dbTest("10a. account B posting account A's transaction before A's app does gets 403; A's app then gets Pro", async () => {

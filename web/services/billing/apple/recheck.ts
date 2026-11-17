@@ -300,7 +300,8 @@ export async function sweepLapsedSubscriptions(
   let lapsedUsers = 0;
   let failures = 0;
   let deferredUsers = 0;
-  const carries = await reapplyEndedCarries(deps, now);
+  // A failed carry step must not keep this run's lapses from being applied.
+  const carries = await reapplyEndedCarries(deps, now).catch(() => ({ users: 0, failures: 1 }));
   failures += carries.failures;
   for (const [userId, entry] of users) {
     if (entry.deferred) {

@@ -11,6 +11,7 @@ import {
   appleAccessEndsAt,
   appleSweptStatus,
   carriedPlanFor,
+  NO_CARRIED_PLAN,
   isAppleTransactionCopyCurrent,
   planAppleSubscriptionWrite,
   type AppleIapStore,
@@ -79,12 +80,13 @@ export function memoryAppleStore(): MemoryAppleStore {
       const plan = planAppleSubscriptionWrite(previous, state, claim);
       if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
       const now = new Date();
-      // `fromAppleStatus` describes where the state came from; it is not a column.
+      // `fromAppleStatus` and `upgraded` describe the state's source; they are not columns.
       const values: AppleSubscriptionState = { ...state };
       delete (values as { fromAppleStatus?: boolean }).fromAppleStatus;
+      delete (values as { upgraded?: boolean }).upgraded;
       const current: AppleSubscriptionRow = {
         ...values,
-        ...carriedPlanFor(previous, state, now),
+        ...(plan.transferredFrom ? NO_CARRIED_PLAN : carriedPlanFor(previous, state, now)),
         userId: plan.userId,
         appleCheckedAt: previous?.appleCheckedAt ?? null,
         createdAt: previous?.createdAt ?? now,
@@ -186,7 +188,8 @@ export function memoryAppleStore(): MemoryAppleStore {
     async endedCarries(endedBy, limit) {
       return [...subscriptions.values()]
         .filter((row) => row.carriedUntil !== null && row.carriedUntil.getTime() <= endedBy.getTime())
-        .sort((a, b) => a.carriedUntil!.getTime() - b.carriedUntil!.getTime())
+        .sort((a, b) => a.carriedUntil!.getTime() - b.carriedUntil!.getTime() ||
+          a.originalTransactionId.localeCompare(b.originalTransactionId))
         .slice(0, limit)
         .map((row) => ({ originalTransactionId: row.originalTransactionId, userId: row.userId }));
     },
