@@ -478,6 +478,160 @@ fn the_layout_event_of_a_hide_has_the_list_the_mark_and_the_focus() {
     }
 }
 
+/// A request of the public resource API, as a client of protocol 2 sends it.
+fn public_request(operation: &str, params: Value, key: Option<&str>) -> String {
+    let mut request = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": operation,
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = key {
+        request["idempotency_key"] = json!(key);
+    }
+    request.to_string()
+}
+
+/// The layout of each layout event of `events`, in their order.
+fn layouts(events: &[MuxEvent]) -> Vec<Value> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MuxEvent::LayoutChanged(_, Some(delta)) => Some(delta.layout.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The frame of a new quick terminal is a field of the pane creation that the daemon makes itself. The public
+/// `pane.split` does not take it: the request is refused, and the screen gets no pane, no floating pane and
+/// no mark.
+#[test]
+fn a_public_pane_split_can_not_carry_the_frame_of_a_quick_terminal() {
+    let (wire, panes) = Wire::with_panes(2);
+    let request = public_request(
+        "pane.split",
+        json!({
+            "machine": "current",
+            "session": "current",
+            "pane": wire.public_id(panes[0]),
+            "direction": "right",
+            "quick_terminal_frame": [550_000, 550_000, 450_000, 450_000],
+        }),
+        Some("quick-frame"),
+    );
+    let error = crate::resource_router::handle_resource_message(&wire.mux, &request)
+        .expect_err("a public split with the frame of a quick terminal was taken");
+    assert_eq!(error.code, "validation.invalid", "{error:?}");
+    assert!(format!("{error:?}").contains("quick_terminal_frame"), "{error:?}");
+    assert_eq!(wire.panes().len(), panes.len(), "no new pane");
+    assert!(wire.floating().is_empty());
+    assert_eq!(wire.mark(), Value::Null);
+}
+
+/// A focus request for a pane that is not the quick terminal changes no floating pane, with a quick terminal
+/// that shows and with one that is hidden: it sends the tree event of a focus and no layout event, and the
+/// mark stays as it was. Each focus that the daemon makes itself goes the same way.
+#[test]
+fn a_focus_of_another_pane_sends_no_layout_event_and_keeps_the_mark() {
+    let (mut wire, panes) = Wire::with_panes(3);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.focus(panes[1]);
+    for hidden in [false, true] {
+        if hidden {
+            wire.quick("hide");
+        }
+        let mark = json!({"pane": quick, "hidden": hidden, "from": panes[0]});
+        assert_eq!(wire.mark(), mark);
+        let target = if hidden { panes[1] } else { panes[2] };
+
+        let events = wire.mux.subscribe();
+        wire.focus(target);
+        let events = events.try_iter().collect::<Vec<_>>();
+        assert!(layouts(&events).is_empty(), "a layout event, hidden = {hidden}");
+        assert!(
+            events.iter().any(|event| matches!(event, MuxEvent::TreeChanged)),
+            "no tree event, hidden = {hidden}"
+        );
+        assert_eq!(wire.active(), json!(target));
+        assert_eq!(wire.mark(), mark, "the mark after the focus, hidden = {hidden}");
+    }
+}
+
+/// A focus request for the quick terminal changes the floating panes: a hidden one shows, and the mark names
+/// the pane that had the focus. The request sends the layout of the screen with that state.
+#[test]
+fn a_focus_of_the_quick_terminal_sends_the_layout_with_the_mark() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.toggle();
+    // The first focus is of a hidden quick terminal, the second of one that shows and has no focus.
+    for from in [panes[1], panes[0]] {
+        wire.focus(from);
+        let events = wire.mux.subscribe();
+        wire.focus(quick);
+        let layouts = layouts(&events.try_iter().collect::<Vec<_>>());
+        let last = layouts.last().expect("a focus of the quick terminal sends the layout");
+        assert_eq!(last["quick_terminal"], json!({"pane": quick, "hidden": false, "from": from}));
+        assert_eq!(last["active_pane"], json!(quick));
+    }
+}
+
+/// The public `tab.focus` of the tab of a hidden quick terminal gives its pane the focus: the quick terminal
+/// shows, and the request sends the layout of the screen with that state.
+#[test]
+fn a_public_tab_focus_of_the_hidden_quick_terminal_sends_the_layout_with_the_mark() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, surface) = made(&mut wire, panes[0]);
+    wire.toggle();
+    let tab = wire
+        .mux
+        .with_state(|state| {
+            state
+                .resource_indexes
+                .tabs
+                .iter()
+                .find(|(_, slot)| **slot == surface)
+                .map(|(id, _)| id.to_string())
+        })
+        .expect("the tab of the quick terminal has a public id");
+
+    let events = wire.mux.subscribe();
+    let request = public_request(
+        "tab.focus",
+        json!({"machine": "current", "session": "current", "tab": tab}),
+        None,
+    );
+    let response = crate::resource_router::handle_resource_message(&wire.mux, &request)
+        .expect("the public tab.focus");
+    assert!(response.get("error").is_none_or(Value::is_null), "{response}");
+    let layouts = layouts(&events.try_iter().collect::<Vec<_>>());
+    let last = layouts.last().expect("a focus of the quick terminal sends the layout");
+    assert_eq!(last["quick_terminal"], json!({"pane": quick, "hidden": false, "from": panes[0]}));
+    assert_eq!(wire.active(), json!(quick));
+}
+
+/// The public `pane.focus` of a hidden quick terminal shows it too: a hidden quick terminal never has the
+/// focus.
+#[test]
+fn a_public_pane_focus_of_the_hidden_quick_terminal_shows_it() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.toggle();
+
+    let request = public_request(
+        "pane.focus",
+        json!({"machine": "current", "session": "current", "pane": wire.public_id(quick)}),
+        None,
+    );
+    let response = crate::resource_router::handle_resource_message(&wire.mux, &request)
+        .expect("the public pane.focus");
+    assert!(response.get("error").is_none_or(Value::is_null), "{response}");
+    assert_eq!(wire.active(), json!(quick));
+    assert_eq!(wire.mark(), json!({"pane": quick, "hidden": false, "from": panes[0]}));
+}
+
 /// A restart of the server keeps a hidden quick terminal hidden: the same pane, its frame, and the pane that
 /// gets the focus back. The store is the restore fixture of the mux tests.
 #[test]

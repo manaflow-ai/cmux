@@ -175,6 +175,89 @@ fn a_mode_has_one_wire_name() {
     assert_eq!(FloatMode::Off.as_str(), "off");
 }
 
+fn quick(pane: u8, frame: FloatFrame, hidden: bool, from: Option<u8>) -> Floating<u8> {
+    Floating { pane, frame, quick: Some(Quick { hidden, from }) }
+}
+
+#[test]
+fn a_quick_mode_has_one_wire_name() {
+    for mode in [QuickMode::Toggle, QuickMode::Show, QuickMode::Hide] {
+        assert_eq!(QuickMode::parse(mode.as_str()), Some(mode));
+    }
+    assert_eq!(QuickMode::parse("on"), None);
+    // The names leave the process, so each is held as text.
+    assert_eq!(QuickMode::Toggle.as_str(), "toggle");
+    assert_eq!(QuickMode::Show.as_str(), "show");
+    assert_eq!(QuickMode::Hide.as_str(), "hide");
+}
+
+#[test]
+fn a_request_for_the_quick_terminal_has_one_act_for_each_state() {
+    let place = frame(550_000, 550_000, 450_000, 450_000);
+    let none = [entry(2, place)];
+    let hidden = [quick(3, place, true, Some(1)), entry(2, place)];
+    let shown = [entry(2, place), quick(3, place, false, Some(1))];
+    // (the list, the pane with the focus, the act of a toggle, of a show, of a hide)
+    let table = [
+        (&none[..], 1u8, QuickAct::Make, QuickAct::Make, QuickAct::Nothing),
+        (&hidden[..], 1, QuickAct::Show, QuickAct::Show, QuickAct::Nothing),
+        (&shown[..], 3, QuickAct::Hide, QuickAct::Nothing, QuickAct::Hide),
+        (&shown[..], 1, QuickAct::Show, QuickAct::Show, QuickAct::Hide),
+    ];
+    for (list, active, toggle, show, hide) in table {
+        assert_eq!(
+            quick_act(list, QuickMode::Toggle, &active),
+            toggle,
+            "toggle, focus on {active}"
+        );
+        assert_eq!(quick_act(list, QuickMode::Show, &active), show, "show, focus on {active}");
+        assert_eq!(quick_act(list, QuickMode::Hide, &active), hide, "hide, focus on {active}");
+    }
+}
+
+#[test]
+fn the_mark_of_the_quick_terminal_follows_its_entry() {
+    let place = frame(550_000, 550_000, 450_000, 450_000);
+    let panes = [1u8, 2, 3];
+    let floating = [entry(2, place), entry(3, place)];
+    // The mark goes on a floating pane, one time, and names no pane that is its own or not on the screen.
+    let marked_list = marked(&panes, &floating, &3, Some(&1));
+    assert_eq!(marked_list, vec![entry(2, place), quick(3, place, false, Some(1))]);
+    assert_eq!(marked(&panes, &marked_list, &2, Some(&1)), marked_list);
+    assert_eq!(marked(&panes, &floating, &1, None), floating.to_vec());
+    assert_eq!(
+        marked(&panes, &floating, &3, Some(&3)),
+        vec![entry(2, place), quick(3, place, false, None)]
+    );
+    assert_eq!(
+        marked(&panes, &floating, &3, Some(&9)),
+        vec![entry(2, place), quick(3, place, false, None)]
+    );
+    // A hide puts the entry at the back and keeps its frame and its `from`.
+    let hidden_list = hidden(&panes, &marked_list);
+    assert_eq!(hidden_list, vec![quick(3, place, true, Some(1)), entry(2, place)]);
+    assert_eq!(hidden(&panes, &floating), floating.to_vec());
+    // A focus of it shows it, at the front, and its `from` is the pane that had the focus.
+    let mut focused = hidden_list.clone();
+    focus_moved(&mut focused, &3, &2);
+    assert_eq!(focused, vec![entry(2, place), quick(3, place, false, Some(2))]);
+    // A raise shows it and keeps its `from`; a second mark of a list is dropped.
+    assert_eq!(raised(&panes, &hidden_list, &3), marked_list);
+    let two = [quick(2, place, false, None), quick(3, place, true, Some(1))];
+    assert_eq!(normalized(&panes, &two), vec![quick(2, place, false, None), entry(3, place)]);
+    // The pane that `from` names closes: the mark names no pane. The quick terminal goes back into the tiled
+    // layout: the mark ends.
+    assert_eq!(
+        normalized(&[2u8, 3, 4], &hidden_list),
+        vec![quick(3, place, true, None), entry(2, place)]
+    );
+    assert_eq!(place_off(&panes, &marked_list, 3), vec![entry(2, place)]);
+}
+
+fn place_off(panes: &[u8], list: &[Floating<u8>], pane: u8) -> Vec<Floating<u8>> {
+    place(panes, list, &pane, FloatMode::Off, None).unwrap_or_default()
+}
+
 #[test]
 fn a_list_that_breaks_the_rules_is_restored_before_an_act() {
     let first = frame(0, 0, 300_000, 300_000);
