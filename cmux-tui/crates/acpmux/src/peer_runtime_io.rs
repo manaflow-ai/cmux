@@ -331,6 +331,8 @@ impl Peer {
             self.read_tokens.forget();
             return Some(PeerNotice::Restarting);
         }
+        // An outage marks the rows stale: the next link reads its list (from its cursor) first.
+        self.whole_list.store(false, Ordering::SeqCst);
         // A genuinely stable link starts failure backoff over; a flapping one does not.
         if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
             backoff.reset();
@@ -749,65 +751,25 @@ impl Peer {
             me.list_follow.store(follows, Ordering::SeqCst);
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
-            let mut sent = if kept {
-                sent.as_mut().await;
-                sent.as_mut().take_output().flatten()
-            } else {
-                None
+            // The reader publishes the list (`watch_key`) once it is whole, then `Listed`. A
+            // link reads it before it is ready, so Connected follows it; one after a far restart
+            // or a path switch is ready first and reads it beside the steps after Connected,
+            // while the hub keeps the last whole list (`lists_after_ready`). An error reading it
+            // ends the link.
+            let list = async {
+                let sent = if kept {
+                    sent.as_mut().await;
+                    sent.as_mut().take_output().flatten()
+                } else {
+                    None
+                };
+                me.read_list(link, build.as_ref(), sent).await
             };
-            // The reader published the reply's list (`watch_key`), so Connected follows it.
-            // Without tools: an inventory is read per session, on an attachment (whose
-            // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
-            // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
-            // limit, and every link to it built and was refused one list before reading it
-            // again without them; without them 16.6 MB. A follow is asked for as the list it
-            // patches was read (`cursor_tools`).
-            let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
-            let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
-            // A link that read the list before reads only what changed since its cursor
-            // (`hub/row_log.rs`), with or without tools as that list was (`first_watch`). A peer
-            // that cannot follow it answers with the whole list, marked `reset`.
-            let mut answered = None;
-            if let Some((asked, tools)) =
-                me.first_watch(build.as_ref()).filter(|(asked, _)| asked.get("afterSeq").is_some())
-            {
-                match me.watch_first(asked, link, sent.take()).await {
-                    Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch follow is too large ({}); reading the whole list", e.message);
-                    }
-                    answer => answered = Some((answer?, tools)),
-                }
+            let mut list = std::pin::pin!(list);
+            let after_ready = me.lists_after_ready();
+            if !after_ready {
+                list.as_mut().await?;
             }
-            let first = if answered.is_some() {
-                answered
-            } else if row_pages {
-                tracing::info!(peer = %me.name, "the watch list needed pages of rows last time; reading it so");
-                me.watch_row_pages(link).await?;
-                None
-            } else {
-                match me.watch_first(watch(false), link, sent.take()).await {
-                    // A peer from before #28182 sends a whole list in one message or not at
-                    // all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on 2026-10-30): it is
-                    // read in pages of a count of rows, which such a peer serves.
-                    Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch list is too large ({}); reading it in pages", e.message);
-                        me.watch_row_pages(link).await?;
-                        *me.row_pages_for.lock_or_recover() = build.clone();
-                        None
-                    }
-                    answer => Some((answer?, false)),
-                }
-            };
-            // A list too large for one message comes in pages (a peer served as Web, over
-            // plain ws://, gets the whole list): every page is read before the link connects,
-            // and the reader publishes the list once, whole, after the last.
-            let tools = first.as_ref().is_some_and(|(_, tools)| *tools);
-            if let Some((first, tools)) = first {
-                me.watch_pages(first, tools, link).await?;
-            }
-            // Read whole (its last page too, or the follow): the next follow is asked for as this
-            // list was read.
-            me.cursor_tools.store(tools, Ordering::SeqCst);
             me.recover_prompts(link).await?;
             let attached =
                 replayable(&me.cursors.lock_or_recover(), &me.baselined.lock_or_recover());
@@ -858,37 +820,46 @@ impl Peer {
                 "connected to {}",
                 lift_query_token(&me.url).0
             );
-            me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            // The peer's list stream feeds the index from here, when it lists one.
-            me.start_mirror(link);
-            // The path it is ready on is the one to dial first next time, also after a restart.
-            me.note_ready_path();
-            // What the last link bound to its connection and never answered, on this one.
-            me.resend_switched(link).await;
-            // Several at once: a chat the peer is slow on holds up no other's stream, and a
-            // link with many chats does not fill its send queue with them.
-            // Chats with a cursor were replayed above; the rest have no baseline yet.
-            let attached: Vec<String> = {
-                let marks = me.attached.lock_or_recover();
-                let cursors = me.cursors.lock_or_recover();
-                let baselined = me.baselined.lock_or_recover();
-                let replayed = |sid: &String| {
-                    cursors.get(sid).is_some_and(|c| *c > 0 || baselined.contains(sid))
+            let steps = async {
+                // The peer's list stream feeds the index from here, when it lists one.
+                me.start_mirror(link);
+                // The path it is ready on is the one to dial first next time, also after a
+                // restart.
+                me.note_ready_path();
+                // What the last link bound to its connection and never answered, on this one.
+                me.resend_switched(link).await;
+                // Several at once: a chat the peer is slow on holds up no other's stream, and a
+                // link with many chats does not fill its send queue with them.
+                // Chats with a cursor were replayed above; the rest have no baseline yet.
+                let attached: Vec<String> = {
+                    let marks = me.attached.lock_or_recover();
+                    let cursors = me.cursors.lock_or_recover();
+                    let baselined = me.baselined.lock_or_recover();
+                    let replayed = |sid: &String| {
+                        cursors.get(sid).is_some_and(|c| *c > 0 || baselined.contains(sid))
+                    };
+                    marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
                 };
-                marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
+                // Each starts its stream anew at the peer's present, so what the peer sent since
+                // the last link is a hole: its clients are told they lagged, and read it
+                // themselves.
+                let (peer, epoch) = (&me, link);
+                futures::stream::iter(attached.iter())
+                    .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
+                        if peer.attach_hidden(sid).await.is_ok() && peer.link_epoch() == epoch {
+                            peer.tell_reattached(sid, epoch).await;
+                        }
+                    })
+                    .await;
+                me.refresh_health();
             };
-            // Each starts its stream anew at the peer's present, so what the peer sent since the
-            // last link is a hole: its clients are told they lagged, and read it themselves.
-            let (peer, epoch) = (&me, link);
-            futures::stream::iter(attached.iter())
-                .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
-                    if peer.attach_hidden(sid).await.is_ok() && peer.link_epoch() == epoch {
-                        peer.tell_reattached(sid, epoch).await;
-                    }
-                })
-                .await;
-            me.refresh_health();
+            if after_ready {
+                let (listed, ()) = futures::join!(list, steps);
+                listed?;
+            } else {
+                steps.await;
+            }
             Ok::<(), RpcError>(())
         });
 
@@ -923,7 +894,8 @@ impl Peer {
         let mut stale_settled = false;
         let mut handshake_ended = false;
         let mut ticks: u64 = 0;
-        // Moved on by each page of a watch list read in pages, up to `HANDSHAKE_MOST` in all: a
+        // Holds until the link is ready and its list is in (`listed`), also a list read after
+        // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
         // peer that paces its lists still links, one that stops answering does not hold it.
         let handshake_started = tokio::time::Instant::now();
         let handshake_deadline = tokio::time::sleep(timings.handshake);
@@ -1018,7 +990,11 @@ impl Peer {
                             if let Some(bytes) = list.list_bytes() {
                                 crate::gauges::peer_lists().queued(bytes);
                             }
-                            for notice in std::iter::once(list).chain(held) {
+                            // `Listed` last: the hub takes this link's list as applied with it.
+                            self.listed_links.lock_or_recover().push_back(link);
+                            self.whole_list.store(true, Ordering::SeqCst);
+                            let notices = std::iter::once(list).chain(held);
+                            for notice in notices.chain([PeerNotice::Listed]) {
                                 if self
                                     .notices
                                     .send((self.name.clone(), self.generation, notice))
@@ -1155,14 +1131,15 @@ impl Peer {
                         Ok(Ok(())) => {}
                     }
                 }
-                _ = &mut handshake_deadline, if !self.link().is_ready() => {
+                _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
                     break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
-                    // request is out on it.
+                    // request is out on it, and its list is in (one read after ready has no
+                    // request out between its pages).
                     self.paths_tick();
-                    if self.link().is_ready() && self.switch_due() {
+                    if self.link().is_ready() && listed && self.switch_due() {
                         break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();
@@ -1211,7 +1188,7 @@ impl Peer {
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
                     // the handshake (or move the deadline on past its cap).
-                    if !self.link().is_ready() && handshake_deadline.is_elapsed() {
+                    if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
                         break Err(timed_out(handshake_started));
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
