@@ -537,3 +537,7 @@ mod tests {
         assert!(reply.problems.iter().any(|problem| problem.path.ends_with("workspace_ids[1]")));
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_section_customization_stress_tests.rs"]
+mod stress_tests;
