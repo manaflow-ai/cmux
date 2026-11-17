@@ -317,10 +317,6 @@ pub struct CongestionController {
     capacity_bps: Option<f64>,
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
-    rtt_us: Option<u64>,
-    last_feedback_us: Option<u64>,
-    outage_active: bool,
-    outage_resume: bool,
     response_window_us: u64,
     next_decrease_us: u64,
     usage: Usage,
@@ -347,10 +343,6 @@ impl CongestionController {
             capacity_bps: None,
             last_increase_us: None,
             last_decrease_us: None,
-            rtt_us: None,
-            last_feedback_us: None,
-            outage_active: false,
-            outage_resume: false,
             response_window_us: MIN_DECREASE_INTERVAL_US,
             next_decrease_us: 0,
             usage: Usage::Normal,
@@ -548,10 +540,6 @@ impl CongestionController {
         self.sent_window_bytes = 0;
         self.capacity_bps = None;
         self.last_decrease_us = None;
-        self.rtt_us = None;
-        self.last_feedback_us = None;
-        self.outage_active = false;
-        self.outage_resume = false;
         self.response_window_us = MIN_DECREASE_INTERVAL_US;
         self.next_decrease_us = 0;
         self.usage = Usage::Normal;
@@ -561,7 +549,6 @@ impl CongestionController {
     /// The path's measured round trip. Under `lan_rtt_us`, before any overuse, the
     /// target starts at `lan_start_bps`.
     pub fn on_rtt(&mut self, rtt_us: u64) {
-        self.rtt_us = Some(rtt_us);
         self.response_window_us = rtt_us.max(MIN_DECREASE_INTERVAL_US);
         if self.profile == EncodeProfile::Standard
             && rtt_us < self.config.lan_rtt_us
@@ -573,16 +560,6 @@ impl CongestionController {
             self.target_bps = self.config.lan_start_bps;
             self.clamp();
         }
-    }
-
-    /// Returns the one-shot edge that a feedback burst ended an outage. The
-    /// engine uses it to release stale frames-in-flight.
-    pub fn take_outage_resume(&mut self) -> bool {
-        std::mem::take(&mut self.outage_resume)
-    }
-
-    fn outage_threshold_us(&self) -> u64 {
-        self.rtt_us.map_or(100_000, |rtt| 100_000.max(rtt.saturating_mul(4)))
     }
 
     fn unwrap_arrival(&mut self, raw: u32) -> i64 {
@@ -630,24 +607,11 @@ impl CongestionController {
     /// and show no overuse), by time elapsed, never more than
     /// [`MAX_STEP_US`] of growth at once.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
-        let feedback_gap = self
-            .last_feedback_us
-            .is_some_and(|last| now_us.saturating_sub(last) > self.outage_threshold_us());
-        self.last_feedback_us = Some(now_us);
-        if feedback_gap {
-            self.outage_active = true;
-        }
-        let recovering_from_outage = self.outage_active;
         let mut samples: Vec<(u64, i64, u32)> = arrivals
             .iter()
             .filter_map(|a| {
                 let sent = self.sent.remove(&a.transport_seq)?;
-                if recovering_from_outage {
-                    // A radio burst after an outage is receiver-shaped, not a
-                    // path-delay sample. Keep no queue evidence from it.
-                    self.sent.insert(a.transport_seq, sent);
-                    None
-                } else if sent.departed {
+                if sent.departed {
                     Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
                 } else {
                     // Feedback can race the bounded departure-receipt drain.
@@ -658,19 +622,6 @@ impl CongestionController {
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
-
-        if recovering_from_outage {
-            if !arrivals.is_empty() {
-                self.outage_active = false;
-                self.outage_resume = true;
-                self.groups = InterArrival::default();
-                self.trend = Trendline::default();
-                self.usage = Usage::Normal;
-                self.ultra.resume_after_outage();
-            }
-            self.clamp();
-            return;
-        }
         let mut evidence = false;
         let has_samples = !samples.is_empty();
         for (sent_us, raw_arrival, bytes) in samples {
@@ -854,24 +805,5 @@ mod tests {
 
         cc.on_departed(7, 200_000);
         assert!(cc.sent_bps(500_000).is_some());
-    }
-
-    #[test]
-    fn ultra_outage_freezes_rate_and_emits_one_resume_edge() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.set_profile(EncodeProfile::Ultra);
-        assert!(cc.on_probe_capacity(cc.probe_generation(), 50_000_000));
-        let held = cc.wire_budget_bps();
-
-        cc.on_sent_bytes(1, 0, 1_200);
-        cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 1_000 }], 0.0, 1_000);
-        cc.on_feedback(&[], 0.0, 500_000);
-
-        cc.on_sent_bytes(2, 501_000, 1_200);
-        cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 502_000 }], 1.0, 502_000);
-
-        assert_eq!(cc.wire_budget_bps(), held, "outage burst must not cut the held rate");
-        assert!(cc.take_outage_resume());
-        assert!(!cc.take_outage_resume(), "resume notification is one-shot");
     }
 }
