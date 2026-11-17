@@ -720,6 +720,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        // A keyboard that went with no hide notification (while the app was in
+        // the background) is forgotten by the tracker: settle as after a hide.
+        keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
     }
 
     override func didMove(toParent parent: UIViewController?) {
@@ -738,9 +741,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
         // composer on the first frame (Codex QA F8).
+        // The keyboard may have come or gone while the page was away; a
+        // keyboard on record that nothing owns now is gone (no inset for it).
+        keyboardTracker.dropKeyboardWithoutOwner()
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        // The keyboard may have come or gone while the page was away.
         settleKeyboardLift()
         view.setNeedsLayout()
         view.layoutIfNeeded()
@@ -1855,6 +1860,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the foreground: UIKit posted no hide for a keyboard that
+        // went while the app was away, so the dock may still hold its inset.
+        keyboardTracker.dropKeyboardWithoutOwner()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -3252,6 +3260,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardDidChange()
+    }
+
+    /// The tracker forgot a keyboard nothing owns (UIKit never posted its
+    /// hide): the dock's guide is already back at rest; the key row's
+    /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
+    private func keyboardDropped() {
+        dock.keyboardWillHide()
+        dock.keyboardDidHide()
+        if model.keyboardVisible { model.keyboardVisible = false }
         keyboardDidChange()
     }
 

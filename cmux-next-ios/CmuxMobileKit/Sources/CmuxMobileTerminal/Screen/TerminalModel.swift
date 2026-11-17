@@ -41,13 +41,18 @@ public final class TerminalModel {
     public internal(set) var connectionState: TerminalConnectionState
     /// Says when a dropped connection may show its line (after 10 s).
     @ObservationIgnored public let quietStatus: QuietStatusGate
-    /// The one quiet status line by the composer: nil while attached and for
-    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
-    /// showing its last frame meanwhile), then what is going on. Retry sits
-    /// beside it (``reconnect``).
+    /// What is going on with the connection: nil while attached and for the
+    /// first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile). It takes no row on the page: the
+    /// title pill's subtitle says the state, and the page menu offers
+    /// Reconnect (``reconnect``) only while this is set.
     public var connectionLine: String? {
         quietStatus.isShown ? connectionState.quietLine : nil
     }
+
+    /// The page menu's Reconnect: only past the quiet bound of an outage,
+    /// and only with a recovery to run.
+    public var offersReconnect: Bool { connectionLine != nil && reconnect != nil }
     var sticky = TerminalStickyModifiers()
 
     // Composer
