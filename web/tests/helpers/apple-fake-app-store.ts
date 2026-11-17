@@ -104,6 +104,8 @@ export class FakeAppStore {
   verificationOutage = false;
   /** The App Store Server API answers with errors (status lookups and history). */
   serverApiOutage = false;
+  /** Notifications Get Notification History leaves out (see omitFromHistory). */
+  private readonly omitted = new Set<string>();
   readonly verifier: AppleSignedDataVerifier;
   readonly serverApi: AppleServerApi;
   private readonly subscriptions = new Map<string, FakeSubscription>();
@@ -205,9 +207,10 @@ export class FakeAppStore {
   }
 
   /**
-   * Apple charges the renewal (up to a day before the period ends). The new
-   * period runs from the old expiry for one period, in the product the
-   * subscriber chose to renew into.
+   * Apple charges the renewal (up to a day before the period ends). As in
+   * Apple's data, the renewal transaction's `purchaseDate` is the start of
+   * the new period (the old `expiresDate`), not the time of the charge, and
+   * it runs one period in the product the subscriber chose to renew into.
    */
   renew(originalTransactionId: string): { readonly transactionId: string; readonly notification: FakeNotification } {
     const sub = this.subscription(originalTransactionId);
@@ -215,7 +218,7 @@ export class FakeAppStore {
     const tx = this.transaction({
       originalTransactionId,
       productId: sub.autoRenewProductId,
-      purchaseDate: Date.now(),
+      purchaseDate: previous.expiresDate,
       originalPurchaseDate: previous.originalPurchaseDate,
       expiresDate: previous.expiresDate + SUBSCRIPTION_PERIOD_MS,
       appAccountToken: previous.appAccountToken,
@@ -276,11 +279,20 @@ export class FakeAppStore {
     return this.notify(sub, "EXPIRED", "VOLUNTARY");
   }
 
-  /** The renewal charge failed at expiry; the subscriber keeps access for the grace period. */
+  /**
+   * The renewal charge failed at expiry. With a grace period the subscriber
+   * keeps access through it (status 4); without one (`graceDays: 0`) access
+   * ends now and Apple keeps retrying (status 3).
+   */
   failRenewal(originalTransactionId: string, options: { readonly graceDays: number }): FakeNotification {
     const sub = this.subscription(originalTransactionId);
-    sub.status = 4;
     sub.isInBillingRetryPeriod = true;
+    if (options.graceDays === 0) {
+      sub.status = 3;
+      sub.gracePeriodExpiresDate = null;
+      return this.notify(sub, "DID_FAIL_TO_RENEW");
+    }
+    sub.status = 4;
     sub.gracePeriodExpiresDate = sub.current.expiresDate + options.graceDays * DAY;
     return this.notify(sub, "DID_FAIL_TO_RENEW", "GRACE_PERIOD");
   }
@@ -369,6 +381,21 @@ export class FakeAppStore {
     return this.sign(this.transactionOf(sub, transactionId));
   }
 
+  /**
+   * Leaves a notification out of Get Notification History as well as
+   * undelivered, so a story can exercise the paths that must not depend on
+   * the backfill (the renewal re-check and the lapse sweep). Apple's real
+   * history normally has every notification it sent.
+   */
+  omitFromHistory(notification: FakeNotification): void {
+    this.omitted.add(notification.uuid);
+  }
+
+  /** Whether Get Notification History returns this notification. */
+  isInHistory(notification: FakeNotification): boolean {
+    return !this.omitted.has(notification.uuid);
+  }
+
   status(originalTransactionId: string): AppleStatusCode {
     return this.subscription(originalTransactionId).status;
   }
@@ -382,7 +409,10 @@ export class FakeAppStore {
   }): AppleSubscriptionStatusSnapshot | null {
     this.statusCalls.push(input.originalTransactionId);
     const sub = this.subscriptions.get(input.originalTransactionId);
-    if (!sub || input.bundleId !== FAKE_BUNDLE_ID || input.environment !== "Production") return null;
+    // Apple answers an unknown transaction with 404 TransactionIdNotFound.
+    if (!sub || input.bundleId !== FAKE_BUNDLE_ID || input.environment !== "Production") {
+      throw new Error("App Store Server API 404: TransactionIdNotFound (fake)");
+    }
     return {
       status: sub.status,
       signedTransactionInfo: this.sign(sub.current),
@@ -398,6 +428,7 @@ export class FakeAppStore {
     readonly paginationToken: string | null;
   }) {
     const matching = this.history.filter((item) =>
+      !this.omitted.has(item.uuid) &&
       item.bundleId === input.bundleId &&
       item.environment === input.environment &&
       item.signedDate >= input.startDate.getTime() &&
