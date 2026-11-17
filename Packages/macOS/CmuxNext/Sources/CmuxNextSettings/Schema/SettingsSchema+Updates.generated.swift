@@ -18,9 +18,9 @@ extension UpdatesSettings {
     /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
     public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
     public nonisolated static let oneClickInstallDefault = false
-    /// `updates.whatsNewInstall`: What's New's Versions list offers Install on each build (Leo 2026-11-05: "Like literally with a click to a past nightly", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.
+    /// `updates.whatsNewInstall`: What's New's Versions list offers Install on each build (Leo 2026-11-05: "Like literally with a click to a past nightly", cmux#36375). On by default since a published nightly installed an earlier one end to end on a fleet Mac (ask-694d89cf3e).
     public nonisolated static let whatsNewInstallPath = ["updates", "whatsNewInstall"]
-    public nonisolated static let whatsNewInstallDefault = false
+    public nonisolated static let whatsNewInstallDefault = true
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData

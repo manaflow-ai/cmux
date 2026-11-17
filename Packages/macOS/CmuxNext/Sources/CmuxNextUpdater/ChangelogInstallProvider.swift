@@ -7,8 +7,8 @@ import Foundation
 /// another build, and `install {build}` restarts into one through ``UpdaterService/switchToBuild(_:)``
 /// (the download's EdDSA signature and team checked, the stores check, the running build kept, every
 /// session kept). Install is the person's own click on What's New only; a refusal answers as
-/// `cmux.page.refused` with the updater's reason. Both follow `updates.whatsNewInstall` (off by
-/// default until a nightly proves the install end to end), read at each call.
+/// `cmux.page.refused` with the updater's reason. Both follow `updates.whatsNewInstall` (on by
+/// default), read at each call.
 @MainActor
 public final class ChangelogInstallProvider: PageProvider {
     public static let prefix = "cmux.changelog.install"
