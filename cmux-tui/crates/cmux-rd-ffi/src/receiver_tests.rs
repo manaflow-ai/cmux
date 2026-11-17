@@ -137,9 +137,9 @@ fn a_chain_longer_than_the_queue_is_dropped_until_a_keyframe() {
 /// With no clock, the repairs themselves measure the round trip: repairs
 /// 60 ms after their NACKs size the window to the smoothed 60 ms plus its
 /// variation plus 10 ms, so the next unrepaired frame is retried every 50 ms
-/// (the retry cap) and given up two windows after its NACK, instead of
-/// 200 ms after its first shard, and the recovery request leaves in the same
-/// call.
+/// (the retry cap). A ~65 ms round trip puts the outage threshold (4 RTT)
+/// past the 200 ms deadline, so the frame is given up at the deadline, and
+/// the recovery request leaves in the same call.
 #[test]
 fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
@@ -169,10 +169,11 @@ fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once
     assert_eq!(r.next_deadline_us(), 1_455_000, "and again, still inside the wait");
     assert!(!decode_feedback(&r.feedback(1_455_000).expect("retry")).nacks.is_empty());
     // The steady 60 ms repairs leave little variation: two windows of about
-    // 75 ms after the NACK, where the base waits until 200 ms after the
-    // first shard (1_500_000).
+    // 75 ms after the NACK would give up near 1_455_000, but a frame waits at
+    // least the outage threshold from its first shard, 4 x a ~65 ms round
+    // trip, which is past the 200 ms deadline: the deadline (1_500_000) wins.
     let give_up = r.next_deadline_us();
-    assert!((1_445_001..=1_465_000).contains(&give_up), "given up at {give_up}");
+    assert_eq!(give_up, 1_500_001, "given up at {give_up}");
     r.tick(give_up - 1);
     assert!(!r.need_recovery());
     r.tick(give_up);
@@ -186,7 +187,7 @@ fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once
 // ---- The tests below use the API this change adds. ----
 
 #[test]
-fn a_frame_is_retried_and_given_up_two_rtt_plus_ten_ms_windows_after_its_nack() {
+fn a_frame_is_retried_and_given_up_at_the_outage_threshold_after_its_first_shard() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
     let mut r = receiver();
     r.set_path_rtt_us(Some(40_000));
@@ -204,20 +205,26 @@ fn a_frame_is_retried_and_given_up_two_rtt_plus_ten_ms_windows_after_its_nack() 
     assert_eq!(r.next_deadline_us(), 56_000);
     let retry = decode_feedback(&r.feedback(56_000).expect("retry"));
     assert_eq!(retry.nacks[0].indexes, vec![0]);
-    // Given up two windows after the NACK, not at the 200 ms deadline.
-    assert_eq!(r.next_deadline_us(), 106_001);
-    r.tick(106_000);
+    // Two windows after the NACK (106 ms) is sooner than the outage threshold,
+    // max(100 ms, 4 x 40 ms) = 160 ms from the first shard: the retries go on.
+    assert_eq!(r.next_deadline_us(), 106_000);
+    assert!(!decode_feedback(&r.feedback(106_000).expect("retry")).nacks.is_empty());
+    assert_eq!(r.next_deadline_us(), 156_000);
+    assert!(!decode_feedback(&r.feedback(156_000).expect("retry")).nacks.is_empty());
+    // Given up at the threshold (161 ms), not at the 200 ms deadline.
+    assert_eq!(r.next_deadline_us(), 161_001);
+    r.tick(161_000);
     assert!(!r.need_recovery());
-    r.tick(106_001);
+    r.tick(161_001);
     assert!(r.need_recovery());
     assert_eq!(r.stats().frames_lost, 1);
     // No request at the give-up; the recovery request does not wait for the 50 ms interval.
     assert_eq!(r.next_deadline_us(), 0);
-    let fb = decode_feedback(&r.feedback(106_001).expect("recovery at once"));
+    let fb = decode_feedback(&r.feedback(161_001).expect("recovery at once"));
     assert!(fb.need_recovery);
     assert!(fb.nacks.is_empty());
     assert_eq!(fb.acked_frame, 1);
-    assert!(r.feedback(106_002).is_none(), "one immediate request, then the interval");
+    assert!(r.feedback(161_002).is_none(), "one immediate request, then the interval");
 }
 
 /// With no round trip known the retry goes out after 50 ms, before an 80 ms
