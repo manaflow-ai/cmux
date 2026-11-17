@@ -671,8 +671,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// thread never left that turn (NIGHTLY 1.0.0-nightly.4093446036501). The ancestors' own
     /// `isHidden` is read, not `isHiddenOrHasHiddenAncestor`: AppKit updates that flag view by view
     /// during the same walk, so a view the walk has not reached yet still reads as not hidden.
+    /// A page parked in an agent render window (off every screen, a background tab an agent drives)
+    /// is not shown: a grant there made its page window key and took the keys from the terminal the
+    /// person typed in (NIGHTLY, 2026-11-16). Its ask waits until a pane shows it.
     var isShown: Bool {
-        guard host.visibleTab === self, !isOccluded, container.window != nil else { return false }
+        guard host.visibleTab === self, !isOccluded, let window = container.window,
+              window.identifier != .agentRenderWindow else { return false }
         return !sequence(first: container as NSView, next: \.superview).contains { $0.isHidden }
     }
 

@@ -16,6 +16,7 @@
  * there and the app then offers its own sign-in, the same rule as the matrix's `start` cells. Anything else fails:
  * an unknown or uninstalled harness, another refusal, a hang (the guest's `timeout` cuts it off) or no output at all.
  */
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sq } from "./lock";
 
@@ -81,4 +82,43 @@ export function harnessGate(harnesses: readonly string[], outputs: Record<string
   for (const h of harnesses) results[h] = judgeEnsure(h, outputs[h]);
   const failures = harnesses.filter((h) => !results[h]!.ok).map((h) => ({ harness: h, detail: results[h]!.detail }));
   return { passed: harnesses.length > 0 && failures.length === 0, failures, results };
+}
+
+export type GateNote = { harness: string; detail: string };
+
+/**
+ * Only regressions block (V0 lead, after #44718: one broken harness must not freeze every cmux-tui fix). With the live
+ * image's outputs from the same ensure, a candidate failure blocks only when that harness passed on the live image; one
+ * that already failed there is a warning naming it. With no live result (`null`: none taken, or its clone failed),
+ * every candidate failure blocks, as harnessGate does: the gate never passes on missing evidence.
+ */
+export function regressionGate(harnesses: readonly string[], candidate: Record<string, string | undefined>, live: Record<string, string | undefined> | null) {
+  const cand = harnessGate(harnesses, candidate);
+  const blocking: GateNote[] = [];
+  const warnings: GateNote[] = [];
+  for (const f of cand.failures) {
+    if (live === null) {
+      blocking.push({ harness: f.harness, detail: `${f.detail} (no live image result to compare: blocks)` });
+      continue;
+    }
+    const was = judgeEnsure(f.harness, live[f.harness]);
+    if (was.ok) blocking.push({ harness: f.harness, detail: `${f.detail} (passes on the live image: a regression)` });
+    else warnings.push({ harness: f.harness, detail: `${f.detail} (already failing on the live image: ${was.detail})` });
+  }
+  return { passed: harnesses.length > 0 && blocking.length === 0, blocking, warnings, results: cand.results };
+}
+
+const AUTO_ROLL = fileURLToPath(new URL("../../../images/cmux-vm/auto-roll.ts", import.meta.url));
+
+/** The live image: production's boot image (auto-roll.ts BOOT_ENTRY) in workers/cmux-vm/wrangler.jsonc at this checkout. */
+export async function liveBootImage(): Promise<{ id: string; snapshotId: string }> {
+  const roll = (await import(AUTO_ROLL)) as {
+    DEFAULT_WRANGLER: string;
+    BOOT_ENTRY: Record<string, "first" | "last">;
+    locate: (text: string, env: "production") => { images: Array<{ id: string; snapshotId: string }> };
+  };
+  const images = roll.locate(readFileSync(roll.DEFAULT_WRANGLER, "utf8"), "production").images;
+  const entry = roll.BOOT_ENTRY.production === "first" ? images[0] : images[images.length - 1];
+  if (!entry) throw new Error("harness gate: production lists no boot image");
+  return { id: entry.id, snapshotId: entry.snapshotId };
 }

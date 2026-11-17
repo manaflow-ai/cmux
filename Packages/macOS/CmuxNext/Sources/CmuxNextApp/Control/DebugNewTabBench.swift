@@ -43,19 +43,18 @@ enum DebugNewTabBench {
         }
         if case .object(var fields) = result {
             let opening = services.newTabSpares.openings.count > before ? services.newTabSpares.openings.last : nil
-            fields["opening"] = opening.map {
-                .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)])
-            } ?? .null
+            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
             result = .object(fields)
         }
         return result
     }
 
     /// `bench_settings`: Cmd-, in window `window` (Settings opens late, 2026-11-15). `tab_ms`: a pane's strip (any: an inactive
-    /// app may keep the focus in Home's dock) first shows a Settings tab it hosts, selected; `visible_ms`: that page drew (no paint hold over it) at its size.
+    /// app may keep the focus in Home's dock) first shows a Settings tab it hosts, selected; `visible_ms`: that page drew (no paint hold over it) at its size. `already_open`: Settings showed before the key (a Cmd-W closed another tab), so it only selected it.
     static func settings(_ controller: WindowController, _ services: AppServices) async -> JSONValue {
         var tab: Double?, page: PageWebView?
         let claims = services.pageHostPool.claims.count
+        let alreadyOpen = controller.content?.panes.values.contains { ($0.view.content as? InternalPageView)?.page == .settings } == true
         let result = await run(services) {
             _ = DebugKey.send(["key": .string(","), "modifiers": .array([.string("command")]), "window": .string(controller.state.id)], services: services)
         } until: { at in
@@ -67,6 +66,7 @@ enum DebugNewTabBench {
         }
         guard case .object(var fields) = result else { return result }
         fields["tab_ms"] = tab.map { .number($0) } ?? .null
+        fields["already_open"] = .bool(alreadyOpen)
         fields["engine"] = .string(page.map { $0.showsChromium ? "cef" : "webkit" } ?? "none")
         fields["spare"] = .bool(services.pageHostPool.claims.count > claims && services.pageHostPool.claims.last?.spare == true)
         fields["claim"] = page?.lastClaim.map { .string($0.path.rawValue) } ?? .null
