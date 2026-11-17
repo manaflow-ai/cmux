@@ -158,10 +158,10 @@ acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
-# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
-cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # The browser host and the app host run from this binary, chosen by argv[0]
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.
