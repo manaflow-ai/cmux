@@ -1253,8 +1253,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_unregisters_its_copies.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks that the nightly-next canary's cleanup unregisters its app copies from LaunchServices before deleting them; run python3 tests/test_nightly_next_canary_unregisters_its_copies.py yourself after changing that cleanup in .github/workflows/nightly-next-canary.yml (under 1 s, no Mac)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_feed_origin.py"
