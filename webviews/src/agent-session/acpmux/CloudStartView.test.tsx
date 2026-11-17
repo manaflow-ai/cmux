@@ -182,7 +182,8 @@ test("a plan refusal shows the pricing card: cmux NEXT Pro and Max with Subscrib
   );
   expect(html).toContain("Cloud needs a plan");
   expect(html).toContain("cmux NEXT Pro");
-  expect(html).toContain("$50 / month");
+  expect(html).toContain("$100 / month");
+  expect(html).not.toContain("$50 / month");
   expect(html).toContain("Machines up to 8 vCPU and 16 GB memory");
   expect(html).toContain("cmux NEXT Max");
   expect(html).toContain("$200 / month");
