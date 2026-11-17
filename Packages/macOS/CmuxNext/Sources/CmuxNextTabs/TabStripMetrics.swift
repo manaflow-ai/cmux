@@ -46,6 +46,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
+    public var busyUnreadMark: TabBusyUnreadMark?
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -166,7 +168,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         iconSize = Metrics.tabIconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
-        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
+        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
+            ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
         iconTitleSpacing = TabTunables.iconTitleSpacing.value
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
