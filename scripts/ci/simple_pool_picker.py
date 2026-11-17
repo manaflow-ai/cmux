@@ -15,7 +15,10 @@ eligible: CI_OWNED_POOL_SLOTS alone says nothing about load, and a run queued on
 a busy mini waits for the rescue (two rounds of CI_PR_POOL_QUEUE_ROUNDS).
 
 A run placed on an owned pool names a Blacksmith `retry_runner`, the pool
-github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml).
+github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml), whatever
+vars.CI_BLACKSMITH_MACOS says: it is the escape that bounds an owned wait. With
+that switch off, every job of the run is in `owned_jobs`, so only that escape
+and the SDK 15 helper build read it.
 
 CI is minis first; Blacksmith is overflow only, and only while a label has a
 free slot for the run (in flight + queued + reserved below its capacity) and
@@ -27,7 +30,7 @@ blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
 runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
 unread runner list) still takes the least-loaded Blacksmith label. An owned
 pick's retry_runner stays a Blacksmith label (_retry_label): it also carries
-the jobs the minis cannot run.
+the jobs the minis cannot run, and the bot's attempt 3.
 """
 
 from __future__ import annotations
@@ -187,7 +190,8 @@ class State:
     # fork, which owned_pool_rescue never rescues) and not on the bot's re-run, which has already
     # waited behind the fleet once. Off unless the caller says so (main(), wait_on_owned()).
     wait_on_owned: bool = False
-    # vars.CI_BLACKSMITH_MACOS (blacksmith_allowed()): off, an owned pick names no Blacksmith label.
+    # vars.CI_BLACKSMITH_MACOS (blacksmith_allowed()): off, a run an online owned pool can take waits there, never
+    # on a Blacksmith queue; its retry_runner stays the paid escape (_retry_label()).
     blacksmith_on: bool = True
 
 
@@ -321,14 +325,14 @@ def _xcode_version(path: str) -> tuple[int, ...]:
 def _retry_label(state: State, owned: Pool) -> str:
     """Choose a Blacksmith rescue image with the owned pool's Xcode when known.
 
-    It stays a Blacksmith label even when every one is full: ci-macos.yml also sends an owned
-    run's jobs the minis cannot run (the SDK 15 helper build, for one) to pr_retry_runner, so an
-    owned label here would fail them. A free, moving label comes first (_pick_blacksmith).
-    With Blacksmith macOS off (State.blacksmith_on) it is the owned label itself: write_outputs()
-    then names that label, so a job the pool does not own waits there instead of on Blacksmith.
+    It stays a Blacksmith label even when every one is full, and whatever vars.CI_BLACKSMITH_MACOS says:
+    ci-macos.yml sends an owned run's jobs the minis cannot run (the SDK 15 helper build, for one) to
+    pr_retry_runner, so an owned label here would fail them, and github-actions[bot]'s attempt 3 (the
+    rescue's OWNED_WAIT_BOUND_SECONDS move) takes it to leave the owned queue: an owned label here would
+    put that escape back in the queue it left, with nothing bounding the wait. A free, moving label comes
+    first (_pick_blacksmith). With the switch off, write_outputs() names every job in owned_jobs instead,
+    so no other job reads this label.
     """
-    if not state.blacksmith_on:
-        return owned.label
     wanted = _xcode_version(owned.xcode_app)
     if wanted:
         matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
@@ -695,6 +699,14 @@ def planned_jobs(env: Mapping[str, str]) -> int:
     return jobs
 
 
+# Every owned_jobs key ci.yml and ci-macos.yml test (`contains(...owned_jobs, key)`), matrix shards expanded
+# (app-host-unit-tests' shard-1..8, cli-regressions' 1..3); tests/test_ci_simple_pool_picker.py reads them back
+# from the workflows.
+OWNED_JOB_KEYS = ("admission", *(f"shard-{index}" for index in range(1, 9)), "lag", "cli-product",
+                  *(f"cli-regressions-{index}" for index in range(1, 4)), "claude-wrapper", "remote-daemon",
+                  "swift-package", "release-build")
+
+
 def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                   env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Write the stable output names consumed by ci.yml and ci-macos.yml."""
@@ -727,6 +739,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     if gui not in configured:
         gui = ""
     owned_jobs: list[str] = []
+    helper_build = env.get("RUN_FULL_SUITE") == "true" and env.get("RUN_RELEASE_BUILD") == "true"
     if choice.owned:
         if env.get("RUN_MACOS") == "true":
             owned_jobs.append("admission")
@@ -742,7 +755,6 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
         # "Select helper Xcode" exits non-zero rather than falling back. So the
         # lane takes an owned Mac only when it builds no helper
         # (pr_runner_pool.package_lane_owned()).
-        helper_build = env.get("RUN_FULL_SUITE") == "true" and env.get("RUN_RELEASE_BUILD") == "true"
         for key, lane in (("RUN_CLAUDE_WRAPPER", "claude-wrapper"),
                           ("RUN_REMOTE_DAEMON", "remote-daemon"),
                           ("RUN_SWIFT_PACKAGES", "swift-package"),
@@ -750,6 +762,13 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
             if lane == "swift-package" and helper_build:
                 continue
             if env.get(key) == "true":
+                owned_jobs.append(lane)
+    if choice.owned and not blacksmith_allowed(env):
+        # Blacksmith macOS off: every job the run may have waits on the owned labels on attempts 1 and 2,
+        # not only the lanes above (run 43990120167's app-host shards read retry_runner through
+        # `!contains(owned_jobs, key)`). The SDK 15 helper build still needs Blacksmith macOS 15.
+        for lane in OWNED_JOB_KEYS:
+            if lane not in owned_jobs and not (lane == "swift-package" and helper_build):
                 owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app,
                   retry_runner=choice.retry_label if choice.owned and choice.retry_label else choice.label,

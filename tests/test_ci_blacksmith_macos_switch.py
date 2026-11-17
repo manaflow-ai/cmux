@@ -23,9 +23,12 @@ unset, every input at its declared default, every picker output empty (a picker 
 fallback is for). A job whose runs-on still names a Blacksmith macOS label, a
 literal or a RUNNER_POOLS macOS key, fails, unless it is listed with why:
 test_ci_paid_queue_pin.PAID_ONLY_JOBS (it must stay on an ephemeral Mac) or
-NEEDS_BLACKSMITH below (a capability the owned Macs lack). Picker outputs pass:
-the picker itself honours the switch (simple_pool_picker.blacksmith_allowed(),
-tested in tests/test_ci_simple_pool_picker_blacksmith_switch.py).
+NEEDS_BLACKSMITH below (a capability the owned Macs lack). Picker outputs pass
+when the picker step gets the switch (test_every_picker_a_macos_job_reads_gets_the_switch):
+the pickers honour it themselves (simple_pool_picker.blacksmith_allowed(), tested in
+tests/test_ci_simple_pool_picker.py's BlacksmithSwitchTests; ios_runner_pool.resolve(), in
+tests/test_ci_pr_runner_pool.py's IOSBlacksmithSwitch). The bot's attempt 3 is no such scenario: it is
+the owned-pool rescue's escape to a paid runner (escape()).
 
 A listed job that no longer reaches Blacksmith, or no longer exists, fails too,
 so the lists only shrink. The handbook pattern page "label-no-pool-lists"

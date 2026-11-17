@@ -285,6 +285,10 @@ class LiveFree:
     sim: int
     # Minis with an online idle sim-first runner, less the same charges (see Sim-first runners).
     sim_first: int = 0
+    # The pool's runners online, busy or idle, and those of them with SIM_LABEL: whether a switch-off wait
+    # (resolve()) has any runner to wait for.
+    online: int = dataclasses.field(default=0, compare=False)
+    sim_online: int = dataclasses.field(default=0, compare=False)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -304,8 +308,6 @@ class Route:
     persistent: bool
     # glaeda's sim-first label for the simulator jobs alone, when they take it (see Sim-first runners).
     sim_label: str = ""
-    # Blacksmith macOS off (resolve()): a re-run asks for the same owned labels, never a Blacksmith one.
-    retry_owned: bool = False
 
     @property
     def runs_on(self) -> str:
@@ -329,9 +331,6 @@ class Route:
 
     @property
     def retry_runs_on(self) -> str:
-        if self.retry_owned:
-            # The simulator label too: every macOS job of the run reads this from attempt 2 on.
-            return self.runs_on
         return json.dumps(self.retry_label)
 
 
@@ -403,16 +402,32 @@ def resolve(lane: str, requested: str | None, variable: str | None, *, blacksmit
     """The route for one run (_resolve()), with Blacksmith macOS off honoured.
 
     Off, a run the minis can take (same repository, `runner` auto or owned, no owned_blocker(), both lane
-    switches on, a measured lane on the 6vcpu macOS 26 default, a simulator mini when it needs one, and an
+    switches on, a measured lane on the 6vcpu macOS 26 default, simulator slots when it needs one, and an
     owned pool for the PR Xcode) waits on the first owned pool with SIM_LABEL instead of keeping the default,
-    however full the pool or unreadable the queue, and its re-runs stay there too (Route.retry_owned).
+    however full the pool, but only while the live runners read shows that pool with a runner online, and a
+    simulator runner online when the lane needs one (simple_pool_picker's `pool.capacity > 0`): with every
+    owned Mac offline, or no live read at all, it keeps the paid route rather than wait out GitHub's queue
+    limit. Its re-runs keep the paid retry label either way (owned_pool_rescue.PICKED_PERSISTENT_RETRY):
+    that is the escape the rescue's OWNED_WAIT_BOUND_SECONDS move sends a stuck attempt 1 to.
     Everything else keeps today's route: the minis cannot run it.
     """
-    route = _resolve(lane, requested, variable, **kwargs)
-    if blacksmith_on:
+    measure = kwargs.pop("measure")
+    reads: list[Any] = []
+
+    def measured() -> IOSLoad:
+        # One read for both _resolve() and the switch-off check below.
+        if not reads:
+            try:
+                reads.append(measure())
+            except Exception as error:  # noqa: BLE001 - re-raised to each caller, which fails safe
+                reads.append(error)
+        if isinstance(reads[0], Exception):
+            raise reads[0]
+        return reads[0]
+
+    route = _resolve(lane, requested, variable, measure=measured, **kwargs)
+    if blacksmith_on or route.persistent:
         return route
-    if route.persistent:
-        return dataclasses.replace(route, retry_label=route.label, retry_owned=True)
     log = kwargs.get("log") or (lambda message: None)
     pools = pr_runner_pool.owned_pools(kwargs.get("pr_xcode_app"))
     default = (variable or "").strip() or SMALL_RUNNER
@@ -425,9 +440,21 @@ def resolve(lane: str, requested: str | None, variable: str | None, *, blacksmit
                 and LANES[lane].measured and default == SMALL_RUNNER and (capacity >= 1 or not needed) and pools)
     if not eligible:
         return route
+    try:
+        live = measured().live
+    except Exception as error:  # noqa: BLE001 - no read proves no runner online
+        live = None
+        log(f"Blacksmith macOS is off, but the runners could not be read ({error}); keeping {route.label}")
+    if live is None or live.online < 1 or (needed and live.sim_online < 1):
+        if live is not None:
+            log(f"Blacksmith macOS is off, but {pools[0]} has {live.online} runner(s) online and {live.sim_online} "
+                f"with {SIM_LABEL}; keeping {route.label} rather than wait on no runner")
+        elif not reads or not isinstance(reads[0], Exception):
+            log(f"Blacksmith macOS is off, but no live runners read shows {pools[0]} online; keeping {route.label}")
+        return route
     log(f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`); waits on {pools[0]} with {SIM_LABEL} "
-        f"instead of {route.label}")
-    return Route(pools[0], pools[0], True, retry_owned=True)
+        f"({live.online} runner(s) online, {live.sim_online} with {SIM_LABEL}) instead of {route.label}")
+    return Route(pools[0], retry_label(default), True)
 
 
 def _resolve(
@@ -787,7 +814,11 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
                     sim=max(0, sim_room - charged),
-                    sim_first=max(0, len(first_hosts) - charged))
+                    sim_first=max(0, len(first_hosts) - charged),
+                    online=sum(1 for runner in mine if runner.get("status") == "online"),
+                    sim_online=sum(1 for runner in mine if runner.get("status") == "online"
+                                   and SIM_LABEL in {str(item.get("name")) for item in runner.get("labels") or []
+                                                     if isinstance(item, Mapping)}))
 
 
 def run_jobs_read(client: Any, runs: Sequence[Mapping[str, Any]], placements: Placements | None,
@@ -898,13 +929,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             jobs=1, env=values, fork=args.fork == "true"))
         label = choice.label or args.variable or SMALL_RUNNER
         persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
-        # Blacksmith macOS off: re-runs stay on the owned labels (resolve()).
-        retry = SMALL_RUNNER if persistent and blacksmith_allowed(env) else label
+        # A persistent pick's re-runs take the paid label whatever the switch (resolve()).
+        retry = SMALL_RUNNER if persistent else label
         lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
         for key, value in {"label": label, "retry_label": retry,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "sim_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
-                           "package_runs_on": json.dumps(label), "retry_runs_on": json.dumps(retry if retry != label or not persistent else [label, SIM_LABEL]),
+                           "package_runs_on": json.dumps(label), "retry_runs_on": json.dumps(retry),
                            "persistent": str(persistent).lower(), "jobs": str(lane_jobs),
                            "sim_jobs": str(1 if persistent else 0)}.items():
             print(f"{key}={value}")

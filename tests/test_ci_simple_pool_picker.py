@@ -879,7 +879,11 @@ class BlacksmithSwitchTests(unittest.TestCase):
                 runs_on = str(job.get("runs-on", ""))
                 keys.update(literal.findall(runs_on))
                 for prefix in shard.findall(runs_on):
-                    keys.update(f"{prefix}{index}" for index in job["strategy"]["matrix"]["shard"])
+                    # A list (`shard: [1, 2, 3]`) or JSON include rows (`{"shard": 1, ...}`).
+                    matrix = json.dumps(job["strategy"]["matrix"])
+                    listed = job["strategy"]["matrix"].get("shard")
+                    shards = listed if isinstance(listed, list) else re.findall(r'\\?"shard\\?": ?([0-9]+)', matrix)
+                    keys.update(f"{prefix}{index}" for index in shards)
         return keys
 
     def test_the_owned_wait_owns_every_job_and_keeps_the_paid_escape_while_off(self):
