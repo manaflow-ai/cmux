@@ -44,13 +44,22 @@ final class CEFLayerHosting {
         /// and turns headless (`enabled`), or comes back as a child window. True when the fork took it. Nil below
         /// API 30.
         let setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)?
+        /// `cmux_shim_browser_resize_fence` (fork API 32, window frame sync): hands the page's compositor a send right
+        /// of this window's Core Animation fence (``CEFResizeFence``) for its first frame at its new size, with the
+        /// GPU's deadline in ms. True when the fork took it; `done(presented)` then runs once on the main thread. Nil
+        /// below ``resizeFenceForkAPI``.
+        let resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                           _ done: @escaping @MainActor (Bool) -> Void) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
-             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil) {
+             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil,
+             resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                            _ done: @escaping @MainActor (Bool) -> Void) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.setDetachedHosting = setDetachedHosting
+            self.resizeFence = resizeFence
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -62,6 +71,17 @@ final class CEFLayerHosting {
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
             setDetachedHosting = apiVersion >= CEFLayerHosting.detachedForkAPI
                 ? shim.browserSetDetachedHosting.map { call in { browser, enabled in call(browser, enabled ? 1 : 0) == 1 } } : nil
+            resizeFence = apiVersion >= CEFLayerHosting.resizeFenceForkAPI && CEFLayerHosting.resizeFenceAllowed
+                ? shim.browserResizeFence.map { call in
+                    { browser, port, timeout, done in
+                        let box = Unmanaged.passRetained(CEFResizeFenceDone(done))
+                        guard call(browser, port, timeout, cefResizeFenceDone, box.toOpaque()) == 1 else {
+                            box.release()
+                            return false
+                        }
+                        return true
+                    }
+                } : nil
         }
     }
 
@@ -80,6 +100,15 @@ final class CEFLayerHosting {
     static let resizeSyncForkAPI: Int32 = 27
     /// The first fork API with `cmux_browser_set_detached_hosting`.
     static let detachedForkAPI: Int32 = 30
+    /// The first fork version with `cmux_browser_resize_fence` (API 32) on the Chromium 157 line: version 33 shipped
+    /// there without 32, so a check for 32 would pass an engine that lacks it (the fork's CMUX-API.md).
+    static let resizeFenceForkAPI: Int32 = 34
+    /// `CMUX_CEF_RESIZE_FENCE=0` keeps the fence off with an engine that has it (an A/B run on one engine).
+    nonisolated static let resizeFenceAllowed = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE"] != "0"
+    /// The GPU's deadline for a page's frame at its new size, in ms (`CMUX_CEF_RESIZE_FENCE_MS`); 0 takes one refresh of
+    /// the fastest display, at least 8 ms. The window's commit waits at most this and one refresh more, in the render
+    /// server, never on the main thread.
+    nonisolated static let resizeFenceTimeoutOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE_MS"] ?? "") ?? 0
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -102,6 +131,8 @@ final class CEFLayerHosting {
     private var pending = Pending.none
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
+    /// The open window fences of this turn (``CEFRuntime/resizeFences``; tests pass their own).
+    private let resizeFences: CEFResizeFences
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
     private let liveResizeDeadlineMs: () -> Int32
@@ -154,6 +185,7 @@ final class CEFLayerHosting {
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; 0 (never) by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
+    ///   - resizeFences: the process's open window fences (``CEFRuntime/resizeFences``) by default.
     init(isEnabled: @escaping () -> Bool = { true },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
@@ -163,7 +195,9 @@ final class CEFLayerHosting {
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil,
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
-         afterFrameShown: Scheduler? = nil) {
+         afterFrameShown: Scheduler? = nil,
+         resizeFences: CEFResizeFences? = nil) {
+        self.resizeFences = resizeFences ?? CEFRuntime.shared.resizeFences
         self.holdsFocus = holdsFocus ?? { false }
         self.afterCommit = afterCommit
         self.afterFrameShown = afterFrameShown
@@ -305,6 +339,23 @@ final class CEFLayerHosting {
         paneDragHolders = active ? paneDragHolders + 1 : max(0, paneDragHolders - 1)
         guard inPaneDrag != wasDragging else { return }
         syncDeadline()
+    }
+
+    /// The host view took a new size in this turn (`CEFHostView.setFrameSize`; the fork's tracker resized the page window
+    /// in that call). In a page sync (S5: a drag, a key resize or a pane spring, ``inPaneDrag``) a hosted page joins the
+    /// window's resize fence for this turn (fork API 32, ``CEFResizeFence``): the render server shows this commit with the
+    /// page's first frame at the new size, and the main thread waits for nothing. Outside a page sync, below the fork
+    /// version, or not hosted, nothing happens: the page shows its last frame until its next one, as before.
+    func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each hosted page, each motion frame)
+        guard inPaneDrag, page != nil, let browser, let resizeFence = fork?.resizeFence,
+              let view, let window = view.window, let layer = view.layer else { return }
+        let refreshMs = (shortestIntervals().min() ?? 1.0 / 60) * 1_000
+        let timeout = Self.resizeFenceTimeoutOverrideMs > 0 ? Self.resizeFenceTimeoutOverrideMs
+            : Int32(max(8, refreshMs.rounded(.up)))
+        forkCalls += 1
+        resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
+            resizeFence(browser, port, timeout, done)
+        }
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
