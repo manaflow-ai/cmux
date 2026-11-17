@@ -13,8 +13,8 @@
 //   restores it in the frame it lands: nothing chases and nothing springs.
 // - Nothing that changes layout is animated, and the ScrollController is the only writer.
 //
-// What it leaves out for now (the old list still has them): Jump to latest, the minimaps, Find's
-// reveal, keyboard row focus, the composer lift, entry and fold motion.
+// What it leaves out for now (the old list still has them): the minimaps, Find's reveal,
+// keyboard row focus, Jump up and the Needs your input pill, the composer lift, entry and fold motion.
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { hasReplyActions, type AcpmuxRow } from "../model";
 import { rowKind } from "../virtualTranscriptModel";
@@ -22,6 +22,8 @@ import { NoticeRow } from "../rows/NoticeRow";
 import { defaultRegistry } from "../rows/registry";
 import type { NativeRegistry, OpenDiff, RowProps } from "../rows/rowProps";
 import { HeightIndex, anchorAt, heightsFor, offsetFor, windowAt, type Anchor } from "./anchoredListModel";
+import { focusRoute } from "../../../ui/focusRoute";
+import { useT } from "../i18n";
 import { writeScrollTop } from "./scrollController";
 import type { Folds } from "./viewFolds";
 
@@ -58,6 +60,16 @@ export type AnchoredTranscriptProps = {
   onLoadOlder?: (fill: boolean, rising: boolean) => Promise<void>;
   /** The composer's stack, which floats over the scroller's foot: the last row ends above it. */
   dock?: HTMLElement | null;
+  /** Whether the pane draws Jump to latest, and the agent is still working (its label). */
+  jumpButton?: boolean;
+  working?: boolean;
+  /** VirtualTranscript's JumpToLatest, passed in so this file does not import the old list. */
+  JumpButton?: React.ComponentType<{
+    shown: boolean;
+    working: boolean;
+    lift: number;
+    onJump: (focused: boolean) => void;
+  }>;
 };
 
 type RowViewProps = Omit<RowProps, "row"> & {
@@ -88,7 +100,11 @@ export function AnchoredTranscript({
   canLoadOlder = false,
   onLoadOlder,
   dock,
+  jumpButton = false,
+  working = false,
+  JumpButton,
 }: AnchoredTranscriptProps) {
+  const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   const measured = useRef(new Map<string, number>());
@@ -103,6 +119,8 @@ export function AnchoredTranscript({
   const dockRef = useRef(dock);
   dockRef.current = dock;
   const [view, setView] = useState({ top: 0, height: 0 });
+  // Whether the reader is away from the latest (Jump to latest shows); set only by their own scroll.
+  const [behind, setBehind] = useState(false);
 
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
   const position = useMemo(() => new Map(ids.map((id, index) => [id, index])), [ids]);
@@ -217,6 +235,7 @@ export function AnchoredTranscript({
     if (!ours) {
       pinned.current = node.scrollHeight - node.clientHeight - top <= PIN_SLOP;
       anchor.current = pinned.current ? undefined : anchorAt(indexRef.current, idsRef.current, top - THREAD_TOP);
+      setBehind(!pinned.current);
     }
     setView((was) => (was.top === top && was.height === node.clientHeight ? was : { top, height: node.clientHeight }));
     if (canLoadOlder && onLoadOlder && !loadingOlder.current && top < node.clientHeight * OLDER_VIEWPORTS) {
@@ -224,6 +243,27 @@ export function AnchoredTranscript({
       void onLoadOlder(false, true).finally(() => (loadingOlder.current = false));
     }
   }, [canLoadOlder, onLoadOlder]);
+
+  /** Back to the latest: pinned again, in one write (no glide: nothing that changes layout animates). */
+  const toLatest = useCallback(() => {
+    pinned.current = true;
+    anchor.current = undefined;
+    setBehind(false);
+    restore();
+  }, [restore]);
+
+  // End or Cmd-Down (without Shift) goes to the latest, as in the old list.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.shiftKey || !(event.key === "End" || (event.metaKey && event.key === "ArrowDown"))) return;
+      event.preventDefault();
+      toLatest();
+    };
+    node.addEventListener("keydown", onKey);
+    return () => node.removeEventListener("keydown", onKey);
+  }, [toLatest]);
 
   // A click on a row (a fold's header) makes that row the anchor, so it stays under the pointer.
   const onPointerDown = useCallback((event: React.PointerEvent) => {
@@ -258,17 +298,37 @@ export function AnchoredTranscript({
     );
   }
   return (
-    <div
-      ref={scroller}
-      className="acpmux-scroll acpmux-scroll--anchored"
-      style={{ overflowAnchor: "none" }}
-      onScroll={onScroll}
-      onPointerDownCapture={onPointerDown}
-      data-anchored-list=""
-    >
-      <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() + reserve.current }}>
-        {mounted}
+    <>
+      <div
+        ref={scroller}
+        className="acpmux-scroll acpmux-scroll--anchored"
+        role="feed"
+        aria-label={t("transcript.label")}
+        // Focusable, so End and Cmd-Down reach it, as on the old list.
+        tabIndex={-1}
+        style={{ overflowAnchor: "none" }}
+        onScroll={onScroll}
+        onPointerDownCapture={onPointerDown}
+        data-anchored-list=""
+      >
+        <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() + reserve.current }}>
+          {mounted}
+        </div>
       </div>
-    </div>
+      {/* Next to the scroller, as in the old list: inside it, `bottom` is the scrolled content's end. */}
+      {jumpButton && JumpButton && (
+        <JumpButton
+          shown={behind}
+          working={working}
+          lift={reserve.current}
+          onJump={(focused) => {
+            toLatest();
+            // The button hides at the latest; keyboard focus goes to the list, not to the body.
+            if (focused)
+              focusRoute(scroller.current, "person", "Jump to latest pressed by keyboard", { preventScroll: true });
+          }}
+        />
+      )}
+    </>
   );
 }

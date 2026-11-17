@@ -1557,6 +1557,9 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
         canLoadOlder={given.canLoadOlder}
         onLoadOlder={given.onLoadOlder}
         dock={given.dock}
+        jumpButton={given.jumpButton}
+        working={given.working}
+        JumpButton={JumpToLatest}
       />
     );
   }
