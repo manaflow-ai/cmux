@@ -216,10 +216,15 @@ probe() {
     [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
   fi
   quiesce "$app" "$side" "$label"
-  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again) and empty defaults (no
-  # defaults.plist, so the load leaves the side's domain clear). Only this run's own home is removed; a daemon the
-  # last launch kept has its socket in the removed home and ends with the others at the end.
-  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
+  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again), empty defaults (no
+  # defaults.plist, so the load leaves the side's domain clear) and no daemon, as a first launch does. The daemons
+  # the last launch kept (a quit keeps them) end first: one left running while its home was removed under it was
+  # found by the next launch, which then never got a first tree, never ensured Home and showed no workspace
+  # (4 of 13 bare prerun=60 launches on a quiet Mac, 2026-11-17). Only this side's copy's processes, then its home.
+  if [[ "$LR_STATE" == bare ]]; then
+    bare_stop "$out/$side/" "$side" "$label"
+    rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"
+  fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   load="$(load_1m)"
@@ -327,6 +332,21 @@ fresh_copy() {
   name="$(basename "$app")"
   quiesce "$app" "$side" "copy$3" >/dev/null
   rm -rf "$app" && ditto "$out/$side-dmg/$name" "$out/$side/$name"
+}
+
+# bare_stop DIR SIDE LABEL: ends every process run from DIR (this side's app copy: its daemons a quit kept), TERM then
+# KILL after 10 s, and prints LR-BARE-STOP with how many there were. The path reaches awk through ENVIRON, as in
+# quiesce_left.
+bare_stop() {
+  local pids n=0
+  pids="$(ps -axo pid=,command= | LR_DIR="$1" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
+  if [[ -n "$pids" ]]; then
+    n="$(echo "$pids" | wc -l | tr -d ' ')"
+    kill $pids 2>/dev/null
+    for _ in $(seq 100); do ps -p "$(echo $pids | tr " " ,)" >/dev/null || break; sleep 0.1; done
+    kill -9 $pids 2>/dev/null
+  fi
+  echo "LR-BARE-STOP $2 $3 stopped=$n"
 }
 
 # quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
