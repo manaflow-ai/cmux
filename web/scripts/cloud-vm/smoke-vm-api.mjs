@@ -12,7 +12,7 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
-import { classifyCodexCanaryOutcome, edgeCanaryProblems, guestAliasWaitCommand, parseGuestAliasWait } from "./canaryOutcome.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems, edgeFailureStage, guestAliasWaitCommand, parseGuestAliasWait } from "./canaryOutcome.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -508,10 +508,7 @@ try {
         claudeTail: edge.claudeTail,
       });
       timings.edgeMs = Math.round(performance.now() - edgeStartedAt);
-      // Everything past the guest's alias and disk is coderouter answering.
-      if (modelsStatus !== "200" || codexOutcome === "failed" || (claudeCheck && edge.claudeOutcome !== "answered")) {
-        stage = "coderouter";
-      }
+      stage = edgeFailureStage({ ...edge, claudeCheck });
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")} :: ${JSON.stringify(edge)}`);
     }
 

@@ -87,8 +87,10 @@ export function guestAliasWaitCommand(host, budgetSeconds = 60) {
   if (typeof host !== "string" || !ALIAS_HOST.test(host)) return null;
   const budget = Math.max(1, Math.floor(budgetSeconds));
   return [
-    `h='${host}'; start=$(date +%s%N); deadline=$((SECONDS + ${budget}));`,
-    `until getent hosts "$h" >/dev/null 2>&1; do [ "$SECONDS" -ge "$deadline" ] && break; sleep 0.5; done;`,
+    // The guest exec runs this under /bin/sh (dash on ubuntu:24.04), which has
+    // no $SECONDS: the deadline is wall-clock seconds from `date +%s`.
+    `h='${host}'; start=$(date +%s%N); deadline=$(( $(date +%s) + ${budget} ));`,
+    `until getent hosts "$h" >/dev/null 2>&1; do [ "$(date +%s)" -ge "$deadline" ] && break; sleep 0.5; done;`,
     `end=$(date +%s%N); if getent hosts "$h" >/dev/null 2>&1; then r=1; else r=0; fi;`,
     `printf 'alias-resolved %s\\nalias-wait-ms %s\\nuptime-s %s\\nhosts-blocks %s\\n'`,
     `"$r" "$(( (end - start) / 1000000 ))" "$(cut -d' ' -f1 /proc/uptime)" "$(grep -c 'BEGIN freestyle-tls-egress' /etc/hosts 2>/dev/null)"`,
@@ -109,4 +111,15 @@ export function parseGuestAliasWait(output) {
     guestUptimeS: number(fields["uptime-s"]),
     hostsBlocks: number(fields["hosts-blocks"]),
   };
+}
+
+/**
+ * The stage a failed edge check reports. An alias the guest never resolved is
+ * the provider's edge steering, not coderouter: no request reached it.
+ * Everything past the guest's alias and disk is coderouter answering.
+ */
+export function edgeFailureStage({ aliasResolved, modelsStatus, codexOutcome, claudeCheck, claudeOutcome }) {
+  if (aliasResolved === false) return "edge";
+  const coderouterFailed = modelsStatus !== "200" || codexOutcome === "failed" || (claudeCheck && claudeOutcome !== "answered");
+  return coderouterFailed ? "coderouter" : "edge";
 }
