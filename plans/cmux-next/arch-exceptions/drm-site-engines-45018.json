@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-16",
+  "row": "app_lines",
+  "allow": 20,
+  "why": "https://github.com/manaflow-ai/cmux/issues/45018: a Chromium tab that reaches a browser.siteEngines WebKit site (Spotify typed on the New Tab page) reopens in WebKit. The per-page logic and policy live in CmuxNextBrowserTabs (BrowserSiteEngineFollower, BrowserSiteEngineNavigation); the App keeps only the host closures that need AppServices (the tab's pin, reopen mark and shown state; the reopen through the pane controller, shared with the existing protected-media reopen) and the mount call.",
+  "author": "claude opus (45018 lane)",
+  "owner": "45018 lane: fold the host closures into a BrowserTabs host protocol when BrowserPageRequests splits",
+  "receipt": "Review (claude subagent, independent): SHIP at db4c706983d8fc43ec4505e2bc1cf5fc82e0c6b6",
+  "expiry": "2026-12-16"
+}
