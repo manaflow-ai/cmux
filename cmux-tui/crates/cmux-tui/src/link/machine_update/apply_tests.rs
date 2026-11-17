@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use super::{
     AcpmuxLink, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext, acpmux_link, claim,
-    claim_path, keep_previous, parse, relink, runs_a_store_entry, runs_this_install, stop,
-    store_answer, store_next,
+    claim_path, keep_previous, parse, relink, runs_a_store_entry, runs_this_install, status_names,
+    stop, store_answer, store_next,
 };
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
@@ -312,4 +312,15 @@ fn the_store_link_is_replaced_by_the_build_and_put_back() {
     let names: Vec<_> =
         std::fs::read_dir(folder.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names, ["cmux-tui"]);
+}
+
+/// A daemon that holds a person key is not dumpable, so its executable is read from its own
+/// `daemon status`: the update is done once that names the installed build, and only then.
+#[test]
+fn a_daemon_status_names_the_binary_it_runs() {
+    let binary = Path::new("/opt/cmux/store/abc/cmux-tui");
+    assert!(status_names(r#"{"pid":7,"exe":"/opt/cmux/store/abc/cmux-tui"}"#, binary));
+    assert!(!status_names(r#"{"pid":7,"exe":"/opt/cmux/store/old/cmux-tui"}"#, binary));
+    assert!(!status_names(r#"{"pid":7}"#, binary), "an older daemon names no executable");
+    assert!(!status_names("", binary), "no daemon answered");
 }

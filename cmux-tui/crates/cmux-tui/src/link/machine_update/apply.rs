@@ -596,10 +596,31 @@ fn acpmux_runs(binary: &Path) -> bool {
     let Ok(stream) = std::os::unix::net::UnixStream::connect(acpmux::config::socket_path()) else {
         return false;
     };
-    stream
-        .peer_process_key()
-        .and_then(|key| peer_binary(&key))
-        .is_some_and(|(path, _)| path == binary)
+    match stream.peer_process_key().and_then(|key| peer_binary(&key)) {
+        Some((path, _)) => path == binary,
+        // A daemon that holds a person key is not dumpable (acpmux `not_dumpable`), so the
+        // kernel owns its /proc files and this user cannot read its executable: it names it.
+        None => acpmux_says_it_runs(binary),
+    }
+}
+
+/// [`acpmux_runs`] for a daemon whose executable this user cannot read: what that daemon's own
+/// `daemon status` names (`exe`), asked through this user's acpmux link, which never starts one.
+fn acpmux_says_it_runs(binary: &Path) -> bool {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return false };
+    cmux_process::Command::new("timeout")
+        .arg("10")
+        .arg(home.join(ACPMUX_LINK))
+        .args(["--json", "daemon", "status"])
+        .stdin(cmux_process::Stdio::null())
+        .output()
+        .is_ok_and(|output| status_names(&String::from_utf8_lossy(&output.stdout), binary))
+}
+
+/// Whether a `daemon status` answer names `binary` as the running daemon's executable.
+pub(super) fn status_names(stdout: &str, binary: &Path) -> bool {
+    serde_json::from_str::<serde_json::Value>(stdout.trim())
+        .is_ok_and(|status| status["exe"].as_str().is_some_and(|exe| Path::new(exe) == binary))
 }
 
 /// The staged build that passed [`check`]: its path and the inode hashed,
