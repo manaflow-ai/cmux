@@ -91,6 +91,10 @@ import Testing
         #expect(grid.isShown(by: Commit.shown(screen)), "the zoom's own turn changed what the screen shows")
         let dim = try #require(Self.dim(harness), "the zoom's own turn shows no dim over the other panes")
         #expect(dim.layer.opacity > 0.05 && dim.layer.opacity < 0.9, "the dim's strength is \(dim.layer.opacity)")
+        // The dim comes on a fade from nothing: with no fade on its layer a person sees it jump to its full strength.
+        let coming = try #require(dim.layer.animation(forKey: "opacity") as? CABasicAnimation, "the dim comes with no fade on its layer")
+        #expect((coming.fromValue as? Float) == 0 && abs(coming.duration - duration) < 1e-6,
+                "the dim's fade is not from nothing over \(duration) s: from \(String(describing: coming.fromValue)) over \(coming.duration) s")
         let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
 
@@ -138,6 +142,10 @@ import Testing
         #expect(grid.isShown(by: Commit.shown(screen)), "the first frame after the unzoom does not show every pane at its place")
         let dim = try #require(Self.dim(harness), "the frame that shows the unzoom shows no dim over the other panes")
         #expect(dim.layer.opacity == 0, "the dim does not fade out: it goes to \(dim.layer.opacity)")
+        // It goes on a fade from its full strength: with no fade on its layer a person sees no dim at all.
+        let going = try #require(dim.layer.animation(forKey: "opacity") as? CABasicAnimation, "the dim goes with no fade on its layer")
+        #expect(((going.fromValue as? Float) ?? 0) > 0.05 && abs(going.duration - duration) < 1e-6,
+                "the dim's fade is not from its strength over \(duration) s: from \(String(describing: going.fromValue)) over \(going.duration) s")
         let places = try Self.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
         let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
@@ -186,6 +194,101 @@ import Testing
         }
         #expect(!harness.root.advanceFrame(Self.dt), "frames run on after the zoom was taken back")
         #expect(harness.provider.released.isEmpty, "a pane was released: \(harness.provider.released)")
+    }
+
+    /// A screen switch while the dim comes. The dim is in the plane that every screen shares, and no frame steps a
+    /// hidden screen, so the switch ends it: the screen the switch shows has no dim over it, and the screen that hid
+    /// shows its zoom, with no dim, when the person comes back.
+    @Test func aScreenSwitchWhileTheDimComesEndsIt() throws {
+        let other = LayoutScreen(id: "t", name: "t", layout: .splits(.leaf("q1")))
+        let harness = Commit.Harness(Zoom.screens() + [other], focused: "p4", holds: false)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        let screen = try #require(harness.root.screenViews["s"], "SETUP: the shown screen has no view")
+        _ = try Self.fade()
+        harness.model.apply(screens: Zoom.screens(zoomedOn: "p4") + [other])
+        let zoomed = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        for _ in 0..<2 { _ = harness.root.advanceFrame(Self.dt) }
+        try #require(Self.dim(harness) != nil, "SETUP: two frames after the zoom key no dim shows")
+
+        harness.model.selectScreen("t")
+        harness.root.syncWithModel()
+        #expect(Self.dim(harness) == nil, "the dim stays over the screen the switch shows")
+        for tick in 1...Commit.frames {
+            _ = harness.root.advanceFrame(Self.dt)
+            #expect(Self.dim(harness) == nil, "tick \(tick): a dim shows over the other screen")
+        }
+        harness.model.selectScreen("s")
+        harness.root.syncWithModel()
+        #expect(zoomed.isShown(by: Commit.shown(screen)), "back on its screen the zoomed pane does not show alone: \(Commit.shown(screen).panes)")
+        #expect(Self.dim(harness) == nil, "back on its screen the zoom shows under a dim")
+    }
+
+    /// The grid with the zoom key just pressed on p4 and two frames stepped: the dim comes over the grid, which the
+    /// screen still shows. `zoomed` is the layout the zoom shows at the screen's size of now.
+    static func whileTheDimComes() throws -> (harness: Commit.Harness, screen: ScreenContentView, zoomed: @MainActor () -> Commit.Rest) {
+        let harness = Commit.Harness(Zoom.screens(), focused: "p4", holds: false)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        _ = try Self.fade()
+        harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
+        harness.root.syncWithModel()
+        for _ in 0..<2 { _ = harness.root.advanceFrame(Self.dt) }
+        let zoomed: @MainActor () -> Commit.Rest = { Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style) }
+        try #require(Self.dim(harness) != nil && !zoomed().isShown(by: Commit.shown(screen)), "SETUP: two frames after the zoom key the dim does not show over the grid")
+        return (harness, screen, zoomed)
+    }
+
+    /// Panes stop animating while the dim comes (Reduce Motion turned on, a full-screen transition, a live resize of
+    /// the window): the dim's time is counted no more, so the dim ends in the next frame and the zoom shows. It never
+    /// waits for a time that nothing counts.
+    @Test func whenPanesStopAnimatingWhileTheDimComesTheZoomShows() throws {
+        let (harness, screen, zoomed) = try Self.whileTheDimComes()
+        defer { harness.window.closeAfterTest() }
+        harness.root.context.reduceMotionOverride = true
+        var asks = harness.root.advanceFrame(Self.dt)
+        #expect(Self.dim(harness) == nil, "the dim stays in the frame after panes stopped animating")
+        // The zoom shows in that frame, or in the one after it when its panes hear their sizes only then.
+        if !zoomed().isShown(by: Commit.shown(screen)) { asks = harness.root.advanceFrame(Self.dt) }
+        #expect(zoomed().isShown(by: Commit.shown(screen)), "two frames after panes stopped animating the zoom does not show: \(Commit.shown(screen).panes)")
+        #expect(!asks, "the frame that shows the zoom asks for more frames")
+        #expect(!harness.root.advanceFrame(Self.dt) && Self.dim(harness) == nil, "frames run on, or a dim shows, after the zoom showed")
+    }
+
+    /// A change of the screen's size while the dim comes (the window's edge moves): the dim was placed for the old
+    /// size, so it ends in that turn, and the zoom shows at the new size.
+    @Test func aChangeOfTheScreensSizeWhileTheDimComesEndsIt() throws {
+        let (harness, screen, zoomed) = try Self.whileTheDimComes()
+        defer { harness.window.closeAfterTest() }
+        harness.window.setContentSize(NSSize(width: 1400, height: 900))
+        harness.root.layoutSubtreeIfNeeded()
+        try #require(screen.bounds.size == NSSize(width: 1400, height: 900), "SETUP: the screen did not take the window's new size: \(screen.bounds.size)")
+        #expect(Self.dim(harness) == nil, "the dim stays, at its old place, after the screen's size changed")
+        // The zoom shows in the next frame, or in the one after it when its panes hear their sizes only then.
+        _ = harness.root.advanceFrame(Self.dt)
+        if !zoomed().isShown(by: Commit.shown(screen)) { _ = harness.root.advanceFrame(Self.dt) }
+        #expect(zoomed().isShown(by: Commit.shown(screen)), "two frames after the size change the zoom does not show at the new size: \(Commit.shown(screen).panes)")
+        #expect(Self.dim(harness) == nil, "a dim shows with the zoomed pane")
+    }
+
+    /// A page that takes the whole window is a zoom to the layout (`LayoutScreen.presented`), and no zoom of a person:
+    /// it comes in its first frame with no dim, and its end brings none.
+    @Test func aPageThatTakesTheWholeWindowComesAndGoesWithNoDim() throws {
+        let harness = Commit.Harness(Zoom.screens(), focused: "p4", holds: false)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        _ = try Self.fade()
+        var presenting = Zoom.screens(zoomedOn: "p4")
+        presenting[0].presented = true
+        let (shown, zoomed, _) = try Zoom.frames(of: harness, after: presenting)
+        #expect(zoomed.isShown(by: shown[1]) && Self.dim(harness) == nil, "the page did not take its screen in its first frame, or a dim shows: \(shown[1].panes)")
+        let screen = try #require(harness.screen)
+        harness.model.apply(screens: Zoom.screens())
+        let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(grid.isShown(by: Commit.shown(screen)) && Self.dim(harness) == nil, "the page's end did not show the grid in its first frame, or a dim shows over it")
     }
 
     /// With no pane animation there is no dim: a zoom and an unzoom each show in their first frame.
