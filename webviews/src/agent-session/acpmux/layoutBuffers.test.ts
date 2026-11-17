@@ -92,3 +92,31 @@ test("a streamed token writes into kept arrays: none sized by the chat's rows is
   // Three sets take turns; growing past the first capacity may add one more each.
   expect(seen.size).toBeLessThanOrEqual(6);
 });
+
+test("a layout the transcript still holds keeps its values however many estimates come after it", () => {
+  // The last committed placement (VirtualTranscript previousLayout) reads its estimate's arrays
+  // (placedFromEstimate keeps gaps and marks and reads tops and heights). Several estimates can come
+  // before the next commit (a send during a running call: the prompt, the queue, a token), so a set
+  // a held layout reads is never written over.
+  const buffers = new LayoutBuffers();
+  const known: RowHeights = new WeakMap();
+  const rows: AcpmuxRow[] = [];
+  for (let turn = 0; turn < 20; turn += 1) rows.push(prompt(turn), reply(turn, `Answer ${turn}.`), footer(turn));
+  let last = {
+    rows: rows as readonly AcpmuxRow[],
+    layout: layoutConversation(rows, 720, undefined, undefined, known, undefined, "s", undefined, undefined, buffers),
+  };
+  const held = last.layout;
+  const values = arrays(held);
+  buffers.hold(held);
+  for (let token = 0; token < 8; token += 1) {
+    // A reply above the held rows' end grows (a tool call's output streaming in), so every row
+    // below it moves.
+    const next = rows.map((row, index) =>
+      index === 4 ? reply(1, `${"word ".repeat((token + 1) * 40)}`, token + 2) : row,
+    );
+    const layout = layoutConversation(next, 720, undefined, undefined, known, last, "s", undefined, undefined, buffers);
+    last = { rows: next, layout };
+  }
+  expect(arrays(held)).toEqual(values);
+});

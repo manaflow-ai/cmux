@@ -3275,8 +3275,8 @@ function copyLayoutRows(into: LayoutArrays, from: ConversationLayout, begin: num
 }
 
 /// How many layouts' arrays a transcript keeps before it writes over the oldest. The transcript
-/// reads the newest estimate and the placement made from the one before it (a placement keeps the
-/// estimate's `marks` and `gaps`; PlacedHeightIndex copies what it keeps), so three leave one spare.
+/// reads the newest estimate and its last committed placement (`hold`), which reads an older
+/// estimate's arrays, so three leave one to write.
 const LAYOUT_BUFFER_SETS = 3;
 
 /// A transcript's layout arrays, kept from one layout to the next (chat-instant-under-load.md piece
@@ -3293,10 +3293,17 @@ export class LayoutBuffers {
   private written = new Map<number, number>();
   private last: { layout?: ConversationLayout; set: number } = { set: -1 };
   private pending?: { set: number; from: number };
+  private held?: ArrayBufferLike;
 
   // perf-hot: O(changed rows) per streamed token chat-100k-flat
   take(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
-    const index = (this.last.set + 1) % LAYOUT_BUFFER_SETS;
+    // The set written longest ago that neither the last layout nor the held one reads.
+    let index = -1;
+    for (let at = 0; at < this.sets.length; at += 1) {
+      const each = this.sets[at]!;
+      if (at === this.last.set || (this.held !== undefined && each.arrays?.gaps.buffer === this.held)) continue;
+      if (index < 0 || each.generation < this.sets[index]!.generation) index = at;
+    }
     const set = this.sets[index]!;
     let arrays = set.arrays;
     const lineal = previous !== undefined && previous === this.last.layout;
@@ -3331,6 +3338,14 @@ export class LayoutBuffers {
       tops: arrays.tops.subarray(0, length),
       heights: arrays.heights.subarray(0, length),
     };
+  }
+
+  /// The layout the transcript keeps past the next estimates (its last committed placement,
+  /// VirtualTranscript previousLayout). A placement reads its estimate's arrays (placedFromEstimate
+  /// keeps gaps and marks, its geometry reads tops and heights), and several estimates can come
+  /// before the next commit (a send during a running call), so `take` never writes the set it reads.
+  hold(layout: { gaps?: Float64Array } | null): void {
+    this.held = layout?.gaps?.buffer;
   }
 
   /// Records the layout `take`'s arrays went into.
