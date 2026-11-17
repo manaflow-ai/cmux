@@ -48,15 +48,21 @@ preflight. A second instance of the app after the open ends the run with exit 1:
 
 KEY WINDOW. A sequence of the `activate` form names the window that gets its keys (`key_window`): `shell`, or
 `page` when a Chromium page has the keys. The app shows such a page (the New Tab page, a chat, a browser tab) in a
-child window that has the keys while the pane shows the page, and it refuses `shell` then (`the shell window did not
+child window that has the keys while the page has the focus, and it refuses `shell` then (`the shell window did not
 become key`); so a take or a preflight key that starts on a page asks for `page`. The word comes from one read of
-`debug.focus` (`key_window_word`); a take makes that read before its frames start. The read and the keys are 2
-calls, and the app moves the keys to a new page in that time (directly after a Cmd-T): when the app refuses the word
-with one of its 2 refusals of a key window, ONE new read and ONE more send, 2 sends at most; the app refuses a word
-before it posts a key of that call, so no key goes 2 times. The record of a take has the word of its send as
-`key_window`, and each refusal before it as `key_window_refusals`; a take with a refusal had one read of
-`debug.focus` inside its frames. The word names the window at the FIRST key of a sequence: the app's own focus moves
-the keys after that, as for a person (a Cmd-T moves them to the new tab's page).
+`debug.focus` (`key_window_word`). The read and the keys are 2 calls, and the app moves the keys to a new page in
+that time (directly after a Cmd-T): when the app refuses the word with one of its 2 refusals of a key window, ONE
+new read and ONE more send, 2 sends of a sequence at most; the app refuses a word before it posts a key of that
+call, so no key goes 2 times. A refused send is not free: for a refused `shell` the app gives the keys to the shell
+window and then back to the page, which is 2 changes of the key window.
+A take sends a sequence with NO key and its word BEFORE its frames start (`key_window_ready`), so the app takes or
+refuses the word outside the frames; `key_window_refusals_before_the_frames` of the row has each such refusal. The
+keys' send then has the word that the app took. When the app still refuses that word (the keys moved between the 2
+sends), the refused send, its 2 changes of the key window and the tool's new read of `debug.focus` are INSIDE the
+frames: the take is INVALID, with the refusals in its `invalid` entry and in the record's `key_window_refusals`.
+The record of a take has the word of its keys' send as `key_window`. The word names the window at the FIRST key of
+a sequence: the app's own focus moves the keys after that, as for a person (a Cmd-T moves them to the new tab's
+page).
 
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
@@ -311,12 +317,13 @@ def uptime():
 
 def key_window_word(rpc):
     """The `key_window` word of a sequence of the `activate` form (KEY WINDOW), by one read of `debug.focus`: `page`
-    when a Chromium page has the keys, else `shell`. The read: `appkit.child_window_page` of the cmux window that is
-    key, or of each window when none is (a page's window is key then). `shell` for a read that failed: the app's own
-    refusal then says what is wrong."""
+    when a Chromium page has the keys, else `shell`. The read: no cmux window is key (a page's window is key then),
+    and a window names its page (`appkit.child_window_page`). A cmux window that is key has the keys, also when it
+    still names a page. `shell` for a read that failed: the app's own refusal then says what is wrong."""
     focus = rpc("debug.focus")
     windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
-    return "page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"
+    page = any((w.get("appkit") or {}).get("child_window_page") for w in windows)
+    return "page" if page and not any(w.get("is_key") for w in windows) else "shell"
 
 
 def post_sequence(rpc, steps, pane, word=None):
@@ -333,6 +340,15 @@ def post_sequence(rpc, steps, pane, word=None):
             break
         refusals.append(f"{word}: {str(sent['error'])[:120]}")
     return {**sent, "key_window": word, "key_window_refusals": refusals}
+
+
+def key_window_ready(rpc, pane):
+    """A take's word before its frames start (KEY WINDOW): the word of a sequence with no key, which the app takes
+    or refuses as each other sequence, and each refusal of the app (2 sends at most; after 2 refusals the word is
+    the last one that the tool asked)."""
+    sent = post_sequence(rpc, [], pane)
+    refused = any(text in str(sent.get("error") or "") for text in KEY_REFUSALS)
+    return sent["key_window"], sent["key_window_refusals"] + ([f"{sent['key_window']}: {str(sent['error'])[:120]}"] if refused else [])
 
 
 def post_keys(source, rpc, steps, pane, form, word=None):
@@ -866,13 +882,14 @@ def take(opts):
             json.dump(record, f, indent=1)
         return 0
     before, order = count(), {"before": pane_tabs(builder, rpc, opts.workspace, opts.pane)}
-    # Each journal and `debug.focus` read is outside the frame take: before it starts or after it ends.
+    # Each journal read is outside the frame take: before it starts or after it ends. So is each `debug.focus` read,
+    # but for the one new read after a refusal of the keys' send (KEY WINDOW): that take is INVALID.
     seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
     time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
-    # The window that has the keys now (KEY WINDOW): read before the frames, as each other `debug.focus` read.
-    word = key_window_word(rpc) if opts.launch_form == "activate" else None
+    # The window that has the keys now (KEY WINDOW): the app takes the word, with no key, before the frames start.
+    word, early = key_window_ready(rpc, opts.pane) if opts.launch_form == "activate" else (None, None)
     first, start = bluetoothd(), time.time()
     rpc("debug.frames", {"action": "start"})
     armed = rpc("debug.burst", {"action": "start"}) or {}
@@ -897,6 +914,8 @@ def take(opts):
         record["key_window"] = sent.get("key_window") or word
         if sent.get("key_window_refusals"):
             record["key_window_refusals"] = sent["key_window_refusals"]
+            record["invalid"].append(f"the app refused a key window word after the frames started ({'; '.join(sent['key_window_refusals'])}): "
+                                     "the frames have one read of the focus and one refused send of this tool")
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
@@ -945,6 +964,7 @@ def take(opts):
                             "tab_shows_ring": JOURNAL,
                             "list_read_after_last_key_ms": round((list_read - times[-1]) * 1000, 1) if times else None,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
+                            **({} if early is None else {"key_window_refusals_before_the_frames": early}),
                             "disturbed": bool(moved or starts)}})
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
         json.dump(record, f, indent=1)
@@ -1239,13 +1259,15 @@ def preflight(app, st, out, film, form, display):
         before = tabs()
         sent = post_keys("app-queue", rpc, BENCH.sequence([letter], 0)[0], pane, form)
         why = sent.get("error") or ("base_s" not in sent and f"debug.key gave no start time: {sent}") or refused(sent, 10, ran=True)
-        if why:
-            fail(why)
-        if not wait(lambda: tabs() == before + change, 10, 0.05):
-            fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}")
+        # The word that the tool asked, and each refusal before that send: in the line of a key that failed too.
         refusals = sent.get("key_window_refusals")
         window = f", key_window = {sent.get('key_window')}" + (f" (the app refused {'; '.join(refusals)})" if refusals else "")
-        ok(f"tabs {before} -> {tabs()}" + (window if form == "activate" else ""))
+        window = window if form == "activate" else ""
+        if why:
+            fail(f"{why}{window}")
+        if not wait(lambda: tabs() == before + change, 10, 0.05):
+            fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}{window}")
+        ok(f"tabs {before} -> {tabs()}{window}")
     st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
     st.made.clear()
     wait(lambda: not st.workspace(workspace), 10, 0.1)  # the session's count starts without it; a late close is no fault
