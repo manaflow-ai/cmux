@@ -465,11 +465,19 @@ impl Hub {
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         // What this batch takes from the delivery registry: given back if the journal refuses it.
         let mut claims = Vec::new();
+        // The terminal's queue is read only with Write to a Chat a Terminal Runs on: off, the
+        // watch is base's View Only one, and what it held from when it was on can hold nothing.
+        let queue_read = self.terminal_chat_writable();
+        if !queue_read {
+            watching.queued.clear();
+            watching.unshown.clear();
+        }
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
             // What the terminal queued while a turn ran shows the moment it is typed, once.
-            if watching.family == "claude"
+            if queue_read
+                && watching.family == "claude"
                 && let Some(queue) = queue_line(&record)
             {
                 match queue {
@@ -566,7 +574,20 @@ impl Hub {
                 *open = Some(self.begin_watched_turn(session, &text, at, Some(prompt_id)));
                 continue;
             }
-            for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
+            let steps = record_steps(&watching.family, &record, &mut watching.codex_items);
+            // A queued text that runs as no person's prompt (a scheduled wakeup's meta line, a
+            // command echo) leaves the queue too: nothing else would take it out, and while it
+            // waits every turn end reads as the previous turn's.
+            if !watching.queued.is_empty()
+                && !steps.iter().any(|s| matches!(s, Step::Prompt(_)))
+                && record.get("type").and_then(Value::as_str) == Some("user")
+                && let Some(text) =
+                    record.pointer("/message/content").and_then(crate::adopt_replay::text_of)
+                && let Some(i) = watching.queued.iter().position(|q| *q == text)
+            {
+                watching.queued.remove(i);
+            }
+            for step in steps {
                 match step {
                     Step::Prompt(text) => {
                         // A prompt the terminal queued runs now: it shows already, as typed.
