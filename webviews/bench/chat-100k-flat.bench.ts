@@ -23,7 +23,7 @@
 // HIDDEN=0 keeps every chat shown. HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in
 // an xN launch a hidden one) for DevTools. HEAP_RETAINERS=1 prints, per launch, the renderers' memory-infra allocators
 // and what holds the JS heap (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
-// CASES=long runs only empty x1, long x1, empty xN and long xN.
+// CASES=long runs only empty x1, long x1, empty xN and long xN. CASES=grown runs only empty x1 and grown x1.
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
@@ -88,8 +88,8 @@ const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long or long-many");
+if (!["all", "main", "grown-many", "running", "long", "long-many", "grown"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long, long-many or grown");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
@@ -1010,8 +1010,8 @@ try {
   if (CASES !== "grown-many" && CASES !== "long-many") {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
-      const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
-      pairs.push(["long_x1", longOne, emptyOne]);
+      if (CASES !== "grown")
+        pairs.push(["long_x1", await runLaunch("long_x1", long, 1, { profile: PROFILE }), emptyOne]);
       if (CASES !== "long") {
         const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
         pairs.push(["grown_x1", grownOne, emptyOne]);
@@ -1019,12 +1019,13 @@ try {
     }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
-    if (CASES !== "long") {
+    if (CASES !== "long" && CASES !== "grown") {
       const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
       pairs.push(["running_x1", runningOne, emptyOne]);
     }
   }
-  const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
+  const emptyMany =
+    CASES === "running" || CASES === "grown" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
   if (emptyMany && CASES !== "grown-many")
     pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE }), emptyMany]);
   if (emptyMany && CASES !== "main" && CASES !== "long" && CASES !== "long-many")
