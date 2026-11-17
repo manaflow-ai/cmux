@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44089766798",
+  "recorded_at": "2026-11-17T13:20:05Z",
+  "reason": "cmux-tui 2954cbf3f5d4 changes the image's cmux-tui (pinned b64e62a7b217)",
+  "dry_run": false,
+  "cmux_tui": "2954cbf3f5d41f068ff46d1c110cbf0d9f0e8c25",
+  "fixes": [
+    {
+      "sha": "2954cbf3f5d41f068ff46d1c110cbf0d9f0e8c25",
+      "mergedAt": "2026-11-17T04:48:44-08:00",
+      "subject": "iOS media lane: video falls back into the tunnel at once when the media session dies (#45431)"
+    },
+    {
+      "sha": "fba2a308b63b5d963dd1feb64de2115f245471e3",
+      "mergedAt": "2026-11-17T04:48:20-08:00",
+      "subject": "Terminal and Chat: no toggle where a face cannot show; iOS toggle off by default (#45446)"
+    },
+    {
+      "sha": "905f19627b1bf513c3b2590fe71990f0f3112957",
+      "mergedAt": "2026-11-17T04:43:47-08:00",
+      "subject": "Agent pane policy: known_params for _acpmux/harnesses matches the Swift table (base red) (#45450)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T13:20:05Z",
+    "snapshot_id": "sh-2dcb48a515c943f79627759973a0a159",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44089766798): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "58a3b901b5bb054f35e194a526f6ba34f43ccdc2",
+    "image": "cloud-native-auto-2954cbf3-44089766798-1",
+    "revision": "ci-44089766798-1",
+    "at": "2026-11-17T13:20:05Z"
+  },
+  "rolled_back": false
+}
