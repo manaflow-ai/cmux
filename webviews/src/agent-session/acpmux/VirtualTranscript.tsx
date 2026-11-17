@@ -427,7 +427,6 @@ const RowFrame = React.memo(function RowFrame({
   continuationFooter,
   lastTurn,
   index,
-  setSize,
   top,
   rowWidth,
   expanded,
@@ -484,7 +483,6 @@ const RowFrame = React.memo(function RowFrame({
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
   lastTurn: boolean;
   index: number;
-  setSize: number;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -636,7 +634,8 @@ const RowFrame = React.memo(function RowFrame({
       {...rowTabStop}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
-      aria-setsize={setSize}
+      // `aria-setsize` is not here: the transcript writes it to the mounted nodes, so a row that arrives
+      // does not change a prop on every other one (TranscriptView, `setSize`).
       // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
       // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
@@ -798,7 +797,6 @@ type RowFramesView = {
   geometry: { topAt(index: number): number; gapAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
-  setSize: number;
   rowWidth: number;
   expanded: Folds;
   observer: ResizeObserver | undefined;
@@ -830,7 +828,7 @@ type RowFramesView = {
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
 function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
-  const { rows, geometry, setSize } = view;
+  const { rows, geometry } = view;
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
@@ -860,7 +858,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
-      inputs.setSize = setSize;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
       inputs.selected = view.selectedRows.has(absoluteIndex);
@@ -906,7 +903,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           continuationFooter={isContinuationFooter(row, next)}
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
-          setSize={setSize}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -6825,7 +6821,6 @@ function TranscriptView({
     geometry: layout.geometry,
     frameKey,
     registry,
-    setSize: canLoadOlder ? -1 : rows.length,
     rowWidth: scaledRowWidth,
     expanded,
     observer,
@@ -6851,6 +6846,21 @@ function TranscriptView({
     githubRepository,
     rowRepositories,
     scopeAt,
+  });
+  /// `aria-setsize` on the mounted rows, written to the nodes instead of passed to each one. It is a
+  /// whole-list number (`rows.length`, or -1 while older history can still be paged in), so a row
+  /// that arrived changed it for every mounted row at once and React redrew them all: at 1,500 rows
+  /// while a reply streamed, `rowprop:setSize` was the first differing prop in 34 of the p95 frame's
+  /// 41 row renders (composer-typing.bench.ts, cmux#45237). A row that arrives must cost its own
+  /// draw, not the mounted window's. A screen reader reads the attribute, and this is one string
+  /// compare per mounted row before the frame paints. Written every commit, so a row that mounts
+  /// gets it in the commit that mounts it.
+  const setSize = String(canLoadOlder ? -1 : rows.length);
+  useLayoutEffect(() => {
+    const threadNode = thread.current;
+    if (!threadNode) return;
+    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row"))
+      if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
   });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
