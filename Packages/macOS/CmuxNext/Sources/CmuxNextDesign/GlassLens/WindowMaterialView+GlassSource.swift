@@ -4,9 +4,9 @@ import AppKit
 /// as drawn, before its blur, where it lies, its blur and the wash over it.
 extension WindowMaterialView {
     /// The art pages may refract now: nil under the solid sheet, without art, under a moving
-    /// wallpaper, or where the desktop shows through more than a little of the art.
+    /// or living wallpaper, or where the desktop shows through more than a little of the art.
     var glassStill: NSImage? {
-        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, Self.refractsArt(opacity: artOpacity) else { return nil }
+        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, !showsShader, Self.refractsArt(opacity: artOpacity) else { return nil }
         return artImage
     }
 
