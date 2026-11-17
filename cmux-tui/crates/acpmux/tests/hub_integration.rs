@@ -164,7 +164,9 @@ impl TestClient {
                 && rid == id
             {
                 return match error {
-                    Some(e) => Err(e.message),
+                    Some(e) => Err(e
+                        .data
+                        .map_or(e.message.clone(), |data| format!("{}: {}", e.message, data))),
                     None => Ok(result.unwrap_or(Value::Null)),
                 };
             }

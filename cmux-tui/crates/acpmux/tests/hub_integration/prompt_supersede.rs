@@ -271,10 +271,8 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     let session = c.new_session().await;
     c.busy(&session, None).await;
     hub.shutdown_all().await;
-    // Decision 455 / server::serve_connection_from: the stopped request gets no reply. The
-    // turn itself continues after its future is dropped (401); hub::turns.rs records its handoff
-    // when the agent exits. Wait for that hub-side transition, rather than reading the stopped
-    // connection or sleeping.
+    // The stopped request gets no reply. The turn continues after its future is dropped;
+    // `hub/turns.rs:1090-1094` clears `Session::turn` when the agent exit is handed off.
     tokio::time::timeout(Duration::from_secs(30), async {
         while hub.resolve(&session).is_ok_and(|s| s.turn().is_some()) {
             tokio::task::yield_now().await;
@@ -287,6 +285,8 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
 
     let hub = durable_hub(&dir);
     let mut c = Client::open(&hub);
+    let ends = c.records(&session, "turn_result").await;
+    assert!(ends.is_empty(), "the handed-off turn wrote an end: {ends:?}");
     let queued = c.records(&session, "queued").await;
     assert!(
         queued.iter().any(|m| m["promptId"] == "p-run~resume-1"),

@@ -24,7 +24,12 @@ async fn no_agent_starts_once_the_shutdown_has_begun() {
             json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "during-quit"}}}),
         )
         .await;
-    assert!(fresh.as_ref().is_err_and(|e| e.contains("shutting down")), "{fresh:?}");
+    assert!(
+        fresh.as_ref().is_err_and(|e| e.contains("shutting down") && e.contains("created")),
+        "{fresh:?}"
+    );
+    assert!(fresh.as_ref().is_err_and(|e| e.contains("false")), "{fresh:?}");
+    assert_eq!(hub.session_counts().0, 1, "the refused create inserted a session");
     let respawn = c
         .request(
             method::SESSION_PROMPT,
