@@ -206,11 +206,15 @@ not a wait (SAMPLE_LIMIT). The sampler's report is the file `sample-hold/sample.
 no report (the sampler did not start, its exit was not 0, the report has no main thread) keeps its row, says why
 in `sample.error`, and is a failure of the run.
 
+`build`: the form of the app's build, as the entry script read it from the reload's log (build-flags.py; --build
+FILE): the reload's `bench configuration` line, the optimization settings of the build's command line, and the
+count of the Swift compiler's command lines with each optimization level. With no file it says `not_read`.
+
 Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out; with --artifact FILE it also packs the
-report, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0 when each row
-measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a valid row; 1
-when the preflight failed or a round has no valid row (the run ends after that round); 3 when it cannot run as
-asked (no report file then). See `exit_code`.
+report, the --build file, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0
+when each row measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a
+valid row; 1 when the preflight failed or a round has no valid row (the run ends after that round); 3 when it
+cannot run as asked (no report file then). See `exit_code`.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
 import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
@@ -819,14 +823,27 @@ def restore(builder, workspace, pane, state):
     return (state if left else want), left, len(came)
 
 
-def pack(out, film, target):
-    """ONE file for a step to bring back (a step's command names one artifact): the report, each take's record and
-    signpost stream, the sampler's report of the sample take, and with a film its frames.json and each fifth frame.
-    Returns the names in it."""
+def build_facts(path):
+    """The report's `build`: the entry script's read of the reload's log (build-flags.py), or why there is none."""
+    if not path:
+        return {"not_read": "no --build file: the entry script gives it"}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError) as error:
+        return {"not_read": f"{path}: {error!r}"}
+
+
+def pack(out, film, target, build=None):
+    """ONE file for a step to bring back (a step's command names one artifact): the report, the build's form (the
+    --build file), each take's record and signpost stream, the sampler's report of the sample take, and with a film
+    its frames.json and each fifth frame. Returns the names in it."""
     names = {f"{found.parent.name}/{found.name}": found
              for kind in ("scenario.json", "run.ndjson", SAMPLE_FILE) for found in sorted(Path(out).glob(f"*/{kind}"))}
     if (Path(out) / "report.json").exists():
         names["report.json"] = Path(out) / "report.json"
+    if build and Path(build).exists():
+        names["build-flags.json"] = Path(build)
     frames = Path(film) / "frames" if film else None
     if frames and (frames / "frames.json").exists():
         names.update({f"film/{found.name}": found for found in [frames / "frames.json"] + sorted(frames.glob("frame-*[05].jpg"))})
@@ -1704,6 +1721,7 @@ def main():
                         help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
+    parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for the report and the artifact")
     for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
@@ -1718,7 +1736,7 @@ def main():
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
               "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "session_limit": SEED_LIMIT,
-              "rows": [], "failures": []}
+              "build": build_facts(opts.build), "rows": [], "failures": []}
     # No osascript in a step: the launcher leaves the sound as it is and its read of the mute state is a no-op.
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
     forms, app = list(LAUNCH_FORMS[opts.launch_form]), None
@@ -1758,7 +1776,7 @@ def main():
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
     if opts.artifact:
         try:
-            print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact))} files", flush=True)
+            print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact, opts.build))} files", flush=True)
         except (OSError, tarfile.TarError) as error:
             print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
     return exit_code(report, opts.rounds)

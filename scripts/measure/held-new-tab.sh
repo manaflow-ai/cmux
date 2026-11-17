@@ -9,8 +9,12 @@
 #     [--arg=--workspaces=N] [--arg=--repeat-delay-ms=MS] [--arg=--repeat-ms=MS] [--arg=--film] [--arg=--no-gate] \
 #     [--arg=--launch-form=auto|activate|one-key] [--arg=--allow-no-chromium] --artifact held-new-tab.tgz
 # A step brings back ONE --artifact (of 2 the client keeps the last): held-new-tab.tgz is the report, each take's
-# record and signpost stream, and with --film frames.json and each fifth JPEG frame; held-new-tab.json is the report
-# alone (the bench `newtab` asks for that one).
+# record and signpost stream, build-flags.json, and with --film frames.json and each fifth JPEG frame;
+# held-new-tab.json is the report alone (the bench `newtab` asks for that one).
+# The report's `build` and build-flags.json say the form of the app's build, from the reload's own log
+# (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
+# command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's
+# log has them in one `BUILD-FLAGS` line.
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
 # (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
 # --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2).
@@ -71,6 +75,9 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
+# The form of the build, for the report and the artifact. A fault of this read stops no measure: the report then
+# says that the build's form was not read.
+python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/build-flags.json" || true
 vdisplay_pid="" display="real"
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
@@ -101,7 +108,7 @@ if [[ -n "$vdisplay_hz" ]]; then
 fi
 status=0
 python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" \
-  --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
+  --build "$out/build-flags.json" --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
 # An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
 # tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step: the log's HELD-NEW-TAB

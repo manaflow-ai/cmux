@@ -160,6 +160,11 @@ the zoom and the turned zoom, each at `fast` and at `normal`), `all`. Exit 0 = e
 made; 2 = some are made and some are not; 1 = the preflight failed, or no film is made; 3 = not run (no app, an id
 that is not known). Only `made` counts: a film that is `not_made` is not made, and a film with the word `made, the
 new window not checked in the movie` is not counted.
+
+films.json has `build`: the form of the app's build, as the entry script read it from the reload's log
+(build-flags.py; --build FILE): the reload's `bench configuration` line, the optimization settings of the build's
+command line, and the count of the Swift compiler's command lines with each optimization level. With no file it
+says `not_read`.
 """
 import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
@@ -1386,6 +1391,17 @@ class Films:
         return left
 
 
+def build_facts(path):
+    """The report's `build`: the entry script's read of the reload's log (build-flags.py), or why there is none."""
+    if not path:
+        return {"not_read": "no --build file: the entry script gives it"}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError) as error:
+        return {"not_read": f"{path}: {error!r}"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--app", help="a bench `cmux DEV <tag>.app` to launch (not running)")
@@ -1411,6 +1427,7 @@ def main():
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     parser.add_argument("--budget", type=float, default=0, help="seconds for the whole run; a film with no time left is not_run (0: no bound)")
+    parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for films.json")
     opts = parser.parse_args()
     known = [spec["id"] for spec in FILMS]
     if opts.films == "list":
@@ -1430,7 +1447,7 @@ def main():
     needs_mock = [i for i in wanted if next(s for s in FILMS if s["id"] == i)["setup"] in MOCK_SETUPS]
     plan = [(False, [i for i in wanted if i not in needs_mock]), (True, needs_mock)] if opts.chat_mock == "auto" else [(opts.chat_mock == "1", wanted)]
     report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
-              "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
+              "alt_screen": "not read: no debug call says if a terminal is on its alternate screen", "build": build_facts(opts.build)}
     forms = list(LAUNCH_FORMS[opts.launch_form])
     try:
         report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"
