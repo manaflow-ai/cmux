@@ -224,6 +224,16 @@ import Testing
         #expect(overlay.sessionCount == 0)
     }
 
+    /// RED on the base: the overlay hides every cursor 4 s after its last event, so a cursor
+    /// does not stay while the agent thinks between actions (Codex keeps its cursor).
+    @MainActor @Test func theCursorStaysThroughThinkingPausesAndHidesOnlyWhenItsSessionEnds() {
+        let overlay = AgentCursorOverlay(reduceMotion: { true })
+        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 100, y: 100)))
+        overlay.show(AgentCursorEvent(kind: .look, session: "b", label: "Codex", at: CGPoint(x: 300, y: 300)))
+        RunLoop.main.run(until: Date().addingTimeInterval(5))
+        #expect(overlay.sessionCount == 2)
+    }
+
     @MainActor @Test func approvalQuestionsQueueAndEndUnavailableOnStop() {
         let panel = ApprovalPanel()
         let answers = Answers()
