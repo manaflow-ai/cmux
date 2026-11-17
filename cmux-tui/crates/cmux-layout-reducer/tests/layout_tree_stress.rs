@@ -378,9 +378,9 @@ fn layout_tree_stress_sweep() {
 /// cost that grows with the whole layout grows with every workspace a person
 /// opens. Today it does not hold: `apply` clones the whole state and checks
 /// every pane twice, and the daemon projects its whole state around it twice
-/// more (ISSUE_FOLLOW_UP). Run it with `--ignored` to see the gap.
+/// more (https://github.com/manaflow-ai/cmux/issues/45007). Run it with `--ignored` to see the gap.
 #[test]
-#[ignore = "apply is O(all panes) per command; follow-up ISSUE_FOLLOW_UP"]
+#[ignore = "apply is O(all panes) per command; follow-up https://github.com/manaflow-ai/cmux/issues/45007"]
 fn reducer_command_work_does_not_grow_with_untouched_workspaces() {
     let small = corpus(4, 0);
     let large = corpus(4, 5000);
