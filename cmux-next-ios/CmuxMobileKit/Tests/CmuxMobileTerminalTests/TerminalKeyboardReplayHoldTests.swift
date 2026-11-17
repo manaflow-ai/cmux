@@ -141,6 +141,20 @@ import Testing
         #expect(steps(&queue) == [.hostGrid(columns: 53, rows: 30), .bytes(reset)])
     }
 
+    @Test func whenTheNewestAnswerNeverComesOnlyTheLastQueuedOneIsFed() {
+        var queue = TerminalOutputQueue()
+        queue.append(hostGrid: 53, rows: 28, stale: true)
+        queue.append(reset)
+        queue.append(Data("replay28".utf8))
+        queue.append(hostGrid: 53, rows: 40, stale: true)
+        queue.append(reset)
+        queue.append(Data("replay40".utf8))
+        queue.keepLastStaleAnswer()
+        queue.clearStale()
+        #expect(queue.pendingBytes == reset.count + 8)
+        #expect(steps(&queue) == [.hostGrid(columns: 53, rows: 40), .bytes(reset + Data("replay40".utf8))])
+    }
+
     @Test func aGridWithNoStaleAnswerBeforeItDropsNothing() {
         var queue = TerminalOutputQueue()
         queue.append(Data("echo".utf8))

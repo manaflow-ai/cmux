@@ -62,7 +62,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
-    private let tuiHost = TerminalAreaHostView()
+    private let tuiHost = UIView()
+    /// Clips the area's height (`tuiHost`): rows the surface shifts above it
+    /// (the cursor row kept on screen while a taller grid is fed behind the
+    /// held still) never show in the sub-row band over row 1. As wide as
+    /// the page's clip, so a panned or wider grid reaches the side padding.
+    private let tuiAreaClip = UIView()
     private let bottomStack = UIView()
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
@@ -449,10 +454,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.isHidden = true
         tuiClip.translatesAutoresizingMaskIntoConstraints = false
         tuiHost.translatesAutoresizingMaskIntoConstraints = false
-        // Sideways the clip (`tuiClip`) bounds the area; the host clips
-        // only its height.
-        tuiHost.overhang = 4096
-        tuiClip.addSubview(tuiHost)
+        tuiAreaClip.clipsToBounds = true
+        tuiAreaClip.isUserInteractionEnabled = true
+        tuiAreaClip.translatesAutoresizingMaskIntoConstraints = false
+        tuiClip.addSubview(tuiAreaClip)
+        tuiAreaClip.addSubview(tuiHost)
         tuiBelowCover.isUserInteractionEnabled = false
         tuiBelowCover.translatesAutoresizingMaskIntoConstraints = false
         tuiBelowCover.backgroundColor = terminalBackground
@@ -671,6 +677,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiHost.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor, constant: Self.sidePadding),
             tuiHost.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor, constant: -Self.sidePadding),
             tuiHeight,
+            tuiAreaClip.topAnchor.constraint(equalTo: tuiHost.topAnchor),
+            tuiAreaClip.bottomAnchor.constraint(equalTo: tuiHost.bottomAnchor),
+            tuiAreaClip.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
+            tuiAreaClip.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
             tuiBelowCover.topAnchor.constraint(equalTo: tuiHost.bottomAnchor),
             tuiBelowCover.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
             tuiBelowCover.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
@@ -802,7 +812,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.sentRows = claimedTUIRows ?? 0
             sample.coverTop = probe.onScreen(tuiBelowCover, in: view).minY
             sample.areaTop = probe.onScreen(tuiHost, in: view).minY
-            sample.areaClips = tuiHost.clipsToBounds || tuiHost.layer.mask != nil
+            sample.areaClips = tuiHost.clipsToBounds || tuiHost.superview?.clipsToBounds == true
             sample.heldRows = freezeRows
             sample.heldID = freezeCount
             sample.clipTop = probe.onScreen(tuiClip, in: view).minY
@@ -1138,6 +1148,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self, !Task.isCancelled, self.output.nextHostGridIsStale || !self.claimsInFlight.isEmpty else { return }
             sizingLog.notice("the newest answer did not come: queued answers go to the screen")
             self.claimsInFlight.removeAll()
+            // Only the last answer queued is drawn: the replay gate counts
+            // the replay after the last reset, and the older ones' resets
+            // would end it early.
+            self.output.keepLastStaleAnswer()
             self.output.clearStale()
             self.scheduleOutput()
             if self.freezeView != nil, self.model.isTUI, self.heldFrameMayGo() { self.unfreeze() }
@@ -1168,6 +1182,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pruneClaims()
             output.markGridsStale()
             claimsInFlight.append((size, CACurrentMediaTime()))
+            // The Mac may keep its grid and not answer: the wait ends.
+            armStaleAnswerExpiry()
         }
         // The answer to this claim is a round trip away from now.
         if tuiGridHold.heldRows != nil { armGridHoldExpiry() }
@@ -1530,6 +1546,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 armStaleAnswerExpiry()
             } else if output.dropStaleAnswers() > 0 {
                 sizingLog.notice("older answers dropped: the newest one is \(columns, privacy: .public)x\(rows, privacy: .public)")
+                // A dropped grid may have been the one the keyboard hold
+                // waits for: the hold is judged again for the newest.
+                replayHold.gridTaken()
+                _ = replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows)
             }
             scheduleOutput()
         case .hostGridOwner(let name):
@@ -3764,7 +3784,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyboardClaim = false
         let wills = keyboardWills
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.predictionGrace) { [weak self] in
-            guard let self, self.keyboardWills == wills, self.model.isTUI, self.view.window != nil else { return }
+            guard let self, self.keyboardWills == wills, self.model.isTUI else { return }
+            // A page that left its window claims nothing, but its keyboard
+            // hold ends.
+            guard self.view.window != nil else { return self.apply(self.replayHold.keyboardStopped()) }
             sizingLog.notice("keyboard toggle not carried out: the page's rows are claimed again")
             self.keyboardStopped()
             self.view.layoutIfNeeded()

@@ -160,6 +160,24 @@ public struct TerminalOutputQueue: Sendable {
         }
     }
 
+    /// The newest answer did not come: only the last stale answer queued
+    /// stays (the older ones' resets would end its replay's count early).
+    public mutating func keepLastStaleAnswer() {
+        guard let last = items.lastIndex(where: { if case .hostGrid(_, _, true) = $0 { true } else { false } }),
+              let first = items[..<last].firstIndex(where: { if case .hostGrid(_, _, true) = $0 { true } else { false } }) else { return }
+        var dropped = 0
+        var kept: [Item] = []
+        for item in items[first..<last] {
+            switch item {
+            case .bytes(let chunks): dropped += chunks.reduce(0) { $0 + $1.count }
+            case .hostGrid: break
+            case .alternateScreen, .hostGridOwner: kept.append(item)
+            }
+        }
+        items.replaceSubrange(first..<last, with: kept)
+        pendingBytes -= dropped
+    }
+
     /// The newest answer starts here (the grid change just queued): the
     /// stale answers queued before it (a grid change, its mirror reset and
     /// replay, and any bytes after them) are dropped, because its own reset
