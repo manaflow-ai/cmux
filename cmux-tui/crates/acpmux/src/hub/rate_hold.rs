@@ -29,6 +29,7 @@
 
 use super::*;
 use std::sync::Mutex as StdMutex;
+use std::time::Duration;
 
 /// The context past which a chat is compacted before its first turn after a reset.
 pub(super) const COMPACT_BEFORE_TOKENS: u64 = 250_000;

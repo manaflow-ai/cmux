@@ -79,7 +79,6 @@ use crate::store::EventRecord;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
