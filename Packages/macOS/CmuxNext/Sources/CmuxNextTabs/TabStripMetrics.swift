@@ -48,6 +48,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
     /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
     public var busyUnreadMark: TabBusyUnreadMark?
+    /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
+    public var statusMarkPlacement: TabStatusMarkPlacement?
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
