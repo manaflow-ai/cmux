@@ -160,13 +160,13 @@ import UIKit
         #expect(theme.chatLook?.picture != nil)
     }
 
-    /// The SHA-256 check is callable off the main actor (the feed runs it in a detached task).
+    /// The SHA-256 check is callable off the main actor (the feed runs it in a detached task):
+    /// a main-actor `verified` would not compile here.
     @Test func thePictureIsCheckedOffTheMainActor() async throws {
         let (picture, id) = try Self.picture()
         let wallpaper = CmuxMobileMacAppearance.Wallpaper(id: id, bytes: picture.count, tintOpacity: 0.4)
-        let checked = await Task.detached { (MacAppearanceFeed.verified(picture, wallpaper), Thread.isMainThread) }.value
-        #expect(checked.0 == picture)
-        #expect(!checked.1)
+        let checked = await Task.detached { MacAppearanceFeed.verified(picture, wallpaper) }.value
+        #expect(checked == picture)
     }
 
     /// Match Mac theme turned back on fetches the focused Mac's picture this phone lacks, at once.
