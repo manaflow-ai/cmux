@@ -39,15 +39,23 @@ import Testing
         try #require(glass.count == 1, "SETUP: the overlay dock shows \(glass.count) backdrops at rest")
         let before = Commit.shown(screen)
         try #require(before.panes.count == 3, "SETUP: the screen does not show its 3 panes at rest: \(before.panes)")
+        // The display frame that shows the zoom: the one after the frame at which the dim over the other panes has had its
+        // fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        let first = PaneZoomDimTests.showFrame(of: screen)
 
         harness.model.apply(screens: Self.screens(zoomedOn: "p1"))
         harness.root.syncWithModel()
         // The zoom's own turn: the screen still shows the layout with the dock, whole.
         try #require(Commit.same(Commit.shown(screen), before), "SETUP: the zoom's own turn changed the panes the screen shows")
         #expect(Self.backdrops(screen) == glass, "the zoom's own turn took the backdrop from under the dock's panes: \(Self.backdrops(screen))")
+        // While the dim comes the screen shows that layout still, and the dock keeps its backdrop.
+        for tick in 1..<first {
+            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+            #expect(Self.backdrops(screen) == glass, "frame \(tick), before the zoom shows, took the backdrop from under the dock's panes")
+        }
 
         _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
-        try #require(Set(Commit.shown(screen).panes.keys) == ["p1"], "SETUP: the first frame does not show the zoomed pane alone")
+        try #require(Set(Commit.shown(screen).panes.keys) == ["p1"], "SETUP: display frame \(first) does not show the zoomed pane alone")
         #expect(Self.backdrops(screen).isEmpty, "the frame that shows the zoom still shows the dock's backdrop: \(Self.backdrops(screen))")
     }
 

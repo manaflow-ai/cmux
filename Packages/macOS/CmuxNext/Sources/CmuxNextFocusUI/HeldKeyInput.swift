@@ -26,6 +26,14 @@ public enum HeldKeyInput: Equatable, Sendable {
         return (inputs, skipped)
     }
 
+    /// The inputs of `events` for the daemon's terminal (``inputs(for:optionAsAlt:)``). The keys with no daemon name are
+    /// left out, and `log` says how many (``CreationHoldLog/keysHadNoDaemonKeyName(_:)``).
+    public static func inputs(for events: [NSEvent], optionAsAlt: String?, log: CreationHoldLog) -> [HeldKeyInput] {
+        let (inputs, skipped) = Self.inputs(for: events, optionAsAlt: optionAsAlt)
+        if skipped > 0 { log.keysHadNoDaemonKeyName(skipped) }
+        return inputs
+    }
+
     /// `event` as the daemon takes it: a named key (Return, an arrow, F5), a chord with Control or Command, or an Option
     /// key that `optionAsAlt` makes Alt (ESC and the base key, as the view's encoder sends) is a `key`; other typing
     /// (Option included when it is not Alt: what macOS composed) is `text`.
