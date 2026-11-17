@@ -8462,6 +8462,30 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         self.assertEqual((code, api.calls), (0, ["run"]))
         self.assertIn("not watched: attempt 2 of a delivery build", summary)
 
+    def test_a_dispatch_of_attempt_1_looks_again_until_the_long_owned_wait_places_it_again(self):
+        # cmux#44805's run 44067910921 (2026-11-17): attempt 1's "cmux app scheme compile (Debug)" waited 5 hours on
+        # glaeda-side-std-xcode-26.6. A dispatch naming it watched attempt 1 as its workflow_run event does, so the
+        # watch, dating the wait from its own first sighting, ended at its first open-head answer. A dispatch of
+        # attempt 1 now looks again like a later attempt's (Target.dispatched).
+        clock, api, target = self.busy_side_world(1, workflow=self.BOT_PLACED)
+        rows = [{**row, "conclusion": "success"} if row.get("conclusion") == "failure" else row
+                for row in api.jobs_at(0)]
+        api.jobs_at = api.rerun_jobs = with_ids(lambda seconds, rows=rows: [dict(row) for row in rows])
+        live_run = api.run
+        named = {"id": RUN_ID, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "event": "pull_request",
+                 "head_sha": HEAD, "head_branch": "feature", "head_repository": {"full_name": "manaflow-ai/cmux"},
+                 "pull_requests": [{"number": 27797}], "triggering_actor": {"login": CMUX_BOT},
+                 "run_started_at": stamp(-600), "name": "cmux-next", "display_title": "a change"}
+        api.run = lambda run_id: {**named, **live_run(run_id)}
+        api.pull = lambda number: (api.calls.append("pull"), {"state": "open", "head": {"sha": HEAD}})[1]
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                                 payload={"inputs": {"run_id": str(RUN_ID)}})
+        self.assertEqual(code, 0, summary)
+        self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (summary, api.calls))
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(api.first_cancel, rescue.OWNED_REPLACE_SECONDS, "dated from the watch's first look")
+
     def test_a_dispatched_watch_looks_again_until_the_long_owned_wait_places_the_run_again(self):
         # Run 44018861106's dispatched watch (2026-11-17 15:46Z, after #45601): its fast tier had waited on
         # glaeda-side-std-xcode-26.6 since 07:49Z, but a watch dates a wait from its own first sighting, so the
@@ -8496,15 +8520,20 @@ class OpenHeadPlacementRerun(unittest.TestCase):
 
     def test_a_dispatched_watch_of_a_run_with_a_running_job_ends_at_its_limit_with_nothing_cancelled(self):
         clock, api, target = self.busy_side_world(4, workflow=self.BOT_PLACED, extra={"dispatched": True})
-        rows = api.jobs_at(0)
+        # No job red (a red `checks` would keep the watch looking by itself): the open head keeps the run, and the
+        # dispatched watch looks again (follow()) without ever cancelling it.
+        rows = [{**row, "conclusion": "success"} if row.get("conclusion") == "failure" else row
+                for row in api.jobs_at(0)]
         rows.append(job("cmux-next swift test", status="in_progress", labels=[SIDE_STD], runner="mini-3"))
         api.jobs_at = api.rerun_jobs = with_ids(lambda seconds, rows=rows: [dict(row) for row in rows])
+        lines = []
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                                   log=lambda _: None, side_seconds=30)
+                                   log=lines.append, side_seconds=30)
         self.assertNotIn("cancel", api.calls, result)
         self.assertFalse([call for call in api.calls if call.startswith("rerun")], api.calls)
         self.assertTrue(result.startswith("stopped: watch limit reached"), result)
+        self.assertGreater(sum(rescue.OPEN_HEAD_RULE in line for line in lines), 1, lines)
         self.assertLessEqual(clock.seconds, target.watch_limit + rescue.RESCUE_GRACE_SECONDS + 600)
 
     # cmux-next.yml's fast tier as feat-cmux-next has it: its runs-on reads the placement's light_jobs on the attempt
