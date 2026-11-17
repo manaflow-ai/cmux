@@ -93,7 +93,10 @@ pub fn limits(family: Option<&str>) -> Limits {
 /// model-sized copy after each large PNG link to one of the chat's uploads (module docs).
 /// Never fails. A block that gets no copy stays as it was.
 pub async fn add(session: &str, family: Option<&str>, blocks: &[Value]) -> Vec<Value> {
-    if !blocks.iter().any(|b| upload_png(session, b).is_some()) {
+    // Which links are uploads is read from the files ([`upload_png`]), so even that check runs off
+    // the runtime; a prompt with no link at all does not leave it.
+    let link = |b: &Value| b.get("type").and_then(Value::as_str) == Some("resource_link");
+    if !blocks.iter().any(link) {
         return blocks.to_vec();
     }
     let (session, limits, owned) = (session.to_owned(), limits(family), blocks.to_vec());
@@ -479,12 +482,13 @@ fn rgba(row: &[u8], channels: usize, w: u32) -> impl Iterator<Item = [u8; 4]> + 
     })
 }
 
-/// A JPEG's width and height from its frame header.
+/// A JPEG's width and height from its frame header, read here: zune-jpeg's header reader refuses
+/// a side past 16384 px by default, and a phone's panorama is wider (#45031 review). The area
+/// bound ([`copyable`]) is what limits a copy.
 fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    let mut decoder = zune_jpeg::JpegDecoder::new(zune_core::bytestream::ZCursor::new(bytes));
-    decoder.decode_headers().ok()?;
-    let info = decoder.info()?;
-    Some((u32::from(info.width), u32::from(info.height)))
+    crate::image_privacy::jpeg_frame(bytes)
+        .map(|(_, _, w, h)| (w, h))
+        .filter(|&(w, h)| w > 0 && h > 0)
 }
 
 /// The JPEG `bytes` scaled down (never up) so its long edge is at most `max_edge`, by area
@@ -631,6 +635,11 @@ pub(crate) mod tests {
     /// block is flat and is its DC term alone (quantizer 1, the standard DC table, AC all EOB).
     /// No JPEG encoder is a dependency; this one writes only what the test needs.
     pub(crate) fn checker_jpeg(n: u32) -> Vec<u8> {
+        checker_jpeg_of(n, n)
+    }
+
+    /// [`checker_jpeg`], `w`x`h` (each a multiple of 8).
+    pub(crate) fn checker_jpeg_of(w: u32, h: u32) -> Vec<u8> {
         let mut out = vec![0xff, 0xd8];
         let segment = |out: &mut Vec<u8>, marker: u8, body: &[u8]| {
             out.extend([0xff, marker]);
@@ -640,9 +649,9 @@ pub(crate) mod tests {
         let mut dqt = vec![0u8];
         dqt.extend([1u8; 64]);
         segment(&mut out, 0xdb, &dqt);
-        let (h, w) =
-            (u16::try_from(n).unwrap().to_be_bytes(), u16::try_from(n).unwrap().to_be_bytes());
-        segment(&mut out, 0xc0, &[8, h[0], h[1], w[0], w[1], 1, 1, 0x11, 0]);
+        let (hb, wb) =
+            (u16::try_from(h).unwrap().to_be_bytes(), u16::try_from(w).unwrap().to_be_bytes());
+        segment(&mut out, 0xc0, &[8, hb[0], hb[1], wb[0], wb[1], 1, 1, 0x11, 0]);
         let mut dht = vec![0x00, 0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
         dht.extend(0..=11u8);
         segment(&mut out, 0xc4, &dht);
@@ -678,8 +687,8 @@ pub(crate) mod tests {
             }
         };
         let mut previous = 0i32;
-        for by in 0..n / 8 {
-            for bx in 0..n / 8 {
+        for by in 0..h / 8 {
+            for bx in 0..w / 8 {
                 let dc = if (bx + by).is_multiple_of(2) { 8 * 127 } else { -8 * 128 };
                 let diff = dc - previous;
                 previous = dc;

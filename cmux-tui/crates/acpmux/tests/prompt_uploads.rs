@@ -8,6 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/jpeg_fixture.rs"]
+mod jpeg_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -1292,4 +1294,14 @@ async fn a_link_after_another_picture_still_gets_its_copy() {
         .filter(|e| e.file_name().to_string_lossy().starts_with(".model-"))
         .collect();
     assert!(!copies.is_empty(), "no copy for a link after another picture: {}", c.text);
+}
+
+/// #45031 review at fa139e4: a JPEG wider than 16384 px (a phone's panorama) is fitted. zune-jpeg's
+/// header reader refused it by default, so it went to the model at full size and was refused there.
+#[test]
+fn a_panorama_wider_than_16k_is_fitted() {
+    let wide = jpeg_fixture::checker_jpeg_of(17_024, 64);
+    let limits = acpmux::model_copies::limits(Some("claude"));
+    let (_, w, h) = acpmux::model_copies::fitted(&wide, limits).expect("a panorama is fitted");
+    assert_eq!((w, h), (1568, 6));
 }
