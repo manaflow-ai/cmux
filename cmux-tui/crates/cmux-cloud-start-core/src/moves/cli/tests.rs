@@ -235,6 +235,60 @@ fn a_trust_answer_names_this_macs_level_else_none() {
     assert_eq!(level("crashed"), None);
 }
 
+/// `link sync on-send` before a send to a Cloud chat whose folder came from this Mac: bounded by
+/// `--within` (default 3 s) plus 2 s, and read for the agent's note only when files are still
+/// arriving. Every other outcome sends the message as it is.
+#[test]
+fn an_on_send_push_is_bounded_and_names_a_note_only_while_files_arrive() {
+    let call = |value: Value| invocation(&serde_json::from_value(value).unwrap());
+    let bounded = call(json!({"verb": "sync-on-send", "socket": "/s", "local": "/Users/me/app",
+        "remote": "/root/app"}));
+    assert_eq!(
+        bounded.args,
+        [
+            "link",
+            "sync",
+            "on-send",
+            "--socket",
+            "/s",
+            "--within",
+            "3000",
+            "/Users/me/app",
+            "/root/app"
+        ]
+    );
+    assert_eq!(bounded.timeout_seconds, Some(5));
+    let short = call(json!({"verb": "sync-on-send", "socket": "/s", "local": "/l", "remote": "/r",
+        "withinMs": 1500}));
+    assert!(short.args.windows(2).any(|pair| pair == ["--within", "1500"]), "{:?}", short.args);
+    assert_eq!(short.timeout_seconds, Some(4));
+    let context = |stdout: &str| {
+        read(Reading::SyncOnSend, &output(stdout, "", 0))["onSend"]["context"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    let note = "Files changed on the person's Mac are still arriving in this folder.";
+    let arriving = json!({"ok": true, "state": "arriving", "notice": note}).to_string();
+    assert_eq!(context(&arriving).as_deref(), Some(note));
+    assert_eq!(context(r#"{"ok":true,"state":"unchanged"}"#), None);
+    assert_eq!(
+        context(r#"{"ok":true,"state":"sent","written":2,"deleted":0,"conflicts":[]}"#),
+        None
+    );
+    assert_eq!(context(r#"{"ok":true,"state":"sent","notice":"stale"}"#), None);
+    assert_eq!(context(r#"{"ok":true,"state":"arriving","notice":"  "}"#), None);
+    let long = "x".repeat(SYNC_ON_SEND_MAX_NOTE_BYTES + 1);
+    assert_eq!(
+        context(&json!({"ok": true, "state": "arriving", "notice": long}).to_string()),
+        None
+    );
+    assert_eq!(
+        context(r#"{"ok":false,"error":"never pushed","error_code":"seed.no_previous"}"#),
+        None
+    );
+    assert_eq!(context("crashed"), None);
+}
+
 #[test]
 fn each_verb_carries_its_arguments() {
     let call = |value: Value| invocation(&serde_json::from_value(value).unwrap());

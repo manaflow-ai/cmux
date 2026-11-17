@@ -20,6 +20,11 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// Cloud team member's. A client without the verb queues it as a plain prompt.
     func prompt(id: String, text: String, steer: Bool) async throws -> Data
     func prompt(id: String, content: Data, steer: Bool) async throws -> Data
+    /// A prompt with `context`, hidden text for the agent beside the person's words (acpmux's
+    /// prompt context, `agent-session-prompt-context-v1`; the owner's only). A client or daemon
+    /// without it sends the prompt alone: the send never fails for it.
+    func prompt(id: String, text: String, steer: Bool, context: String?) async throws -> Data
+    func prompt(id: String, content: Data, steer: Bool, context: String?) async throws -> Data
     /// The owner runs (`approve`) or drops a prompt held for them, a link guest's
     /// (`agent-session-queue-decision-v1`).
     func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data
@@ -85,6 +90,13 @@ extension AgentSessionRemoteClient {
     /// A client without `agent-session-steer-v1` queues a steer as a plain prompt.
     public func prompt(id: String, text: String, steer: Bool) async throws -> Data { try await prompt(id: id, text: text) }
     public func prompt(id: String, content: Data, steer: Bool) async throws -> Data { try await prompt(id: id, content: content) }
+    /// A client without `agent-session-prompt-context-v1` sends the prompt without its context.
+    public func prompt(id: String, text: String, steer: Bool, context: String?) async throws -> Data {
+        try await prompt(id: id, text: text, steer: steer)
+    }
+    public func prompt(id: String, content: Data, steer: Bool, context: String?) async throws -> Data {
+        try await prompt(id: id, content: content, steer: steer)
+    }
     /// A client without `agent-session-queue-decision-v1` cannot decide a held prompt.
     public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data { throw Self.queueDecisionUnsupported }
     public func queueDecline(promptID: String) async throws -> Data { throw Self.queueDecisionUnsupported }

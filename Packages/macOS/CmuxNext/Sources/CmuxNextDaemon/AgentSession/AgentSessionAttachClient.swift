@@ -132,6 +132,8 @@ public actor AgentSessionAttachClient {
         var context = false
         /// `agent-session-steer-v1`.
         var steer = false
+        /// `agent-session-prompt-context-v1`.
+        var promptContext = false
         /// `agent-session-queue-decision-v1`.
         var queueDecision = false
         /// `agent-session-btw-v1`.
@@ -414,10 +416,13 @@ public actor AgentSessionAttachClient {
 
     /// `steer`: into the running turn (`agent-session-steer-v1`); a daemon without it queues the
     /// prompt as before (it would refuse the field), and a link guest's is held whatever it says.
-    public func prompt(id: String, text: String, steer: Bool = false) async throws -> Data {
+    /// `context`: hidden text for the agent beside the person's words (`agent-session-prompt-context-v1`);
+    /// a daemon without it gets the prompt alone (it would refuse the field), never a refused send.
+    public func prompt(id: String, text: String, steer: Bool = false, context: String? = nil) async throws -> Data {
         let (transport, served) = try await liveConnection()
         var params: [String: any Sendable] = ["prompt_id": id, "text": text]
         if steer, served.steer { params["steer"] = true }
+        if let context, served.promptContext { params["context"] = context }
         return try await call("agent-session-prompt", params, on: transport)
     }
 
@@ -443,9 +448,10 @@ public actor AgentSessionAttachClient {
     }
 
     /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
-    public func prompt(id: String, content: Data, steer: Bool = false) async throws -> Data {
+    public func prompt(id: String, content: Data, steer: Bool = false, context: String? = nil) async throws -> Data {
         let (transport, served) = try await liveConnection()
         let steered = steer && served.steer
+        let context = served.promptContext ? context : nil
         guard served.content else {
             // Older daemons still accept pasted text as plain text. Never discard media to
             // make a prompt fit the legacy contract, and never send a field they would refuse.
@@ -456,10 +462,12 @@ public actor AgentSessionAttachClient {
             let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
             var params: [String: any Sendable] = ["prompt_id": id, "text": text]
             if steered { params["steer"] = true }
+            if let context { params["context"] = context }
             return try await call("agent-session-prompt", params, on: transport)
         }
         var params: [String: any Sendable] = ["prompt_id": id]
         if steered { params["steer"] = true }
+        if let context { params["context"] = context }
         return try await call("agent-session-prompt", params, json: ["content": content], on: transport)
     }
 
@@ -909,6 +917,7 @@ public actor AgentSessionAttachClient {
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             steer: identity.supports(DaemonCapability.agentSessionSteer.rawValue),
+                            promptContext: identity.supports(DaemonCapability.agentSessionPromptContext.rawValue),
                             queueDecision: identity.supports(DaemonCapability.agentSessionQueueDecision.rawValue),
                             btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))
             _ = try await DaemonConnection.perform(

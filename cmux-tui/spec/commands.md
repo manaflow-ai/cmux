@@ -10453,6 +10453,17 @@ prompt (at most 64 KiB; `prompt_id` 1 to 128 letters, digits, `-` or `_`) as a
 single ACP text content block and answers once acpmux recorded it:
 `{prompt_id, turn_id, queued}`. The reply streams as records.
 
+`agent-session-prompt-context-v1` (advertised with `agent-session-attach-v1`):
+the prompt also takes `context`, 1 to 16 KiB of text for the agent beside the
+person's words. The daemon sends it as acpmux's hidden prompt context
+(`_meta.acpmux.context`): the agent reads it, and the transcript, the chat list
+and the title leave it out. Only the chat's owner sends one: from a teammate, a
+link guest or the Cloud mobile carrier it is `agent_session.not_trusted`. A
+daemon without the capability refuses the field (`agent_session.bad_request`),
+so a client sends it only to a daemon that lists it. The owner's Mac uses it
+when files changed there are still arriving on the machine
+(`cmux link sync on-send` answered `arriving`).
+
 ### agent-session-cancel
 
 `{id, cmd:"agent-session-cancel", surface}` cancels the running turn.

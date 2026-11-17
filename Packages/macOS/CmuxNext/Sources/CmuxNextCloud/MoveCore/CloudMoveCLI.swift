@@ -181,6 +181,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return StartChatPreflightRefusal(answer: answer)
     }
 
+    /// `cmux link sync on-send`: right before a send to a Cloud chat whose folder came from this Mac (`local`, at
+    /// `remote` on the machine), the files changed here since the last push reach the machine, waiting `within` at
+    /// most (the push goes on behind in its own process). Answers the note for the agent while files are still
+    /// arriving, else nil: nothing changed, sent, refused, failed or killed alike. Never throws; the send goes anyway.
+    public func syncOnSend(socket: String, local: String, remote: String, within: Duration = .seconds(3)) async -> String? {
+        struct Call: Encodable { var verb = "sync-on-send"; var socket: String, local: String, remote: String, withinMs: Int64 }
+        let ms = within.components.seconds * 1000 + within.components.attoseconds / 1_000_000_000_000_000
+        // The CLI answers by `within` + 300 ms; past `within` + 2 s it is killed and the send goes on.
+        let read = try? await run(Call(socket: socket, local: local, remote: remote, withinMs: ms), reading: "sync-on-send",
+                                  limit: within + .seconds(2))
+        return read?.onSend?.context
+    }
+
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
     public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
@@ -456,20 +469,23 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private struct Read: Decodable {
         struct Copy: Decodable { var chat: String, folder: String, copied: Bool, sourceTrusted: Bool }
         struct Trust: Decodable { var level: String? }
+        struct OnSend: Decodable { var state: String?, context: String? }
         var answer: Answer
         var plan: StartChatPlan?
         var copy: Copy?
         var trust: Trust?
+        var onSend: OnSend?
         /// The reservation's answer object, as JSON.
         var object: Data?
 
-        enum CodingKeys: String, CodingKey { case answer, plan, copy, trust, object }
+        enum CodingKeys: String, CodingKey { case answer, plan, copy, trust, onSend, object }
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             answer = try container.decode(Answer.self, forKey: .answer)
             plan = try container.decodeIfPresent(StartChatPlan.self, forKey: .plan)
             copy = try container.decodeIfPresent(Copy.self, forKey: .copy)
             trust = try container.decodeIfPresent(Trust.self, forKey: .trust)
+            onSend = try container.decodeIfPresent(OnSend.self, forKey: .onSend)
             object = try container.decodeIfPresent(JSONValue.self, forKey: .object).flatMap { try? JSONEncoder().encode($0) }
         }
 

@@ -94,6 +94,15 @@ pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
 pub const AGENT_SESSION_LOGIN_MACHINE_CAPABILITY: &str = "agent-session-login-machine-v1";
 /// Owner-only context inventory and cmux-added overrides on the attached session.
 pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
+/// `agent-session-prompt` takes `context`: text for the agent beside the person's words, sent as
+/// acpmux's hidden prompt context (`_meta.acpmux.context`, acpmux `prompt_context.rs`), which the
+/// transcript, the chat list and the title leave out. The owner's Mac uses it to tell the agent
+/// that files changed there are still arriving (`cmux link sync on-send`'s `arriving`). Only the
+/// chat's owner: never a teammate, a link guest or the Cloud mobile carrier, so no one hides text
+/// from the person. A daemon without it refuses the field, so a client sends it only when listed.
+pub const AGENT_SESSION_PROMPT_CONTEXT_CAPABILITY: &str = "agent-session-prompt-context-v1";
+/// The longest prompt context, in bytes (acpmux `prompt_context::MAX_BYTES`).
+pub const MAX_PROMPT_CONTEXT_BYTES: usize = 16 * 1024;
 /// `agent-session-btw`: the composer's `/btw <question>` on a Cloud chat, as acpmux's inline
 /// `_acpmux/btw` on the attached session (`hub/btw.rs`): a read-only answer about the chat that
 /// never touches it. The side question approves reads on this machine, so only the chat's owner
@@ -747,6 +756,9 @@ struct PromptParams {
     /// (a link guest's) is held whatever this says, and a chat that cannot steer now queues it.
     #[serde(default)]
     steer: bool,
+    /// Hidden context for the agent (`agent-session-prompt-context-v1`): the owner's only.
+    #[serde(default)]
+    context: Option<String>,
 }
 
 /// `agent-session-queue-approve`: the owner runs a prompt held for them (a link guest's) in
@@ -1655,8 +1667,15 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, steer, .. }) => {
-            return prompt(attachment, prompt_id, text, content, steer);
+        AgentSessionCommand::Prompt(PromptParams {
+            prompt_id,
+            text,
+            content,
+            steer,
+            context,
+            ..
+        }) => {
+            return prompt(attachment, prompt_id, text, content, steer, context);
         }
         AgentSessionCommand::QueueApprove(QueueDecisionParams {
             prompt_id,
@@ -1908,9 +1927,21 @@ fn prompt(
     text: Option<String>,
     content: Option<Vec<Value>>,
     steer: bool,
+    context: Option<String>,
 ) -> Result<Value, Refused> {
     if !valid_prompt_id(&prompt_id) {
         return Err(Refusal::BadRequest.into());
+    }
+    if context
+        .as_deref()
+        .is_some_and(|text| text.trim().is_empty() || text.len() > MAX_PROMPT_CONTEXT_BYTES)
+    {
+        return Err(Refusal::BadRequest.into());
+    }
+    // Hidden text is the owner's alone: a teammate, a link guest or the Cloud mobile carrier
+    // could otherwise put words before the agent that the person never sees.
+    if context.is_some() && (attachment.author.is_some() || attachment.cloud_mobile) {
+        return Err(Refusal::NotTrusted.into());
     }
     let blocks = match (text, content) {
         (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
@@ -1930,7 +1961,7 @@ fn prompt(
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
         return Err(Refusal::NotTrusted.into());
     }
-    submit_steering_prompt(attachment, &attachment.session, blocks, prompt_id, steer)
+    submit_steering_prompt(attachment, &attachment.session, blocks, prompt_id, steer, context)
 }
 
 /// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
@@ -1942,17 +1973,19 @@ fn submit_prompt(
     blocks: Vec<Value>,
     prompt_id: String,
 ) -> Result<Value, Refused> {
-    submit_steering_prompt(attachment, session, blocks, prompt_id, false)
+    submit_steering_prompt(attachment, session, blocks, prompt_id, false, None)
 }
 
 /// [`submit_prompt`], with `steer`: into the running turn instead of behind it
-/// (`agent-session-steer-v1`).
+/// (`agent-session-steer-v1`), and `context`: acpmux's hidden prompt context
+/// (`agent-session-prompt-context-v1`; [`prompt`] already checked who sent it).
 fn submit_steering_prompt(
     attachment: &Attachment,
     session: &str,
     blocks: Vec<Value>,
     prompt_id: String,
     steer: bool,
+    context: Option<String>,
 ) -> Result<Value, Refused> {
     // One slot for the acceptance, one for the request's own reply: a prompt acpmux refuses
     // (its remote guard, a mode that does not ask, a chat it does not run) is answered with an
@@ -1978,6 +2011,9 @@ fn submit_steering_prompt(
     // the phone or forwarded as arbitrary ACP metadata.
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+    }
+    if let Some(context) = context {
+        params["_meta"]["acpmux"]["context"] = Value::String(context);
     }
     // The owner's and a team member's steer. A link guest never steers: its prompt waits for
     // the owner (acpmux holds it whatever the flag says; the flag is not even sent).

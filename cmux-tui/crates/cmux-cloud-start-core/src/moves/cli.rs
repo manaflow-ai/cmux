@@ -420,6 +420,16 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `link sync on-send --within MS`: right before a send to a Cloud chat whose folder came from
+    /// this Mac, the files changed here since the last push (`local` this Mac's folder, `remote`
+    /// the machine's). Bounded: the run ends about `within_ms` + 300 ms after it starts.
+    SyncOnSend {
+        socket: String,
+        local: String,
+        remote: String,
+        #[serde(default)]
+        within_ms: Option<u64>,
+    },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -624,6 +634,26 @@ pub fn invocation(call: &Call) -> Invocation {
             args.extend(agent_move_flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
             plain(args)
         }
+        Call::SyncOnSend { socket, local, remote, within_ms } => {
+            let within = within_ms.unwrap_or(SYNC_ON_SEND_WITHIN_MS);
+            Invocation {
+                args: words(&[
+                    "link",
+                    "sync",
+                    "on-send",
+                    "--socket",
+                    socket,
+                    "--within",
+                    &within.to_string(),
+                    local,
+                    remote,
+                ]),
+                // Its own bound, plus 2 s: the CLI answers by `within` + 300 ms; a run past
+                // this is killed and the send goes on without it.
+                timeout_seconds: Some(within.div_ceil(1000) + SYNC_ON_SEND_SLACK_SECONDS),
+                min_timeout_seconds: None,
+            }
+        }
         Call::MachineUpdate { socket, to_bundled, if_older } => {
             let mut args = words(&["link", "machine", "update", "--socket", socket]);
             if *to_bundled {
@@ -813,6 +843,36 @@ pub fn invocation(call: &Call) -> Invocation {
     }
 }
 
+/// `link sync on-send`'s default `--within`: how long a send waits for its files, in ms.
+pub const SYNC_ON_SEND_WITHIN_MS: u64 = 3000;
+/// What a caller adds to `--within` before it kills the run (the CLI's own bound is +300 ms).
+pub const SYNC_ON_SEND_SLACK_SECONDS: u64 = 2;
+
+/// `link sync on-send`'s answer as a send reads it: `context`, the note for the agent when the
+/// files are still arriving (`state: "arriving"`), else none. Any other outcome (unchanged, sent,
+/// refused, a crash, a kill) sends the message as it is.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct SyncOnSend {
+    pub state: Option<String>,
+    pub context: Option<String>,
+}
+
+/// The send's reading of a `link sync on-send` answer.
+pub fn sync_on_send(answer: &Answer, object: Option<&Map<String, Value>>) -> SyncOnSend {
+    let Some(object) = object.filter(|_| answer.ok) else { return SyncOnSend::default() };
+    let state = string(object, "state");
+    let context = string(object, "notice")
+        .filter(|_| state.as_deref() == Some("arriving"))
+        // The machine refuses a prompt whose context is empty or past 16 KiB: such a note is
+        // dropped here, so the send itself never fails for it.
+        .filter(|notice| !notice.trim().is_empty() && notice.len() <= SYNC_ON_SEND_MAX_NOTE_BYTES);
+    SyncOnSend { state, context }
+}
+
+/// The longest note a send carries: the machine's prompt context limit
+/// (`agent-session-prompt-context-v1`, acpmux `prompt_context::MAX_BYTES`).
+pub const SYNC_ON_SEND_MAX_NOTE_BYTES: usize = 16 * 1024;
+
 /// How long `link start-chat trust` may take: it reads this Mac's trust files only.
 pub const START_CHAT_TRUST_TIMEOUT_SECONDS: u64 = 15;
 
@@ -841,6 +901,8 @@ pub enum Reading {
     StartChatPlan,
     StartChatCopy,
     StartChatTrust,
+    /// `link sync on-send`: the note for the agent when files are still arriving.
+    SyncOnSend,
     /// The answer object itself, else a bad answer's.
     Reservation,
 }
@@ -873,6 +935,11 @@ pub fn read(reading: Reading, output: &Output) -> Value {
             let trust = start_chat_trust(&answer, object.as_ref());
             reply.insert("answer".into(), to_value(&answer));
             reply.insert("trust".into(), to_value(&trust));
+        }
+        Reading::SyncOnSend => {
+            let on_send = sync_on_send(&answer, object.as_ref());
+            reply.insert("answer".into(), to_value(&answer));
+            reply.insert("onSend".into(), to_value(&on_send));
         }
         Reading::Reservation => {
             reply.insert("answer".into(), to_value(&answer));

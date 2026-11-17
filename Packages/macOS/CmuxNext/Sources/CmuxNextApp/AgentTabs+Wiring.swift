@@ -448,6 +448,10 @@ extension AgentTabStore {
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
+            // A Cloud chat whose folder came from this Mac gets the files changed here before each send (bounded, never blocking it).
+            if host.cloudMachineID != nil {
+                host.beforeSend = CloudPushOnSend.beforeSend(services: services, daemon: daemon, hosts: [record.host, host.linksHost].compactMap { $0 })
+            }
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in

@@ -16,6 +16,7 @@
     "agent-session-member-v1",
     "agent-session-observe-v1",
     "agent-session-presence-v1",
+    "agent-session-prompt-context-v1",
     "agent-session-queue-decision-v1",
     "agent-session-settings-v1",
     "agent-session-side-v1",

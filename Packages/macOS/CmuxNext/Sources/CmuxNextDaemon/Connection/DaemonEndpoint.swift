@@ -409,6 +409,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
     /// into the running turn (a link guest's is still held for the owner).
     case agentSessionSteer = "agent-session-steer-v1"
+    /// `agent-session-prompt` takes `context`: the owner's hidden note for the agent beside the
+    /// person's words (acpmux's prompt context), such as files from this Mac still arriving.
+    case agentSessionPromptContext = "agent-session-prompt-context-v1"
     /// `agent-session-queue-approve` / `-queue-decline`: the owner runs or drops a prompt held for
     /// them (a link guest's) on a chat on that machine.
     case agentSessionQueueDecision = "agent-session-queue-decision-v1"
@@ -639,7 +642,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionPromptContext, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

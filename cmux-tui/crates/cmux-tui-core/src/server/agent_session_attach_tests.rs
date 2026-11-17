@@ -1289,6 +1289,60 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
     fake.no_frame();
 }
 
+/// The owner's prompt context (`agent-session-prompt-context-v1`): the owner's Mac tells the agent
+/// that files changed there are still arriving (`cmux link sync on-send`'s `arriving`). It goes
+/// to acpmux as its hidden prompt context, beside the person's words and never in them.
+#[test]
+fn an_owner_prompt_context_goes_to_acpmux_as_hidden_context() {
+    let fake = FakeAcpmux::start("prompt-context");
+    let mux = mux_with(&fake, "asa-prompt-context");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PROMPT_CONTEXT_CAPABILITY),
+        "{identity}"
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-context");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let notice = "Files changed on the person's Mac are still arriving in this folder.";
+    let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+        "prompt_id":"prompt-ctx","text":"fix the build","context":notice}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("session/prompt"));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION,"prompt":[{"type":"text","text":"fix the build"}],
+               "_meta":{"acpmux":{"promptId":"prompt-ctx","context":notice}}})
+    );
+    // Content prompts carry it the same way.
+    let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+        "prompt_id":"prompt-ctx-2","content":[{"type":"text","text":"and again"}],
+        "context":notice}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["context"], json!(notice));
+    // No context, no field: a prompt without one is sent as before.
+    let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+        "prompt_id":"prompt-ctx-3","text":"plain"}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert!(fake.frame()["params"]["_meta"]["acpmux"].get("context").is_none());
+    for bad in [
+        json!("   "),
+        json!("x".repeat(agent_session_attach::MAX_PROMPT_CONTEXT_BYTES + 1)),
+        json!(42),
+    ] {
+        let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+            "prompt_id":"prompt-bad","text":"hi","context":bad}));
+        assert_code(&reply, "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
 #[test]
 fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
     // HQ run 42617701877's phone-start row: the first prompt of a chat started a moment before

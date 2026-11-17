@@ -54,7 +54,7 @@ pub(super) fn key(local: &Path, remote_root: &str) -> String {
 }
 
 fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
-    let Some(state) = cmux_tui_core::platform::workspace_state_dir() else {
+    let Some(state) = super::state_dir() else {
         bail!("this Mac has no state folder to keep the sync record in");
     };
     let name = key(local, remote_root);
@@ -104,6 +104,16 @@ pub(super) fn carry(local: &Path, from_root: &str, to_root: &str) -> anyhow::Res
         .with_context(|| format!("{} is not a sync record", path.display()))?;
     save(local, to_root, &kept)?;
     Ok(true)
+}
+
+/// The base kept for `local` synced to `remote_root`, unchecked; None when none is.
+pub(super) fn kept(local: &Path, remote_root: &str) -> anyhow::Result<Option<Manifest>> {
+    let path = path_of(local, remote_root)?;
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
+    }
 }
 
 /// The base of `local` synced to `remote_root`, checked against the

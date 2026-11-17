@@ -51,6 +51,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var updateMachine: (@Sendable () async -> Bool)?
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
+    /// A Cloud chat whose folder came from this Mac: the files changed here reach the machine right
+    /// before each send (``CloudPushOnSend``). Nil for any other chat; never on an observation.
+    var beforeSend: RemoteAcpmuxWire.BeforeSend?
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
         try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
@@ -94,7 +97,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
-                                        machineSignIn: machineSignIn)
+                                        machineSignIn: machineSignIn, beforeSend: mode == .attach ? beforeSend : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -114,7 +117,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
                 cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
                 servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
-                machineLogin: servesMachineLogin ? machineLogin : nil)
+                machineLogin: servesMachineLogin ? machineLogin : nil, beforeSend: beforeSend)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

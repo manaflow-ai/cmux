@@ -49,6 +49,11 @@
 use cmux_json::JsonSet as _;
 
 mod base;
+mod changed;
+#[allow(unused_imports)]
+pub(crate) use changed::on_send;
+/// Push-on-send ([`changed`]): `cmux link sync on-send`'s engine.
+pub(in crate::link) use changed::{Only, Pushed as OnSendPushed};
 pub(super) mod fence;
 pub(super) mod fetch;
 mod git_back;
@@ -69,6 +74,29 @@ mod remote;
 mod seed_pull;
 mod small_writes;
 mod timings;
+mod watch;
+
+/// This Mac's state folder for sync (the base copy, history, the watcher). A test
+/// thread may point its own pushes elsewhere (`set_test_state_dir`) without
+/// changing the process's environment that other tests read.
+fn state_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(dir) = TEST_STATE_DIR.with(|dir| dir.borrow().clone()) {
+        return Some(dir);
+    }
+    cmux_tui_core::platform::workspace_state_dir()
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_STATE_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn set_test_state_dir(dir: Option<PathBuf>) {
+    TEST_STATE_DIR.with(|set| *set.borrow_mut() = dir);
+}
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
 pub(super) use seed_pull::{
@@ -145,6 +173,9 @@ pub(super) struct Summary {
     /// Head links ([`push_head`]) the machine did not make, for nothing at their target
     /// yet: a head without them is not the folder's head.
     pub(super) head_links_short: u64,
+    /// Files a push of what changed ([`changed`]) left as the machine changed them
+    /// since the last push, this Mac's edit not written over it.
+    pub(super) conflicts: Vec<String>,
 }
 
 impl Summary {
@@ -160,6 +191,9 @@ impl Summary {
         });
         if let Some(store) = &self.store {
             line.set("store", store.clone());
+        }
+        if !self.conflicts.is_empty() {
+            line.set("conflicts", json!(self.conflicts));
         }
         line
     }
@@ -485,6 +519,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         && action == "relay"
     {
         return relay::run(rest);
+    }
+    // Push-on-send ([`changed`]) and this Mac's watcher ([`watch`]), which it starts.
+    match args.first().map(String::as_str) {
+        Some("on-send") => return changed::run(&args[1..]),
+        Some("on-send-run") => return changed::run_detached(&args[1..]),
+        Some("watch") if args.len() == 1 => return watch::run(),
+        _ => {}
     }
     let (args, allow_large) = size_cap::take_allow_large(args, &["--socket", "--store"]);
     let Some((action, socket, local, remote, store)) = parse(&args) else {
@@ -1009,7 +1050,30 @@ fn parse(args: &[String]) -> Option<Parsed> {
 /// progress on stderr ([`progress_printer`]).
 pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
-    push_inner(socket, local, remote_root, &|_, _| true, false, None, Some(&mut printer))
+    // One push of a folder pair at a time; the watcher's mark is taken before the folder
+    // is listed and kept once the push is done, for the next push-on-send ([`changed`]).
+    let canonical = std::fs::canonicalize(local).unwrap_or_else(|_| local.to_path_buf());
+    let place = watch::Place::here();
+    let _one = changed::lock(place.as_ref(), &canonical, remote_root);
+    let mark = changed::before_push(&canonical, remote_root);
+    let all = |_: &str, _: bool| true;
+    let summary =
+        push_inner(socket, local, remote_root, &all, false, None, None, Some(&mut printer))?;
+    changed::after_push(mark, &canonical, remote_root, &summary.conflicts);
+    Ok(summary)
+}
+
+/// [`push`] of what changed since the last push ([`changed`]): the files `only`
+/// names, and what is new or gone; the machine's own edits stay. The caller
+/// holds the folder's lock and keeps the mark.
+pub(super) fn push_changed(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    only: &Only,
+) -> anyhow::Result<Summary> {
+    let all = |_: &str, _: bool| true;
+    push_inner(socket, local, remote_root, &all, false, None, Some(only), None)
 }
 
 /// [`push`] of only the files in the head of a chat opened at `subpath`
@@ -1025,7 +1089,7 @@ pub(super) fn push_head(
     let mut printer = progress_printer();
     let in_head = |relative: &str| cmux_git::harness_head::in_head(relative, subpath);
     let head = |relative: &str, _: bool| in_head(relative);
-    push_inner(socket, local, remote_root, &head, false, Some(&in_head), Some(&mut printer))
+    push_inner(socket, local, remote_root, &head, false, Some(&in_head), None, Some(&mut printer))
 }
 
 /// The files the head links (`head`) of the folder `top` end at, read through every link
@@ -1094,9 +1158,13 @@ pub(super) fn push_kept(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
-    push_inner(socket, local, remote_root, keep, true, None, None)
+    push_inner(socket, local, remote_root, keep, true, None, None, None)
 }
 
+/// A push. With `only` ([`changed`]) the files it does not name are recorded as
+/// the last push left them, unread, and a file the machine changed since is
+/// not written over.
+#[allow(clippy::too_many_arguments)]
 fn push_inner(
     socket: &Path,
     local: &Path,
@@ -1104,6 +1172,7 @@ fn push_inner(
     keep: &dyn Fn(&str, bool) -> bool,
     files_only: bool,
     head_links: Option<&dyn Fn(&str) -> bool>,
+    only: Option<&Only>,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let mut stages = timings::Stages::new();
@@ -1155,9 +1224,22 @@ fn push_inner(
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
+    // A push of what changed with nothing to send ends here, before any request: this Mac's
+    // copy of the last push's record is what the machine has ([`changed`]).
+    if let Some(only) = only
+        && base::kept(&local, remote_root)
+            .is_ok_and(|kept| kept.is_some_and(|kept| only.nothing_to_send(&kept, &set)))
+    {
+        summary.unchanged = (set.files.len() + set.links.len()) as u64;
+        return Ok(summary);
+    }
+    // Only the files a push of what changed looks at are opened for their size.
+    let looked_at = |(relative, file): (&String, &LocalFile)| {
+        only.is_none_or(|only| only.touches(relative, file)).then(|| size(file).unwrap_or(0))
+    };
     let done = Progress {
         files_total: set.files.len() as u64,
-        bytes_total: set.files.values().map(|file| size(file).unwrap_or(0)).sum(),
+        bytes_total: set.files.iter().filter_map(looked_at).sum(),
         ..Progress::default()
     };
     if let Some(report) = progress.as_mut() {
@@ -1285,8 +1367,36 @@ fn push_inner(
         }
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
+        // A push of what changed records what it does not look at as the last push left it,
+        // unread ([`changed`]).
+        if let Some(only) = only
+            && let Some(pushed) = previous.files.get(relative)
+            && pushed.permissions == file.permissions
+            && !only.touches(relative, file)
+        {
+            tally.unchanged(relative, pushed, 0);
+            continue;
+        }
         let sha256 = stages.hashing(|| hash(file))?;
         let bytes = size(file)?;
+        if only.is_some()
+            && let Some(pushed) = previous.files.get(relative)
+        {
+            // Hashing as it did, it is unchanged here; the machine's own edit stays either way.
+            if pushed.sha256 == sha256 && pushed.permissions == file.permissions {
+                tally.unchanged(relative, pushed, bytes);
+                continue;
+            }
+            // Changed here and on the machine since the last push: never written over. Its
+            // record stays the last push's, so a pull merges the two edits three ways.
+            if listings.revision(&mut remote, &target)?.as_deref() != Some(pushed.revision.as_str())
+            {
+                tally.summary.conflicts.push(relative.clone());
+                tally.next.files.insert(relative.clone(), pushed.clone());
+                tally.step(bytes);
+                continue;
+            }
+        }
         if let Some(pushed) = previous.files.get(relative)
             && pushed.sha256 == sha256
             && pushed.permissions == file.permissions
@@ -1385,7 +1495,18 @@ fn push_inner(
     summary.store = store_part;
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
-    let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
+    let mut waiting: Vec<(&String, &Linked)> = Vec::new();
+    for (relative, kept) in &set.links {
+        // A push of what changed keeps the symlinks the last push left, unasked ([`changed`]).
+        if only.is_some_and(|only| !only.touches_path(relative))
+            && previous.links.get(relative) == Some(kept)
+        {
+            summary.unchanged += 1;
+            next.links.insert(relative.clone(), kept.clone());
+            continue;
+        }
+        waiting.push((relative, kept));
+    }
     let mut skipped: Vec<(String, skips::Why)> = Vec::new();
     loop {
         let mut again = Vec::new();
