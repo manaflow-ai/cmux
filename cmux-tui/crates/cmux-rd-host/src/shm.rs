@@ -65,3 +65,43 @@ impl Drop for ShmSeg {
         unsafe { libc::munmap(self.ptr.cast(), self.len) };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::inject::tests::Xvfb;
+    use x11rb::protocol::xproto::{
+        ConnectionExt as _, CreateGCAux, ImageFormat, Rectangle, Window,
+    };
+
+    /// Paints the top-left `w`x`h` of `root` white (Xvfb's root starts black, the same as a
+    /// fresh segment's zeros) and returns once the server has drawn it.
+    fn paint_white(conn: &impl Connection, root: Window, (w, h): (u16, u16)) {
+        let gc = conn.generate_id().unwrap();
+        conn.create_gc(gc, root, &CreateGCAux::new().foreground(0xff_ff_ff)).unwrap();
+        conn.poly_fill_rectangle(root, gc, &[Rectangle { x: 0, y: 0, width: w, height: h }])
+            .unwrap();
+        conn.get_input_focus().unwrap().reply().unwrap();
+    }
+
+    /// A `&[u8]` must not change while it is borrowed. A request naming the segment makes the
+    /// X server write its pages, so no shared borrow of them may be alive while one runs.
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn the_server_never_writes_under_a_borrowed_slice() {
+        let xvfb = Xvfb::start();
+        let (conn, screen) = x11rb::connect(Some(&xvfb.display)).unwrap();
+        let root = conn.setup().roots[screen].root;
+        let (w, h) = (64u16, 64u16);
+        paint_white(&conn, root, (w, h));
+        let seg = ShmSeg::new(&conn, usize::from(w) * usize::from(h) * 4).unwrap();
+        let held: &[u8] = seg.as_slice();
+        let before = held.to_vec();
+        // The reply means the server wrote the white rectangle into the pages.
+        conn.shm_get_image(root, 0, 0, w, h, !0, ImageFormat::Z_PIXMAP.into(), seg.seg, 0)
+            .unwrap()
+            .reply()
+            .unwrap();
+        assert_eq!(held, &before[..], "the X server wrote the pages under a live &[u8]");
+    }
+}

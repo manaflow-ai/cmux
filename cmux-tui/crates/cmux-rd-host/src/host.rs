@@ -666,6 +666,24 @@ fn stream_session<S: ViewerStream>(
 mod tests {
     use super::*;
 
+    /// `host::run` and `serve::run` are safe and may run with threads up (the cmux binary
+    /// calls `run_cli` too), and `set_var` races every concurrent `getenv`, a C library's
+    /// included. So the safe path must not write `XAUTHORITY`: only `main` may, before any
+    /// thread exists.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_safe_xauthority_path_leaves_the_environment_alone() {
+        let cookie =
+            std::env::temp_dir().join(format!("cmux-rd-xauthority-test-{}", std::process::id()));
+        std::fs::write(&cookie, b"").expect("cookie file");
+        let path = cookie.to_str().expect("utf-8 temp path").to_owned();
+        let opts = Opts::parse(&["--xauthority".to_owned(), path.clone()]).expect("parse");
+        let _ = set_xauthority(&opts);
+        let now = std::env::var_os("XAUTHORITY");
+        std::fs::remove_file(&cookie).ok();
+        assert_ne!(now.as_deref(), Some(std::ffi::OsStr::new(&path)), "a safe fn wrote XAUTHORITY");
+    }
+
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
