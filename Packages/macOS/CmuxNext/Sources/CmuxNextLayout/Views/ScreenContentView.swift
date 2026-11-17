@@ -36,6 +36,8 @@ final class ScreenContentView: NSView {
     /// The layout change that `update` just applied is structural, and its scroll sync has not run yet (`syncScroll`
     /// follows every update): that sync puts each camera at its place with the change, in the same frame.
     var scrollSyncIsStructural = false
+    /// The dim over the other panes around a zoom of this screen.
+    let zoomDim = PaneZoomDim()
     /// The terminals of this screen keep their grids until its panes land (`LayoutViewContext.gridHoldScreens`).
     /// Nothing sets it now: a split or a close shows in one frame, and its terminals take their grids with that
     /// frame. It stays, with its observers, until its own removal.
@@ -174,6 +176,7 @@ final class ScreenContentView: NSView {
         defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         presentHeldSnap()
+        zoomDim.end() // out of sight, or with no motion from now on: a zoom's dim that still goes leaves too
         guard hasMotion else { return }
         reconcileAndScroll()
     }
@@ -182,6 +185,7 @@ final class ScreenContentView: NSView {
     /// its target move together, `AnimatedFrame.rebase`, so the panes follow the resize in this frame and only what
     /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        zoomDim.end() // the screen's size changed: the dim was placed for the old one
         reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
         if !(syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion) && hasMotion) { holdsContentForKeyResize = false } // a snap
     }
@@ -203,11 +207,13 @@ final class ScreenContentView: NSView {
     /// content drawn at its new size (`ScreenContentView+SnapFrame`).
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
-        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
-        let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
+        // A newer change, or a second zoom key, ends a zoom's dim that still shows; a zoom of one pane may get one.
+        zoomDim.layoutWillChange(on: self, to: layout, zoomed: zoomed, structural: structural, onCanvas: canvasState.canvas != nil || canvas != nil, waitsForFrame: snapWaitsForFrame)
+        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
+        let animated = updateCanvas(canvas, animated: animated) && animated
         #if DEBUG
         let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
         #endif
@@ -401,7 +407,7 @@ final class ScreenContentView: NSView {
         // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
         // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
         // the change took out goes in the pass that places the panes, never a turn before it.
-        if holdsSnap { _ = holdsSnapForContent(keyPress: keySnap) }
+        if holdsSnap, !zoomDim.holdsSnap(of: self) { _ = holdsSnapForContent(keyPress: keySnap) }
         if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
         let moving = animate && hasMotion
@@ -439,6 +445,7 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
+        zoomDim.end()
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()

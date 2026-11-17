@@ -118,6 +118,7 @@ extension ScreenContentView {
     /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows.
     func heldSnapAwaitsContent() -> Bool {
         guard frameInput.snapWaitsForContent, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        if zoomDim.holdsFrame(of: self) { return true } // a zoom's dim comes first; its panes hear their sizes when its fade is spent
         frameInput.snapRefreshesWaited += 1
         let waited = frameInput.snapRefreshesWaited
         if waited <= Self.commitBound, frameInput.commitAwaited.contains(where: { frameInput.commitSurfaces[$0] != nil }) { return true }
@@ -133,6 +134,7 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
+        zoomDim.changeShows() // the dim that came before a zoom leaves in the commit that shows the zoom
         // The snap waited for its content (bounded): each terminal it places shows at its new size in this commit, with
         // its program's redraw or the size only, never its old size in the new pane (RESIZE P0 21).
         for pane in paneFrames.keys {
