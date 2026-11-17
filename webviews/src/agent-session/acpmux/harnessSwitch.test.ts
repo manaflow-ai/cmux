@@ -192,3 +192,44 @@ test("a new chat still sends every pick its session differs on before the first 
   expect(calls.slice(0, 3).sort()).toEqual(["config effort=high", "mode acceptEdits", "model opus"]);
   expect(calls[3]).toBe("send fix the tests");
 });
+
+/// A port whose open answers undefined (a newer open of the same chat won, issue 44964) while the
+/// chat is on screen, attached or not as `attached` says.
+function supersededOpenPort(attached: boolean, calls: string[]): SwitchPort {
+  let open = false;
+  return {
+    ...trustRefusingPort(),
+    shown: () => (open ? { sessionId: "s1", harness: "claude", empty: true } : undefined),
+    create: async () => "s1",
+    open: async () => {
+      open = true;
+      return undefined;
+    },
+    attached: async (sessionId) => attached && open && sessionId === "s1",
+    send: async (text) => void calls.push(`send ${text}`),
+  };
+}
+
+test("an open a newer open of the same chat won still sends the first prompt to the chat on screen", async () => {
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(supersededOpenPort(true, calls));
+  const started = harnessSwitch.switchTo("claude", "/work");
+  const sent = harnessSwitch.send("fix the tests");
+  expect(await started).toBe("s1");
+  await sent;
+  expect(calls).toEqual(["send fix the tests"]);
+  expect(harnessSwitch.view().intent?.phase).not.toBe("failed");
+});
+
+test("an open that answers undefined with its chat not attached still fails", async () => {
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(supersededOpenPort(false, calls));
+  const started = harnessSwitch.switchTo("claude", "/work");
+  const sent = harnessSwitch.send("fix the tests");
+  void sent?.catch(() => undefined);
+  await started;
+  expect(calls).toEqual([]);
+  expect(harnessSwitch.view().intent?.phase).toBe("failed");
+});
