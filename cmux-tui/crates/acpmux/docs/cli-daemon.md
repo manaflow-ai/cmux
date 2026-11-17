@@ -34,6 +34,13 @@ The hub carrier (`cmux remote exec|cp|connect --via-machine`) needs no WireGuard
 joined machine (`acpmux machine join`) runs it on its node key unless the cmux link holds that
 key.
 
+Where the cmux link holds the node key, the Labs WireGuard transport steps down and peers that
+are not paired installs go over ssh. `transport.wireguardBesideLink=true` runs it anyway, on a
+key of acpmux's own, for those peers: a coordinator Mac dialing headless VMs. The VM lists that
+key in `transport.wireguardAccept` (`[{"publicKey": ..., "address": "<the Mac's virtual IP>"}]`)
+without mirroring the Mac as a peer. `acpmux daemon config --wireguard-key` prints the key each
+side presents. ssh stays every peer's backup path.
+
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To look at an isolated home from a shell that
 may be inside another agent: `env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`.
 

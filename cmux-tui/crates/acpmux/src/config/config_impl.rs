@@ -41,13 +41,22 @@ impl Config {
         }
         // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
         // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
-        if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {
-            self.transport.wireguard = match value.trim().to_ascii_lowercase().as_str() {
-                "true" | "on" | "1" => true,
-                "false" | "off" | "0" => false,
-                _ => anyhow::bail!("transport.wireguard must be true or false"),
-            };
-            return Ok(());
+        let switch = |name: &str| match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "on" | "1" => Ok(true),
+            "false" | "off" | "0" => Ok(false),
+            _ => Err(anyhow::anyhow!("{name} must be true or false")),
+        };
+        match key.trim().to_ascii_lowercase().as_str() {
+            "transport.wireguard" => {
+                self.transport.wireguard = switch("transport.wireguard")?;
+                return Ok(());
+            }
+            // Its own key beside a cmux link that serves the node key (`wireguard.rs`).
+            "transport.wireguardbesidelink" => {
+                self.transport.wireguard_beside_link = switch("transport.wireguardBesideLink")?;
+                return Ok(());
+            }
+            _ => {}
         }
         self.set_session_resource(key, value)
     }

@@ -722,8 +722,14 @@ pub enum Command {
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
         /// machine runs it on its node key.
+        /// `transport.wireguardBesideLink=true` runs the transport beside a cmux link that
+        /// holds the node key, on a key of its own, for the peers the link has no route to.
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
+        /// Print the WireGuard public key this daemon's transport presents (what a peer puts
+        /// in `wireguard.publicKey` or `transport.wireguardAccept`).
+        #[arg(long, conflicts_with = "set")]
+        wireguard_key: bool,
     },
     #[command(hide = true)]
     DaemonRun {
@@ -1437,6 +1443,9 @@ pub enum DaemonCmd {
         /// Set a host-wide session resource setting as KEY=VALUE.
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
+        /// Print the WireGuard public key this daemon's transport presents.
+        #[arg(long, conflicts_with = "set")]
+        wireguard_key: bool,
     },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
@@ -1605,7 +1614,9 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Service { action } => Command::DaemonService { action },
-            DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
+            DaemonCmd::Config { show_token, set, wireguard_key } => {
+                Command::Config { show_token, set, wireguard_key }
+            }
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),

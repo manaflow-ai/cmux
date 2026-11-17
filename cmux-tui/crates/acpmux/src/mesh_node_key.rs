@@ -91,6 +91,29 @@ fn load_or_create_with(
     }
 }
 
+/// The key file of acpmux's WireGuard transport beside a cmux link that serves the node key
+/// (`transport.wireguardBesideLink`, `wireguard.rs`).
+pub const BESIDE_LINK_KEY: &str = "beside-link.wg.key";
+
+/// acpmux's own WireGuard key in `state_dir` ([`BESIDE_LINK_KEY`]), created on first use: the
+/// transport beside a cmux link runs on it, so the link stays the one holder of the node key.
+/// It is no machine identity: nothing adopts, rekeys or pairs it.
+pub fn load_or_create_beside_link(state_dir: &Path) -> Result<(NodeKeypair, Zeroizing<[u8; 32]>)> {
+    crate::config::private_state_dir(state_dir)?;
+    let path = state_dir.join(BESIDE_LINK_KEY);
+    if let Err(error) = std::fs::symlink_metadata(&path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error.into());
+        }
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *bytes).map_err(|error| anyhow!("generate WireGuard key: {error}"))?;
+        create_key_if_absent(&path, &bytes)
+            .with_context(|| format!("write {BESIDE_LINK_KEY} in {}", state_dir.display()))?;
+    }
+    let private = read_key(&path)?;
+    Ok((NodeKeypair::of(&private), private))
+}
+
 /// The public half of the node key now in `state_dir`, or None when there is none or it cannot
 /// be read. Never creates one: the hub carrier's key check (`hub_carrier.rs`) uses it to see a
 /// key [`replace_at`] replaced.

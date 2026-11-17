@@ -14,6 +14,11 @@
 //! own, a link that refuses a home copied from another machine) it runs under
 //! the same lock the link would take, in the acpmux home
 //! (`cmux_link::key_holder`).
+//!
+//! Beside a link that serves the node key, `transport.wireguardBesideLink` runs it anyway on a
+//! key of acpmux's own (never the node key), for the peers the link has no route to: a fleet
+//! coordinator Mac dialing headless lane VMs that are no paired installs. A lane VM answers
+//! such a dialer it never mirrors through `transport.wireguardAccept`.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
@@ -54,6 +59,18 @@ pub struct StaticPeer {
     pub address: SocketAddr,
 }
 
+/// A key that may open streams to this daemon's listener without being a peer this daemon
+/// mirrors (`transport.wireguardAccept`): a dialer such as a fleet coordinator, which a lane VM
+/// accepts but never dials. Its address is the dialer's virtual service address
+/// (`wireguardStatic.address` there, the IP alone); its UDP endpoint is learned from its first
+/// authenticated datagram. The listener still checks the WebSocket token and peer proof.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcceptedPeer {
+    pub public_key: String,
+    pub address: IpAddr,
+}
+
 /// The daemon owns this shared transport; peers borrow it across reconnects.
 /// Stop cancels pending connects and bridges before closing the mesh driver.
 pub struct Transport {
@@ -62,7 +79,9 @@ pub struct Transport {
     stop: watch::Sender<bool>,
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
-    /// This machine's WireGuard key lock, released when the transport stops.
+    /// This machine's WireGuard key lock, released when the transport stops. None for a
+    /// transport beside the cmux link (`transport.wireguardBesideLink`): it runs on a key of
+    /// its own, never the node key, so it never rekeys, yields or lends the lock.
     key: Mutex<Option<Arc<KeyHolder>>>,
     /// What [`Self::restart`] starts the mesh again with: the service address, the
     /// configured peers and the listener the bridge forwards to.
@@ -141,6 +160,11 @@ impl Transport {
         };
         let target = local_websocket(websocket)?;
         if crate::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+            if config.transport.wireguard_beside_link {
+                return Self::start_beside_link(config, settings, state_dir, link_dir, target)
+                    .await
+                    .map(Some);
+            }
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );
@@ -162,9 +186,58 @@ impl Transport {
             }
         };
         let socket = UdpSocket::bind(settings.listen).await.context("bind WireGuard UDP")?;
-        Self::from_socket(settings, &config.peers, state_dir, target, socket, key).await.map(Some)
+        check_service(settings)?;
+        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let accept = &config.transport.wireguard_accept;
+        Self::start_mesh(settings, &config.peers, accept, private_key, target, socket, Some(key))
+            .await
+            .map(Some)
     }
 
+    /// The transport beside a cmux link that serves this machine's node key
+    /// (`transport.wireguardBesideLink`): on acpmux's own key
+    /// (`mesh_node_key::load_or_create_beside_link`, never the node key, so the link stays its
+    /// one holder), for the WireGuard peers the link has no route to. A peer with a link route
+    /// (`linkHost`, or a pairing with its key) goes on through the link.
+    async fn start_beside_link(
+        config: &crate::config::Config,
+        settings: &StaticConfig,
+        state_dir: &Path,
+        link_dir: Option<&Path>,
+        websocket: SocketAddr,
+    ) -> Result<Arc<Self>> {
+        check_service(settings)?;
+        let unlinked: BTreeMap<String, crate::config::PeerConfig> = config
+            .peers
+            .iter()
+            .filter(|(_, peer)| {
+                peer.wireguard.as_ref().is_some_and(|wg| {
+                    peer.link_host.is_none()
+                        && link_dir.and_then(|dir| paired_install_in(dir, &wg.public_key)).is_none()
+                })
+            })
+            .map(|(name, peer)| (name.clone(), peer.clone()))
+            .collect();
+        let (public, private_key) = crate::mesh_node_key::load_or_create_beside_link(state_dir)?;
+        let socket = UdpSocket::bind(settings.listen).await.context("bind WireGuard UDP")?;
+        tracing::info!(
+            peers = unlinked.len(),
+            public_key = %public.public_key_base64(),
+            "WireGuard transport beside the cmux link: its own key, for the peers the link has no route to"
+        );
+        Self::start_mesh(
+            settings,
+            &unlinked,
+            &config.transport.wireguard_accept,
+            private_key,
+            websocket,
+            socket,
+            None,
+        )
+        .await
+    }
+
+    #[cfg(test)]
     async fn from_socket(
         settings: &StaticConfig,
         configured: &BTreeMap<String, crate::config::PeerConfig>,
@@ -174,9 +247,24 @@ impl Transport {
         key: KeyHolder,
     ) -> Result<Arc<Self>> {
         check_service(settings)?;
+        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        Self::start_mesh(settings, configured, &[], private_key, websocket, socket, Some(key)).await
+    }
+
+    /// The mesh on `private_key`, with `configured`'s WireGuard peers (dialed) and `accept`'s
+    /// keys (answered only), forwarding to `websocket`. `key`: the node key lock `private_key`
+    /// was read under, None for a key of acpmux's own.
+    async fn start_mesh(
+        settings: &StaticConfig,
+        configured: &BTreeMap<String, crate::config::PeerConfig>,
+        accept: &[AcceptedPeer],
+        private_key: Zeroizing<[u8; 32]>,
+        websocket: SocketAddr,
+        socket: UdpSocket,
+        key: Option<KeyHolder>,
+    ) -> Result<Arc<Self>> {
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
         let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
@@ -237,6 +325,22 @@ impl Transport {
             }
             routes.insert(name.clone(), peer.clone());
         }
+        for accepted in accept {
+            let public_key = check_accepted(settings, accepted)?;
+            let network = IpNetwork::new(accepted.address, host_prefix(accepted.address))?;
+            let existing = peers.entry(public_key).or_insert_with(|| WgPeer {
+                public_key,
+                preshared_key: None,
+                allowed_ips: Vec::new(),
+                // Answered only: its endpoint is learned from its first authenticated datagram.
+                route: None,
+                candidates: Vec::new(),
+                persistent_keepalive: None,
+            });
+            if !existing.allowed_ips.contains(&network) {
+                existing.allowed_ips.push(network);
+            }
+        }
         let peers: Vec<_> = peers.into_values().collect();
         for peer in &peers {
             // The mesh still refuses an address claimed by different keys.
@@ -251,7 +355,7 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
-            key: Mutex::new(Some(Arc::new(key))),
+            key: Mutex::new(key.map(Arc::new)),
             service: settings.address,
             peers,
             websocket,
@@ -359,6 +463,10 @@ impl Transport {
     /// `budget`, which frees the key lock for the link (the hub carrier keeps no share of it).
     /// Returns once it stopped, or when the transport stopped otherwise.
     pub async fn yield_to_link(&self, state_dir: &Path, every: Duration, budget: Duration) {
+        // A transport beside the link runs on a key of its own: it has nothing to hand over.
+        if self.with_key(|_| ()).is_none() {
+            return;
+        }
         let mut stopped = self.stop.subscribe();
         loop {
             let home = state_dir.to_path_buf();
@@ -454,7 +562,43 @@ pub(crate) fn enabled_settings(config: &crate::config::Config) -> Result<Option<
             check_peer(settings, wireguard).with_context(|| format!("peers.{name}.wireguard"))?;
         }
     }
+    for (index, accepted) in config.transport.wireguard_accept.iter().enumerate() {
+        check_accepted(settings, accepted)
+            .with_context(|| format!("transport.wireguardAccept[{index}]"))?;
+    }
     Ok(Some(settings))
+}
+
+/// The base64 public key this daemon's WireGuard transport presents with `config`: acpmux's
+/// own key beside a cmux link that serves the node key (`transport.wireguardBesideLink`),
+/// else the node key. It is what a peer puts in its `wireguard.publicKey` or
+/// `transport.wireguardAccept`. Creates the key on first use.
+pub fn presented_public_key(
+    config: &crate::config::Config,
+    state_dir: &Path,
+    link_dir: Option<&Path>,
+) -> Result<String> {
+    if config.transport.wireguard_beside_link
+        && crate::mesh_node_key::link_serves_node_key(link_dir, state_dir)
+    {
+        let (public, _) = crate::mesh_node_key::load_or_create_beside_link(state_dir)?;
+        return Ok(public.public_key_base64());
+    }
+    Ok(crate::mesh_node_key::load_or_create_at(state_dir)?.public_key_base64())
+}
+
+/// An accepted dialer's key (returned) and virtual address, beside this machine's `settings`.
+fn check_accepted(settings: &StaticConfig, accepted: &AcceptedPeer) -> Result<[u8; 32]> {
+    let key = public_key(&accepted.public_key)?;
+    let address = accepted.address;
+    ensure!(
+        address != settings.address.ip()
+            && address.is_ipv4() == settings.address.is_ipv4()
+            && !address.is_unspecified()
+            && !address.is_multicast(),
+        "invalid WireGuard accepted address"
+    );
+    Ok(key)
 }
 
 /// This machine's virtual service address: a nonzero port on a unicast address.

@@ -688,8 +688,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
-        Command::Config { show_token, set } => {
+        Command::Config { show_token, set, wireguard_key } => {
             let path = Config::path();
+            if wireguard_key {
+                let key = crate::wireguard::presented_public_key(
+                    &Config::load()?,
+                    &home(),
+                    crate::wireguard::link_state_dir().as_deref(),
+                )?;
+                if json_out {
+                    print_json(&json!({"publicKey": key}));
+                } else {
+                    println!("{key}");
+                }
+                return Ok(());
+            }
             if let Some(assignment) = set {
                 let (key, value) =
                     assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;

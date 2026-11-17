@@ -637,3 +637,84 @@ fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
         b_side.shutdown(tokio::time::Instant::now()).await;
     });
 }
+
+/// hq#12321: the fleet's coordinator Mac runs the cmux app, whose link serves the node key, so
+/// the transport stepped down there and the lane VMs it dials (headless, no paired installs)
+/// stayed ssh-only. With `transport.wireguardBesideLink` it runs beside the link on a key of
+/// its own (never the node key, never the lock), and a lane VM that mirrors no peer answers it
+/// through `transport.wireguardAccept`: a stream reaches the lane's listener.
+#[test]
+fn beside_a_link_the_transport_reaches_an_unpaired_lane_that_accepts_its_key() {
+    runtime().block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let (coordinator, lane) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // The coordinator's cmux link serves its node key and holds the key lock.
+        let link_dir = tempfile::tempdir().unwrap();
+        std::fs::write(link_dir.path().join("config.json"), r#"{"install":"inst_a","port":0}"#)
+            .unwrap();
+        crate::mesh_node_key::record_link_home(link_dir.path(), Some(coordinator.path())).unwrap();
+        let node = crate::mesh_node_key::load_or_create_at(coordinator.path()).unwrap();
+        let _link = KeyHolder::acquire(coordinator.path()).unwrap();
+        let (coordinator_service, lane_service): (SocketAddr, SocketAddr) =
+            ("10.77.0.1:4100".parse().unwrap(), "10.77.0.2:4100".parse().unwrap());
+
+        // The lane: no link, no peers of its own; it accepts the coordinator's key.
+        let mut coordinator_cfg = Config::default();
+        coordinator_cfg.transport.wireguard = true;
+        coordinator_cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            address: coordinator_service,
+        });
+        coordinator_cfg.transport.wireguard_beside_link = true;
+        let coordinator_key =
+            presented_public_key(&coordinator_cfg, coordinator.path(), Some(link_dir.path()))
+                .unwrap();
+        assert_ne!(coordinator_key, node.public_key_base64(), "beside the link: never its key");
+        let mut lane_cfg = Config::default();
+        lane_cfg.transport.wireguard = true;
+        lane_cfg.transport.wireguard_static =
+            Some(StaticConfig { listen: "127.0.0.1:0".parse().unwrap(), address: lane_service });
+        lane_cfg.transport.wireguard_accept =
+            vec![AcceptedPeer { public_key: coordinator_key, address: coordinator_service.ip() }];
+        lane_cfg.start_refusal().expect("the start check takes an accept list");
+        let lane_side = Transport::start_with_link(&lane_cfg, lane.path(), None, target_addr)
+            .await
+            .unwrap()
+            .expect("a link-less lane runs the transport on its node key");
+        let lane_key = presented_public_key(&lane_cfg, lane.path(), None).unwrap();
+        coordinator_cfg
+            .peers
+            .insert("lane".into(), peer(lane_key, lane_side.local_addr(), lane_service));
+
+        // Without the switch the coordinator's transport steps down for the link, as before.
+        coordinator_cfg.transport.wireguard_beside_link = false;
+        let start = |cfg: Config| {
+            let (home, link) = (coordinator.path().to_owned(), link_dir.path().to_owned());
+            async move { Transport::start_with_link(&cfg, &home, Some(&link), target_addr).await }
+        };
+        assert!(start(coordinator_cfg.clone()).await.unwrap().is_none());
+        coordinator_cfg.transport.wireguard_beside_link = true;
+        let coordinator_side = start(coordinator_cfg.clone())
+            .await
+            .unwrap()
+            .expect("beside the link the transport runs for its unlinked peers");
+        assert!(coordinator_side.with_key(|_| ()).is_none(), "it holds no node key lock");
+
+        let mut stream = tokio::time::timeout(
+            BOUND,
+            coordinator_side.connect(coordinator_side.route("lane").unwrap()),
+        )
+        .await
+        .expect("the lane answered in time")
+        .expect("the lane accepted the coordinator's key");
+        stream.write_all(b"hello").await.unwrap();
+        let (mut local, _) = tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        let mut hello = [0; 5];
+        local.read_exact(&mut hello).await.unwrap();
+        assert_eq!(&hello, b"hello");
+        coordinator_side.shutdown(tokio::time::Instant::now()).await;
+        lane_side.shutdown(tokio::time::Instant::now()).await;
+    });
+}

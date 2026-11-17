@@ -1276,6 +1276,17 @@ pub struct TransportConfig {
     /// Static Labs mesh interface; ignored while wireguard is disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wireguard_static: Option<crate::wireguard::StaticConfig>,
+    /// `wireguardBesideLink`: where a cmux link serves this machine's node key (so the transport
+    /// would step down), run anyway, on a key of acpmux's own (`beside-link.wg.key`, never the
+    /// node key), for the WireGuard peers the link has no route to: a fleet coordinator Mac
+    /// dialing headless lane VMs. `acpmux config --wireguard-key` prints the key such a peer
+    /// accepts. Off by default; it changes nothing where no link serves the node key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wireguard_beside_link: bool,
+    /// `wireguardAccept`: keys that may open streams to this daemon's listener without being a
+    /// peer it mirrors (`wireguard::AcceptedPeer`): a lane VM accepts its coordinator's key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wireguard_accept: Vec<crate::wireguard::AcceptedPeer>,
 }
 
 impl TitlesConfig {
