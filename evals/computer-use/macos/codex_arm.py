@@ -349,6 +349,12 @@ class Codex(aside_arm.Aside):
         if top is None:
             raise bm.ToolError(f"menu bar item {path[0]} not in Codex's state")
         r = self._r(self.call("click", {"app": self._a(w), "element_index": str(top["key"])}))
+        # Codex lists an open menu with its submenus' items nested under them: click the leaf directly when the
+        # listing already has it (clicking a submenu parent closes the menu)
+        items = parse_state(r.text())
+        leaf = next((n for n in items if n["name"] == path[-1] and n["key"] != top["key"]), None) if len(path) > 2 else None
+        if leaf is not None:
+            return self._r(self.call("click", {"app": self._a(w), "element_index": str(leaf["key"])}))
         for name in path[1:]:
             items = parse_state(r.text())  # an action's result is the new state (the open menu)
             it = next((n for n in items if n["name"] == name and n["key"] != top["key"]), None)
@@ -360,6 +366,7 @@ class Codex(aside_arm.Aside):
                     self.call("press_key", {"app": self._a(w), "key": "Escape"})
                 except bm.ToolError:
                     pass
+                self.calls[-1]["tool"] = "_cleanup_press_key"  # closing the menu is not the scored action
                 raise bm.ToolError(f"menu item {name} not in the open menu")
             r = self._r(self.call("click", {"app": self._a(w), "element_index": str(it["key"])}))
         return r
