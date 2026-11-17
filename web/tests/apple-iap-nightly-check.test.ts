@@ -114,7 +114,7 @@ describe("Apple delivery round trip", () => {
       }),
       readHealth: health([recorded]).read,
       clock: c,
-      environment: "Production",
+      environment: "Sandbox",
     });
     expect(report.ok).toBe(true);
     expect(calls).toBe(3);
