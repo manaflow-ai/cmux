@@ -276,6 +276,9 @@ extension WorkspaceRowSetting {
             ]),
         ]),
     ])
+    /// `sidebar.workspaceRow.statusPlacement`.
+    public nonisolated static let statusPlacementPath = ["sidebar", "workspaceRow", "statusPlacement"]
+    public nonisolated static let statusPlacementDefault: WorkspaceRowStatusPlacement = .trailing
 }
 
 extension WorkspaceRowSetting {

@@ -85,7 +85,6 @@ extension SettingsController {
         let edits = try edit.edits(in: try await file.document())
         guard !edits.isEmpty else { return false }
         try await file.apply(edits)
-        _ = try await pruneEmpty(["sidebar"])
         await reloadAfterWrite()
         return true
     }
