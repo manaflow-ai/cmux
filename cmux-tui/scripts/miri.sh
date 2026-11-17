@@ -20,12 +20,16 @@ TOOLCHAIN=${MIRI_TOOLCHAIN:-nightly-2026-11-16}
 NEXTEST_VERSION=0.9.148
 NEXTEST_SHA256=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc
 
-# CRATE|WORKSPACE (from the repository root)|more `cargo miri nextest run` arguments
+# CRATE|WORKSPACE (from the repository root)|cargo arguments|nextest filter expression (empty: every test)
 CRATES=(
-  "acpmux-client|cmux-tui|"
-  "acpmux-core|cmux-tui|--features allocation-metrics"
-  "cmux-rd-ffi|cmux-tui/crates/cmux-app-ffi|"
-  "cmux-wg-tun|cmux-tui|"
+  "acpmux-client|cmux-tui||"
+  # Its unsafe code is the counting allocator of the allocation-metrics feature, which every allocation of a test
+  # goes through, the boot id read and malloc_trim (C). Its other 300 tests are safe code over megabytes of chat
+  # files, an hour under Miri, and many fsync a directory, which Miri cannot do. These drive the allocator from one
+  # thread and from a runtime's.
+  "acpmux-core|cmux-tui|--features allocation-metrics|test(/^boot::/) or test(=chat::stream::tests::a_chat_sub_without_the_chat_surface_is_refused)"
+  "cmux-rd-ffi|cmux-tui/crates/cmux-app-ffi||"
+  "cmux-wg-tun|cmux-tui||"
 )
 
 # Crates whose unsafe code Miri cannot reach, and why (checked 2026-11-17 on nightly-2026-11-16):
@@ -41,7 +45,7 @@ NOT_UNDER_MIRI=(
 repo=$(cd "$(dirname "$0")/../.." && pwd) || exit 2
 config="$repo/cmux-tui/scripts/miri-nextest.toml"
 
-if ! cargo "+$TOOLCHAIN" miri --version >/dev/null 2>&1; then
+if ! rustup run "$TOOLCHAIN" cargo miri --version >/dev/null 2>&1; then
   rustup toolchain install "$TOOLCHAIN" --profile minimal --component miri,rust-src || exit 2
 fi
 if [[ "$(cargo nextest --version 2>/dev/null | head -n 1)" != "cargo-nextest $NEXTEST_VERSION "* ]]; then
@@ -56,7 +60,7 @@ if [[ "$(cargo nextest --version 2>/dev/null | head -n 1)" != "cargo-nextest $NE
   ((code == 0)) || exit 2
   export PATH="$bin:$PATH"
 fi
-cargo "+$TOOLCHAIN" miri setup >/dev/null || exit 2
+rustup run "$TOOLCHAIN" cargo miri setup >/dev/null || exit 2
 
 # Isolation off: tests read the clock, the environment and temporary files.
 export MIRIFLAGS="${MIRIFLAGS:--Zmiri-disable-isolation}"
@@ -64,14 +68,15 @@ export MIRIFLAGS="${MIRIFLAGS:--Zmiri-disable-isolation}"
 summary=()
 status=0
 for row in "${CRATES[@]}"; do
-  IFS='|' read -r crate workspace args <<<"$row"
+  IFS='|' read -r crate workspace args filter <<<"$row"
   if (($#)) && [[ " $* " != *" $crate "* ]]; then
     continue
   fi
   echo "::group::miri $crate"
   start=$SECONDS
   # shellcheck disable=SC2086 # a row's arguments are space-separated words
-  (cd "$repo/$workspace" && cargo "+$TOOLCHAIN" miri nextest run --locked -p "$crate" --config-file "$config" $args)
+  (cd "$repo/$workspace" && rustup run "$TOOLCHAIN" cargo miri nextest run --locked -p "$crate" --config-file "$config" $args \
+    ${filter:+-E "$filter"})
   code=$?
   echo "::endgroup::"
   summary+=("$crate: $( ((code == 0)) && echo passed || echo "FAILED ($code)") in $((SECONDS - start)) s")
