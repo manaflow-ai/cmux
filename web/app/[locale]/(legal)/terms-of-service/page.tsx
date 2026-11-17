@@ -307,8 +307,8 @@ export default async function TermsOfServicePage() {
 
       <h3>Meeting recording and consent</h3>
       <p>
-        The cmux notetaker records the audio and the chat of the meetings that
-        you send it to, or that match the calendar rules you turn on (on Webex
+        The cmux notetaker records the audio, the chat, and what participants
+        share on screen (not their cameras) of the meetings that you send it to, or that match the calendar rules you turn on (on Webex
         it receives the chat but cannot post in it), and makes a transcript and
         notes.
         While it is in a meeting, the notetaker also reads the live transcript

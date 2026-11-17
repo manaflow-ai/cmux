@@ -262,7 +262,8 @@ export default function CmuxCloudDpaPage() {
         <li>
           Categories of data: names, email addresses, and profile details;
           messages and files; voices, words, and names in meeting audio
-          recordings and transcripts; meeting participant join and leave times
+          recordings and transcripts; images of shared screens in meetings and
+          their descriptions; meeting participant join and leave times
           and meeting chat messages; questions and requests typed to the
           notetaker; model call requests and answers; calendar
           event details; code and other
