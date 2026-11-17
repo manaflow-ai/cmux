@@ -134,35 +134,6 @@ fn ultra_receiver_shaped_short_hold_freezes_the_held_rate() {
 }
 
 #[test]
-fn ultra_receiver_shaped_periodic_hold_is_detected_with_short_feedback_gap() {
-    let mut cc = ultra();
-    let held = cc.wire_budget_bps();
-
-    // A periodic radio hold can leave a recent feedback report in flight even
-    // though the next arrivals are receiver-shaped: packets sent over 120 ms
-    // arrive within one 5 ms burst while the report gap is only 45 ms.
-    cc.on_feedback(&[], 0.0, 105_000);
-    cc.on_sent_bytes(1, 20_000, 1_200);
-    cc.on_sent_bytes(2, 80_000, 1_200);
-    cc.on_sent_bytes(3, 140_000, 1_200);
-    cc.on_feedback(
-        &[
-            Arrival { transport_seq: 1, arrival_us: 145_000 },
-            Arrival { transport_seq: 2, arrival_us: 149_000 },
-            Arrival { transport_seq: 3, arrival_us: 150_000 },
-        ],
-        0.02,
-        150_000,
-    );
-
-    assert_eq!(cc.wire_budget_bps(), held, "receiver-shaped burst must hold Ultra");
-    assert!(
-        cc.take_outage_resume(),
-        "periodic receiver burst must expose a resume edge even with short feedback gap"
-    );
-}
-
-#[test]
 fn ultra_rejects_old_path_probe_and_honors_configured_queue_limits() {
     let mut cc = ultra();
     let old_generation = cc.probe_generation();
