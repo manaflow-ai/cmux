@@ -1637,6 +1637,26 @@ class HotApplyFFI(unittest.TestCase):
         finally:
             self.ffi.signature, self.ffi.validates_no_libraries = saved
 
+    def test_the_library_must_export_what_the_app_framework_imports(self):
+        # CMUX-629: the stub executable binds nothing from the library; CmuxNextApp.framework does.
+        code = self.app / self.ffi.CODE_FRAMEWORK_BINARY
+        code.parent.mkdir(parents=True)
+        code.write_bytes(b"framework")
+        read = []
+
+        def run(*args, check=True):
+            read.append(args[-1])
+            return subprocess.CompletedProcess(args, 0, "                 (undefined) external _cmux_layout_apply"
+                                               " (from libcmux_app_ffi)\n", "")
+
+        saved = self.ffi._run
+        try:
+            self.ffi._run = run
+            self.assertEqual(self.ffi.imports(self.app), {"_cmux_layout_apply"})
+        finally:
+            self.ffi._run = saved
+        self.assertEqual(read, [str(code)])
+
     def test_the_app_opens_through_launchd_where_open_fails(self):
         # A terminal of the app outlives `cmux app quit --keep-sessions`, but `open` fails there (error -600), and
         # over ssh: the user's GUI domain opens the app, and the one-shot agent goes once the app answers.

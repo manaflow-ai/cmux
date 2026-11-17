@@ -3,8 +3,14 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 APP="build-universal/Build/Products/Release/cmux.app"
+# cmux NEXT's code is CmuxNextApp.framework behind the stub Contents/MacOS/cmux (CMUX-629): its slices
+# are the app's. Classic and a static build have no such framework.
+app_code=()
+[ -f "$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" ] &&
+  app_code=("$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp")
 for binary in \
   "$APP/Contents/MacOS/cmux" \
+  ${app_code[@]+"${app_code[@]}"} \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
   "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
