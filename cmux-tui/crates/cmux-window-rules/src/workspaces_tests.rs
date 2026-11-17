@@ -68,6 +68,8 @@ fn each_destructive_action_routes_to_its_question() {
     assert_eq!(confirmation("space.delete", false), Confirmation::SpaceDelete);
     assert_eq!(confirmation("tabGroup.close", false), Confirmation::TabGroupClose);
     assert_eq!(confirmation("workspace.rename", false), Confirmation::None);
+    // Install or Update on the person's own SSH machine destroys nothing: it runs on the click.
+    assert_eq!(confirmation("remote.install", false), Confirmation::None);
 }
 
 #[test]

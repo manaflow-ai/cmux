@@ -191,12 +191,14 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.down.circle",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 102)], ..SurfacePlan::DEFAULT },
+        // Not destructive: installing or updating cmux-tui on the person's own machine loses
+        // nothing (its terminals keep running), so a click runs it. `--confirm` is still taken
+        // and changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         palette_target_source: Some("ssh"),
         palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "remote install",
-        is_destructive: true,
         ..Action::DEFAULT
     },
     Action {
