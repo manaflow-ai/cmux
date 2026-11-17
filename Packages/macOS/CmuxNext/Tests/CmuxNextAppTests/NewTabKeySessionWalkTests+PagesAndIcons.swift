@@ -272,7 +272,8 @@ extension NewTabKeySessionWalkTests {
     /// A listed row has the icon that the walk at the decision's date gave it (decision of 2026-11-17: the icon is
     /// read when a page lists the row), and the read maps no workspace. 3 browser tabs of the first rows get the
     /// address of an icon that the app's icon loader has from the test; the first read of a page's lists asks the
-    /// app's icon store for it. The sign that the icon is there is a condition of the setup.
+    /// app's icon store for it. The sign that the icon is there is a condition of the setup: the store gives it at
+    /// a read (it gives an icon that the loader has with no load of its own, so the sign is not its own cache).
     ///
     /// This row has no red first: before this decision the kept rows had the icon.
     @Test func aListedRowHasTheIconThatTheWalkGivesIt() async throws {
@@ -290,12 +291,12 @@ extension NewTabKeySessionWalkTests {
             let took = BrowserFaviconLoader.shared.store(image, at: address, profile: profile) != nil
             try #require(took, "setup: the app's icon loader did not take the test's image")
             for tab in pages { tab.faviconURL = address.absoluteString }
-            // The first read asks the store for the icon; it arrives in the drain.
+            // The first read asks the store for the icon; after the drain the store gives it at a read.
             _ = NewTabPage.places(services, excluding: nil)
             await LargeSessionWindowFixture.drainMain()
             await LargeSessionWindowFixture.drainMain()
-            let arrived = services.favicons.cachedImage(for: address.absoluteString, profile: profile) != nil
-            try #require(arrived, "setup: the icon did not arrive in the app's icon store in the drain")
+            let arrived = services.favicons.image(for: address.absoluteString, profile: profile) != nil
+            try #require(arrived, "setup: the app's icon store does not give the icon at a read after the drain")
             _ = start.visits.take()
             let page = NewTabPage.places(services, excluding: nil)
             let atRead = start.visits.take()
@@ -326,10 +327,12 @@ extension NewTabKeySessionWalkTests {
     ///
     /// The count is the one of this suite: the maps of a workspace for the bar (`newTabPlaceSource`), on the app's
     /// own services, its own places feed and its own icon store, with no New Tab page open. No fetch leaves the
-    /// Mac: the test gives the app's icon loader the image of 2 addresses before a tab has them, and the loader
-    /// answers from what it has. 20 browser tabs of 20 workspaces get the first address, as 20 pages of one site do.
-    /// Then the test asks the app's icon store for the second address, which no tab has, as a tab strip asks for
-    /// an icon; the sign that this icon arrived is a condition of the setup.
+    /// Mac: the test gives the app's icon loader the image of each address, and the loader answers from what it
+    /// has. 20 browser tabs of 20 workspaces get the first address, as 20 pages of one site do. Then the test asks
+    /// the app's icon store for the second address, which no tab has, as a tab strip asks for an icon, and gives
+    /// the loader its image in the same turn: the store's load, which runs in the drain, is the arrival (the store
+    /// gives an icon that the loader has already with no load and no arrival). The sign that this icon arrived is
+    /// a condition of the setup.
     ///
     /// A report and no condition: if the app's icon store has the first address's icon while no New Tab page is
     /// open. The store does not say who asked for an icon, and the sidebar's rows ask the same store.
@@ -350,8 +353,7 @@ extension NewTabKeySessionWalkTests {
             let other = try #require(URL(string: "https://new-tab-key-walk.invalid/other.png"))
             let loader = BrowserFaviconLoader.shared
             let tookListed = loader.store(image, at: listed, profile: profile) != nil
-            let tookOther = loader.store(image, at: other, profile: profile) != nil
-            try #require(tookListed && tookOther, "setup: the app's icon loader did not take the test's image")
+            try #require(tookListed, "setup: the app's icon loader did not take the test's image")
 
             // 20 tabs of 20 workspaces get the address of one icon.
             _ = start.visits.takeByWorkspace()
@@ -362,8 +364,10 @@ extension NewTabKeySessionWalkTests {
             let addressMaps = atAddress.values.reduce(0, +)
             let storeHasListed = services.favicons.cachedImage(for: listed.absoluteString, profile: profile) != nil
 
-            // ONE icon arrives in the app's icon store: an icon of no tab.
+            // ONE icon arrives in the app's icon store: an icon of no tab, which the loader gets after the store's ask.
             let hadOther = services.favicons.image(for: other.absoluteString, profile: profile) != nil
+            let tookOther = loader.store(image, at: other, profile: profile) != nil
+            try #require(tookOther, "setup: the app's icon loader did not take the test's second image")
             await LargeSessionWindowFixture.drainMain()
             await LargeSessionWindowFixture.drainMain()
             let atArrival = start.visits.takeByWorkspace()
