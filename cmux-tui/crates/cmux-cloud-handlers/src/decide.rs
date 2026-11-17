@@ -3,7 +3,7 @@
 //! list, the creation), asks here, and does the platform work.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::args::PortNames;
 use crate::fields::{self, Machine};
@@ -53,7 +53,11 @@ pub fn machine(lookup: &Lookup) -> Result<Pick, Said> {
     if lookup.active_found {
         return Ok(Pick::Active);
     }
-    if lookup.cloud_count == 1 { Ok(Pick::Only) } else { Err(Said::key("noMachine")) }
+    if lookup.cloud_count == 1 {
+        Ok(Pick::Only)
+    } else {
+        Err(Said::key("noMachine"))
+    }
 }
 
 /// What New Cloud Workspace does.
@@ -184,7 +188,10 @@ pub struct Failure {
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     // A machine the server returned is made, whatever phase raced it (as `creation` decides).
     if let Some(machine) = &settled.machine {
-        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
+        return Ok(fields::created_machine(
+            machine,
+            settled.workspace_id.as_deref(),
+        ));
     }
     match settled.state {
         Some(Creation::Failed) => {
@@ -202,9 +209,11 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
                 },
             })
         }
-        Some(Creation::Gone) => {
-            Err(Failure { reason: Said::key("createDeclined"), code: None, refusal: true })
-        }
+        Some(Creation::Gone) => Err(Failure {
+            reason: Said::key("createDeclined"),
+            code: None,
+            refusal: true,
+        }),
         _ => Ok(
             match json!({"pending": true, "status": "creating", "creation_id": settled.creation_id})
             {
@@ -268,28 +277,46 @@ fn palette_status(
         // but do not offer setup/recovery until the Cloud control plane settles it.
         "pausing" => (
             PaletteTargetState::Resume,
-            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+            if wants_desktop {
+                None
+            } else {
+                Some(PaletteTargetIntent::Choose)
+            },
         ),
         "paused" | "suspended" => {
             if wants_desktop && !desktop {
-                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
+                (
+                    PaletteTargetState::Resume,
+                    Some(PaletteTargetIntent::StartDesktop),
+                )
             } else {
-                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+                (
+                    PaletteTargetState::Resume,
+                    Some(PaletteTargetIntent::Choose),
+                )
             }
         }
-        "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
-            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
-        }
+        "starting" | "creating" | "provisioning" | "resuming" | "booting" => (
+            PaletteTargetState::Starting,
+            (!wants_desktop).then_some(PaletteTargetIntent::Choose),
+        ),
         "running" | "ready" | "connected" | "active" => {
             if wants_desktop && !desktop {
-                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
+                (
+                    PaletteTargetState::DesktopUnavailable,
+                    Some(PaletteTargetIntent::StartDesktop),
+                )
             } else {
                 (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
             }
         }
         "deleting" => (
             PaletteTargetState::Unavailable,
-            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+            if wants_desktop {
+                None
+            } else {
+                Some(PaletteTargetIntent::Choose)
+            },
         ),
         _ => (
             PaletteTargetState::Unavailable,
@@ -331,7 +358,12 @@ pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<
             let title = machine.title.trim();
             (
                 index,
-                PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },
+                PaletteTargetRow {
+                    id: machine.id.clone(),
+                    title: title.to_owned(),
+                    state,
+                    intent,
+                },
                 machine.desktop,
                 actionability,
             )
@@ -393,39 +425,13 @@ pub fn team(
         return Err(Said::key("noTeams"));
     }
     let team = asked
-        .and_then(|asked| teams.iter().find(|team| team.id == asked || team.name == asked))
+        .and_then(|asked| {
+            teams
+                .iter()
+                .find(|team| team.id == asked || team.name == asked)
+        })
         .ok_or_else(|| Said::with("noSuchTeam", [asked.unwrap_or("")]).invalid_target())?;
     Ok((Some(team.id.as_str()) != active).then(|| team.id.clone()))
-}
-
-/// Why Set Up GitHub will not use the App, as the GitHub App check answered (`ready` is none).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum GitHubApp {
-    Ready,
-    NotConnected,
-    NotConfigured,
-    Unknown,
-}
-
-/// What Set Up GitHub's question says: the App's helper, else the machine's own sign-in with the
-/// fallback's reason first. The parts are the app's strings, said in order; the bodies name the
-/// machine's git identity (`—` for a missing name or email).
-pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -> Vec<Said> {
-    let named = name.is_some() || email.is_some();
-    let identity = [name.unwrap_or("—"), email.unwrap_or("—")];
-    let body = |key: &'static str, bare: &'static str| {
-        if named { Said::with(key, identity) } else { Said::key(bare) }
-    };
-    let reason = match app {
-        GitHubApp::Ready => {
-            return vec![body("gitHubAppConfirmBody", "gitHubAppConfirmNoIdentity")];
-        }
-        GitHubApp::NotConnected => "gitHubFallbackNotConnected",
-        GitHubApp::NotConfigured => "gitHubFallbackNotConfigured",
-        GitHubApp::Unknown => "gitHubFallbackUnknown",
-    };
-    vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
 }
 
 /// An error's own words, without a trailing period (it sits inside a sentence).

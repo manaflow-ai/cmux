@@ -127,6 +127,15 @@ public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
 }
 
 public extension PageConfirmation {
+    /// Confirmed ops the person's own click or key in the page runs with no sheet: they sign in or out,
+    /// open billing in the browser, connect to the person's own machine, or restore one of their archives
+    /// (a create, as a person's own create is). Page script alone, with no gesture, still gets the sheet;
+    /// the deletes always ask (they remove a disk, a snapshot or a publication for good).
+    static let clickRunsOps: Set<String> = [
+        "cmux.cloud.auth.sign_in", "cmux.cloud.auth.sign_out", "cmux.cloud.billing.open",
+        "cmux.cloud.machine.connect", "cmux.cloud.snapshot.restore",
+    ]
+
     /// The sheet for a confirmed namespace op (``PageDescriptor/confirmedOps``) run through
     /// `cmux.app.action.run {action: <op>, args}`. `name` is the subject the args name (the machine's
     /// display name or id); ops without a subject ask about the action itself.

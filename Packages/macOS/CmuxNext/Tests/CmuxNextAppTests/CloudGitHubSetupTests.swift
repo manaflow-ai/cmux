@@ -282,16 +282,6 @@ struct CloudGitHubSetupTests {
         #expect(CloudGitHubSetup.fields(unavailable, identity: .init(), fallback: .notOnMachine)["fallback_reason"] == .string("not_on_machine"))
     }
 
-    @Test func theConfirmSaysWhichWayBeforeAnythingRuns() {
-        let ann = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c"), none = CloudGitHubSetup.GitIdentity()
-        #expect(CloudGitHubHandlers.confirmBody(ann, app: .ready) == CloudStrings.gitHubAppConfirmBody(name: "Ann", email: "a@b.c"))
-        #expect(CloudGitHubHandlers.confirmBody(none, app: .ready) == CloudStrings.gitHubAppConfirmNoIdentity)
-        #expect(CloudGitHubHandlers.confirmBody(ann, app: .notConnected)
-            == CloudStrings.gitHubFallback(.notConnected) + " " + CloudStrings.gitHubConfirmBody(name: "Ann", email: "a@b.c"))
-        #expect(CloudGitHubHandlers.confirmBody(none, app: .unknown)
-            == CloudStrings.gitHubFallback(.unknown) + " " + CloudStrings.gitHubConfirmNoIdentity)
-    }
-
     // MARK: Target
 
     /// A CLI, MCP, script, page or remote run with no `--target machine:<id>` is refused, even with
