@@ -157,6 +157,8 @@ extension CEFRuntime {
         case .unknown:
             break
         default:
+            // A page that becomes (or stops being) an agent chat, a spare page taken for one included.
+            if case .address(let browser, let url) = event { drawOnInput.addressChanged(browser: browser, url: URL(string: url)) }
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
                 #if DEBUG
                 CEFEventTrace.record(browser, event)
@@ -262,6 +264,7 @@ extension CEFRuntime {
         }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
+        drawOnInput.addressChanged(browser: browser, url: tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url)
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
@@ -269,6 +272,7 @@ extension CEFRuntime {
 
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
+        drawOnInput.closed(browser: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
             // Read before the close: a closed tab's state is not this page's any more.
             let cmuxPage = CEFPageRendererGC.isCmuxPage(tab.state.url)
