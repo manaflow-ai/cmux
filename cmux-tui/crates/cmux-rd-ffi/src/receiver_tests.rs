@@ -305,3 +305,31 @@ fn the_session_clock_sizes_every_streams_repair_window() {
     s.open_stream(3).expect("open");
     assert_eq!(s.repair_window_us(3), Ok(50_000));
 }
+
+/// Keyframe requests go out at most every 250 ms (or two round trips): the
+/// keyframe the first request gets answers every request sent before it
+/// lands. On a path that holds every datagram for 50-100 ms, requests one
+/// round trip apart asked for a keyframe per burst of late frames.
+#[test]
+fn keyframe_requests_are_spaced_at_least_250_ms() {
+    use crate::receiver::MIN_RECOVERY_REQUEST_INTERVAL_US;
+    let mut r = receiver();
+    r.set_path_rtt_us(Some(20_000));
+    assert_eq!(r.recovery_request_interval_us(), MIN_RECOVERY_REQUEST_INTERVAL_US);
+    assert!(r.feedback(0).is_some());
+    r.request_keyframe();
+    assert_eq!(r.next_deadline_us(), 0, "the first request goes out at once");
+    assert!(decode_feedback(&r.feedback(10_000).expect("request")).need_recovery);
+    // Still no keyframe: later feedback does not ask again inside the interval.
+    for t in [60_000, 110_000, 160_000, 210_000, 259_999] {
+        if let Some(d) = r.feedback(t) {
+            assert!(!decode_feedback(&d).need_recovery, "asked again at {t}");
+        }
+    }
+    let again =
+        std::iter::from_fn(|| r.feedback(260_000)).find(|d| decode_feedback(d).need_recovery);
+    assert!(again.is_some(), "asked again once the interval passed");
+    // A 400 ms path waits two round trips.
+    r.set_path_rtt_us(Some(400_000));
+    assert_eq!(r.recovery_request_interval_us(), 800_000);
+}

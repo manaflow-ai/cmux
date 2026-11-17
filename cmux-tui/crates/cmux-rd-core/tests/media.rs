@@ -551,7 +551,7 @@ fn a_hold_then_a_burst_completes_the_frame_in_flight_without_recovery() {
 /// A link that stays silent past the pause gives the frame up after all.
 #[test]
 fn a_silence_longer_than_the_pause_still_gives_the_frame_up() {
-    use cmux_rd_core::reassembly::MAX_HOLD_PAUSE_US;
+    use cmux_rd_core::link::OUTAGE_FREEZE_MAX_US;
     let mut p = Packetizer::new(0, 256);
     let mut r = Reassembler::new(200_000);
     r.set_path_rtt_us(Some(8_000));
@@ -559,7 +559,7 @@ fn a_silence_longer_than_the_pause_still_gives_the_frame_up() {
     let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
     assert!(r.push(&h, payload, 0).is_empty());
     let at = r.next_expiry_us().expect("an expiry");
-    assert!(at <= 200_000 + MAX_HOLD_PAUSE_US + 1, "expiry {at}");
+    assert!(at <= 200_000 + OUTAGE_FREEZE_MAX_US + 1, "expiry {at}");
     assert!(r.tick(at).is_empty());
     assert_eq!(r.take_losses().len(), 1);
     assert!(r.need_recovery());

@@ -19,6 +19,7 @@ use cmux_rd_proto::{
 };
 
 use crate::fec;
+use crate::link::{OUTAGE_FREEZE_MAX_US, ViewerLinkState};
 
 /// A frame ready to decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,16 +44,16 @@ struct Timing {
     deadline_us: u64,
     window_us: u64,
     retry_us: u64,
-    /// The link's silence so far ([`Reassembler::hold_us_at`]): the give-up
-    /// clock stands still for it.
-    hold_us: u64,
+    /// The link's time away so far, the current outage included: the
+    /// give-up clock stands still for it.
+    away_us: u64,
 }
 
 #[derive(Debug)]
 struct Pending {
-    /// [`Reassembler::hold_us`] when this frame's first shard arrived: the
-    /// silence since then is what this frame's give-up clock skips.
-    hold_base_us: u64,
+    /// The link's time away when this frame's first shard arrived: the time
+    /// away since then is what this frame's give-up clock skips.
+    away_base_us: u64,
     first_seen_us: u64,
     last_seen_us: u64,
     highest_index: u16,
@@ -103,10 +104,9 @@ pub struct Reassembler {
     /// Recently released frames that a recovery frame may reference.
     released_recent: VecDeque<u32>,
     /// When the last datagram of any kind arrived.
-    last_arrival_us: Option<u64>,
-    /// Total silence of the link beyond [`Self::silence_after_us`], over
-    /// every silence that ended (a hold: nothing at all arrived).
-    hold_us: u64,
+    /// Whether the link is up or away (an outage, design D12), from the
+    /// arrivals of datagrams of any kind.
+    link: ViewerLinkState,
 }
 
 /// Most payload bytes held for incomplete frames; shards beyond it are ignored.
@@ -144,14 +144,6 @@ pub const REPAIR_WINDOWS: u64 = 2;
 /// before the first repair could arrive: a duplicate shard costs less than
 /// a lost request waiting a whole window.
 pub const NACK_RETRY_MAX_US: u64 = 50_000;
-
-/// The most of a link silence one frame's give-up clock skips. A silence
-/// (no datagram of any kind for two round trips) is a hold on the path, not
-/// loss: every shard and repair is late together, and giving the frame up
-/// only turns a late frame into a recovery frame that the same hold delays.
-/// Past this much silence the link is treated as gone and the frame waits
-/// no more.
-pub const MAX_HOLD_PAUSE_US: u64 = 500_000;
 
 /// The frame interval assumed until frames arrive (60 fps).
 pub const DEFAULT_FRAME_INTERVAL_US: u64 = 16_667;
@@ -245,34 +237,22 @@ impl Reassembler {
             need_recovery: false,
             pending_bytes: 0,
             released_recent: VecDeque::new(),
-            last_arrival_us: None,
-            hold_us: 0,
+            link: ViewerLinkState::default(),
         }
     }
 
-    /// How long the link may be silent before the silence counts as a hold:
-    /// two round trips, at least [`MIN_REPAIR_FRAMES`] frame intervals (a
-    /// frame's datagrams normally arrive at least that often).
-    pub fn silence_after_us(&self) -> u64 {
-        let frames = self.frame_interval_us().saturating_mul(MIN_REPAIR_FRAMES);
-        self.rtt_us().map_or(frames, |rtt| rtt.saturating_mul(2).max(frames))
-    }
-
-    /// The link's hold time at `now_us`: the silences that ended plus the
-    /// part of the current one past [`Self::silence_after_us`].
-    fn hold_us_at(&self, now_us: u64) -> u64 {
-        let current = self
-            .last_arrival_us
-            .map_or(0, |at| now_us.saturating_sub(at).saturating_sub(self.silence_after_us()));
-        self.hold_us.saturating_add(current)
-    }
-
     /// Records that a datagram of any kind arrived on the link at `now_us`
-    /// (video goes through [`Self::push`], which records it too): a silence
-    /// that just ended joins the hold time.
+    /// (video goes through [`Self::push`], which records it too): an outage
+    /// in progress ends.
     pub fn note_datagram(&mut self, now_us: u64) {
-        self.hold_us = self.hold_us_at(now_us);
-        self.last_arrival_us = Some(self.last_arrival_us.map_or(now_us, |at| at.max(now_us)));
+        let rtt = self.rtt_us();
+        self.link.on_arrival(now_us, rtt);
+    }
+
+    /// True while the link is away (silent past
+    /// [`crate::link::outage_threshold_us`]).
+    pub fn link_away(&self, now_us: u64) -> bool {
+        self.link.is_away(now_us, self.rtt_us())
     }
 
     /// The session's round trip as measured outside reassembly (clock pings,
@@ -360,9 +340,9 @@ impl Reassembler {
             }
             None => self.newest_started = Some((header.frame, now_us)),
         }
-        let hold_base_us = self.hold_us;
+        let away_base_us = self.link.away_total_us();
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
-            hold_base_us,
+            away_base_us,
             first_seen_us: now_us,
             last_seen_us: now_us,
             highest_index: header.index,
@@ -446,13 +426,13 @@ impl Reassembler {
             deadline_us: self.deadline_us,
             window_us: self.repair_window_us(),
             retry_us: self.retry_us(),
-            hold_us: self.hold_us,
+            away_us: self.link.away_total_us(),
         }
     }
 
-    /// [`Self::timing`] with the hold time at `now_us`, current silence included.
+    /// [`Self::timing`] with the time away at `now_us`, the current outage included.
     fn timing_at(&self, now_us: u64) -> Timing {
-        Timing { hold_us: self.hold_us_at(now_us), ..self.timing() }
+        Timing { away_us: self.link.away_total_us_at(now_us, self.rtt_us()), ..self.timing() }
     }
 
     /// When a gap not requested yet is due: an observed gap after the reorder
@@ -550,22 +530,21 @@ impl Reassembler {
     /// or `None` when no frame waits. Callers arm one timer for it instead of
     /// ticking on a fixed period.
     ///
-    /// A silence that starts before a frame's give-up time holds its clock,
+    /// An outage that starts before a frame's give-up time holds its clock,
     /// so with nothing arriving it is given up only once the pause runs out
-    /// ([`MAX_HOLD_PAUSE_US`]); an arrival moves the time again.
+    /// ([`OUTAGE_FREEZE_MAX_US`]); an arrival moves the time again.
     pub fn next_expiry_us(&self) -> Option<u64> {
         let t = self.timing();
-        let silence_counts_from =
-            self.last_arrival_us.map(|at| at.saturating_add(self.silence_after_us()));
+        let last_arrival = self.link.last_arrival_us();
         self.pending
             .values()
             .filter(|p| !Self::decodable(p))
             .map(|p| {
                 let unpaused = Self::give_up_unpaused_at(p, &t);
                 let at = Self::give_up_at(p, &t).saturating_add(1);
-                match silence_counts_from {
-                    Some(from) if at > from => {
-                        unpaused.saturating_add(MAX_HOLD_PAUSE_US).saturating_add(1)
+                match last_arrival {
+                    Some(last) if at > last => {
+                        unpaused.saturating_add(OUTAGE_FREEZE_MAX_US).saturating_add(1)
                     }
                     _ => at,
                 }
@@ -578,9 +557,9 @@ impl Reassembler {
     /// after the time its tail would be NACKed when shards kept arriving),
     /// and never later than the deadline from its first shard: the base's
     /// wait is the most a frame waits. Both stand still while the link is
-    /// silent (a hold), for at most [`MAX_HOLD_PAUSE_US`].
+    /// away (an outage, design D12), for at most [`OUTAGE_FREEZE_MAX_US`].
     fn give_up_at(p: &Pending, t: &Timing) -> u64 {
-        let paused = t.hold_us.saturating_sub(p.hold_base_us).min(MAX_HOLD_PAUSE_US);
+        let paused = t.away_us.saturating_sub(p.away_base_us).min(OUTAGE_FREEZE_MAX_US);
         Self::give_up_unpaused_at(p, t).saturating_add(paused)
     }
 
@@ -600,6 +579,18 @@ impl Reassembler {
             .min(p.first_seen_us.saturating_add(t.deadline_us))
     }
 
+    /// A give-up time `at` that fell inside the link's current silence waits
+    /// until the silence is known to be an outage or not: an arrival before
+    /// the outage threshold ([`crate::link::outage_threshold_us`]) gives the
+    /// frame up then, and past it the outage's time away holds its clock.
+    fn silence_may_be_outage(&self, at: u64, now_us: u64) -> bool {
+        let rtt = self.rtt_us();
+        match (self.link.last_arrival_us(), self.link.away_from_us(rtt)) {
+            (Some(last), Some(from)) => at > last && now_us <= from,
+            _ => false,
+        }
+    }
+
     fn decodable(p: &Pending) -> bool {
         p.shards.iter().filter(|s| s.is_some()).count() >= usize::from(p.count)
     }
@@ -609,7 +600,10 @@ impl Reassembler {
         let expired: Vec<u32> = self
             .pending
             .iter()
-            .filter(|(_, p)| !Self::decodable(p) && now_us > Self::give_up_at(p, &t))
+            .filter(|(_, p)| {
+                let at = Self::give_up_at(p, &t);
+                !Self::decodable(p) && now_us > at && !self.silence_may_be_outage(at, now_us)
+            })
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {

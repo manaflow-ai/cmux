@@ -272,9 +272,12 @@ impl Receiver {
             .map_or(0, |at| at.saturating_add(self.recovery_request_interval_us()))
     }
 
-    /// Whether a feedback sent at `now_us` asks for a keyframe.
+    /// Whether a feedback sent at `now_us` asks for a keyframe: not while the
+    /// link is away (an outage, design D12), whose late frames are not lost.
     fn asks_recovery(&self, now_us: u64) -> bool {
-        self.need_recovery() && now_us >= self.recovery_allowed_at()
+        self.need_recovery()
+            && now_us >= self.recovery_allowed_at()
+            && !self.reassembler.link_away(now_us)
     }
 
     /// Counters for the status line.
@@ -353,6 +356,10 @@ impl Receiver {
             if need_recovery {
                 self.recovery_sent = true;
                 self.last_recovery_request_us = Some(now_us);
+            } else if self.need_recovery() && self.reassembler.link_away(now_us) {
+                // Held until the outage ends (the next arrival), not retried
+                // on every call while away.
+                self.recovery_sent = true;
             }
             Feedback {
                 acked_frame: self.reassembler.last_released(),
@@ -406,6 +413,10 @@ impl Receiver {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), ReceiverError> {
         let (header, payload) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+        // The first datagram after an outage sends a held recovery request at once.
+        if self.reassembler.link_away(now_us) {
+            self.recovery_sent = false;
+        }
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
                 if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
@@ -431,6 +442,9 @@ impl Receiver {
     /// A datagram of any kind (another stream's, a clock pong) arrived on
     /// this stream's link at `now_us`: the link is not on hold.
     pub fn note_link_datagram(&mut self, now_us: u64) {
+        if self.reassembler.link_away(now_us) {
+            self.recovery_sent = false;
+        }
         self.reassembler.note_datagram(now_us);
     }
 
