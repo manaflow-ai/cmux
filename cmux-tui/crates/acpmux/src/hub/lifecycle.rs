@@ -644,8 +644,17 @@ impl Hub {
             self.config.read().await.permission_policy,
             &profile.launch_digest,
         );
+        // Only while nothing of the chat still runs: an agent or host a failed stop left behind is
+        // reached below, which ends or adopts it and holds it to the policy again (review F1).
         if let Some(e) = session.policy_refusal.held(&refusal_key) {
-            return Err(e);
+            let child = session.child.lock().await.clone();
+            let alive = match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            };
+            if !alive && !Self::host_record_live(&session.id) {
+                return Err(e);
+            }
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
