@@ -39,6 +39,9 @@ enum Op {
     Shutdown,
     /// Killed between a new snapshot and its journal's reset: the old journal is left beside it.
     StaleJournal,
+    /// An older daemon ran in between: it read and wrote `outbox.json` alone, and left no
+    /// journal.
+    OlderDaemon,
     DiskFails,
     DiskHeals,
 }
@@ -57,6 +60,7 @@ fn op() -> impl Strategy<Value = Op> {
         1 => (1u16..300).prop_map(Op::TornRestart),
         2 => Just(Op::Shutdown),
         1 => Just(Op::StaleJournal),
+        1 => Just(Op::OlderDaemon),
         2 => Just(Op::DiskFails),
         2 => Just(Op::DiskHeals),
     ]
@@ -257,6 +261,13 @@ impl Harness {
                 self.oracle.shutdown();
                 self.reopen();
             }
+            Op::OlderDaemon => {
+                self.disk_heals();
+                self.outbox.compact();
+                let _ = std::fs::remove_file(self.journal());
+                self.oracle.shutdown();
+                self.reopen();
+            }
             Op::DiskFails => self.disk_fails(),
             Op::DiskHeals => self.disk_heals(),
         }
@@ -326,12 +337,23 @@ proptest! {
 }
 
 /// Found by the model: a change whose write failed waits in memory for the next write, and a
-/// clean shutdown is one. `compact` skipped when the journal was empty, so with no journal yet
-/// (a fresh outbox, or one whose journal could not be started after a snapshot) the shutdown
-/// wrote nothing, and the next daemon delivered an acked message again.
+/// clean shutdown is one. `compact` skipped when the journal was empty, so with no journal
+/// started (an outbox an older daemon wrote last, or one whose new journal could not be started
+/// after a snapshot) the shutdown wrote nothing, and the next daemon sent an acked message again.
 #[test]
 fn a_shutdown_writes_a_change_whose_write_failed() {
-    run(&[Op::Send(0, 0), Op::Shutdown, Op::DiskFails, Op::Ack(0), Op::DiskHeals, Op::Shutdown]);
+    run(&[Op::Send(0, 0), Op::OlderDaemon, Op::DiskFails, Op::Ack(0), Op::DiskHeals, Op::Shutdown]);
+    // The same with the journal lost to a failing disk: a refused send's failed append asks for
+    // a snapshot, a repeat of the first send writes it, and the journal after it cannot start.
+    run(&[
+        Op::Send(0, 0),
+        Op::DiskFails,
+        Op::Send(1, 0),
+        Op::Send(0, 0),
+        Op::Ack(0),
+        Op::DiskHeals,
+        Op::Shutdown,
+    ]);
 }
 
 /// Found by the model: an update closure that panicked left its change in memory unmarked, so
