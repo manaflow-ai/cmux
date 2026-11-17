@@ -3,10 +3,25 @@
 // stalls typing (Leo, 2026-10-24: "they freeze the composer... this cannot be acceptable"), and
 // here on the page only where no worker starts. Nothing in it touches the DOM.
 
-/** Conservative shared preview size; original files stay available through session tools.
- * https://platform.claude.com/docs/en/build-with-claude/vision */
+/// To a daemon that fits images (it lists `fitsImages`), the page never scales the picture it
+/// sends (Leo, "What every coder should know about gamma"; claude-sr2-coord, 2026-11-17:
+/// "Composer image fit: do it in Rust, not JS"): a canvas scales sRGB codes, so a 1 px black and
+/// white checkerboard came out 127 grey where its light is 188. A PNG or JPEG goes as the
+/// person's own file, with no decode or re-encode here; acpmux removes its metadata (EXIF, GPS,
+/// PNG text) as it takes the prompt and scales it to the model's edge and bytes in linear light,
+/// upright as its EXIF says (cmux-tui acpmux `image_privacy.rs`, `model_copies::fit_inline`). Any
+/// other picture (HEIC, TIFF, GIF, WebP) is drawn at its own size and encoded again as PNG.
+/// Only the chip's thumbnail (drawThumb) is scaled here: that is for the person's eyes alone.
+///
+/// A daemon that does not list it (an older build, or a peer's) writes the picture to the agent
+/// as it comes, and the model refuses one past its size: for it the page still fits the picture
+/// itself, as it always did (fitForModel).
+
+/** Conservative shared preview size for a daemon that does not fit images; original files stay
+ * available through session tools. https://platform.claude.com/docs/en/build-with-claude/vision */
 export const MAX_IMAGE_SIDE = 1568;
-/** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
+/** The bytes one attached image may have, for a daemon that does not fit images: past this it is
+ * re-encoded (as JPEG) or scaled down. */
 export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 
 /// The steps an image that does not fit takes, in order: its longest side, then the JPEG quality.
@@ -20,6 +35,10 @@ export const FIT_STEPS = [
   { side: 800, quality: 0.7 },
   { side: 512, quality: 0.6 },
 ] as const;
+
+/// What the connected daemon does with a prompt's picture. `daemonFits`: it lists `fitsImages`
+/// (see the top of this file).
+export type PrepareOptions = { daemonFits?: boolean };
 
 /** The most pixels a picture is decoded at to make its preview: past it, it goes as a file. A
  * 12K x 8K photo (96 MP) is about 400 MB of pixels while it is scaled. */
@@ -101,6 +120,10 @@ export type Thumb = { url: string; width: number; height: number };
 export type PreparedImage = { mimeType: "image/png" | "image/jpeg"; data: string; thumb?: Thumb };
 
 export function base64(bytes: Uint8Array): string {
+  // The engine's own encoder where it has one (Chromium 140, Safari 18.2): a 15 MB file in a
+  // few ms, where joining its bytes as a string takes tens.
+  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64;
+  if (typeof native === "function") return native.call(bytes);
   let binary = "";
   for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
   return btoa(binary);
@@ -110,11 +133,14 @@ function canDraw(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
 }
 
-/// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
-/// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
-/// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
+/// The picture a prompt sends for `file`, and its chip's thumbnail (see the top of this file). To a
+/// daemon that fits images, a PNG or JPEG goes as its own bytes (the daemon removes its metadata)
+/// and any other picture drawn at its own size. To any other daemon, the pixels are always decoded
+/// and encoded again, which leaves the metadata behind, fitted to the model as the page always did
+/// (aspect ratio kept, never upscaled, at most 1568 px on its long edge: the conservative standard
+/// Claude vision tier, https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
-export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
+export async function prepareImage(file: Blob, options: PrepareOptions = {}): Promise<PreparedImage | undefined> {
   if (!canDraw()) return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
@@ -128,8 +154,21 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
     if (size && (size.width === undefined || size.height === undefined)) return undefined;
     if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
       return undefined;
+    const own = options.daemonFits ? await ownType(file) : undefined;
+    if (own) {
+      // Its bytes as they are, read while its thumbnail is drawn; a picture the engine cannot
+      // decode goes as a file, as before.
+      const decoding = createImageBitmap(file);
+      const [data, decodedBitmap] = await Promise.all([
+        file.arrayBuffer().then((b) => base64(new Uint8Array(b))),
+        decoding,
+      ]);
+      bitmap = decodedBitmap;
+      const thumb = await drawThumb(bitmap);
+      return { mimeType: own, data, ...(thumb ? { thumb } : {}) };
+    }
     bitmap = await createImageBitmap(file);
-    const fitted = await fit(bitmap, file.type);
+    const fitted = options.daemonFits ? await ownSize(bitmap) : await fitForModel(bitmap, file.type);
     if (!fitted) return undefined;
     const thumb = await drawThumb(bitmap);
     return { ...fitted, ...(thumb ? { thumb } : {}) };
@@ -140,7 +179,31 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
   }
 }
 
-async function fit(bitmap: ImageBitmap, type: string): Promise<Omit<PreparedImage, "thumb"> | undefined> {
+/// `file`'s type when its bytes are a PNG or JPEG (by their signature, not its name), which the
+/// daemon reads as they are.
+async function ownType(file: Blob): Promise<"image/png" | "image/jpeg" | undefined> {
+  const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  const at = (...sig: number[]) => sig.every((byte, index) => head[index] === byte);
+  if (at(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (at(0xff, 0xd8, 0xff)) return "image/jpeg";
+  return undefined;
+}
+
+/// A picture the daemon does not read as it is (HEIC, TIFF, GIF, WebP) at its own size, one canvas
+/// pixel for each of its own (no scaling, so no averaging of sRGB codes), as PNG without its
+/// metadata. acpmux fits it to the model (see the top of this file).
+async function ownSize(bitmap: ImageBitmap): Promise<Omit<PreparedImage, "thumb"> | undefined> {
+  const canvas = new OffscreenCanvas(Math.max(1, bitmap.width), Math.max(1, bitmap.height));
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+  context.drawImage(bitmap, 0, 0);
+  const png = await canvas.convertToBlob({ type: "image/png" });
+  return { mimeType: "image/png", data: base64(new Uint8Array(await png.arrayBuffer())) };
+}
+
+/// The picture fitted to the model on the page, for a daemon that does not fit images (see the
+/// top of this file): FIT_STEPS, within IMAGE_BUDGET_BYTES.
+async function fitForModel(bitmap: ImageBitmap, type: string): Promise<Omit<PreparedImage, "thumb"> | undefined> {
   const longest = Math.max(bitmap.width, bitmap.height, 1);
   let smallest: Blob | undefined;
   let triedPng = 0;

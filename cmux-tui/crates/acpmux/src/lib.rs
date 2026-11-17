@@ -138,6 +138,7 @@ pub mod hub;
 pub mod hub_carrier;
 pub mod hunk_summary;
 pub mod idempotency;
+pub mod image_privacy;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;

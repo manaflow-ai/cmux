@@ -60,6 +60,9 @@ export type AttachmentIntakeOptions = {
   place?(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
+  /// The daemon cleans and fits a prompt's pictures (snapshot `daemonFitsImages`): a pasted PNG or
+  /// JPEG goes as it is (imageWork.ts); otherwise the page fits it.
+  daemonFitsImages?: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
@@ -660,6 +663,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
+          ...(current.daemonFitsImages ? { daemonFitsImages: true } : {}),
           ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still

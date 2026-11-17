@@ -532,6 +532,7 @@ export function NewTabScreen(props: Props) {
   } = useAttachmentIntake({
     place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    ...(snapshot.daemonFitsImages ? { daemonFitsImages: true } : {}),
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.

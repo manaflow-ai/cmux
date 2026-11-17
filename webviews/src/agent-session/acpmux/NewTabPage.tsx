@@ -290,6 +290,7 @@ export function NewTabPage({
     dropLanded,
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    ...(snapshot.daemonFitsImages ? { daemonFitsImages: true } : {}),
     pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
     dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
   });

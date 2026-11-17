@@ -1,7 +1,7 @@
 /// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
-import { base64 } from "./composer/imageWork";
+import { base64, type PrepareOptions } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
@@ -415,6 +415,8 @@ export async function readAttachment(
   file: File,
   allowImages: boolean,
   id: string = crypto.randomUUID(),
+  /// What the connected daemon does with a picture (composer/imageWork.ts).
+  prepare: PrepareOptions = {},
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   if (isPdf(file)) {
@@ -433,11 +435,11 @@ export async function readAttachment(
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     // A picture the engine cannot decode is not a picture after all: it goes as a file.
-    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
+    return (await imageChip(file, id, name, prepare)) ?? { name, reason: "unsupported" };
   }
   if (CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(name))) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
+    return (await imageChip(file, id, name, prepare)) ?? { name, reason: "unsupported" };
   }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
@@ -445,10 +447,15 @@ export async function readAttachment(
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
 }
 
-/// An image's chip: its metadata-free preview, made off the main thread (composer/imagePool.ts),
+/// An image's chip: its preview for the connected daemon (`prepare`), made off the main thread (composer/imagePool.ts),
 /// with its thumbnail kept for the chip. Undefined when the engine cannot decode it.
-async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
-  const prepared = await prepareImageOffThread(file);
+async function imageChip(
+  file: File,
+  id: string,
+  name: string,
+  prepare: PrepareOptions,
+): Promise<ComposerAttachment | undefined> {
+  const prepared = await prepareImageOffThread(file, prepare);
   if (!prepared) return undefined;
   if (prepared.thumb) {
     keepThumb(id, prepared.thumb);

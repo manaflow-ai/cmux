@@ -5,7 +5,7 @@
 // Worker, or the engine cannot draw in one, the work runs on the page as before; a worker that fails
 // or stops answering fails its jobs (the file then goes as a file) and is replaced, never handing
 // them to the page.
-import { prepareImage, thumbnailOf, type PreparedImage, type Thumb } from "./imageWork";
+import { prepareImage, thumbnailOf, type PrepareOptions, type PreparedImage, type Thumb } from "./imageWork";
 
 /// The worker's file, beside the bundled page.
 export const IMAGE_WORKER_FILE = "image-worker.js";
@@ -14,7 +14,7 @@ export const IMAGE_WORKER_FILE = "image-worker.js";
 export const imageJobDeadline = { ms: 20_000 };
 
 export type ImageJob =
-  | { id: number; kind: "prepare"; file: Blob }
+  | { id: number; kind: "prepare"; file: Blob; options?: PrepareOptions }
   | { id: number; kind: "thumb"; image: { mimeType: string; data: string } };
 /// `unsupported`: the worker cannot draw (no OffscreenCanvas there); the page does the job.
 export type ImageJobResult = { id: number; value: PreparedImage | Thumb | undefined; unsupported?: boolean };
@@ -76,7 +76,7 @@ function stopWorker(stopped: Worker, then: "page" | "fresh") {
 }
 
 function here(job: Job): Promise<PreparedImage | Thumb | undefined> {
-  return job.kind === "prepare" ? prepareImage(job.file) : thumbnailOf(job.image);
+  return job.kind === "prepare" ? prepareImage(job.file, job.options) : thumbnailOf(job.image);
 }
 
 function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
@@ -98,9 +98,10 @@ function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
   });
 }
 
-/// An image's metadata-free preview and its thumbnail, made off the main thread.
-export function prepareImageOffThread(file: Blob): Promise<PreparedImage | undefined> {
-  return run({ kind: "prepare", file }) as Promise<PreparedImage | undefined>;
+/// An image's preview for the connected daemon (`options`, imageWork.ts) and its thumbnail, made
+/// off the main thread.
+export function prepareImageOffThread(file: Blob, options: PrepareOptions = {}): Promise<PreparedImage | undefined> {
+  return run({ kind: "prepare", file, options }) as Promise<PreparedImage | undefined>;
 }
 
 /// The thumbnail of a staged image's bytes, made off the main thread.

@@ -785,6 +785,10 @@ const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
 /// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
+/// The feature of an acpmux that removes a prompt's picture metadata and fits it to the model in
+/// linear light (cmux-tui acpmux `model_copies::FEATURE`): the composer then sends a pasted PNG or
+/// JPEG as its own file (composer/imageWork.ts); to any other it fits the picture itself.
+export const FITS_IMAGES_FEATURE = "fitsImages";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -11273,6 +11277,7 @@ export class AcpmuxDirectClient {
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
       ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
+      ...(this.features.has(FITS_IMAGES_FEATURE) ? { daemonFitsImages: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,

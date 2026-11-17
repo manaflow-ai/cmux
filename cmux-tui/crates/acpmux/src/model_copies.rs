@@ -19,13 +19,31 @@
 //! - An image that cannot be copied (another type, a bad or interlaced PNG, no room) keeps only its
 //!   link, as before. That is never a refusal.
 //!
-//! JPEG and WebP copies come in a follow-up that adds their decoders.
+//!
+//! An image sent inline (the composer's pasted or dropped picture, at its full size: Leo,
+//! "What every coder should know about gamma"; claude-sr2-coord, 2026-11-17: "Composer image fit:
+//! do it in Rust, not JS") is fitted the same way ([`fit_inline`]): a PNG or JPEG past the
+//! model's edge or bytes is replaced in place by its copy scaled in linear light. That reads no
+//! file, so it is done for every turn, a remote device's too. A link to an upload of the chat
+//! written as a `file://` URI (the composer's link to a picture's original) gets a copy as a
+//! resolved upload link does, unless the image block right before it is that picture already.
+//!
+//! WebP copies, and copies of JPEG uploads (whose EXIF orientation the copy must apply), come in
+//! a follow-up.
 
 use crate::hub::file_uploads;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+
+/// The `initialize` feature of a daemon that fits a prompt's inline images to the model
+/// ([`fit_inline`]) and cleans their metadata (`image_privacy.rs`): a client sends a pasted PNG or
+/// JPEG as its own file only to one that lists it, and scales it itself for any other
+/// (webviews `composer/imageWork.ts`). This daemon fits a prompt for a peer that does not list
+/// it before forwarding it there (`server/peer_forward.rs`).
+pub const FEATURE: &str = "fitsImages";
 
 /// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
 /// its base64 in any shape a harness's line puts it.
@@ -75,6 +93,72 @@ pub async fn add(session: &str, family: Option<&str>, blocks: &[Value]) -> Vec<V
         .unwrap_or(fallback)
 }
 
+/// `blocks` with each inline PNG or JPEG image past what the model of `family` takes (its long
+/// edge or its bytes, [`limits`]) replaced by its copy scaled in linear light, as a PNG, in the
+/// same place (module docs). Reads no file. Never fails: an image that cannot be decoded stays as
+/// it was.
+pub async fn fit_inline(family: Option<&str>, blocks: &[Value]) -> Vec<Value> {
+    let limits = limits(family);
+    if !blocks.iter().any(|b| inline_image(b).is_some()) {
+        return blocks.to_vec();
+    }
+    let (owned, fallback) = (blocks.to_vec(), blocks.to_vec());
+    tokio::task::spawn_blocking(move || fit_inline_blocking(limits, owned))
+        .await
+        .unwrap_or(fallback)
+}
+
+/// [`fit_inline`], blocking.
+pub fn fit_inline_blocking(limits: Limits, mut blocks: Vec<Value>) -> Vec<Value> {
+    for block in &mut blocks {
+        let Some(data) = inline_image(block) else { continue };
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else { continue };
+        let Some((copy, _, _)) = fitted(&bytes, limits) else { continue };
+        let data = base64::engine::general_purpose::STANDARD.encode(&copy);
+        block.set_path(&["data"], json!(data));
+        block.set_path(&["mimeType"], json!("image/png"));
+    }
+    blocks
+}
+
+/// The base64 of `block` when it is an inline image.
+fn inline_image(block: &Value) -> Option<&str> {
+    if block.get("type").and_then(Value::as_str) != Some("image") {
+        return None;
+    }
+    block.get("data").and_then(Value::as_str).filter(|d| !d.is_empty())
+}
+
+/// The copy of PNG or JPEG `bytes` that fits `limits` (an encoded PNG and its size, upright as its
+/// EXIF orientation says), or None when it already fits and is upright (or is not one of those,
+/// or cannot be decoded). A turned picture is always copied: a model may not read the tag.
+pub fn fitted(bytes: &[u8], limits: Limits) -> Option<(Vec<u8>, u32, u32)> {
+    let jpeg = match crate::hub::prompt_images::sniffed_type(bytes)? {
+        "image/png" => false,
+        "image/jpeg" => true,
+        _ => return None,
+    };
+    let (w, h) = if jpeg { jpeg_size(bytes)? } else { png_size(bytes)? };
+    let turn = crate::image_privacy::orientation(bytes);
+    if w.max(h) <= limits.max_edge && bytes.len() <= limits.max_bytes && turn == 1 {
+        return None;
+    }
+    let mut edge = limits.max_edge;
+    // A copy past `max_bytes` is made again, smaller, a few times.
+    for _ in 0..6 {
+        let made = if jpeg {
+            downscale_jpeg(bytes, edge)?
+        } else {
+            downscale_oriented(std::io::Cursor::new(bytes), edge, turn)?
+        };
+        if made.0.len() <= limits.max_bytes {
+            return Some(made);
+        }
+        edge = edge.min(made.1.max(made.2)) * 3 / 4;
+    }
+    None
+}
+
 /// [`add`], blocking.
 fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value> {
     // As `prompt_uploads::resolve` counts it: base64 images within the inline room, and the whole
@@ -89,9 +173,12 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
         .sum();
     let prompt_room = crate::prompt_uploads::INLINE_PROMPT_BYTES.div_ceil(3) * 4;
     let mut left = prompt_room.saturating_sub(inline).min(room);
-    let mut out = Vec::with_capacity(blocks.len());
+    let mut out: Vec<Value> = Vec::with_capacity(blocks.len());
     for block in blocks {
-        let copy = upload_png(session, &block).and_then(|path| {
+        // The composer's link to the original of the picture it sent just before: the model has
+        // that picture already.
+        let after_image = out.last().is_some_and(|b| inline_image(b).is_some());
+        let copy = upload_png(session, &block).filter(|_| !after_image).and_then(|path| {
             // The note and the image block's own JSON are counted below, as written.
             let budget = limits.max_bytes.min(left.saturating_sub(4 << 10) / 4 * 3);
             // No room for even a small copy: the rest keep only their links.
@@ -142,20 +229,63 @@ fn is_copy(s: &str) -> bool {
     head.get(33 + 4..33 + 8) == Some(b"tEXt") && head.get(41..41 + MARK.len()) == Some(MARK)
 }
 
-/// The path of the PNG `block` links to, when it is a finished upload of chat `session` that
-/// `prompt_uploads::resolve` put as a link (not inline).
+/// The path of the PNG or JPEG `block` links to, when it is a finished upload of chat `session`
+/// that `prompt_uploads::resolve` put as a link (not inline), or a link the composer wrote itself
+/// (`file://` and the upload's path, no type); either by the file's first bytes.
 fn upload_png(session: &str, block: &Value) -> Option<PathBuf> {
-    if block.get("type").and_then(Value::as_str) != Some("resource_link")
-        || block.get("mimeType").and_then(Value::as_str) != Some("image/png")
-    {
+    if block.get("type").and_then(Value::as_str) != Some("resource_link") {
         return None;
     }
-    let path = PathBuf::from(block.pointer("/_meta/acpmux/uploadPath")?.as_str()?);
+    let mime = block.get("mimeType").and_then(Value::as_str);
+    let copied = |m: &str| m == "image/png" || m == "image/jpeg";
+    let resolved = block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str);
+    let path = match resolved {
+        Some(path) if mime.is_some_and(copied) => PathBuf::from(path),
+        Some(_) => return None,
+        None if mime.is_none_or(copied) => {
+            file_uri_path(block.get("uri").and_then(Value::as_str)?)?
+        }
+        None => return None,
+    };
     let chat = file_uploads::session_dir(session)?;
     // `<uploads>/<chat>/<upload id>/<name>`, and nothing else.
     let ok = file_uploads::is_upload(&path)
         && path.parent().and_then(Path::parent) == Some(chat.as_path());
-    ok.then_some(path)
+    if !ok {
+        return None;
+    }
+    // What the file is by its first bytes, whatever the link says.
+    let mut head = [0u8; 8];
+    let mut file = file_uploads::open_finished(&path).ok()?;
+    std::io::Read::read_exact(&mut file, &mut head).ok()?;
+    crate::hub::prompt_images::sniffed_type(&head).is_some_and(copied).then_some(path)
+}
+
+/// How much of an upload is read for its EXIF orientation: a PNG's `eXIf` comes before its
+/// pixels, a JPEG's APP1 within its first segments.
+const ORIENTATION_HEAD: u64 = 1 << 20;
+
+/// The path of a `file://` URI whose segments are percent-encoded (the composer's
+/// `attachments.ts` `fileUri`). None for any other URI, or one that does not decode to UTF-8.
+fn file_uri_path(uri: &str) -> Option<PathBuf> {
+    let rest = uri.strip_prefix("file://")?;
+    if !rest.starts_with('/') {
+        return None;
+    }
+    let raw = rest.as_bytes();
+    let mut out = Vec::with_capacity(raw.len());
+    let mut at = 0;
+    while let Some(&byte) = raw.get(at) {
+        if byte == b'%' {
+            let hex = std::str::from_utf8(raw.get(at + 1..at + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            at += 3;
+        } else {
+            out.push(byte);
+            at += 1;
+        }
+    }
+    Some(PathBuf::from(String::from_utf8(out).ok()?))
 }
 
 /// The copy of the PNG at `path` scaled to fit `max_edge` and `max_bytes` (an encoded PNG and its
@@ -169,8 +299,19 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
         let made = match std::fs::read(&saved) {
             Ok(bytes) => png_size(&bytes).map(|(w, h)| (bytes, w, h)),
             Err(_) => {
-                let file = file_uploads::open_finished(path).ok()?;
-                let made = downscale(BufReader::new(file), edge)?;
+                use std::io::Read as _;
+                let mut head = Vec::new();
+                let mut file = file_uploads::open_finished(path).ok()?;
+                (&mut file).take(ORIENTATION_HEAD).read_to_end(&mut head).ok()?;
+                let made = if crate::hub::prompt_images::sniffed_type(&head) == Some("image/jpeg") {
+                    // A JPEG decodes whole (`downscale_jpeg`), within `MAX_SOURCE_PIXELS`.
+                    file.read_to_end(&mut head).ok()?;
+                    downscale_jpeg(&head, edge)?
+                } else {
+                    let turn = crate::image_privacy::orientation(&head);
+                    let file = file_uploads::open_finished(path).ok()?;
+                    downscale_oriented(BufReader::new(file), edge, turn)?
+                };
                 save(&saved, &made.0);
                 Some(made)
             }
@@ -210,6 +351,15 @@ fn copyable(w: u32, h: u32) -> bool {
 /// it has alpha).
 /// None for a PNG that is not valid or is interlaced (its rows come in passes).
 pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    downscale_oriented(input, max_edge, 1)
+}
+
+/// [`downscale`], the copy turned upright by EXIF orientation `turn`.
+fn downscale_oriented(
+    input: impl std::io::Read,
+    max_edge: u32,
+    turn: u16,
+) -> Option<(Vec<u8>, u32, u32)> {
     let mut decoder = png::Decoder::new(input);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     // Only one row is held; the default 64 MiB limit is for the whole frame.
@@ -243,7 +393,62 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
             _ => [0; 4],
         }));
     }
-    let pixels = scaler.finish();
+    encode(scaler.finish(), out_w, out_h, alpha, turn)
+}
+
+/// A JPEG's width and height from its frame header.
+fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut decoder = zune_jpeg::JpegDecoder::new(zune_core::bytestream::ZCursor::new(bytes));
+    decoder.decode_headers().ok()?;
+    let info = decoder.info()?;
+    Some((u32::from(info.width), u32::from(info.height)))
+}
+
+/// The JPEG `bytes` scaled down (never up) so its long edge is at most `max_edge`, by area
+/// averaging in linear light, encoded as an 8-bit RGB PNG ([`downscale`]). The frame is decoded
+/// whole (zune-jpeg has no row reader): at most [`MAX_SOURCE_PIXELS`] of RGB. None for a JPEG
+/// that does not decode.
+pub fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    let (w, h) = jpeg_size(bytes)?;
+    if !copyable(w, h) {
+        return None;
+    }
+    let options = zune_core::options::DecoderOptions::default()
+        .jpeg_set_out_colorspace(zune_core::colorspace::ColorSpace::RGB)
+        .set_max_width(1 << 16)
+        .set_max_height(1 << 16);
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
+        zune_core::bytestream::ZCursor::new(bytes),
+        options,
+    );
+    let rgb = decoder.decode().ok()?;
+    let row = w as usize * 3;
+    if rgb.len() < row * h as usize {
+        return None;
+    }
+    let (out_w, out_h) = cmux_image_linear::fit(w, h, max_edge);
+    let mut scaler = cmux_image_linear::Downscaler::new(w, h, out_w, out_h, false);
+    for line in rgb.chunks_exact(row).take(h as usize) {
+        scaler.push_row(line.chunks_exact(3).map(|p| match *p {
+            [r, g, b] => [r, g, b, 255],
+            _ => [0, 0, 0, 255],
+        }));
+    }
+    encode(scaler.finish(), out_w, out_h, false, crate::image_privacy::orientation(bytes))
+}
+
+/// `pixels` (RGB, or RGBA with `alpha`), turned upright by EXIF orientation `turn`, as an 8-bit
+/// PNG carrying [`MARK`].
+fn encode(
+    pixels: Vec<u8>,
+    out_w: u32,
+    out_h: u32,
+    alpha: bool,
+    turn: u16,
+) -> Option<(Vec<u8>, u32, u32)> {
+    // Upright, as the EXIF orientation says the picture is seen (`image_privacy::orient`).
+    let (pixels, out_w, out_h) =
+        crate::image_privacy::orient(pixels, out_w, out_h, if alpha { 4 } else { 3 }, turn);
     let mut bytes = Vec::new();
     let mut encoder = png::Encoder::new(&mut bytes, out_w, out_h);
     encoder.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
@@ -257,11 +462,11 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A `w`x`h` RGB PNG: left half red, right half blue.
-    fn halves(w: u32, h: u32) -> Vec<u8> {
+    pub(crate) fn halves(w: u32, h: u32) -> Vec<u8> {
         let mut data = Vec::with_capacity((w * h * 3) as usize);
         for _ in 0..h {
             for x in 0..w {
@@ -276,7 +481,7 @@ mod tests {
         out
     }
 
-    fn pixels(png_bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+    pub(crate) fn pixels(png_bytes: &[u8]) -> (u32, u32, Vec<u8>) {
         let mut reader = png::Decoder::new(std::io::Cursor::new(png_bytes)).read_info().unwrap();
         let mut buf = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut buf).unwrap();
@@ -337,6 +542,259 @@ mod tests {
                 assert!(off.is_empty(), "checker {checker} edge {edge}: {off:?}");
             }
         }
+    }
+
+    /// An `n`x`n` grey baseline JPEG of 8 px black and white squares, one per DCT block, so each
+    /// block is flat and is its DC term alone (quantizer 1, the standard DC table, AC all EOB).
+    /// No JPEG encoder is a dependency; this one writes only what the test needs.
+    pub(crate) fn checker_jpeg(n: u32) -> Vec<u8> {
+        let mut out = vec![0xff, 0xd8];
+        let segment = |out: &mut Vec<u8>, marker: u8, body: &[u8]| {
+            out.extend([0xff, marker]);
+            out.extend(u16::try_from(body.len() + 2).unwrap().to_be_bytes());
+            out.extend(body);
+        };
+        let mut dqt = vec![0u8];
+        dqt.extend([1u8; 64]);
+        segment(&mut out, 0xdb, &dqt);
+        let (h, w) =
+            (u16::try_from(n).unwrap().to_be_bytes(), u16::try_from(n).unwrap().to_be_bytes());
+        segment(&mut out, 0xc0, &[8, h[0], h[1], w[0], w[1], 1, 1, 0x11, 0]);
+        let mut dht = vec![0x00, 0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
+        dht.extend(0..=11u8);
+        segment(&mut out, 0xc4, &dht);
+        segment(&mut out, 0xc4, &[0x10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00]);
+        segment(&mut out, 0xda, &[1, 1, 0x00, 0, 63, 0]);
+        // The standard luminance DC codes by size category: (code, length).
+        const DC: [(u16, u8); 12] = [
+            (0b00, 2),
+            (0b010, 3),
+            (0b011, 3),
+            (0b100, 3),
+            (0b101, 3),
+            (0b110, 3),
+            (0b1110, 4),
+            (0b11110, 5),
+            (0b111110, 6),
+            (0b1111110, 7),
+            (0b11111110, 8),
+            (0b111111110, 9),
+        ];
+        let (mut acc, mut bits, mut data) = (0u32, 0u8, Vec::new());
+        let mut put = |value: u32, len: u8, data: &mut Vec<u8>| {
+            for i in (0..len).rev() {
+                acc = (acc << 1) | ((value >> i) & 1);
+                bits += 1;
+                if bits == 8 {
+                    data.push(acc as u8);
+                    if acc as u8 == 0xff {
+                        data.push(0);
+                    }
+                    (acc, bits) = (0, 0);
+                }
+            }
+        };
+        let mut previous = 0i32;
+        for by in 0..n / 8 {
+            for bx in 0..n / 8 {
+                let dc = if (bx + by).is_multiple_of(2) { 8 * 127 } else { -8 * 128 };
+                let diff = dc - previous;
+                previous = dc;
+                let size = (32 - diff.unsigned_abs().leading_zeros()) as u8;
+                let (code, len) = DC[size as usize];
+                put(u32::from(code), len, &mut data);
+                let extra = if diff < 0 { (diff - 1) as u32 } else { diff as u32 };
+                put(extra & ((1 << size) - 1), size, &mut data);
+                // AC: end of block, the one code of length 1.
+                put(0, 1, &mut data);
+            }
+        }
+        put(0x7f, 7, &mut data);
+        out.extend(data);
+        out.extend([0xff, 0xd9]);
+        out
+    }
+
+    fn inline_block(bytes: &[u8], mime: &str) -> Value {
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        json!({"type": "image", "mimeType": mime, "data": data, "name": "Screenshot.png"})
+    }
+
+    fn block_pixels(block: &Value) -> (u32, u32, Vec<u8>) {
+        let data = block["data"].as_str().unwrap();
+        pixels(&base64::engine::general_purpose::STANDARD.decode(data).unwrap())
+    }
+
+    /// The composer sends a pasted picture at its full size (no canvas scaling in the page), and
+    /// the daemon fits it: a 1 px black and white checkerboard twice the model's edge arrives as
+    /// the 188 grey that is half its light, not the 127 an sRGB average (the page's canvas
+    /// `drawImage`) gave ("What every coder should know about gamma").
+    #[test]
+    fn a_pasted_checkerboard_arrives_at_the_agent_as_half_its_light() {
+        let limits = limits(Some("claude"));
+        let text = json!({"type": "text", "text": "look"});
+        let image = inline_block(&black_and_white(3136, true), "image/png");
+        let out = fit_inline_blocking(limits, vec![text.clone(), image]);
+        assert_eq!(out[0], text);
+        assert_eq!(out[1]["mimeType"], "image/png");
+        assert_eq!(out[1]["name"], "Screenshot.png");
+        let (w, h, px) = block_pixels(&out[1]);
+        assert_eq!((w, h), (1568, 1568));
+        let off: Vec<u8> =
+            px.iter().copied().filter(|v| !(187..=188).contains(v)).take(4).collect();
+        assert!(off.is_empty(), "not half the light: {off:?}");
+    }
+
+    /// An image within the model's edge and bytes goes as the composer sent it, byte for byte.
+    #[test]
+    fn an_inline_image_that_fits_is_left_as_sent() {
+        let image = inline_block(&halves(800, 600), "image/png");
+        let out = fit_inline_blocking(limits(None), vec![image.clone()]);
+        assert_eq!(out, vec![image]);
+        // Not an image it decodes: as sent too.
+        let gif = json!({"type": "image", "mimeType": "image/gif", "data": "R0lGODlhAQABAAAAACw="});
+        assert_eq!(fit_inline_blocking(limits(None), vec![gif.clone()]), vec![gif]);
+    }
+
+    /// A large JPEG (a photo) is fitted too, as a PNG within the model's bytes.
+    #[test]
+    fn a_large_inline_jpeg_is_fitted_in_linear_light() {
+        let jpeg = checker_jpeg(2048);
+        // The test's own encoder decodes to exact black and white.
+        let (w, h) = jpeg_size(&jpeg).unwrap();
+        assert_eq!((w, h), (2048, 2048));
+        let out = fit_inline_blocking(limits(None), vec![inline_block(&jpeg, "image/jpeg")]);
+        assert_eq!(out[0]["mimeType"], "image/png");
+        let (w, h, px) = block_pixels(&out[0]);
+        assert_eq!((w, h), (1568, 1568));
+        // Half black, half white: half the light, measured as light.
+        let light = px.iter().map(|v| f64::from(cmux_image_linear::to_linear(*v))).sum::<f64>()
+            / px.len() as f64
+            / f64::from(cmux_image_linear::to_linear(255));
+        assert!((0.49..=0.51).contains(&light), "light {light}");
+    }
+
+    /// The after side of webviews/bench/composer-image-fit.bench.ts: what the agent gets from the
+    /// composer's full-size picture, written as PNGs (a 1 px checkerboard and
+    /// docs/assets/screenshot.png), and the daemon's fit of a 5K screenshot timed.
+    /// Run: `GAMMA_OUT=DIR cargo test --release -p acpmux --lib model_copies::tests::composer_fit_after -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "writes after PNGs and timings; run by hand"]
+    fn composer_fit_after() {
+        let out = PathBuf::from(std::env::var("GAMMA_OUT").unwrap_or_else(|_| "gamma-out".into()));
+        std::fs::create_dir_all(&out).unwrap();
+        let limits = limits(Some("claude"));
+        let (board, _, _) = fitted(&black_and_white(3136, true), limits).unwrap();
+        let (w, h, px) = pixels(&board);
+        let mean = px.iter().map(|v| f64::from(*v)).sum::<f64>() / px.len() as f64;
+        println!("checkerboard 3136 -> {w}x{h}: mean {mean:.1}");
+        std::fs::write(out.join("checker-after-acpmux.png"), &board).unwrap();
+        let shot =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/assets/screenshot.png");
+        match std::fs::read(&shot).ok().and_then(|bytes| fitted(&bytes, limits)) {
+            Some((bytes, w, h)) => {
+                println!("screenshot -> {w}x{h}");
+                std::fs::write(out.join("screenshot-after-acpmux.png"), bytes).unwrap();
+            }
+            None => println!("no screenshot at {}", shot.display()),
+        }
+        // A 5K screenshot (5120x2880) as the bench makes it: a dark gradient, noise over a band.
+        let (sw, sh) = (5120u32, 2880u32);
+        let mut seed = 0x9e37_79b9_u32;
+        let mut rgb = Vec::with_capacity((sw * sh * 3) as usize);
+        for y in 0..sh {
+            for x in 0..sw {
+                if (600..1500).contains(&y) {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    rgb.extend([seed as u8; 3]);
+                } else {
+                    let t = (x + y) as f32 / (sw + sh) as f32;
+                    rgb.extend([
+                        (27.0 + t * 30.0) as u8,
+                        (29.0 + t * 70.0) as u8,
+                        (36.0 + t * 110.0) as u8,
+                    ]);
+                }
+            }
+        }
+        let mut png_bytes = Vec::new();
+        let mut e = png::Encoder::new(&mut png_bytes, sw, sh);
+        e.set_color(png::ColorType::Rgb);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header().unwrap().write_image_data(&rgb).unwrap();
+        let block = inline_block(&png_bytes, "image/png");
+        let mut runs: Vec<f64> = (0..7)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                std::hint::black_box(fit_inline_blocking(limits, vec![block.clone()]));
+                t.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        runs.sort_by(f64::total_cmp);
+        let sent = fit_inline_blocking(limits, vec![block]);
+        println!(
+            "5K screenshot {:.2} MB PNG -> fit_inline (base64 decode, PNG decode, linear downscale, PNG encode, base64): median {:.0} ms, best {:.0} ms; agent gets {:.2} MB base64",
+            png_bytes.len() as f64 / 1048576.0,
+            runs[runs.len() / 2],
+            runs[0],
+            sent[0]["data"].as_str().unwrap().len() as f64 / 1048576.0
+        );
+        // What the daemon does first as it takes the prompt (`image_privacy::sanitize_prompt`):
+        // the metadata out, lossless, no pixel decoded.
+        let median = |mut runs: Vec<f64>| {
+            runs.sort_by(f64::total_cmp);
+            (runs[runs.len() / 2], runs[0])
+        };
+        let time = |f: &dyn Fn()| {
+            median(
+                (0..7)
+                    .map(|_| {
+                        let t = std::time::Instant::now();
+                        f();
+                        t.elapsed().as_secs_f64() * 1000.0
+                    })
+                    .collect(),
+            )
+        };
+        let shot_block = inline_block(&png_bytes, "image/png");
+        let (m, b) = time(&|| {
+            let mut blocks = vec![shot_block.clone()];
+            crate::image_privacy::sanitize_blocks(&mut blocks);
+            std::hint::black_box(blocks);
+        });
+        println!(
+            "5K screenshot PNG -> sanitize (base64 decode, chunks, base64): median {m:.0} ms, best {b:.0} ms"
+        );
+        let photo = checker_jpeg(4096);
+        let photo_block = inline_block(&photo, "image/jpeg");
+        let (m, b) = time(&|| {
+            let mut blocks = vec![photo_block.clone()];
+            crate::image_privacy::sanitize_blocks(&mut blocks);
+            std::hint::black_box(blocks);
+        });
+        println!(
+            "4096 px JPEG {:.2} MB -> sanitize: median {m:.0} ms, best {b:.0} ms",
+            photo.len() as f64 / 1048576.0
+        );
+        let (m, b) = time(&|| {
+            std::hint::black_box(fit_inline_blocking(limits, vec![photo_block.clone()]));
+        });
+        println!(
+            "4096 px JPEG -> fit_inline (JPEG decode, linear downscale, PNG encode): median {m:.0} ms, best {b:.0} ms"
+        );
+    }
+
+    #[test]
+    fn a_file_uri_decodes_to_its_path() {
+        assert_eq!(
+            file_uri_path("file:///tmp/up%20loads/a%2Bb.png"),
+            Some(PathBuf::from("/tmp/up loads/a+b.png"))
+        );
+        assert_eq!(file_uri_path("https://example.com/a.png"), None);
+        assert_eq!(file_uri_path("file://host/a.png"), None);
+        assert_eq!(file_uri_path("file:///bad%zz"), None);
     }
 
     #[test]

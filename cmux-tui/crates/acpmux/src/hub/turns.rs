@@ -19,10 +19,14 @@ pub(super) async fn agent_blocks(
     blocks: &[Value],
 ) -> Result<Vec<Value>, RpcError> {
     let web = || session.turn().is_some_and(|t| t.control == Control::Web);
+    let family = session.meta().family;
+    // Inline images past the model's size are scaled in linear light for every turn: that reads
+    // no file (`model_copies::fit_inline`).
+    let fitted = crate::model_copies::fit_inline(family.as_deref(), blocks).await;
+    let blocks = fitted.as_slice();
     if web() {
         return acp_prompt_blocks(session, blocks);
     }
-    let family = session.meta().family;
     let copied = crate::model_copies::add(&session.id, family.as_deref(), blocks).await;
     // Tests only: a Stop or a remote device comes while the copies are made.
     #[cfg(test)]

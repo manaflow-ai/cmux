@@ -817,6 +817,7 @@ function ComposerFrame({
       box.current?.place(chips, kind);
     },
     allowImages,
+    ...(snapshot.daemonFitsImages ? { daemonFitsImages: true } : {}),
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
     // A Cloud start is out: the host carries the started chat's text, not its chips, so a file
     // pasted, dropped or picked now is refused with this note rather than lost with this tab.

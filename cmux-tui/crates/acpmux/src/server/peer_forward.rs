@@ -644,6 +644,16 @@ async fn forward_inner(
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
+        // A peer on an older build writes a prompt's images to its agent as they come: the
+        // composer's full-size picture would pass the model's limits. Fitted here for it
+        // (`model_copies::FEATURE`), as that peer's agent family is not known here: Claude's
+        // limits, the strictest.
+        if m == method::SESSION_PROMPT
+            && !peer.lists(crate::model_copies::FEATURE)
+            && let Some(blocks) = p.get_mut("prompt").and_then(Value::as_array_mut)
+        {
+            *blocks = crate::model_copies::fit_inline(None, blocks).await;
+        }
         if let Some(obj) = p.as_object_mut() {
             obj.remove(ROW_WILL_DO);
             obj.remove("session");
