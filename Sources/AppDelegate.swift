@@ -1890,9 +1890,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // reportException: hook with their reason and throw stack. The
                 // matching executor-corruption path reaches this hook before
                 // AppKit terminates the process. Some macOS 26+ drawing paths
-                // call the class-level _crashOnException: method directly and
-                // remain outside Sentry Cocoa 9.3.0's hook; a future SDK upgrade
-                // can cover those paths too.
+                // call the class-level _crashOnException: method directly;
+                // Sentry Cocoa 9.7.0+ hooks both the class and instance methods.
                 options.enableUncaughtNSExceptionReporting = true
                 // Structured logs power the transport diagnostics bridge
                 // (TransportSentryReporter on the host diagnostic ring below).
