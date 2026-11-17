@@ -531,7 +531,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session."
+            "value" : "cmux restarts into the live code build when it is ready."
           }
         },
         "ja" : {

@@ -37,7 +37,6 @@ export function PlainEnglishView({ files, store, label, codeOptions, onOpenInDif
   const observe = useNearWindow(scroller, order, store);
   return (
     <div className="plain-english" ref={scroller} aria-label={label("plainEnglish")}>
-      <p className="plain-english-note">{label("hunkSummaryNote")}</p>
       {sections.map(({ file, refs }) => (
         <section key={file.itemId} className="plain-english-file">
           <h3 className="plain-english-path" title={refs[0]?.path}>
