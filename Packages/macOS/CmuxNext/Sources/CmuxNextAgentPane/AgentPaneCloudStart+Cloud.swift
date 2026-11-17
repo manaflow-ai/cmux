@@ -23,14 +23,17 @@ extension AgentPaneCloudStart {
         public var setupHasScript: Bool?
         /// The seed's or copy's live progress (`cmux link seed push`'s stderr lines, ``SeedProgress``).
         public var cloneProgress: SeedProgress?
+        /// A copy past the copy's limits sent a first pass: the files it left on this Mac (the chat asks for them). The
+        /// card says the folder is partial, never complete. Nil for a copy sent whole.
+        public var leftOnMac: Int64?
 
         public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                     cloneState: String? = nil, clonePhase: String? = nil,
                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
-                    setupError: String? = nil, setupHasScript: Bool? = nil, start: CloudStartInfo? = nil) {
-            (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
+                    setupError: String? = nil, setupHasScript: Bool? = nil, start: CloudStartInfo? = nil, leftOnMac: Int64? = nil) {
+            (self.name, self.folder, self.machine, self.size, self.leftOnMac) = (name, folder, machine, size, leftOnMac)
             (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
             (self.cloneState, self.clonePhase) = (cloneState, clonePhase)
             let setup = start?.setup
@@ -55,7 +58,7 @@ extension AgentPaneCloudStart {
                  environmentId: step.environmentId, setupState: step.setupState, setupStatus: step.setupStatus,
                  setupStartedAt: step.setupStartedAt, setupFinishedAt: step.setupFinishedAt,
                  setupError: step.setupError, setupHasScript: step.setupHasScript,
-                 cloneProgress: step.cloneProgress, to: view)
+                 cloneProgress: step.cloneProgress, leftOnMac: step.leftOnMac, to: view)
     }
 
     /// A machine's size in the card's words: "4 CPU · 16 GB".

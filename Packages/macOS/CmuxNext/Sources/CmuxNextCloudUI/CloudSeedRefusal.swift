@@ -19,12 +19,14 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public let machine: String
     /// The seed plan's code for the refusal (`not_git`, `submodule_local_work`, ...), for the log.
     public let fallbackCode: String?
-    /// The bytes the copy would send; nil when cmux-tui could not read the folder's size.
+    /// The bytes the copy will send, as the copy itself lists them (cmux-tui `copy_estimate`): the folder whole with
+    /// `.git`, or only its first pass past the copy's limits (no `.git`, at most 256 MiB), never the whole tree a first
+    /// pass leaves on this Mac. Nil when cmux-tui could not read the folder's size.
     public let copyBytes: Int64?
     /// The disk a machine whose size is not known is taken to have (the smallest size's).
     public static let assumedDiskMb = 16_384
     /// What a machine's image and its own work keep of the disk: a copy may fill the rest.
-    public static let reservedDiskBytes: Int64 = 12 * 1_073_741_824
+    public static let reservedDiskBytes: Int64 = CloudChatSize.reservedDiskBytes
     /// The least a machine is taken to have room for, whatever its disk.
     public static let leastRoomBytes: Int64 = 4 * 1_073_741_824
 
@@ -42,7 +44,8 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         max(Int64(diskMb ?? assumedDiskMb) * 1_048_576 - reservedDiskBytes, leastRoomBytes)
     }
 
-    /// Whether the copy fits a machine with a `diskMb` disk. A copy whose size cmux-tui could not read is made.
+    /// Whether what the copy sends fits the machine it goes to (`diskMb`: that machine's own disk, sized for the folder
+    /// by the start's preflight). A copy whose size cmux-tui could not read is made.
     public func fits(diskMb: Int?) -> Bool { (copyBytes ?? 0) <= Self.room(diskMb: diskMb) }
 
     /// Whether connecting GitHub lets the machine clone the folder instead: only a repository it can't read without

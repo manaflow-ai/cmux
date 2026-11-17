@@ -10,9 +10,11 @@ public struct CloudGitHubRepos: Equatable, Sendable {
         public var fullName: String
         public var isPrivate: Bool
         public var defaultBranch: String?
+        /// The repository's size in GitHub's KB (`size_kb`), when the route gives it: a Cloud start in it sizes its machine.
+        public var sizeKb: Int?
 
-        public init(fullName: String, isPrivate: Bool, defaultBranch: String?) {
-            (self.fullName, self.isPrivate, self.defaultBranch) = (fullName, isPrivate, defaultBranch)
+        public init(fullName: String, isPrivate: Bool, defaultBranch: String?, sizeKb: Int? = nil) {
+            (self.fullName, self.isPrivate, self.defaultBranch, self.sizeKb) = (fullName, isPrivate, defaultBranch, sizeKb)
         }
     }
 
@@ -43,7 +45,8 @@ public struct CloudGitHubRepos: Equatable, Sendable {
         let repos = rows.compactMap { row -> Repo? in
             guard let row = row as? [String: Any], let name = row["full_name"] as? String, isFullName(name) else { return nil }
             let branch = (row["default_branch"] as? String).flatMap { $0.isEmpty || $0.utf8.count > 255 ? nil : $0 }
-            return Repo(fullName: name, isPrivate: row["private"] as? Bool ?? true, defaultBranch: branch)
+            let sizeKb = (row["size_kb"] as? NSNumber).flatMap { $0.int64Value >= 0 && $0.int64Value < Int64(Int32.max) ? Int($0.int64Value) : nil }
+            return Repo(fullName: name, isPrivate: row["private"] as? Bool ?? true, defaultBranch: branch, sizeKb: sizeKb)
         }
         return .success(CloudGitHubRepos(repos: repos, truncated: object["truncated"] as? Bool ?? (object["cursor"] is String)))
     }

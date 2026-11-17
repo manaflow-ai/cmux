@@ -120,4 +120,26 @@ struct CloudSeedRefusalTests {
         #expect(answer.copyBytes == 5)
         #expect(CloudSeedRefusal(answer, machine: "vm")?.fallbackCode == "not_git")
     }
+
+    /// The room check reads what the copy sends (`copy_bytes` from cmux-tui, a first pass past the copy's limits) against
+    /// the machine made for it: a folder whose `.git` made the whole tree look too big fits once only its sent bytes count,
+    /// and a machine sized `md` for 18 GB holds what an `sm` machine could not.
+    @Test func theCheckComparesWhatIsSentAgainstTheMachineMadeForIt() throws {
+        let gib: Int64 = 1_073_741_824
+        let firstPass = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", copyBytes: 256 * 1_048_576), machine: "m"))
+        #expect(firstPass.fits(diskMb: CloudChatSize.sm.diskMb))
+        let sent = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", copyBytes: 18 * gib), machine: "m"))
+        #expect(!sent.fits(diskMb: CloudChatSize.sm.diskMb))
+        #expect(sent.fits(diskMb: CloudChatSize.needed(bytes: 18 * gib)?.diskMb))
+    }
+
+    /// A create the plan refuses for its size (the platform's ensure, through cmux-tui) is a size refusal, which the
+    /// start card and `cmux cloud start-session` name with the size and the plan that includes it.
+    @Test func aSizeRefusalIsNamedWithItsSizeAndPlan() throws {
+        #expect(throws: CloudSizeLocked()) { _ = try CloudMoveStrings.checked((CloudMoveCLI.Answer(ok: false, errorCode: "cloud.size.locked"), 0)) }
+        let message = try #require(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(needed: .xl)))
+        #expect(message.contains("xl") && message.contains("16") && message.contains("32") && message.contains("Max"))
+        #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked()) == nil)
+        #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(upgradeNamed: true, needed: .lg))?.contains("Pro") == false)
+    }
 }

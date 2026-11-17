@@ -149,4 +149,11 @@ struct CloudGitHubReposTests {
         #expect(otherTeam == page)
         #expect(asked == ["key-1", "key-1", "key-2", "key-3", "key-4"])
     }
+
+    /// A row's size (`size_kb`, GitHub's KB) sizes a Cloud start in it; a row without one, or a bad one, has none.
+    @Test func aRowsSizeIsReadWhenGiven() throws {
+        let answer = Self.body(#"{"repos":[{"full_name":"acme/api","size_kb":2048},{"full_name":"acme/web","size_kb":-1},{"full_name":"acme/x"}]}"#)
+        let listed = try CloudGitHubRepos.parse(status: 200, body: answer).get()
+        #expect(listed.repos.map(\.sizeKb) == [2048, nil, nil])
+    }
 }

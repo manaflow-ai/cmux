@@ -120,9 +120,10 @@ extension CloudMachineRequest {
     /// The create of the machine for a send: sized for the chat, under the send's own idempotency key
     /// (the plan's `create_key`), so a retry after a create whose answer was lost gets the same
     /// machine from the server, never a second paid VM. Its team is the send's, fixed for every try.
-    public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?) {
+    public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?, size: CloudChatSize? = nil) {
         self.init()
         autosize = pick?.autosize
+        chatSize = size
         idempotencyKey = key
         self.team = team
     }

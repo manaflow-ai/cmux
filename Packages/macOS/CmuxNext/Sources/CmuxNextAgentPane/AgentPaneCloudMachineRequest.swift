@@ -150,9 +150,11 @@ public final class AgentPaneCloudMachines {
         /// The account's teams as the team menu lists them (`teams` of the reply): the page names a
         /// team only when it is one of these (webviews TeamTag.tsx `activeTeamFromReply`).
         public var teams: [Team]
+        /// The Cloud plan as the server answered it (``Plan``); `unknown` when nothing was read.
+        public var plan: Plan
         public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false,
-                    team: Team? = nil, teams: [Team] = []) {
-            (self.account, self.complete, self.team, self.teams) = (account, complete, team, teams)
+                    team: Team? = nil, teams: [Team] = [], plan: Plan = .unknown) {
+            (self.account, self.complete, self.team, self.teams, self.plan) = (account, complete, team, teams, plan)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
         }
     }
@@ -306,6 +308,7 @@ extension AgentPaneCloudMachineRequest {
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
             if inventory.signedIn, let team = inventory.team { value["team"] = team.reply }
             if inventory.signedIn, !inventory.teams.isEmpty { value["teams"] = inventory.teams.map(\.reply) }
+            value["plan"] = (inventory.signedIn ? inventory.plan : .unknown).reply
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines?.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)

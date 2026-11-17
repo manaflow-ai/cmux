@@ -101,9 +101,11 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine)
     }
     /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
-    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, any other one a ``CloudMoveFailure``.
+    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, one its size needs another plan for ``CloudSizeLocked``,
+    /// any other one a ``CloudMoveFailure``.
     public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
+            if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
             throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
         }
         return answer.1

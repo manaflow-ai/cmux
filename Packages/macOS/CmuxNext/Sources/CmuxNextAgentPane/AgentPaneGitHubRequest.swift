@@ -62,8 +62,10 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .repos(let query):
             switch await gitHub.repos(query) {
             case .success(let listed):
+                AgentPaneGitHubRepoSizes.note(listed.repos)
                 let repos: [[String: Any]] = listed.repos.map { repo in
-                    ["full_name": repo.fullName, "private": repo.isPrivate, "default_branch": repo.defaultBranch.map { $0 as Any } ?? NSNull()]
+                    ["full_name": repo.fullName, "private": repo.isPrivate, "default_branch": repo.defaultBranch.map { $0 as Any } ?? NSNull(),
+                     "size_kb": repo.sizeKb.map { $0 as Any } ?? NSNull()]
                 }
                 return AgentPaneReply.success(["repos": repos, "truncated": listed.truncated])
             case .failure(.notConnected):
