@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 mod acts;
 mod follow;
+mod later_columns;
 mod load;
 
 pub(crate) fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
