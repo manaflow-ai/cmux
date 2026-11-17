@@ -40,6 +40,13 @@ public struct TerminalHistoryWindowDemoRoot: View {
                     }
                     .allowsHitTesting(false)
                 }
+                // As `TerminalTabPage` does for the app's own pages: the page
+                // is on screen and taking input, so it claims the phone's
+                // size. Without it the session held the Mac's 80x40 grid and
+                // every byte after it (`TerminalReclaimHold`), and the page
+                // stayed blank with nothing to scroll down through.
+                .onAppear { demo.model.setPageShown(true) }
+                .onDisappear { demo.model.setPageShown(false) }
         }
     }
 }
