@@ -90,7 +90,8 @@ one state at the end:
   disappear (`until: "disappears"`), or for its value (`value_equals`,
   `value_contains`), at most `timeout_ms` (default 10000, at most 100000). It
   reads the window again whenever the app reports a change. A timeout stops
-  the batch. A batch's waits add up to at most 120 s.
+  the batch. Values are compared as the tree reads them: a long value (a
+  document) is cut at about 2000 characters, so wait on a shorter element. A batch's waits add up to at most 120 s.
 - `target: {role, label, text}` names an element by what it is instead of its
   id, so a step can act on what an earlier step opened. `label` is the whole
   name (any case), `text` part of the name or value. Two matches are refused

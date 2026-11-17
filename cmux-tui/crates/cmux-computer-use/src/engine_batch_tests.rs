@@ -428,6 +428,22 @@ fn wait_for_disappears_and_values() {
     );
 }
 
+/// A value read cut short says so when the wait times out: text past the cut
+/// can never match.
+#[test]
+fn a_wait_on_a_clipped_value_says_it_is_clipped() {
+    let mut tree = doc(false, "", "Save");
+    tree.children[0].value = format!("{}…", "x".repeat(2000));
+    let d = desktop_with(tree);
+    let e = rig(d);
+    let out = batch(
+        &e,
+        json!([{"action": "wait_for", "target": {"role": "text_area"}, "value_contains": "line 120", "timeout_ms": 300}]),
+    );
+    let message = step(&out, 0)["message"].as_str().unwrap();
+    assert!(message.contains("read cut short"), "{message}");
+}
+
 /// wait_for an element id: gone when the element is; an id the window never
 /// had is refused at once.
 #[test]

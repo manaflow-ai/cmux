@@ -105,7 +105,9 @@ guard; a scripting sandbox was considered and decided against.
   window again whenever the app's AXObserver watch reports a signal (after
   the burst ends), every 500 ms as a backstop (not every change sends a
   signal), or every 150 ms when the app cannot be watched, within its timeout.
-  The person's Stop ends it at its next read.
+  The person's Stop ends it at its next read. Values are compared as the walk
+  reads them; a value cut short (macOS: 2000 characters) says so when the wait
+  times out.
 - `target: {role, label, text}` is resolved when its step runs, from a fresh
   read of the window (read wider when the default read is cut short). Exactly
   one match is recorded as shown and acted on through the same use-time

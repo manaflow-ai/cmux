@@ -947,9 +947,14 @@ impl Engine {
                 Probe::Met(format!("{} = {}", element_line(e), outline::quote(&e.value)))
             }
             (_, Some(e)) => Probe::Not(format!(
-                "{}'s value is {}",
+                "{}'s value is {}{}",
                 element_line(e),
-                outline::quote(&outline::clip(&e.value, 120))
+                outline::quote(&outline::clip(&e.value, 120)),
+                if e.value.ends_with('…') {
+                    " (a long value is read cut short, at about 2000 characters on macOS, so text past that cannot match: wait on a shorter element or value)"
+                } else {
+                    ""
+                }
             )),
         };
         Ok((probe, tree))
