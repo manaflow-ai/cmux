@@ -172,6 +172,30 @@ test("a copy's files and bytes, its fallback and an https install link reach the
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });
 
+test("the files a first pass left on this Mac stay on the clone through its end", () => {
+  const copying = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", left_on_mac: 1204 },
+  });
+  expect(copying?.clone?.leftOnMac).toBe(1204);
+  // The final answer without the count keeps it: a partial copy never reads as complete.
+  const ended = cloudStartPushed(copying, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({ state: "done", phase: "complete", leftOnMac: 1204 });
+  // A plain copy's end carries only the count; it lands on the clone it ends.
+  const plain = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { left_on_mac: 7 } });
+  expect(plain?.clone).toEqual({ state: "done", leftOnMac: 7 });
+  // Nothing left, or a malformed count, adds nothing.
+  for (const left of [0, -3, 1.5, "12"]) {
+    const whole = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state: "done", phase: "complete", left_on_mac: left },
+    });
+    expect(whole?.clone).toEqual({ state: "done", phase: "complete" });
+  }
+});
+
 test("forwards the environment id and setup ran or cached state", () => {
   const ran = cloudStartPushed(begun(), {
     key: "k-1",

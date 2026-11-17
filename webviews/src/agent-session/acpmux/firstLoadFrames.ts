@@ -34,8 +34,8 @@ export type FrameMetrics = {
   firstContentMs: number | null;
   /// Frames after the first one with content that showed no row in view.
   blankAfterContent: number;
-  /// Frames in which the composer or the bottom-most row in view moved, or that row was replaced
-  /// (``shiftBetween``).
+  /// Frames in which the composer or a row in view moved, or the bottom-most row in view was
+  /// replaced (``shiftBetween``).
   shiftFrames: number;
   /// When the first frame of the final state painted: from it on, every frame shows the same rows
   /// at the same places (within ``MOVE_TOLERANCE_PX``) and the composer at the same box. Null when
@@ -78,6 +78,14 @@ export function shiftBetween(
     const same = next.rows.find((row) => row.id === held.id);
     if (!same) return `bottom row ${held.id} replaced by ${bottomRow(next.rows)!.id}`;
     if (moved(held.top, same.top)) return `bottom row ${held.id} top ${held.top.toFixed(1)} -> ${same.top.toFixed(1)}`;
+    // Any other row in view in both that moved: rows settling above a bottom row that held still are
+    // a shift the eye sees too (a code block or table drawn at another height than the copy's).
+    const before = new Map(shown.rows.map((row) => [row.id, row.top]));
+    for (const row of next.rows) {
+      const top = before.get(row.id);
+      if (top !== undefined && moved(top, row.top))
+        return `row ${row.id} top ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
+    }
     // A new row under the one held (the transcript grew at its end) replaces it as the bottom.
     const lowest = bottomRow(next.rows)!;
     if (lowest.id !== held.id) return `bottom row ${held.id} replaced by ${lowest.id}`;

@@ -17,10 +17,17 @@
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
 #                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
+#   state=bare   every launch, the priming one included, starts with an empty home: nothing to restore, as a fresh
+#                install's window after its copy's first exec (the priming launch pays that exec). Default state=kept:
+#                the priming launch makes the home's state and every measured launch relaunches into it. With state=bare
+#                the probe also opens a terminal once Home takes keys (window_usable): shell_requested, first_shell_live.
 #   prerun=S     before each measured launch, one full run of the same copy and home that stays up S seconds after its
 #                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
 #                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
 #                ms when about 60 s have passed since a full run began. Default prerun=0: launches back to back.
+#   machines=N   before every launch after the priming one, each side's sidebar snapshot gets N Cloud machine sections
+#                with no workspaces (0 to 200; default 0), as a person signed in to Cloud with N machines quits with
+#                (launch-ready-machines.py, LR-MACHINES). A fleet Mac has no Cloud sign-in, so its own quits save none.
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
@@ -38,8 +45,9 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  LR_STATE=kept
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -52,25 +60,32 @@ main() {
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
+      state=kept|state=bare) LR_STATE="${arg#state=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
+      machines=*) machines="${arg#machines=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
+  [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
+    || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  echo "LR state $LR_STATE"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
+  cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
-  echo "LR session $session prerun $prerun copy $copy"
+  echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
@@ -130,15 +145,16 @@ main() {
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  python3 -I - "$out/runs.jsonl" <<'PY'
+  python3 -I - "$out/runs.jsonl" "$LR_STATE" <<'PY'
 import json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+bare = sys.argv[2] == "bare"
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
     med = {"n": len(done), "max_load_1m": max(loads) if loads else None}
-    for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
+    for key in ("finished_launching", "window_on_screen", "active", "request_to_start", "shell_requested"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
     # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
@@ -150,13 +166,20 @@ for side in dict.fromkeys(r["side"] for r in rows):
     # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
     # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
     # model key) and the top page are compared; the tab id is kept in the row only.
-    prev, measured, reopened = None, 0, 0
+    # state=bare: every launch starts from an empty home, so there is nothing to reopen (each launch's workspace is
+    # new: its id comes from the emptied home). What a bare launch owes is Home's page (home.first_page) and the window
+    # taking keys in it (window_usable) before the probe quits it.
+    prev, measured, reopened, usable = None, 0, 0, 0
     for r in (r for r in rows if r["side"] == side):
         front = r.get("front")
         if r["label"].startswith("run"):
             measured += 1
+            usable += "window_usable" in r["marks"]
             if r.get("cross_arm"):
                 reason = "cross-arm " + json.dumps(r["cross_arm"])
+            elif bare:
+                reason = ("not on Home: no home.first_page" if "home.first_page" not in r["marks"]
+                          else None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys")
             elif not front or "error" in front:
                 reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
             elif not prev or "error" in prev:
@@ -169,9 +192,11 @@ for side in dict.fromkeys(r["side"] for r in rows):
             if reason:
                 print("LR-FAIL", side, r["label"], reason, flush=True)
         prev = front
-    med["reopened"] = f"{reopened}/{measured}"
+    med["reopened"] = "n/a (bare: expects Home)" if bare else f"{reopened}/{measured}"
+    med["usable"] = f"{usable}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
+    print("LR-USABLE", side, med["usable"], flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
@@ -184,7 +209,17 @@ probe() {
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+  if [[ "${machines:-0}" != 0 && "$label" != prime ]]; then
+    # As the console user, as the app: it saves the snapshot owner-only (folder 0700, file 0600).
+    GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/machines.py" "$out/home-$side" "$machines" \
+      | sed "s/^LR-MACHINES /LR-MACHINES $side $label /"
+    [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
+  fi
   quiesce "$app" "$side" "$label"
+  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again) and empty defaults (no
+  # defaults.plist, so the load leaves the side's domain clear). Only this run's own home is removed; a daemon the
+  # last launch kept has its socket in the removed home and ends with the others at the end.
+  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   load="$(load_1m)"
@@ -194,7 +229,8 @@ probe() {
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
-  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
+    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
