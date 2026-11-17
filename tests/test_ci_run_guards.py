@@ -271,7 +271,7 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
         events: list[tuple[str, str]] = []
         lock = threading.Lock()
 
-        def fake_run_steps(unit, steps, base_env, base_sha, keep_going):
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
             results = []
             for step in steps:
                 with lock:
@@ -279,7 +279,10 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
                 time.sleep(0.3 if "cmux_workload_profile.py run" in step.run else 0.05)
                 with lock:
                     events.append(("end", step.name))
-                results.append(run_ci_guards.StepResult(unit, step, True, 0.0, ""))
+                result = run_ci_guards.StepResult(unit, step, True, 0.0, "")
+                results.append(result)
+                if on_result is not None:
+                    on_result(result)
             return results
 
         saved = run_ci_guards.plan, run_ci_guards.run_steps
