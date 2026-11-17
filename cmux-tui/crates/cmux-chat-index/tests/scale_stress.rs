@@ -433,3 +433,51 @@ fn degenerate_corpora_scan_and_page() {
     let row = index.newest_first().find(|row| row.entry.session_id == claude_id(2)).unwrap();
     assert_eq!(row.entry.message_count, Some(2));
 }
+
+/// A rescan takes an unchanged transcript's kept read, but not past a change it depends on: a
+/// Claude Code title sidecar written beside it, a Codex name added to the session index, or a
+/// cache saved before reads were kept.
+#[test]
+fn kept_reads_follow_a_sidecar_title_a_session_index_name_and_an_old_cache() {
+    let home = tempfile::tempdir().unwrap();
+    let corpus = Corpus::build(home.path(), 10);
+    let mut index = ChatIndex::new(corpus.roots());
+    index.rescan_all();
+    let title = |index: &ChatIndex, id: &str| {
+        index.newest_first().find(|row| row.entry.session_id == id).unwrap().entry.title.clone()
+    };
+    assert_eq!(title(&index, &claude_id(1)).as_deref(), Some("Title 1"));
+    assert_eq!(title(&index, &codex_id(1)).as_deref(), Some("codex chat 1"));
+
+    // Claude Code: the sidecar renames the chat; its event is a store change (a rescan).
+    let sidecar = claude_file(&corpus.projects, 1).with_extension("").join("custom-title.json");
+    std::fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
+    std::fs::write(&sidecar, r#"{"customTitle":"Renamed ✓"}"#).unwrap();
+    index.paths_changed(std::slice::from_ref(&sidecar));
+    assert_eq!(title(&index, &claude_id(1)).as_deref(), Some("Renamed ✓"));
+
+    // Codex: a new name line in the session index, its rollout untouched.
+    let names = corpus.codex.join("session_index.jsonl");
+    let mut f = std::fs::OpenOptions::new().append(true).open(&names).unwrap();
+    writeln!(f, "{}", json!({"id": codex_id(1), "thread_name": "codex renamed"})).unwrap();
+    drop(f);
+    index.paths_changed(std::slice::from_ref(&names));
+    assert_eq!(title(&index, &codex_id(1)).as_deref(), Some("codex renamed"));
+
+    // A cache without kept reads (an older daemon's) reads each file once, then keeps it.
+    let cache = home.path().join("cache.json");
+    index.save(&cache).unwrap();
+    let mut saved: Value = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+    for root in saved["roots"].as_array_mut().unwrap() {
+        for file in root[1]["files"].as_array_mut().unwrap() {
+            assert!(file[1].get("kept").is_some(), "each read state keeps its read");
+            file[1].as_object_mut().unwrap().remove("kept");
+        }
+    }
+    std::fs::write(&cache, serde_json::to_vec(&saved).unwrap()).unwrap();
+    let mut loaded = ChatIndex::load(&cache, corpus.roots());
+    assert!(loaded.rescan_all().is_empty(), "the same chats");
+    assert_eq!(title(&loaded, &claude_id(1)).as_deref(), Some("Renamed ✓"));
+    #[cfg(target_os = "linux")]
+    assert!(bytes_read(|| assert!(loaded.rescan_all().is_empty())) < 16 * 1024);
+}
