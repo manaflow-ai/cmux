@@ -22,7 +22,8 @@
 # The build (two passes, as the macOS app's scripts/live-code/build.sh): the app target and every
 # CmuxMobileKit module compile unoptimized, testable and a file at a time, the app links with classic
 # binds and its symbols exported, then links again with the CmuxMobile Swift symbols it exports made
-# interposable, so its calls to its own functions go through pointers a patch can repoint. Only
+# interposable, so its calls to its own functions go through pointers a patch can repoint. The app's
+# modules also build with -enable-private-imports, so `private` views are patchable too. Only
 # DEBUG configurations (Demo, Debug): a Release, TestFlight or App Store build is never built this
 # way and never watches a live folder (only the app's DEBUG code starts the watcher).
 #

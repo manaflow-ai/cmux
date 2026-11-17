@@ -179,3 +179,36 @@ a save while on, and a stop into the optimized build, counted in pixels.
   buttons: no live code build of its commit is built or signed for it to restart into, and a
   Release build may load only patches signed by the app's own team (cmux#13742), which a person's
   checkout cannot make. Unsigned, ad hoc patches stay Debug and bench only.
+
+## The iPhone app in the iOS Simulator
+
+Leo (2026-11-17): "can you just put the fucking projection of whatever I have on Cosmic Gray just
+as like a constantly running thing, and then you guys can just keep testing that as you go, just
+like hot swapping or whatever, similar to like how you can do stuff with Expo."
+
+The iPhone app (cmux-next-ios) takes the same patches in the iOS Simulator: a simulator app is a
+macOS process, so it loads an ad hoc signed dylib from a folder on the Mac's disk, and its engine
+is this one (Packages/Shared/CmuxLiveCode). `scripts/live-code/ios-sim.sh` is the whole loop:
+
+| You want | Do this |
+|---|---|
+| The live code build, once (Demo, or Debug) | `scripts/live-code/ios-sim.sh build OUT` |
+| Run it on a booted simulator, watching `OUT/live` | `scripts/live-code/ios-sim.sh run OUT UDID [KEY=VALUE...]` |
+| Apply edited files (the app or CmuxMobileKit) | `scripts/live-code/ios-sim.sh patch OUT FILE.swift...` |
+| Undo the newest patch (or all) | `scripts/live-code/ios-sim.sh undo OUT [--all]` |
+| The app's log | `scripts/live-code/ios-sim.sh log OUT` |
+
+`IOS_SIM_SET` names a simctl device set. The build is the macOS app's two passes on the app target
+and every CmuxMobileKit module, plus `-enable-private-imports`: most of the app's views are
+`private struct`s, whose functions are otherwise local to their file and could never be repointed.
+Only a DEBUG configuration is built this way, and only the app's DEBUG code starts the watcher
+(`LiveCodeRedraw`), so Release, TestFlight and App Store builds are as before.
+
+The redraw: SwiftUI calls a `body` again only when something it read changed, so after each patch
+the app's root (`liveCodeRedraw()`) takes a new identity and SwiftUI builds the whole tree again
+with the new code. State below the root starts over, as after a relaunch; the process, its
+connections and models stay. dyld_dynamic_interpose is there in the simulator's dyld (the app logs
+it when it starts watching); without it the rebind of the app's symbol pointers alone repoints.
+
+What it costs and saves, measured by `scripts/measure/ios-live-code.py` (an edit saved to the
+edit's color in the simulator's screenshot) on a fleet Mac:

@@ -246,7 +246,8 @@ enum Interposer {
                   UnsafeRawPointer(ours) != theirs,
                   let old = underlyingTypeNames(UnsafeRawPointer(ours)), let new = underlyingTypeNames(theirs),
                   old != new else { continue }
-            changed.append("\(old.joined(separator: ", ")) -> \(new.joined(separator: ", "))")
+            // The descriptor's symbol names the function or property whose result changed.
+            changed.append(String(name.dropFirst().dropLast(4)))
         }
         return changed
     }
@@ -276,7 +277,10 @@ enum Interposer {
             let field = descriptor + offset + index * 4
             let mangled = (field + Int(field.load(as: Int32.self))).assumingMemoryBound(to: UInt8.self)
             guard let metadata = typeByMangledName(mangled, UInt(mangledNameLength(mangled)), descriptor, nil) else { return nil }
-            names.append(_typeName(unsafeBitCast(metadata, to: Any.Type.self), qualified: true))
+            // A private type prints as "(unknown context at $ADDRESS)", its context's address in
+            // its own image: the build's and the patch's differ, the type does not.
+            let printed = _typeName(unsafeBitCast(metadata, to: Any.Type.self), qualified: true)
+            names.append(printed.replacing(/\(unknown context at \$[0-9a-f]+\)/, with: "(private)"))
         }
         return names
     }

@@ -24,7 +24,7 @@ live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E "[0-9]${LIVE_CODE_MODULE_PREFI
 live_code_list() { # BIN OUT
   local bin="$1" out="$2"
   xcrun dyld_info -exports "$bin" | live_code_ours > "$out/interposable.txt" || true
-  echo "X in the export trie" >&2
+  echo "live-code build: $(wc -l < "$out/interposable.txt" | tr -d ' ') ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} Swift symbols in the export trie" >&2
   [[ -s "$out/interposable.txt" ]] || { echo "live-code build: the app exports no ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbol (LD_EXPORT_SYMBOLS?)" >&2; return 1; }
 }
 

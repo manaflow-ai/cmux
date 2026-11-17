@@ -57,11 +57,11 @@ def color_expr(rgb):
     return f"Color(red: {r}, green: {g}, blue: {b})"
 
 
-def wait_visible(udid, x, y, want, started, deadline):
+def wait_visible(udid, x, y, want, started, deadline, failed=lambda: False):
     """Seconds from `started` to the first screenshot whose pixel is nearest COLORS[want]; None past `deadline`."""
     shot = tempfile.mktemp(suffix=".bmp")
     try:
-        while time.time() < deadline:
+        while time.time() < deadline and not failed():
             rgb = pixel(udid, x, y, shot)
             if nearest(rgb) == want:
                 return time.time() - started, rgb
@@ -103,6 +103,7 @@ def main():
     parser.add_argument("--bundle-id", default="dev.cmux.mobile")
     parser.add_argument("--udid", required=True)
     parser.add_argument("--old", required=True, help="the color expression in FILE the edits replace")
+    parser.add_argument("--within", help="a text of FILE that holds OLD once and is itself in FILE once (OLD may repeat)")
     parser.add_argument("--x", type=int, required=True)
     parser.add_argument("--y", type=int, required=True)
     parser.add_argument("--edits", type=int, default=6)
@@ -112,14 +113,15 @@ def main():
     path = os.path.realpath(opts.file)
     with open(path) as f:
         original = f.read()
-    if original.count(opts.old) != 1:
-        sys.exit(f"ios-live-code.py: {opts.old!r} is in {path} {original.count(opts.old)} times, not once")
+    within = opts.within or opts.old
+    if original.count(within) != 1 or within.count(opts.old) != 1:
+        sys.exit(f"ios-live-code.py: {within!r} is in {path} {original.count(within)} times, not once (or holds no {opts.old!r})")
     results = []
     try:
         for edit in range(opts.edits):
             want = edit % len(COLORS)
             with open(path, "w") as f:
-                f.write(original.replace(opts.old, color_expr(COLORS[want])))
+                f.write(original.replace(within, within.replace(opts.old, color_expr(COLORS[want]))))
             started = time.time()
             apply_rebuild.started = started
             outcome = {}
@@ -130,7 +132,7 @@ def main():
 
             worker = threading.Thread(target=apply)
             worker.start()
-            seconds, rgb = wait_visible(opts.udid, opts.x, opts.y, want, started, started + opts.timeout)
+            seconds, rgb = wait_visible(opts.udid, opts.x, opts.y, want, started, started + opts.timeout, lambda: outcome.get("ok") is False)
             worker.join()
             row = {"mode": opts.mode, "edit": edit + 1, "color": COLORS[want], "visible_s": None if seconds is None else round(seconds, 3),
                    "pixel": rgb, "apply_s": round(outcome.get("applied_s", 0), 3), "ok": outcome.get("ok"), "log": outcome.get("lines", [])[-3:]}
