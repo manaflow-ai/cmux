@@ -12,8 +12,10 @@
 //!       so no viewer's session asks again.
 //!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
 //!       no browser, finds the desktop through logind, waits a minute at most on the portal
-//!       dialog, starts a virtual X display when there is no graphical session, installs the host
-//!       unit on a desktop still enabled, else prints one `not_installed:` line (setup.rs).
+//!       dialog, sets up a virtual X display (started on demand) when there is no graphical
+//!       session, and installs the host unit on a desktop still enabled or a machine joined to
+//!       cmux, which signs itself in with its machine credential (machine.rs); else prints one
+//!       `not_installed:` line (setup.rs).
 //!   grant [--control]
 //!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
 //!       and, with `--control`, keyboard and pointer, and saves the restore token in
@@ -22,6 +24,8 @@
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
 //!       user's graphical session (the user systemd unit `systemd/cmux-screen-host.service`).
+//!   display                        the X display an app launched here opens on (`:N`): the
+//!                                  virtual display, started now if down, else the desktop's
 //!   requests                       viewers asking for access, waiting for the person
 //!   approve SESSION [--always] [--scope view|full]
 //!   deny SESSION
@@ -35,25 +39,21 @@
 //! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
 //! only.
 
-pub(crate) mod b64;
 mod consent;
-pub(crate) mod hub;
-pub(crate) mod identity;
-pub(crate) mod net;
-pub(crate) mod rd_doc;
-pub(crate) mod session;
+mod machine;
 mod setup;
 pub(crate) mod stack_login;
 mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
+use cmux_hub_host::hub::{now_ms, Hub, HubError, Renewal};
+use cmux_hub_host::identity::{self, Account, Device};
+use cmux_hub_host::net::Message;
+use cmux_hub_host::printable;
+use cmux_hub_host::session::{self, ServeCommand, Ticket};
 use consent::{LocalConsent, Pending};
-use hub::{now_ms, Hub, HubError};
-use identity::{Account, Device};
-use net::Message;
 use serde_json::Value;
-use session::{ServeArgs, Ticket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -66,7 +66,7 @@ const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-
        cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
+       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -89,6 +89,7 @@ impl std::error::Error for Fatal {}
 impl Fatal {
     const ENABLE: &'static str = "cmux-rd linux-host enable";
     const SHARE_ON: &'static str = "cmux-rd linux-host share on";
+    const JOIN: &'static str = "acpmux host join (a new join line from cmux machine add)";
 
     fn needs(what: &str, command: &str) -> Self {
         Self(format!(
@@ -125,55 +126,6 @@ fn exit_code(e: &(dyn std::error::Error + Send + Sync + 'static)) -> i32 {
     } else {
         1
     }
-}
-
-/// Bidi formatting characters: they reorder what a terminal shows (U+202E turns a name
-/// around) though `char::is_control` does not count them.
-fn is_bidi_control(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-    )
-}
-
-/// Text from the hub or a viewer, safe to print to a terminal or the journal: C0 and C1
-/// controls, whole ANSI escape sequences (CSI, OSC and the like) and bidi controls removed.
-pub(crate) fn printable(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\u{1b}' => match chars.next() {
-                // CSI: parameters and intermediates, then one final character in @..~.
-                Some('[') => {
-                    for c in chars.by_ref() {
-                        if ('@'..='~').contains(&c) {
-                            break;
-                        }
-                    }
-                }
-                // OSC, DCS, SOS, PM, APC: a string ended by BEL or ESC \.
-                Some(']' | 'P' | 'X' | '^' | '_') => {
-                    while let Some(c) = chars.next() {
-                        if c == '\u{7}' {
-                            break;
-                        }
-                        if c == '\u{1b}' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                            }
-                            break;
-                        }
-                    }
-                }
-                // A two-character escape (ESC c, ESC 7, ...).
-                _ => {}
-            },
-            c if c.is_control() || is_bidi_control(c) => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// One `requests` line.
@@ -277,6 +229,7 @@ pub fn run_cli(args: &[String]) -> i32 {
             .only(&["display", "xauthority", "capture"])
             .map_err(Into::into)
             .and_then(|()| run(&parsed)),
+        ["display"] => parsed.only(&[]).map_err(Into::into).and_then(|()| display()),
         ["requests"] => parsed.only(&[]).map_err(Into::into).and_then(|()| requests()),
         ["approve", id] => parsed
             .only(&["always", "scope"])
@@ -311,19 +264,71 @@ fn stack_token(args: &Args) -> Res<String> {
 }
 
 /// The enabled host: its device, account and hub.
+/// A desktop never enabled and never joined signs in first; a joined machine signs itself in
+/// with its machine credential, so the host needs no step on it (machine.rs).
 fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
+    const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
     let dir = identity::config_dir()?;
-    let device = Device::load(&dir)?.ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
-    let account =
-        Account::load(&dir)?.ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
-    let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?;
+    let Some(account) = Account::load(&dir)? else {
+        let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
+        identity::private_dir(&dir)?;
+        let (hub, account) = sign_in_machine(&dir, DEFAULT_HUB, &home, credential)?;
+        return Ok((dir, hub, account));
+    };
+    let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
+    let hub = match machine::Joined::load(&dir)? {
+        Some(joined) => {
+            let credential = machine::load(&joined.acpmux_home)?.ok_or_else(|| {
+                Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN)
+            })?;
+            Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
+        }
+        None => Hub::new(&account.hub, device, Some(account.user_id.clone()))?,
+    };
     Ok((dir, hub, account))
 }
 
-/// The line `enable --non-interactive` prints on a machine it could not sign in: the hub has no
-/// sign-in yet for the credential the join keeps, and no person's token ever lands on a joined
-/// machine (hq docs/design/remote-spin-up.md section 5), so nothing else is asked for.
-const NOT_INSTALLED: &str = "not_installed: screen sharing is set up on this machine but not signed in: the device hub cannot sign a joined machine in with its machine credential yet";
+/// Signs a joined machine in with its credential (`POST /v1/auth/machine`), registers this
+/// desktop (a new identity when the hub refuses the old one) and turns sharing on: joining is
+/// the consent (hq docs/design/remote-screen-share-zero-touch.md, L3). Sharing is turned on
+/// only here, at the first sign-in, so a person's later "off" from any device stays off.
+fn sign_in_machine(
+    dir: &std::path::Path,
+    hub_url: &str,
+    acpmux_home: &std::path::Path,
+    credential: machine::MachineCredential,
+) -> Res<(Hub, Account)> {
+    let device = match Device::load(dir)? {
+        Some(device) => device,
+        None => {
+            let name = Some(credential.name.trim()).filter(|n| !n.is_empty());
+            Device::generate(name.map_or_else(identity::host_name, str::to_owned).as_str())?
+        }
+    };
+    let (_, hub) = with_fresh_identity(device, |device| {
+        device.save(dir)?;
+        let hub =
+            Hub::with_renewal(hub_url, device.clone(), None, machine_renewal(credential.clone()))?;
+        hub.register("linux")?;
+        Ok(hub)
+    })?;
+    hub.set_shared(true)?;
+    let user_id = hub.user_id().ok_or("no userId in the hub's answer")?;
+    let account = Account { hub: hub_url.to_owned(), user_id, anchored_until: 0 };
+    account.save(dir)?;
+    machine::Joined { acpmux_home: acpmux_home.to_owned() }.save(dir)?;
+    Ok((hub, account))
+}
+
+/// How a joined machine's hub client renews: with its machine credential, never an anchor.
+fn machine_renewal(credential: machine::MachineCredential) -> Renewal {
+    Renewal::Machine { credential: credential.credential }
+}
+
+/// The line `enable --non-interactive` prints on a machine it could not sign in: neither an
+/// earlier `enable` nor a join left a sign-in here, and no person's token ever lands on a
+/// joined machine (hq docs/design/remote-spin-up.md section 5), so nothing else is asked for.
+const NOT_INSTALLED: &str = "not_installed: screen sharing is set up on this machine but not signed in: it is not joined to cmux (no machine credential in ACPMUX_HOME)";
 
 /// How long `enable --non-interactive` leaves the portal's dialog up for someone at the screen;
 /// past it the join goes on and the first share asks once.
@@ -374,12 +379,22 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
     let virtual_display = desktop == setup::Desktop::None;
     if virtual_display {
-        let display = setup::start_virtual_display()?;
+        let display = setup::set_up_virtual_display()?;
         println!("{}", setup::virtual_display_line(display));
     }
     // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
-    let device = match (Account::load(&dir)?, Device::load(&dir)?) {
-        (Some(account), Some(device)) if account.anchored_until > now_ms() => device,
+    // Else a joined machine signs itself in with its machine credential.
+    let device = match (Account::load(&dir)?, Device::load(&dir)?, machine::current()?) {
+        (Some(account), Some(device), _) if account.anchored_until > now_ms() => device,
+        (Some(_), Some(device), Some((home, _)))
+            if machine::Joined::load(&dir)?.is_some_and(|j| j.acpmux_home == home) =>
+        {
+            device
+        }
+        (_, _, Some((home, credential))) => {
+            let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
+            sign_in_machine(&dir, hub_url, &home, credential)?.0.device
+        }
         _ => {
             println!("{NOT_INSTALLED}");
             return Ok(());
@@ -422,7 +437,7 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, Stri
         device.save(dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register()?;
+        hub.register("linux")?;
         Ok((hub, user_id))
     })?;
     let anchored_until = hub.anchor()?;
@@ -430,6 +445,7 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, Stri
     let encoder = openh264_line();
     hub.set_shared(true)?;
     Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
+    machine::Joined::clear(dir)?;
     Ok((hub.device, encoder))
 }
 
@@ -570,6 +586,12 @@ pub(crate) fn with_fresh_identity<T>(
 
 fn share_on(args: &Args) -> Res<()> {
     let (dir, hub, mut account) = load()?;
+    if machine::Joined::load(&dir)?.is_some() {
+        // A joined machine's session may turn its own sharing on (PROTOCOL.md, Machine sign-in).
+        hub.set_shared(true)?;
+        println!("Sharing is on.");
+        return Ok(());
+    }
     // Turning sharing on needs the account itself (a host session may only turn it off).
     hub.sign_in_with_stack(&stack_token(args)?)?;
     account.anchored_until = hub.anchor()?;
@@ -583,6 +605,27 @@ fn share_off() -> Res<()> {
     let (_, hub, _) = load()?;
     hub.set_shared(false)?;
     println!("Sharing is off; the hub ended any session.");
+    Ok(())
+}
+
+/// `display`: the X display an app launched on this machine should open on, so a share shows
+/// it (`cmux app launch --on`): the virtual display, started now if it is down, else the
+/// desktop's X display. Prints `:N`.
+fn display() -> Res<()> {
+    if let Some(display) = setup::virtual_display() {
+        println!("{}", setup::ensure_virtual_display(display)?);
+        return Ok(());
+    }
+    match setup::detect_desktop() {
+        setup::Desktop::X11(Some(display)) => println!("{display}"),
+        setup::Desktop::X11(None) => println!(":0"),
+        setup::Desktop::Wayland => {
+            return Err("this desktop is a Wayland session: apps open in it with WAYLAND_DISPLAY, not an X display".into())
+        }
+        setup::Desktop::None => {
+            return Err("no graphical session and no virtual display: run `cmux-rd linux-host enable --non-interactive`".into())
+        }
+    }
     Ok(())
 }
 
@@ -779,12 +822,22 @@ fn run(args: &Args) -> Res<()> {
     // read this to say so. A grant made later takes a restart.
     let applies_input = capture.applies_input();
     identity::write_private(&runtime.join("capture"), capture.name().as_bytes())?;
-    let serve_args = ServeArgs(serve_args);
+    // `cmux-rd serve` from this same binary, logging as `linux-host`.
+    let serve_args = ServeCommand {
+        program: std::env::current_exe()?,
+        args: ["serve".to_owned()].into_iter().chain(serve_args).collect(),
+        disclaim: false,
+        log_prefix: "linux-host".into(),
+        status_prefix: "cmux-rd linux-host".into(),
+    };
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
         return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
     let hub = Arc::new(hub);
     let current: Current = Arc::new(Mutex::new(None));
+    if let Some(display) = setup::virtual_display() {
+        stop_idle_display(display, current.clone());
+    }
     let mut backoff = Duration::from_secs(1);
     eprintln!(
         "linux-host: serving \"{}\" ({}){}",
@@ -818,12 +871,57 @@ fn run(args: &Args) -> Res<()> {
     }
 }
 
+/// How long the virtual display stays up with no share and no app window on it.
+const DISPLAY_IDLE: Duration = Duration::from_secs(10 * 60);
+/// How often the host looks at the virtual display.
+const DISPLAY_CHECK_EVERY: Duration = Duration::from_secs(30);
+
+/// Whether the virtual display has been idle long enough to stop, given when it was last
+/// seen busy and whether it is busy now (a share, or a program on it).
+fn display_idle(busy_now: bool, last_busy: &mut Instant, now: Instant) -> bool {
+    if busy_now {
+        *last_busy = now;
+        return false;
+    }
+    now.duration_since(*last_busy) >= DISPLAY_IDLE
+}
+
+/// Stops the virtual display this host starts on demand once it has had no share and no app
+/// window for [`DISPLAY_IDLE`], so nothing sits busy between shares. Runs as long as the host.
+fn stop_idle_display(display: u32, current: Current) {
+    let socket = std::path::PathBuf::from(format!("/tmp/.X11-unix/X{display}"));
+    let spawned = std::thread::Builder::new().name("linux-host-display".into()).spawn(move || {
+        let mut last_busy = Instant::now();
+        loop {
+            std::thread::sleep(DISPLAY_CHECK_EVERY);
+            if !socket.exists() {
+                last_busy = Instant::now();
+                continue;
+            }
+            let sharing = current.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+            let busy = sharing || setup::display_in_use(display);
+            if display_idle(busy, &mut last_busy, Instant::now()) {
+                match setup::stop_virtual_display() {
+                    Ok(()) => {
+                        eprintln!("linux-host: the virtual display :{display} was idle; stopped")
+                    }
+                    Err(e) => eprintln!("linux-host: {e}"),
+                }
+                last_busy = Instant::now();
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("linux-host: the virtual display will not be stopped when idle: {e}");
+    }
+}
+
 /// Holds one User DO socket until it closes; handles its pushes.
 fn hold_socket(
     hub: &Arc<Hub>,
     dir: &std::path::Path,
     runtime: &std::path::Path,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
 ) -> Res<()> {
@@ -913,7 +1011,7 @@ fn handle_push(
     push: &Value,
     dir: &std::path::Path,
     runtime: &std::path::Path,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
 ) {
@@ -965,7 +1063,7 @@ fn start_session(
     hub: &Arc<Hub>,
     ticket: Ticket,
     view_only: bool,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
 ) {
     let stop = Arc::new(AtomicBool::new(false));
@@ -991,6 +1089,12 @@ fn start_session(
             if view_only { "view" } else { "control" },
             printable(&ticket.peer_name)
         );
+        // No graphical session here: the virtual display starts now, for this share.
+        if let Some(display) = setup::virtual_display() {
+            if let Err(e) = setup::ensure_virtual_display(display) {
+                eprintln!("linux-host: {e}");
+            }
+        }
         let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
         eprintln!("linux-host: session ended: {}", ended.reason);
         if let Some(reason) = ended.tell_hub {
@@ -1022,6 +1126,7 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_hub_host::b64;
 
     #[test]
     fn args_take_positionals_flags_and_values() {
@@ -1199,12 +1304,8 @@ mod tests {
     }
 
     #[test]
-    fn hub_text_is_printed_without_control_characters() {
-        assert_eq!(printable("Ann's Mac"), "Ann's Mac");
-        assert_eq!(printable("\u{1b}[2J\u{1b}[31mEvil\u{1b}[0m"), "Evil");
-        assert_eq!(printable("a\u{1b}]0;title\u{7}b"), "ab");
-        assert_eq!(printable("x\ny\rz\t\u{0}\u{7f}\u{9b}1m"), "xyz1m");
-        assert_eq!(printable("\u{202e}cod.exe\u{202c}\u{2066}\u{200f}"), "cod.exe");
+    fn request_lines_are_printed_without_control_characters() {
+        use cmux_hub_host::text::is_bidi_control;
         let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
         for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
             assert!(!line.chars().any(|c| c.is_control() || is_bidi_control(c)), "{line:?}");
@@ -1395,6 +1496,66 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(tries, 2);
+    }
+
+    #[test]
+    fn a_joined_machine_signs_itself_in_registers_and_turns_sharing_on() {
+        use super::stack_login::tests::stub;
+        let (origin, seen) = stub(|_, request| match request.path.as_str() {
+            "/v1/auth/machine" => (
+                200,
+                serde_json::json!({ "session": "s", "userId": "p:u", "expiresAt": now_ms() + 3_600_000 }),
+            ),
+            _ => (200, serde_json::json!({ "ok": true })),
+        });
+        let dir = consent_dir("machine-sign-in");
+        identity::private_dir(&dir).unwrap();
+        let credential: machine::MachineCredential =
+            serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
+        let (hub, account) =
+            sign_in_machine(&dir, &origin, std::path::Path::new("/acpmux-home"), credential)
+                .unwrap();
+        assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
+        assert_eq!(
+            account,
+            Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 }
+        );
+        assert_eq!(Account::load(&dir).unwrap(), Some(account));
+        assert_eq!(
+            machine::Joined::load(&dir).unwrap(),
+            Some(machine::Joined { acpmux_home: "/acpmux-home".into() })
+        );
+        machine::Joined::clear(&dir).unwrap();
+        assert_eq!(machine::Joined::load(&dir).unwrap(), None);
+        machine::Joined::clear(&dir).unwrap();
+        assert_eq!(Device::load(&dir).unwrap().unwrap().id, hub.device.id);
+        let seen = seen.lock().unwrap().clone();
+        let calls: Vec<(String, String)> =
+            seen.iter().map(|s| (s.method.clone(), s.path.clone())).collect();
+        let screen = format!("/v1/devices/{}/mac-screen", hub.device.id);
+        assert_eq!(
+            calls,
+            [
+                ("POST".to_owned(), "/v1/auth/machine".to_owned()),
+                ("POST".to_owned(), "/v1/devices".to_owned()),
+                ("PUT".to_owned(), screen),
+            ]
+        );
+        // Registered as a Linux desktop, and joining is the consent: sharing on.
+        assert_eq!(serde_json::from_str::<Value>(&seen[1].body).unwrap()["platform"], "linux");
+        assert_eq!(serde_json::from_str::<Value>(&seen[2].body).unwrap()["shared"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_virtual_display_stops_only_after_ten_idle_minutes() {
+        let start = Instant::now();
+        let mut last_busy = start;
+        assert!(!display_idle(false, &mut last_busy, start + Duration::from_secs(9 * 60)));
+        // A share or an app on it keeps it up, and the idle time starts again.
+        assert!(!display_idle(true, &mut last_busy, start + Duration::from_secs(9 * 60)));
+        assert!(!display_idle(false, &mut last_busy, start + Duration::from_secs(18 * 60)));
+        assert!(display_idle(false, &mut last_busy, start + Duration::from_secs(19 * 60)));
     }
 
     fn ticket_push(sid_in_jws: &str) -> Value {
