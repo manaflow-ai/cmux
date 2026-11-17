@@ -156,7 +156,8 @@ class Launch(Bench):
             raise BenchError(f"{path}: no LR-RUN lines")
         finished = {}
         for side in dict.fromkeys(r["side"] for r in runs):
-            measured = [r for r in runs if r["side"] == side and r.get("label") != "prime"]
+            # The measured relaunches (runN): not the priming launch, nor a prerun's full run before each (fullN).
+            measured = [r for r in runs if r["side"] == side and str(r.get("label", "")).startswith("run")]
             done = [r for r in measured if r.get("window_on_screen") is not None and not r.get("error")]
             finished[side] = done
             labels = {"arm": side, **(extra or {})}

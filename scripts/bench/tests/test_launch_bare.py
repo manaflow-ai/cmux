@@ -124,6 +124,26 @@ class LaunchBareRun(unittest.TestCase):
             bench.ingest(ctx, path)
         self.assertEqual(rows(ctx)[("window_usable", "arm=head,prerun=60,state=bare")]["value"], 800)
 
+    def test_unusable_launches(self) -> None:
+        # A bare launch whose window never took keys has no window_usable: counted per bare step, never for kept.
+        logs = dict(LOGS)
+        logs[("bare", "0")] = log(480, 600, 900).replace('"window_usable": 610.0, ', "", 1)
+        ctx, _ = run(logs)
+        got = rows(ctx)
+        self.assertEqual(got[("unusable_launches", "arm=head,prerun=0,state=bare")]["value"], 1)
+        self.assertEqual(got[("unusable_launches", "arm=head,prerun=60,state=bare")]["value"], 0)
+        self.assertNotIn(("unusable_launches", "arm=head,prerun=0,state=kept"), got)
+
+    def test_real_bare_report(self) -> None:
+        # runs.jsonl of a fleet run (b44d23c2, prerun=60, 10 relaunches): 6 of the 10 never took keys.
+        bench = load_all()["launch-bare"]
+        ctx = Context(bench=bench, build=dict(NIGHTLY), host_role="fleet", args={"prerun": "60"})
+        bench.ingest(ctx, Path(__file__).resolve().parent / "fixtures" / "launch" / "launch-ready-bare-prerun60.jsonl")
+        got = rows(ctx)
+        self.assertEqual(got[("unusable_launches", "arm=head,prerun=60,state=bare")]["value"], 6)
+        self.assertEqual(got[("window_usable", "arm=head,prerun=60,state=bare")]["n"], 4)
+        self.assertEqual(got[("failed_launches", "arm=head,prerun=60,state=bare")]["value"], 0)
+
     def test_registered_nightly(self) -> None:
         bench = load_all()["launch-bare"]
         self.assertTrue(bench.nightly)

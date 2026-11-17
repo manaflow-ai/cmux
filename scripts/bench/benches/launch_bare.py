@@ -35,9 +35,9 @@ class LaunchBare(Launch):
     version = "1"
     # A relaunch's marks move by 5 to 10 % run to run on one Mac. restore_over_bare_* is a difference of two medians
     # of tens of ms, so its floor is a frame's worth of noise on each side rather than a percent.
-    thresholds = {"request_to_start": 50.0, "failed_launches": 0.0,
+    thresholds = {"request_to_start": 50.0, "failed_launches": 0.0, "unusable_launches": 0.0,
                   **{f"restore_over_bare_{m}": 25.0 for m in RESTORE_MARKS}}
-    floors = {"request_to_start": 10.0, "failed_launches": 0.0,
+    floors = {"request_to_start": 10.0, "failed_launches": 0.0, "unusable_launches": 0.0,
               **{f"restore_over_bare_{m}": 40.0 for m in RESTORE_MARKS}}
     nightly = True
     nightly_args = {"runs": "5"}
@@ -46,11 +46,22 @@ class LaunchBare(Launch):
         finished = {}
         for state, prerun in STEPS:
             res = self.ready_step(ctx, state=state, prerun=prerun)
-            finished[(state, prerun)] = self.ingest_ready(ctx, res.log_path, {"state": state, "prerun": prerun})
+            finished[(state, prerun)] = self.ingest_step(ctx, res.log_path, state, prerun)
         restore_rows(ctx, finished[("bare", "0")], finished[("kept", "0")])
 
     def ingest(self, ctx: Context, path: Path) -> None:
-        self.ingest_ready(ctx, path, {"state": ctx.arg("state", "bare"), "prerun": ctx.arg("prerun", "0")})
+        self.ingest_step(ctx, path, ctx.arg("state", "bare"), ctx.arg("prerun", "0"))
+
+    def ingest_step(self, ctx: Context, path: Path, state: str, prerun: str) -> dict[str, list[dict]]:
+        """One step's rows; a bare step also counts its finished launches whose window never took keys
+        (unusable_launches: no window_usable before the probe quit it)."""
+        labels = {"state": state, "prerun": prerun}
+        finished = self.ingest_ready(ctx, path, labels)
+        if state == "bare":
+            for side, runs in finished.items():
+                ctx.row("unusable_launches", sum("window_usable" not in (r.get("marks") or {}) for r in runs), "count",
+                        labels={"arm": side, **labels})
+        return finished
 
 
 def restore_rows(ctx: Context, bare: dict[str, list[dict]], kept: dict[str, list[dict]]) -> None:

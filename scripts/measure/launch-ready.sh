@@ -145,10 +145,11 @@ main() {
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  python3 -I - "$out/runs.jsonl" <<'PY'
+  python3 -I - "$out/runs.jsonl" "$LR_STATE" <<'PY'
 import json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+bare = sys.argv[2] == "bare"
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
@@ -165,13 +166,18 @@ for side in dict.fromkeys(r["side"] for r in rows):
     # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
     # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
     # model key) and the top page are compared; the tab id is kept in the row only.
-    prev, measured, reopened = None, 0, 0
+    # state=bare: every launch starts from an empty home, so there is nothing to reopen; what a bare launch owes is
+    # the window taking keys (window_usable) before the probe quits it.
+    prev, measured, reopened, usable = None, 0, 0, 0
     for r in (r for r in rows if r["side"] == side):
         front = r.get("front")
         if r["label"].startswith("run"):
             measured += 1
+            usable += "window_usable" in r["marks"]
             if r.get("cross_arm"):
                 reason = "cross-arm " + json.dumps(r["cross_arm"])
+            elif bare:
+                reason = None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys"
             elif not front or "error" in front:
                 reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
             elif not prev or "error" in prev:
@@ -184,9 +190,11 @@ for side in dict.fromkeys(r["side"] for r in rows):
             if reason:
                 print("LR-FAIL", side, r["label"], reason, flush=True)
         prev = front
-    med["reopened"] = f"{reopened}/{measured}"
+    med["reopened"] = "n/a" if bare else f"{reopened}/{measured}"
+    med["usable"] = f"{usable}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
+    print("LR-USABLE", side, med["usable"], flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
