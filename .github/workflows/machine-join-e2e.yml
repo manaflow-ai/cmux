@@ -26,6 +26,19 @@ name: Machine join E2E (development)
 # user with its own home and Xvfb, signed in to the same account, must get a
 # decoded frame of the joined machine's screen within 60 s with no request
 # waiting on the host. Its numbers (first frame bound, Mbit/s) are in the evidence.
+#
+# web_device: true adds, while joined, the recorded web client demo (Leo,
+# 2026-11-17: "if we literally had it... on the web... wouldn't that be
+# interesting!?"): a chat on the joined machine running Claude Code on Haiku with
+# the repository's CLAUDE_CODE_OAUTH_TOKEN (the third secret, in the same one step,
+# only with web_device; the daemon gets it on stdin), or with no login the stand-in
+# ACP agent (acpmux's tests/fake_agent.py, an echo; the result says which), and
+# scripts/cmux-next/web-device-demo.ts as the runner: a second machine of the same
+# account (the browser's daemon), the NEXT agent pane's shipped bundle in headless
+# Chrome on that daemon's socket, `_acpmux/device_enroll` and `_acpmux/device_hello`
+# sent by the harness on the pane's own socket, one prompt typed into the
+# composer, and the hub machine's reply. Video, final screenshot and result are
+# the `web-device-demo` artifact, uploaded only when they hold no secret.
 on:
   workflow_dispatch:
     inputs:
@@ -53,6 +66,11 @@ on:
         required: false
         default: false
         type: boolean
+      web_device:
+        description: "while joined, the recorded web client demo: a browser tab enrolls its own web device, opens a chat on the joined machine through the hub, sends one prompt and gets the reply (video and screenshot artifact)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -70,7 +88,7 @@ jobs:
     # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
     # this job adds an OS user and holds the stack secrets.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 90
+    timeout-minutes: 100
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
       # share: the development device hub (workers/device-hub/wrangler.toml [env.dev]).
@@ -320,18 +338,48 @@ jobs:
             fi
           fi
 
+      # web_device: the browser (the patched headless Chrome scripts/ci/ensure-system-chrome.sh fetches, and
+      # Playwright's FFmpeg for the video) and the agent pane's shipped bundle, from the run's commit. No secret here.
+      - name: Set up the web device demo's browser and pane
+        if: inputs.web_device
+        run: |
+          set -euo pipefail
+          (cd webviews && bun install --frozen-lockfile && ../scripts/ci/ensure-system-chrome.sh && ./node_modules/.bin/playwright install ffmpeg)
+          scripts/cmux-next/build-agent-pane-web.sh --out "$RUNNER_TEMP/agent-pane"
+          install -d -m 0700 "$RUNNER_TEMP/web-device-demo"
+
+      # web_device: the joined machine's agents, root-owned: Claude Code (pinned, as ci-compile-attribution.yml pins it)
+      # in /usr/local/bin, and the stand-in ACP agent beside acpmux for a run with no Claude login. The stand-in's
+      # profile goes into the disposable user's state directory (made by the smoke test). No secret here.
+      - name: Prepare the web device demo's chat
+        if: inputs.web_device
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        run: |
+          set -euo pipefail
+          sudo npm install --global --prefix /usr/local --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          test -x /usr/local/bin/claude
+          sudo install -o root -g root -m 0755 cmux-tui/crates/acpmux/tests/fake_agent.py "$JOIN_BASE/bin/fake_agent.py"
+          printf '{"harnesses":{"fake":{"argv":["/usr/bin/python3","%s"]}}}\n' "$JOIN_BASE/bin/fake_agent.py" \
+            | sudo -n -u "$JOIN_USER" -- tee "$JOIN_HOME/.acpmux/config.json" >/dev/null
+
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke
         timeout-minutes: 60
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # web_device only: the team's Claude login for the demo chat's Haiku agent.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.web_device && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           JOIN_NAME: ${{ steps.inputs.outputs.name }}
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
           BENCH: ${{ inputs.bench }}
           SHARE: ${{ inputs.share }}
+          WEB_DEVICE: ${{ inputs.web_device }}
           VIEWER_USER: ${{ steps.share.outputs.viewer }}
           VIEWER_HOME: ${{ steps.share.outputs.viewer_home }}
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
@@ -342,9 +390,13 @@ jobs:
           if [ "$SHARE" = true ]; then
             share=(--share-cmux-rd "$JOIN_BASE/bin/cmux-rd" --viewer-user "$VIEWER_USER" --viewer-home "$VIEWER_HOME" --device-hub "$DEVICE_HUB")
           fi
+          web=()
+          if [ "$WEB_DEVICE" = true ]; then
+            web=(--web-device-pane "$RUNNER_TEMP/agent-pane" --web-device-out "$RUNNER_TEMP/web-device-demo")
+          fi
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
-            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}" "${share[@]}"
+            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}" "${share[@]}" "${web[@]}"
 
       # Fails on a token or credential prefix, a JWT or an auth header in the evidence (nothing is then
       # uploaded or summarized), on missing evidence, and on a joined machine not shown revoked.
@@ -389,6 +441,40 @@ jobs:
           path: ${{ runner.temp }}/machine-join-e2e/evidence.json
           if-no-files-found: error
           retention-days: 3
+
+      # web_device: the recording, the final screenshot and the demo's result, only after the evidence check
+      # passed and when no file of it holds a token, credential or JWT shape.
+      - name: Check the web device demo's files
+        id: webdemo
+        if: always() && inputs.web_device && steps.evidence.outputs.clean == 'true'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/web-device-demo"
+          if [ ! -s "$dir/result.json" ]; then
+            echo "::warning::the web device demo wrote no result"
+            exit 0
+          fi
+          if grep -rEqai 'cmj_|cmm_|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.|bearer|authorization' -- "$dir"; then
+            echo "::error::a web device demo file holds a secret-shaped value; nothing is uploaded"
+            exit 1
+          fi
+          {
+            echo '## Web device demo'
+            echo
+            echo '```json'
+            jq '.' "$dir/result.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the web device demo
+        if: always() && steps.webdemo.outputs.clean == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-device-demo
+          path: ${{ runner.temp }}/web-device-demo
+          if-no-files-found: error
+          retention-days: 7
 
       # share: the viewer's processes, the viewer user and its home (inside the base, so before the base goes).
       - name: Remove the viewer user

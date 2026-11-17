@@ -58,6 +58,12 @@ export const VIEWER_DISPLAY = ":42"
 export const NO_REQUESTS = "No viewer is waiting."
 /** The bench's whole run: a cold and two warm installs of each project. */
 export const BENCH_LIMIT_MS = 40 * 60_000
+/** The web device demo's whole run (web-device-demo.ts DEMO_LIMIT_MS, plus its start and cleanup). */
+export const WEB_DEVICE_LIMIT_MS = 9 * 60_000
+/** The demo's chat on the joined machine (its harness is the stand-in agent the workflow configures). */
+export const WEB_DEVICE_CHAT = "web-device-demo"
+/** The demo chat's agent with the team's Claude login: a cheap model for a one-line answer. */
+export const WEB_DEVICE_MODEL = "claude/haiku"
 
 /** The last line of `stdout` that is a JSON object, keeping only numbers, booleans and plain strings. */
 export function benchResult(stdout: string): Record<string, unknown> | null {
@@ -112,6 +118,9 @@ export interface Options {
   /** Share mode: the run's root-owned cmux-rd (the joined home's ~/.local/bin/cmux-rd links to it), the
    * viewer's disposable user and home, and the device hub. */
   share?: { cmuxRd: string; viewerUser: string; viewerHome: string; hub: string }
+  /** Web device demo: the agent pane's built bundle and the demo's output directory (web-device-demo.ts), and the
+   * runner's environment the browser needs (HOME, for Playwright's FFmpeg; the patched headless Chrome's path). */
+  webDevice?: { pane: string; out: string; env: Record<string, string> }
 }
 
 export interface ChildResult {
@@ -147,7 +156,7 @@ export interface Deps {
   /** Runs argv with exactly `env`, writing `stdin` (then closing it) when given. */
   run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal; binary?: boolean }): Promise<ChildResult>
   /** Starts a long-running argv with exactly `env`; stdin is closed. */
-  start(argv: string[], options: { env: Record<string, string> }): Daemon
+  start(argv: string[], options: { env: Record<string, string>; stdin?: string }): Daemon
   /** Starts argv with exactly `env`, writes `stdin` and closes it; its output is readable while it runs. */
   spawn(argv: string[], options: { env: Record<string, string>; stdin?: string }): Live
   /** One line of this step's output (the job log). */
@@ -187,6 +196,8 @@ export interface Evidence {
   bench?: { code: number | null; result: Record<string, unknown> | null }
   /** With --share-cmux-rd: the zero-touch share. */
   share?: ShareEvidence
+  /** The web device demo's result line (web-device-demo.ts), and its exit. */
+  webDevice?: { code: number | null; result: Record<string, unknown> | null }
   result: "pass" | "fail"
   reason: string
 }
@@ -303,6 +314,9 @@ export function refusal(opts: Options): string | undefined {
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
   if (!opts.evidence.startsWith("/")) return "evidence must be an absolute path"
   if (opts.bench && (!opts.bench.startsWith("/") || opts.bench.includes(".."))) return "bench must be an absolute path"
+  if (opts.webDevice) {
+    for (const p of [opts.webDevice.pane, opts.webDevice.out]) if (!p.startsWith("/") || p.includes("..")) return "web device pane and out must be absolute paths"
+  }
   if (opts.share) {
     const sh = opts.share
     if (sh.hub !== DEV_DEVICE_HUB) return `device hub must be ${DEV_DEVICE_HUB}`
@@ -453,6 +467,9 @@ export async function runE2E(
   }
 
   const childEnv = { PATH: CHILD_PATH }
+  // The team's Claude login, for the web device demo's chat only (masked now; the daemon gets it on stdin).
+  const claudeLogin = opts.webDevice ? (env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim() : ""
+  if (claudeLogin) hold(claudeLogin)
   // Everything runs as the disposable user, reads included: a path that user controls (a symlink, say)
   // reaches nothing beyond what that user could read anyway. Nothing here runs as root.
   const asUserTool = (args: string[]) => [
@@ -1057,7 +1074,11 @@ export async function runE2E(
     // 4. Daemon in the foreground until a heartbeat under the limit.
     live()
     const daemonStartedAt = deps.now()
-    daemon = deps.start(asUser(["daemon", "run"]), { env: childEnv })
+    // With the web device demo and the team's Claude login: the login reaches the daemon (whose Claude agents take
+    // it from their spawn environment, login_env.rs) on stdin only, never on an argv or in the home.
+    daemon = claudeLogin
+      ? deps.start(asUserTool(["/bin/sh", "-c", 'IFS= read -r CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN && exec "$0" daemon run', opts.acpmux]), { env: childEnv, stdin: `${claudeLogin}\n` })
+      : deps.start(asUser(["daemon", "run"]), { env: childEnv })
     const deadline = deps.now() + HEARTBEAT_LIMIT_S * 1000
     let s: any = pre
     let strangeBeat = false
@@ -1131,6 +1152,34 @@ export async function runE2E(
       for (const line of r.stdout.split("\n").filter((l) => l.trim()).slice(-60)) say(`  bench: ${redact(plainLine(line), secrets).slice(0, 400)}`)
       evidence.bench = { code: r.code, result: benchResult(r.stdout) }
       expect(r.code === 0 && evidence.bench.result !== null, `bench: exit ${r.code}`)
+    }
+
+    // 6c. The web device demo, while the machine is joined: a chat on it (the stand-in agent), then a browser tab
+    // that enrolls its own web device and chats with it through the hub (web-device-demo.ts, as the runner, with
+    // the access token on stdin only). Its failure is the run's; the revoke checks still run after it.
+    if (opts.webDevice) {
+      live()
+      // Claude Code on Haiku with the team's login; with none, the stand-in agent (an echo, not a model), and the
+      // demo's result says which.
+      const made = await acpmux(["--json", "new", "-d", "-n", WEB_DEVICE_CHAT, "-m", claudeLogin ? WEB_DEVICE_MODEL : "fake"])
+      const session = safeId(lastJson(made.stdout)?.sessionId)
+      if (made.code !== 0 || !session) {
+        problems.push(`web device: the chat on the joined machine: exit ${made.code}`)
+      } else {
+        say(`web device: chat ${session} on ${opts.name}`)
+        const wd = opts.webDevice
+        const script = new URL("./web-device-demo.ts", import.meta.url).pathname
+        const r = await deps.run(
+          [process.execPath, script, "--origin", opts.origin, "--acpmux", opts.acpmux, "--pane", wd.pane, "--out", wd.out,
+            "--target", `${opts.name}/${session}`, "--name", `${opts.name}-web`.slice(0, 63), "--label", `ci-join-${opts.runId}-2`, "--agent", claudeLogin ? "claude" : "stub"],
+          { env: { ...wd.env, PATH: CHILD_PATH }, stdin: `${await accessToken()}\n`, timeoutMs: WEB_DEVICE_LIMIT_MS, signal: inFlight.signal }
+        )
+        childText.push(r.stdout, r.stderr)
+        for (const line of `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim() && !l.startsWith("::add-mask::")).slice(-40)) say(`  web device: ${redact(plainLine(line), secrets).slice(0, 400)}`)
+        evidence.webDevice = { code: r.code, result: benchResult(r.stdout) }
+        const why = evidence.webDevice.result?.reason
+        expect(r.code === 0 && evidence.webDevice.result?.result === "pass", `web device: exit ${r.code}${typeof why === "string" ? ` (${why})` : ""}`)
+      }
     }
 
     // 7. Revoke, then status and list say revoked.
@@ -1249,6 +1298,7 @@ export function parseArgs(argv: string[]): Options {
     runId: value("--run"),
     sha: value("--sha"),
     bench: value("--bench"),
+    ...(argv.includes("--web-device-pane") ? { webDevice: { pane: value("--web-device-pane"), out: value("--web-device-out"), env: {} } } : {}),
     ...(argv.includes("--share-cmux-rd")
       ? { share: { cmuxRd: value("--share-cmux-rd"), viewerUser: value("--viewer-user"), viewerHome: value("--viewer-home"), hub: value("--device-hub") } }
       : {})
@@ -1315,8 +1365,8 @@ export function realDeps(): Deps {
         signal?.removeEventListener("abort", stop)
       }
     },
-    start: (argv, { env }) => {
-      const { child, done, kill } = collect(argv, env, undefined)
+    start: (argv, { env, stdin }) => {
+      const { child, done, kill } = collect(argv, env, stdin)
       return {
         stop: async () => {
           // sudo relays SIGTERM to acpmux; the job's cleanup step kills the user's leftovers.
@@ -1350,10 +1400,11 @@ export function realDeps(): Deps {
 }
 
 if (import.meta.main) {
-  const env = { CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD }
+  const env = { CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }
   // Gone from this process's environment before anything starts; children get a fixed env anyway.
   delete process.env.CMUX_UITEST_STACK_EMAIL
   delete process.env.CMUX_UITEST_STACK_PASSWORD
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN
   const opts = parseArgs(process.argv.slice(2))
   const why = refusal(opts)
   if (why) {
@@ -1373,7 +1424,14 @@ if (import.meta.main) {
     setTimeout(() => process.exit(130), 9_000).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
-  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.share ? SHARE_LIMIT_MS : 0)).unref()
+  // The browser's environment, from the runner's: never a secret (the stack pair is already gone from process.env).
+  if (opts.webDevice) {
+    for (const key of ["HOME", "CMUX_CHROME_HEADLESS_SHELL", "PLAYWRIGHT_BROWSERS_PATH"]) {
+      const v = process.env[key]
+      if (v) opts.webDevice.env[key] = v
+    }
+  }
+  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.share ? SHARE_LIMIT_MS : 0) + (opts.webDevice ? WEB_DEVICE_LIMIT_MS : 0)).unref()
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {

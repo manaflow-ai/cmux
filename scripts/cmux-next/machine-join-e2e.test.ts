@@ -509,7 +509,7 @@ function world(k: Knobs = {}) {
       }
     },
     start: (argv, o) => {
-      runs.push({ argv, env: o.env })
+      runs.push({ argv, env: o.env, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
       if (argv.includes("Xvfb")) {
         xvfb = true
         return {
@@ -689,6 +689,21 @@ describe("the full run", () => {
     })
     expect(e.status.heartbeatAgeSeconds).toBeLessThan(90)
     assertNoSecretEscaped(w)
+  })
+
+  test("web device: the Claude login reaches the daemon on stdin only, never an argv, and the chat asks for Haiku", async () => {
+    const LOGIN = "sk-ant-oat01-fake-login-value-for-tests"
+    const w = world()
+    await runE2E({ ...opts, webDevice: { pane: "/tmp/pane", out: "/tmp/out", env: {} } }, { ...env, CLAUDE_CODE_OAUTH_TOKEN: LOGIN }, w.deps)
+    const daemon = w.runs.find((r) => r.argv.includes("/bin/sh") && r.argv.some((a) => a.includes("daemon run")))
+    expect(daemon?.stdin).toBe(`${LOGIN}\n`)
+    expect(w.runs.some((r) => r.argv.some((a) => a.includes(LOGIN)))).toBe(false)
+    expect(w.runs.some((r) => r.argv.includes("new") && r.argv.includes("claude/haiku"))).toBe(true)
+    // Without a login: no shell wrapper, and the stand-in agent.
+    const plain = world()
+    await runE2E({ ...opts, webDevice: { pane: "/tmp/pane", out: "/tmp/out", env: {} } }, env, plain.deps)
+    expect(plain.runs.some((r) => r.argv.includes("/bin/sh"))).toBe(false)
+    expect(plain.runs.some((r) => r.argv.includes("new") && r.argv.includes("fake"))).toBe(true)
   })
 
   test("the join token reaches acpmux only on stdin, as the disposable user", async () => {
@@ -1581,6 +1596,16 @@ describe("the zero-touch share", () => {
     const base = ["--origin", DEV_PLATFORM, "--acpmux", opts.acpmux, "--user", opts.user, "--home", HOME, "--name", "ci-join-1", "--evidence", opts.evidence, "--run", "1", "--sha", opts.sha]
     expect(parseArgs(base).share).toBeUndefined()
     expect(parseArgs([...base, "--share-cmux-rd", CMUX_RD, "--viewer-user", VIEWER_USER, "--viewer-home", VIEWER_HOME, "--device-hub", DEV_DEVICE_HUB]).share).toEqual(shareOpts.share)
+  })
+
+  test("web device flags parse; their paths must be absolute; without them there is no demo", () => {
+    const base = ["--origin", DEV_PLATFORM, "--acpmux", opts.acpmux, "--user", opts.user, "--home", HOME, "--name", "ci-join-1", "--evidence", opts.evidence, "--run", "1", "--sha", opts.sha]
+    expect(parseArgs(base).webDevice).toBeUndefined()
+    const wd = parseArgs([...base, "--web-device-pane", "/tmp/pane", "--web-device-out", "/tmp/out"])
+    expect(wd.webDevice).toEqual({ pane: "/tmp/pane", out: "/tmp/out", env: {} })
+    expect(refusal(wd)).toBeUndefined()
+    expect(refusal({ ...wd, webDevice: { pane: "pane", out: "/tmp/out", env: {} } })).toContain("web device")
+    expect(refusal({ ...wd, webDevice: { pane: "/tmp/pane", out: "/tmp/../out", env: {} } })).toContain("web device")
   })
 
   test("the list, the device and the report parsers", () => {

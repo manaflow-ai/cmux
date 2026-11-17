@@ -184,10 +184,9 @@ pub(crate) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !(READ_METHODS.contains(&m) || m == method::MUX_DETACH) || !may_read(conn) {
+    if !(READ_METHODS.contains(&m) || m == method::MUX_DETACH) || !may_reach_hub(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?;
     let key = session_key(params).ok()?;
     // `HOST/KEY`, or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`),
     // which is how the app opens a listed chat.
@@ -199,11 +198,16 @@ pub(crate) async fn forward(
     if host.is_empty() || rest.is_empty() || !hub.mesh_may_route(key) {
         return None;
     }
+    let (mesh, device) = match read_hub(hub, conn)? {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
     // A hub attach holds no stream, so there is nothing to detach.
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    let mut reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let mut reply = settle(conn, device.as_deref(), reply);
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
         && let Ok(reply) = reply.as_mut()
@@ -225,20 +229,81 @@ pub(crate) async fn prompt(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if m != method::SESSION_PROMPT || !may_read(conn) {
+    if m != method::SESSION_PROMPT || !may_reach_hub(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?;
     let key = params.get("sessionId").and_then(Value::as_str)?;
+    let target = hub_prompt_target(hub, key)?;
+    let (mesh, device) = match read_hub(hub, conn)? {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
+    let sent = super::super::mesh_send::send(hub, conn, &mesh, params, &target).await;
+    Some(settle(conn, device.as_deref(), sent))
+}
+
+/// The `HOST/ID` a prompt for `key` goes to through the hub: a chat the hub lists for one of the
+/// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves.
+/// None for anything else, which the usual prompt path takes.
+pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
     let target = match key.split_once('/') {
         Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
         Some(_) => return None,
         None => format!("{}/{key}", hub.mesh_book_host(key)?),
     };
-    if !hub.mesh_may_route(&target) {
+    hub.mesh_may_route(&target).then_some(target)
+}
+
+/// The hub client a read or prompt on `conn` goes through, and the device client when it is
+/// the browser's own (`web_device.rs`). A connection that presented a device reads with that
+/// device's credential only, never with this daemon's. One with no device reads with this
+/// daemon's identity only when [`may_read`] lets it; a web connection never may. None: nothing
+/// here reaches the hub for it. `device.revoked` once the hub revoked its device: no later call
+/// reaches the hub, and nothing falls back to this daemon's identity.
+#[allow(clippy::type_complexity)]
+fn read_hub(
+    hub: &Hub,
+    conn: &Conn,
+) -> Option<Result<(Arc<dyn crate::mesh::MeshHub>, Option<Arc<crate::mesh_http::HttpHub>>), RpcError>>
+{
+    use super::super::web_device::Slot;
+    match &*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Device(device) => {
+            let mesh: Arc<dyn crate::mesh::MeshHub> = device.clone();
+            return Some(Ok((mesh, Some(Arc::clone(device)))));
+        }
+        Slot::Revoked(reason) => return Some(Err(super::super::web_device::revoked(reason))),
+        Slot::Empty => {}
+    }
+    if !may_read(conn) {
         return None;
     }
-    Some(super::super::mesh_send::send(hub, conn, &mesh, params, &target).await)
+    Some(Ok((hub.mesh.get()?, None)))
+}
+
+/// Whether anything here may reach the hub for `conn`: [`may_read`], or a device it presented
+/// (or had, until the hub revoked it). The cheap test before a request's routing.
+fn may_reach_hub(conn: &Conn) -> bool {
+    use super::super::web_device::Slot;
+    may_read(conn)
+        || !matches!(*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()), Slot::Empty)
+}
+
+/// `reply` from the hub through `device`: when the hub refused the device's credential (401
+/// `machine.revoked`: revoked or unknown; 401 `mesh.unauthorized`: no credential of its own),
+/// the connection drops the device for good (its credential is wiped with the client) and the
+/// answer is `device.revoked` or `device.unauthorized`.
+fn settle(
+    conn: &Conn,
+    device: Option<&crate::mesh_http::HttpHub>,
+    reply: Result<Value, RpcError>,
+) -> Result<Value, RpcError> {
+    let Some(reason) = device.and_then(crate::mesh_http::HttpHub::refused) else {
+        return reply;
+    };
+    *conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) =
+        super::super::web_device::Slot::Revoked(reason);
+    Err(super::super::web_device::revoked(reason))
 }
 
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or

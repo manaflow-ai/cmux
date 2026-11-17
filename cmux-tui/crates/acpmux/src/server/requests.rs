@@ -240,6 +240,7 @@ pub(super) async fn handle_notification(
                     m,
                     &mut params,
                     false,
+                    false,
                 )
                 .await
             {
@@ -651,6 +652,7 @@ async fn dispatch_brief(
             method::SESSION_NEW,
             &mut new_params,
             false,
+            false,
         )
         .await?;
     }
@@ -995,6 +997,7 @@ pub(super) async fn handle_request(
             m,
             &mut params,
             policy_proved,
+            conn.presented_web_device(),
         )
         .await
         .map_err(|e| challenge(e, &params))?;

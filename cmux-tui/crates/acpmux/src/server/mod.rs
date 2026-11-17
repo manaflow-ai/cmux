@@ -254,6 +254,12 @@ pub struct Conn {
     /// This link carries the v2 list stream: its `initialize` reply names `listStream`
     /// (`link_v2.rs`).
     pub(crate) list_stream: bool,
+    /// A browser's own enrolled device on the mesh hub (`web_device.rs`): set once, only by
+    /// `_acpmux/device_hello` on a web connection the listener token proved, and dropped for
+    /// good when the hub revokes it. Its hub reads and prompts go with this client's credential,
+    /// never with this daemon's identity (`mesh_read.rs` `read_hub`). The credential lives only
+    /// here, in memory, and is wiped when the client is dropped.
+    pub(super) device_mesh: StdMutex<web_device::Slot>,
 }
 
 /// The only authority a trigger connection carries after platform admission.
@@ -388,6 +394,32 @@ impl Conn {
         {
             cancel.send_replace(true);
         }
+    }
+
+    /// The proof this connection holds now: its `auth`, or [`ConnAuth::WebDevice`] once a
+    /// browser presented its own device (`web_device.rs`). Every rule still reads `auth`.
+    pub(super) fn proof(&self) -> ConnAuth {
+        if self.auth == ConnAuth::ListenerToken
+            && matches!(
+                *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
+                web_device::Slot::Device(_)
+            )
+        {
+            return ConnAuth::WebDevice;
+        }
+        self.auth
+    }
+
+    /// A browser on the web listener that presented its own device on this connection
+    /// (`web_device.rs`), whether the hub still takes it or revoked it since: its prompts to a
+    /// hub-listed chat go to `mesh_read.rs` `prompt`, which answers `device.revoked` for a
+    /// revoked one.
+    pub(super) fn presented_web_device(&self) -> bool {
+        self.auth == ConnAuth::ListenerToken
+            && !matches!(
+                *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
+                web_device::Slot::Empty
+            )
     }
 
     /// Whether this connection is the person (`hub/person.rs`).
@@ -1687,6 +1719,7 @@ async fn serve_connection_from(
         wire,
         dual_principal,
         list_stream: link_v2.is_some(),
+        device_mesh: StdMutex::new(web_device::Slot::Empty),
     });
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
@@ -2406,6 +2439,7 @@ mod routes;
 mod secrets;
 mod share_host;
 mod vault;
+mod web_device;
 pub(crate) use vault::reply as vault_reply;
 mod races;
 mod session_auth;

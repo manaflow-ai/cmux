@@ -77,9 +77,66 @@ pub struct HttpHub {
     credential: Option<String>,
     http: reqwest::Client,
     token: tokio::sync::Mutex<Option<Token>>,
+    /// A browser's own enrolled device credential (`server/web_device.rs`): the one token this
+    /// client ever sends. It is never refreshed, and no command runs.
+    device: bool,
+    /// The hub answered 401 to the device credential, and no later call is sent: [`REVOKED`]
+    /// (`machine.revoked`: revoked, or a `cmm_` credential it does not know) or [`UNAUTHORIZED`]
+    /// (`mesh.unauthorized`: no credential of the hub's at all). 0 while it takes it.
+    refused: std::sync::atomic::AtomicU8,
+}
+
+const REVOKED: u8 = 1;
+const UNAUTHORIZED: u8 = 2;
+
+/// The hub's calls a browser's device never makes: it registers nothing (no heartbeat, so no
+/// session rows and no carrier slot) and takes no inbox (cmux-platform refuses each for a web
+/// caller with 403 `mesh.forbidden`). Refused here before any request.
+fn not_for_a_device() -> HubError {
+    let mut error = HubError::refused("a web device only reads and prompts through the hub");
+    error.code = Some("mesh.forbidden".into());
+    error
 }
 
 impl HttpHub {
+    /// A client that sends only `credential`, a browser's own enrolled device credential, to the
+    /// hub at `origin` (a [`MeshRelayConfig::origin`]). It never runs a token command and never
+    /// reads this machine's join credential. After the hub refuses the credential (401) it sends
+    /// nothing more ([`HttpHub::refused`]).
+    pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            origin,
+            command: Vec::new(),
+            credential: None,
+            http,
+            token: tokio::sync::Mutex::new(Some((Arc::new(credential), 0))),
+            device: true,
+            refused: Default::default(),
+        })
+    }
+
+    /// Why the hub refused this client's device credential, as the browser is told:
+    /// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`). None
+    /// while the hub takes it.
+    pub fn refused(&self) -> Option<&'static str> {
+        match self.refused.load(std::sync::atomic::Ordering::SeqCst) {
+            REVOKED => Some("device.revoked"),
+            UNAUTHORIZED => Some("device.unauthorized"),
+            _ => None,
+        }
+    }
+
+    /// A device client refuses every call but a read or a prompt's (`not_for_a_device`).
+    fn registers(&self) -> Result<(), HubError> {
+        if self.device { Err(not_for_a_device()) } else { Ok(()) }
+    }
+
     async fn team_receipt(&self, id: &str, action: &str) -> Result<Receipt, HubError> {
         if !crate::mesh::is_message_id(id) {
             return Err(HubError::refused("the message id is not valid"));
@@ -109,6 +166,8 @@ impl HttpHub {
             credential: config.credential.clone(),
             http,
             token: Default::default(),
+            device: false,
+            refused: Default::default(),
         })
     }
 
@@ -120,6 +179,7 @@ impl HttpHub {
         &self,
         peer: Option<&str>,
     ) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+        self.registers().map_err(|e| e.to_string())?;
         let body = match peer {
             Some(peer) => json!({"peer": peer}),
             None => json!({}),
@@ -134,6 +194,13 @@ impl HttpHub {
     /// A token: the one held while it is good, else a new one from the command.
     pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
+        if self.device {
+            // The device credential is the only token: never refreshed, never another's.
+            return match held.as_ref() {
+                Some((token, _)) if self.refused().is_none() => Ok(Arc::clone(token)),
+                _ => Err(device_refused()),
+            };
+        }
         if self.credential.as_deref() == Some("join") {
             let value = crate::cli::cloud_join::read_join_credential(&self.origin)
                 .map_err(|_| HubError::refused("machine credential is unavailable"))?;
@@ -249,6 +316,16 @@ impl HttpHub {
                 }
                 bytes.extend_from_slice(&chunk);
             }
+            if status == 401 && self.device {
+                // No other token to try: the device is cut off, and nothing more is sent.
+                let refusal = answer(status, &bytes);
+                let why = match refusal.as_ref().err().and_then(|e| e.code.as_deref()) {
+                    Some("mesh.unauthorized") => UNAUTHORIZED,
+                    _ => REVOKED,
+                };
+                self.refused.store(why, std::sync::atomic::Ordering::SeqCst);
+                return refusal;
+            }
             if status == 401 && !retry {
                 continue;
             }
@@ -256,6 +333,14 @@ impl HttpHub {
         }
         Err(HubError::unavailable("the hub refused two tokens"))
     }
+}
+
+/// The refusal of a device credential the hub already refused: sent nowhere.
+fn device_refused() -> HubError {
+    let mut error = HubError::refused("the hub answered 401 machine.revoked");
+    error.status = Some(401);
+    error.code = Some("machine.revoked".into());
+    error
 }
 
 /// Whether the joined credential on disk (`now`) replaced the one a refused request sent.
@@ -323,6 +408,7 @@ const CALL_WAIT: Duration = Duration::from_secs(30);
 impl MeshHub for HttpHub {
     fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
         Box::pin(async move {
+            self.registers()?;
             let path = format!(
                 "/v1/mesh/inbox?waitSeconds={}&max={}",
                 wait.as_secs().min(25),
@@ -362,6 +448,7 @@ impl MeshHub for HttpHub {
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         Box::pin(async move {
+            self.registers()?;
             if !crate::mesh::is_message_id(id) {
                 return Err(HubError::refused("the message id is not valid"));
             }
@@ -382,6 +469,7 @@ impl MeshHub for HttpHub {
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
         Box::pin(async move {
+            self.registers()?;
             let body = serde_json::to_value(beat).unwrap_or_default();
             decode(
                 self.call(reqwest::Method::POST, "/v1/mesh/heartbeat", Some(&body), CALL_WAIT)
