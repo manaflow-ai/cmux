@@ -11,6 +11,10 @@ real key waits in the event queue) into:
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  chat       the agent chat's composer, the webview a prompt is typed into: send to the frame whose layer
+             contents show the character (`contents_ms`), the same mark the terminal uses, so the two are
+             comparable in one app on one host (Leo, 2026-11-17: "man the difference typing on terminal vs
+             gui is def noticeable rn ... slow and sad comparatively on the latter")
 
 each in two phases:
 
@@ -26,6 +30,7 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+  typing-frame-bench.py --app APP --tag TAG --out DIR --surfaces terminal,chat   # the terminal/GUI pair
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -41,7 +46,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--surfaces", default="dock,terminal,home,omnibar,chat")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
@@ -211,6 +216,21 @@ def make_load(surface_ws):
     if surface_ws:
         cli("workspace", surface_ws, "focus")
     note(f"load: {opts.busy} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
+
+
+def chat_stream(pane):
+    """A reply streaming into one named pane (the typed chat's own), as `chat_streams` does for the load panes."""
+    if not pane:
+        return None
+
+    replies = LOAD.setdefault("stream_replies", [])
+
+    def step(_):
+        reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30},
+                    timeout=10)
+        if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
+            replies.append(json.dumps(reply)[:200])
+    return Streamer(step, 3.0)
 
 
 def chat_streams():
@@ -514,7 +534,54 @@ def surface_omnibar(phase, pid):
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
+def surface_chat(phase, pid):
+    # The agent chat's composer: the webview surface a prompt is typed into, measured on `contents_ms` like the
+    # terminal so the pair answers "terminal vs gui" directly. Its own reply streams in the load phase, which is
+    # the case the complaint is about: typing while a reply arrives.
+    if not LOAD.get("chat_ws"):
+        cli("workspace", "create", "--name", "chat typing", "--focus")
+        ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("chat typing")), 20) or (None, [])
+        LOAD["chat_ws"] = ws
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        time.sleep(1)  # the workspace shows
+        reply = action("palette.newAgentChat", settle=1.0)
+        # The action answers while the chat still opens: wait for its page, as make_load does.
+        ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
+            rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
+        engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
+        LOAD["chat_pane"] = engine.get("pane")
+        note(f"chat: pane {engine.get('pane')} ({engine.get('engine')}) ready={bool(ready)} {json.dumps(reply)[:120]}")
+        time.sleep(2)  # the transcript lays out
+    else:
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["chat_ws"]}, "focus": True,
+                           "origin": "script"})
+        time.sleep(0.5)  # the workspace shows
+    if phase == "load":
+        make_load(LOAD["chat_ws"])
+    pane = LOAD.get("chat_pane")
+    focused = rpc("debug.agent_pane", {"action": "focus_composer", **({"pane": pane} if pane else {})}, timeout=20)
+    if not (isinstance(focused, dict) and focused.get("focused")):
+        state = rpc("debug.agent_pane", {"action": "composer_focused", **({"pane": pane} if pane else {})})
+        note(f"chat: no composer to focus ({json.dumps(focused)[:160]}; composer_focused {json.dumps(state)[:120]})")
+        return None
+    streams = []
+    if phase == "load":
+        own = chat_stream(pane)
+        if own:
+            streams.append(own)
+        other = chat_streams()
+        if other:
+            streams.append(other)
+    LOAD["focus"] = focus_report()
+    entry = measure("chat", phase, {}, "contents_ms", pid, streams)
+    # Leave the composer empty for the next round: select all, then delete.
+    rpc("debug.key", {"key": "a", "modifiers": ["command"]})
+    rpc("debug.key", {"key": "delete"})
+    return entry
+
+
+SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar,
+            "chat": surface_chat}
 
 
 def run_session(session):
