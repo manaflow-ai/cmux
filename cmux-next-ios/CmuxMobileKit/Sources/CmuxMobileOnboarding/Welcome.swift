@@ -128,7 +128,7 @@ public struct WelcomeView: View {
                     WelcomeArt(t: t, idle: reduceMotion ? nil : idle)
                         .opacity(fade)
                 }
-                Text("Your Macs, in your pocket.")
+                Text("Your Macs, in your pocket. live 5")
                     .font(theme.type.welcomeTitle)
                     .foregroundStyle(theme.colors.label)
                     .multilineTextAlignment(.center)
