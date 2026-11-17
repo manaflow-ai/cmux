@@ -338,6 +338,36 @@ def blacksmith_route(workflow: str, runs_on: str, events: tuple[str, ...] = EVEN
     return None
 
 
+# The pool pickers whose outputs a macOS runs-on reads; each reads CI_BLACKSMITH_MACOS from its environment.
+PICKERS = ("simple_pool_picker.py", "ios_runner_pool.py", "e2e_runner_pool.py", "pr_runner_pool.py")
+PICKER_SWITCH = "${{ vars.CI_BLACKSMITH_MACOS }}"
+NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.")
+# (workflow file name, macOS job, picker job) whose picker step may run without the switch, each with why.
+PICKER_WITHOUT_SWITCH: dict[tuple[str, str, str], str] = {}
+
+
+def picker_steps_without_switch() -> list[tuple[str, str, str]]:
+    """(workflow, macOS job, picker job) where a macOS job outside EXEMPT reads the outputs of a job whose
+    picker step does not pass the switch."""
+    found = []
+    for name, workflow in _workflows().items():
+        jobs = workflow.get("jobs") or {}
+        for key, job in jobs.items():
+            if not isinstance(job, dict) or (name, key) in EXEMPT:
+                continue
+            runs_on = runs_on_text(job)
+            if not re.search(r"macos|MACOS", runs_on):
+                continue
+            for producer in sorted(set(NEEDS_OUTPUT.findall(runs_on))):
+                for step in (jobs.get(producer) or {}).get("steps") or ():
+                    run = str(step.get("run") or "")
+                    if any(f"scripts/ci/{picker}" in run for picker in PICKERS) \
+                            and (step.get("env") or {}).get("CI_BLACKSMITH_MACOS") != PICKER_SWITCH:
+                        found.append((name, key, producer))
+                        break
+    return found
+
+
 def routes() -> dict[tuple[str, str], str]:
     return {job: why for job, (runs_on, events) in macos_jobs().items()
             if (why := blacksmith_route(job[0], runs_on, events))}
@@ -362,6 +392,21 @@ class BlacksmithMacosSwitch(unittest.TestCase):
         self.assertFalse(stale, "\n".join(
             ["these NEEDS_BLACKSMITH entries no longer reach Blacksmith with the switch off, or no longer exist; "
              "remove them:"] + [f"  {path}:{job}" for path, job in stale]))
+
+    def test_every_picker_a_macos_job_reads_gets_the_switch(self) -> None:
+        """Picker outputs pass the evaluation above, so each picker step they come from must see the switch.
+
+        2026-11-17, #44963: test-ios.yml's ios-simulator and mobile-core-package read ios_runner_pool.py's
+        outputs, which kept blacksmith-6vcpu-macos-26 with the switch off; this test and the one above both
+        missed it until this check."""
+        missing = sorted(set(picker_steps_without_switch()) - set(PICKER_WITHOUT_SWITCH))
+        self.assertFalse(missing, "\n".join(
+            ["these macOS jobs read a pool picker's outputs, and the picker step does not pass "
+             "`CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}` (or the picker ignores it). Pass it and make "
+             "the picker honour it (simple_pool_picker.blacksmith_allowed()), or list the step in "
+             "PICKER_WITHOUT_SWITCH with why:"] + [f"  {path}:{job} <- {producer}" for path, job, producer in missing]))
+        stale = sorted(set(PICKER_WITHOUT_SWITCH) - set(picker_steps_without_switch()))
+        self.assertFalse(stale, f"PICKER_WITHOUT_SWITCH entries that now pass the switch or are gone: {stale}")
 
     def test_the_pr_picker_reads_the_switch(self) -> None:
         """The app-host shards, cli-product and the rest take the picker's outputs, so the picker must see it."""
