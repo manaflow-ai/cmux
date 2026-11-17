@@ -40,7 +40,9 @@ mod toolbar;
 mod web_pane;
 pub mod whats_new;
 
-pub use capabilities::{Capabilities, OpCapability, OpClass, OpScope, scope_info};
+pub use capabilities::{
+    Capabilities, OpCapability, OpClass, OpScope, scope_info, scope_reaches_out,
+};
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
 pub use cli::{
     CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
@@ -56,6 +58,7 @@ pub use web_pane::{
     resolve_request, web_pages,
 };
 
+use jsonschema::error::ValidationErrorKind;
 use serde_json::Value;
 use std::sync::OnceLock;
 
@@ -86,6 +89,31 @@ pub(crate) fn schema_validator() -> Result<&'static jsonschema::Validator, &'sta
         .map_err(String::as_str)
 }
 
+/// The schema's cap on a text field (`$defs/text`: a string, or one per
+/// language): `name`, `description`, titles.
+pub const TEXT_MAX_CHARS: usize = 300;
+
+/// A text field past [`TEXT_MAX_CHARS`] as its own issue, naming the field
+/// and its length. The schema's answer for it is a `oneOf` miss that repeats
+/// the whole text and never says why; a package refused for it is missing
+/// from the App Store, so the reason must be plain.
+fn text_too_long(path: &str, instance: &Value) -> Option<Issue> {
+    let chars = |s: &str| s.chars().count();
+    let (path, length) = match instance {
+        Value::String(s) if chars(s) > TEXT_MAX_CHARS => (path.to_string(), chars(s)),
+        Value::Object(texts) => texts.iter().find_map(|(language, text)| {
+            let length = text.as_str().map(chars).filter(|n| *n > TEXT_MAX_CHARS)?;
+            Some((format!("{path}/{language}"), length))
+        })?,
+        _ => return None,
+    };
+    Some(Issue::error(
+        path,
+        "text.too_long",
+        format!("is {length} characters; the limit is {TEXT_MAX_CHARS}"),
+    ))
+}
+
 /// Validates a parsed manifest: schema first; semantic rules only when the
 /// structure is valid (they assume it).
 pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
@@ -95,7 +123,24 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
     };
     let mut issues: Vec<Issue> = validator
         .iter_errors(manifest)
-        .map(|e| Issue::error(e.instance_path.to_string(), "schema", e.to_string()))
+        .map(|e| {
+            let path = e.instance_path.to_string();
+            // Only a `$defs/text` miss: a oneOf whose branches failed on the
+            // text cap itself (an icon path's oneOf has its own, smaller cap).
+            let text_miss = match &e.kind {
+                ValidationErrorKind::OneOfNotValid { context } => {
+                    context.iter().flatten().any(|branch| {
+                        matches!(branch.kind, ValidationErrorKind::MaxLength { limit }
+                            if limit == TEXT_MAX_CHARS as u64)
+                    })
+                }
+                _ => false,
+            };
+            text_miss
+                .then(|| text_too_long(&path, &e.instance))
+                .flatten()
+                .unwrap_or_else(|| Issue::error(path, "schema", e.to_string()))
+        })
         .collect();
     if issues.is_empty() {
         issues.extend(rules::check(manifest));
