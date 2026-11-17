@@ -943,6 +943,51 @@ try {
           return out;
         });
         console.log(`heap-retainers ${name}: row lists ${rowLists.join(" ")}`);
+        // Each Map or Set of at least 1000 entries a React component holds in a hook (a ref's `current`, a state, or a
+        // field of an object one holds), by component and hook index: what a chat's view keeps that grows with it.
+        const hookCollections = await shownPage.page.evaluate(() => {
+          const out: string[] = [];
+          const seen = new Set<unknown>();
+          type Hook = { memoizedState?: unknown; next?: Hook | null };
+          type Fiber = { child?: Fiber; sibling?: Fiber; memoizedState?: Hook | null; type?: unknown };
+          const nameOf = (type: unknown): string =>
+            typeof type === "function"
+              ? (type as { displayName?: string; name?: string }).displayName || (type as { name: string }).name
+              : typeof type === "object" && type !== null
+                ? nameOf((type as { type?: unknown; render?: unknown }).type ?? (type as { render?: unknown }).render)
+                : String(type);
+          const look = (where: string, value: unknown, depth: number) => {
+            if (value === null || typeof value !== "object" || seen.has(value) || depth > 2) return;
+            seen.add(value);
+            const size = value instanceof Map || value instanceof Set ? value.size : -1;
+            if (size >= 1000) out.push(`${where}=${value.constructor.name}(${size})`);
+            if (size >= 0 || Array.isArray(value) || value instanceof Node) return;
+            for (const [key, field] of Object.entries(value)) look(`${where}.${key}`, field, depth + 1);
+          };
+          const roots = [document, ...document.querySelectorAll("body, body > *")];
+          for (const node of roots) {
+            const key = Object.keys(node).find(
+              (k) => k.startsWith("__reactContainer$") || k.startsWith("__reactFiber$"),
+            );
+            if (!key) continue;
+            const stack: Fiber[] = [(node as unknown as Record<string, Fiber>)[key]!];
+            const fibers = new Set<Fiber>();
+            while (stack.length) {
+              const fiber = stack.pop()!;
+              if (!fiber || fibers.has(fiber)) continue;
+              fibers.add(fiber);
+              if (typeof fiber.type === "function" || (typeof fiber.type === "object" && fiber.type !== null)) {
+                let hook = fiber.memoizedState;
+                for (let index = 0; hook && index < 400; index += 1, hook = hook.next)
+                  look(`${nameOf(fiber.type)}#${index}`, hook.memoizedState, 0);
+              }
+              if (fiber.sibling) stack.push(fiber.sibling);
+              if (fiber.child) stack.push(fiber.child);
+            }
+          }
+          return out;
+        });
+        console.log(`heap-retainers ${name}: hook collections ${hookCollections.join(" ")}`);
         const domCounters = (await shownPage.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
         console.log(`heap-retainers ${name}: shown page DOM counters ${JSON.stringify(domCounters)}`);
         const snapshot = await takeSnapshot(shownPage.cdp);
