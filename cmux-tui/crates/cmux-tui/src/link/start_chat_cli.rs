@@ -332,8 +332,9 @@ struct PlanRequest {
     /// and a disk grown past the size's own (`disk_gib`).
     #[serde(default)]
     bytes: Option<u64>,
-    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`), which caps
-    /// a grown disk (`disk_gib`); none: not known.
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`): with it a
+    /// size grows its disk (`disk_gib`, at most the plan's largest disk); none or a size off the ladder: not known, and
+    /// nothing grows.
     #[serde(default)]
     plan_max: Option<String>,
 }
@@ -536,6 +537,17 @@ fn plan_with_calls(
                             .unwrap_or(id),
                         disk_bytes: disk,
                     };
+                    // The plan's largest size asked grown for a folder no size within the plan holds, made at a
+                    // disk below its floor (a platform that ignores `disk_gib`): the plan's size refusal, with its
+                    // upgrade, as a start past the plan's sizes gets from the platform.
+                    if let Some(refusal) = preflight::outgrown_plan(
+                        ask.size.as_deref(),
+                        request.bytes,
+                        request.plan_max.as_deref(),
+                        &machine,
+                    ) {
+                        return refusal;
+                    }
                     if let Some(refusal) =
                         preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
                     {
@@ -788,7 +800,8 @@ pub(super) struct Ensure {
 /// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
 pub(super) const ENSURE_SIZE_FIELD: &str = "size";
 /// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
-/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve).
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve, and is otherwise
+/// the plan's size refusal, [`preflight::outgrown_plan`]).
 pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {

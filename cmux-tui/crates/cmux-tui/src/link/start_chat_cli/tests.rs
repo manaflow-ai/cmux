@@ -2109,9 +2109,9 @@ fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
     }
 }
 
-/// A size whose own disk is below the folder's needed disk asks it grown, in GiB rounded up to 4 and at most the plan's
-/// largest disk (`plan_max`, 256 GiB when not known) (`disk_gib`); a folder the size holds, unknown bytes or the chat
-/// size send none.
+/// Under a plan known (`plan_max`), a size whose own disk is below the folder's needed disk asks it grown, in GiB rounded
+/// up to 4 and at most the plan's largest disk (`disk_gib`); with no plan known, a folder the size holds, unknown bytes
+/// or the chat size, none.
 #[test]
 fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -2125,16 +2125,20 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
     };
     let asks = [
-        (Some("lg"), Some(50 * GIB), None, Some(76)),
-        // cmux NEXT Max, 90 GiB: `xl` grown to 136.
-        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
-        // No plan known, 100 GiB: `xl` grown to 152.
-        (Some("xl"), Some(100 * GIB), None, Some(152)),
+        // cmux NEXT Pro, 48 GiB: `lg` grown to 72.
+        (Some("lg"), Some(48 * GIB), Some("lg"), Some(72)),
+        // cmux NEXT Pro, 60 GiB: `lg` grown to 92.
+        (Some("lg"), Some(60 * GIB), Some("lg"), Some(92)),
         // cmux NEXT Pro, 100 GiB: `lg` grown to Pro's 128 at most.
         (Some("lg"), Some(100 * GIB), Some("lg"), Some(128)),
-        (Some("lg"), Some(40 * GIB), None, None),
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136; 200 GiB: `2xl` grown to Max's 256 at most.
+        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
+        (Some("2xl"), Some(200 * GIB), Some("2xl"), Some(256)),
+        // No plan known: the size's own disk, as before.
+        (Some("lg"), Some(48 * GIB), None, None),
+        (Some("xl"), Some(100 * GIB), None, None),
         (Some("lg"), None, Some("lg"), None),
-        (Some("sm"), Some(50 * GIB), None, None),
+        (Some("sm"), Some(50 * GIB), Some("lg"), None),
     ];
     for (size, bytes, plan_max, _) in asks {
         let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,

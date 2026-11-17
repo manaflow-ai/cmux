@@ -90,8 +90,8 @@ fn a_whole_copy_counts_its_git_history() {
     assert!(answer["estimate_bytes"].as_u64().unwrap() > 100, "{answer}");
 }
 
-/// The needed disk (what a start asks) is half again the folder, and at least the floor (the folder and the 12 GiB
-/// reserve, what every refusal keeps): the reserve decides up to 24 GiB of folder, the half above it.
+/// The needed disk (what a size grows toward under a plan known) is half again the folder, and at least the floor (the
+/// folder and the 12 GiB reserve, what every refusal keeps): the reserve decides up to 24 GiB of folder, the half above.
 #[test]
 fn the_needed_disk_is_half_again_the_folder_and_at_least_the_floor() {
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -107,88 +107,84 @@ fn the_needed_disk_is_half_again_the_folder_and_at_least_the_floor() {
     assert_eq!(needed_disk(u64::MAX), u64::MAX);
 }
 
-/// With no plan known, a start asks the smallest size whose disk holds the needed disk, else the smallest whose disk
-/// holds the floor, else `xl` grown: every folder that went on before the half-again rule (up to 116 GiB on `xl`)
-/// still goes on, and only a folder past the largest disk (256 GiB) is too big.
+/// With no plan known, a start asks what it did before the half-again target: the smallest size whose own disk holds
+/// the folder and the reserve, none past `xl`'s 116 GiB.
 #[test]
-fn the_needed_size_asks_the_needed_disk_and_never_refuses_what_the_floor_holds() {
+fn the_needed_size_is_the_smallest_whose_disk_holds_the_floor() {
     const GIB: u64 = 1024 * 1024 * 1024;
     assert_eq!(needed_size(0), Some("sm"));
     assert_eq!(needed_size(4 * GIB), Some("sm"));
     assert_eq!(needed_size(4 * GIB + 1), Some("md"));
     assert_eq!(needed_size(20 * GIB), Some("md"));
     assert_eq!(needed_size(20 * GIB + 1), Some("lg"));
-    assert_eq!(needed_size(42 * GIB), Some("lg"));
-    // 52 GiB went on `lg` by the floor; it now asks `xl`, whose disk holds its 78 GiB.
-    assert_eq!(needed_size(52 * GIB), Some("xl"));
-    assert_eq!(needed_size(85 * GIB), Some("xl"));
-    // Past `xl`'s 128 by the needed disk, within it by the floor: `xl`, as before.
+    assert_eq!(needed_size(48 * GIB), Some("lg"));
+    assert_eq!(needed_size(52 * GIB), Some("lg"));
+    assert_eq!(needed_size(52 * GIB + 1), Some("xl"));
     assert_eq!(needed_size(100 * GIB), Some("xl"));
     assert_eq!(needed_size(116 * GIB), Some("xl"));
-    // Past `xl` by the floor too: `xl`, its disk grown.
-    assert_eq!(needed_size(116 * GIB + 1), Some("xl"));
-    assert_eq!(needed_size(244 * GIB), Some("xl"));
-    assert_eq!(needed_size(244 * GIB + 1), None);
+    assert_eq!(needed_size(116 * GIB + 1), None);
     assert_eq!(needed_size(u64::MAX), None);
 }
 
-/// Under a plan known by its largest size: the needed disk's size within the plan; else the smallest within it the
-/// floor holds; else its largest grown while the plan's disk holds the floor; else the size past the plan, which the
-/// platform refuses with its upgrade.
+/// No plan known (none, or a size off the ladder): the needed size, its own disk, exactly as before.
 #[test]
-fn a_plan_caps_the_size_asked_and_never_refuses_what_the_floor_holds() {
+fn a_start_with_no_plan_known_asks_the_needed_size_and_grows_nothing() {
     const GIB: u64 = 1024 * 1024 * 1024;
-    // Within the plan: the needed disk's size.
-    assert_eq!(planned_size(10 * GIB, Some("lg")), Some("md"));
-    assert_eq!(planned_size(60 * GIB, Some("2xl")), Some("xl"));
-    // cmux NEXT Pro (`lg`): 45 GiB needs 68 GiB, past `lg`'s 64, whose disk holds its 57 GiB floor: `lg`.
-    assert_eq!(planned_size(45 * GIB, Some("lg")), Some("lg"));
-    // 60 GiB: a 72 GiB floor, past `lg`'s own disk but within Pro's 128: `lg` grown.
-    assert_eq!(planned_size(60 * GIB, Some("lg")), Some("lg"));
-    assert_eq!(planned_size(116 * GIB, Some("lg")), Some("lg"));
-    // Past Pro's 128 by the floor: `2xl`, the size the plan refuses with its upgrade.
-    assert_eq!(planned_size(117 * GIB, Some("lg")), Some("2xl"));
-    // cmux NEXT Max (`2xl`): 90 GiB needs 135, past every size's disk; `xl` holds its 102 GiB floor: `xl`, never `2xl`.
-    assert_eq!(planned_size(90 * GIB, Some("2xl")), Some("xl"));
-    // Past `xl` by the floor: `2xl` grown, up to 256 GiB.
-    assert_eq!(planned_size(117 * GIB, Some("2xl")), Some("2xl"));
-    assert_eq!(planned_size(244 * GIB, Some("2xl")), Some("2xl"));
-    assert_eq!(planned_size(244 * GIB + 1, Some("2xl")), None);
-    // A plan whose largest is `md` grows nothing: past its floor, the size the plan refuses.
-    assert_eq!(planned_size(20 * GIB, Some("md")), Some("md"));
-    assert_eq!(planned_size(30 * GIB, Some("md")), Some("lg"));
-    // A size off the ladder is a plan not known.
-    assert_eq!(planned_size(100 * GIB, Some("huge")), Some("xl"));
-    assert_eq!(planned_size(100 * GIB, None), Some("xl"));
+    for plan_max in [None, Some("huge")] {
+        assert_eq!(planned_size(48 * GIB, plan_max), Some("lg"));
+        assert_eq!(grown_disk_gib(Some("lg"), Some(48 * GIB), plan_max), None);
+        assert_eq!(planned_size(100 * GIB, plan_max), Some("xl"));
+        assert_eq!(grown_disk_gib(Some("xl"), Some(100 * GIB), plan_max), None);
+        assert_eq!(planned_size(117 * GIB, plan_max), None);
+    }
 }
 
-/// A size whose own disk is below the folder's needed disk asks it grown to the needed disk, rounded up to 4 GiB and at
-/// most the plan's largest disk; one the size holds, no size, a size off the ladder or unknown bytes ask nothing.
+/// Under a plan known by its largest size: the needed size when the plan gives it, its disk grown toward half again the
+/// folder within the plan's disk; else the plan's largest size grown when the plan's disk holds the floor; else the
+/// size past the plan, which the platform refuses with its upgrade.
 #[test]
-fn a_folder_past_its_sizes_disk_asks_the_disk_grown_to_four_gib() {
+fn a_plan_known_asks_the_needed_size_or_its_largest_grown() {
     const GIB: u64 = 1024 * 1024 * 1024;
-    // 50 GiB needs 75 GiB: `lg` (64) grows to 76.
-    assert_eq!(grown_disk_gib(Some("lg"), Some(50 * GIB), None), Some(76));
-    // Pro 45 GiB needs 67.5: `lg` grows to 68.
+    let ask = |bytes: u64, plan_max: &str| {
+        let size = planned_size(bytes, Some(plan_max));
+        (size, grown_disk_gib(size, Some(bytes), Some(plan_max)))
+    };
+    // cmux NEXT Pro (`lg`, 128 GiB at most): 48 GiB is `lg` (60 GiB of floor), grown to 72.
+    assert_eq!(ask(48 * GIB, "lg"), (Some("lg"), Some(72)));
+    // 60 GiB needs `xl` by the floor, past the plan: `lg` grown to 92 (90 rounded up).
+    assert_eq!(ask(60 * GIB, "lg"), (Some("lg"), Some(92)));
+    // 100 GiB: a 112 GiB floor within Pro's 128; half again is 150, capped at 128.
+    assert_eq!(ask(100 * GIB, "lg"), (Some("lg"), Some(128)));
+    // 120 GiB: a 132 GiB floor past Pro's 128: the size past the plan, refused with its upgrade.
+    assert_eq!(ask(120 * GIB, "lg"), (Some("2xl"), None));
+    // cmux NEXT Max (`2xl`, 256 GiB at most): 90 GiB is `xl` (102 of floor), grown to 136.
+    assert_eq!(ask(90 * GIB, "2xl"), (Some("xl"), Some(136)));
+    // 200 GiB: a 212 GiB floor past every size's own disk: `2xl` grown to 256 (300 capped).
+    assert_eq!(ask(200 * GIB, "2xl"), (Some("2xl"), Some(256)));
+    assert_eq!(ask(244 * GIB + 1, "2xl"), (None, None));
+    assert_eq!(planned_size(244 * GIB + 1, Some("lg")), None);
+    // Within the plan, small: the needed size, its own disk enough.
+    assert_eq!(ask(10 * GIB, "lg"), (Some("md"), None));
+    // A plan whose largest is `md` grows nothing: past its floor, the size the plan refuses.
+    assert_eq!(ask(20 * GIB, "md"), (Some("md"), None));
+    assert_eq!(ask(30 * GIB, "md"), (Some("lg"), None));
+}
+
+/// A grown disk is rounded up to 4 GiB, at most the plan's largest; no size, a size off the ladder or unknown bytes ask
+/// nothing.
+#[test]
+fn a_grown_disk_rounds_up_to_four_gib_within_the_plan() {
+    const GIB: u64 = 1024 * 1024 * 1024;
     assert_eq!(grown_disk_gib(Some("lg"), Some(45 * GIB), Some("lg")), Some(68));
-    // Pro 100 GiB needs 150: at most Pro's 128.
-    assert_eq!(grown_disk_gib(Some("lg"), Some(100 * GIB), Some("lg")), Some(128));
-    // Max 90 GiB needs 135: `xl` (128) grows to 136.
-    assert_eq!(grown_disk_gib(Some("xl"), Some(90 * GIB), Some("2xl")), Some(136));
-    // A plan not known: at most the largest disk, 256 GiB.
-    assert_eq!(grown_disk_gib(Some("xl"), Some(100 * GIB), None), Some(152));
-    assert_eq!(grown_disk_gib(Some("xl"), Some(244 * GIB), None), Some(256));
-    // 100 GiB needs 150 GiB: `2xl` (128) grows to 152.
     assert_eq!(grown_disk_gib(Some("2xl"), Some(100 * GIB), Some("2xl")), Some(152));
-    // A plan whose disk is the size's own grows nothing: the size past it is refused by the plan.
+    // A size past the plan's disk grows nothing.
     assert_eq!(grown_disk_gib(Some("lg"), Some(50 * GIB), Some("md")), None);
     assert_eq!(grown_disk_gib(Some("2xl"), Some(120 * GIB), Some("lg")), None);
     // 80 GiB needs 120 GiB: `xl`'s own 128 holds it.
-    assert_eq!(grown_disk_gib(Some("xl"), Some(80 * GIB), None), None);
-    assert_eq!(grown_disk_gib(Some("lg"), Some(40 * GIB), None), None);
-    assert_eq!(grown_disk_gib(None, Some(50 * GIB), None), None);
-    assert_eq!(grown_disk_gib(Some("huge"), Some(50 * GIB), None), None);
-    assert_eq!(grown_disk_gib(Some("lg"), None, None), None);
+    assert_eq!(grown_disk_gib(Some("xl"), Some(80 * GIB), Some("2xl")), None);
+    assert_eq!(grown_disk_gib(None, Some(50 * GIB), Some("lg")), None);
+    assert_eq!(grown_disk_gib(Some("huge"), Some(50 * GIB), Some("lg")), None);
+    assert_eq!(grown_disk_gib(Some("lg"), None, Some("lg")), None);
 }
 
 /// A start whose folder needs a larger size than the machine the platform answered (a workspace that already had an
@@ -206,12 +202,13 @@ mod machine_room {
     const FOLDER_BYTES: u64 = 10 * GIB;
 
     fn plan(size: Option<&str>, shape: Option<Value>, created: bool) -> (Value, usize) {
-        plan_for(size, FOLDER_BYTES, shape, created)
+        plan_for(size, FOLDER_BYTES, None, shape, created)
     }
 
     fn plan_for(
         size: Option<&str>,
         bytes: u64,
+        plan_max: Option<&str>,
         shape: Option<Value>,
         created: bool,
     ) -> (Value, usize) {
@@ -224,6 +221,9 @@ mod machine_room {
             "bytes": bytes});
         if let Some(size) = size {
             request["size"] = json!(size);
+        }
+        if let Some(plan_max) = plan_max {
+            request["plan_max"] = json!(plan_max);
         }
         let ensures = Cell::new(0);
         let mut machine =
@@ -294,33 +294,73 @@ mod machine_room {
 
     /// cmux NEXT Pro with a 45 GiB folder asks `lg` grown to 68 GiB; a platform that ignores `disk_gib` answers `lg`'s
     /// own 64 GiB, which holds the folder and the reserve (57 GiB): the start goes on, as it did before the half-again
-    /// rule. One that also falls short of the floor is refused.
+    /// rule. With no plan known, one that falls short of the floor is refused.
     #[test]
     fn a_size_whose_own_disk_holds_the_floor_goes_on_when_the_grown_disk_is_ignored() {
         let (answer, _) = plan_for(
             Some("lg"),
             45 * GIB,
+            Some("lg"),
             Some(json!({"vcpu": 8, "memGiB": 16, "diskGiB": 64})),
             true,
         );
         assert_eq!(answer["ok"], true, "{answer}");
         assert_eq!(answer["machine"], "vm_own", "{answer}");
-        // 100 GiB on `xl`'s own 128 (no plan known, `disk_gib` 152 ignored): 112 GiB of floor fits.
-        let (xl, _) = plan_for(
-            Some("xl"),
-            100 * GIB,
-            Some(json!({"vcpu": 16, "memGiB": 32, "diskGiB": 128})),
-            true,
-        );
-        assert_eq!(xl["ok"], true, "{xl}");
         let (short, _) = plan_for(
             Some("lg"),
             60 * GIB,
+            None,
             Some(json!({"vcpu": 8, "memGiB": 16, "diskGiB": 64})),
             true,
         );
         assert_eq!(short["error_code"], SEED_REFUSED, "{short}");
         assert_eq!(short["room_bytes"], 52 * GIB, "{short}");
+    }
+
+    /// cmux NEXT Pro with a 100 GiB folder asks `lg` grown to 128 GiB (no size within the plan holds its 112 GiB floor).
+    /// A platform that ignores `disk_gib` makes `lg`'s own 64: the plan's size refusal naming `xl` and its upgrade, as
+    /// the platform answers a start past the plan's sizes, never the machine too small. The grown disk goes on.
+    #[test]
+    fn a_plans_largest_size_made_below_the_floor_is_the_plans_size_refusal() {
+        let (answer, _) = plan_for(
+            Some("lg"),
+            100 * GIB,
+            Some("lg"),
+            Some(json!({"vcpu": 8, "memGiB": 16, "diskGiB": 64})),
+            true,
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error_code"], "cloud.size.locked", "{answer}");
+        assert_eq!(answer["size_locked"], json!({"needed": "xl", "allowed": "lg"}), "{answer}");
+        assert_eq!(answer["copy_bytes"], 100 * GIB, "{answer}");
+        assert_eq!(answer["retryable"], false, "{answer}");
+        assert!(answer.get("fallback_code").is_none(), "{answer}");
+        let (grown, _) = plan_for(
+            Some("lg"),
+            100 * GIB,
+            Some("lg"),
+            Some(json!({"vcpu": 8, "memGiB": 16, "diskGiB": 128})),
+            true,
+        );
+        assert_eq!(grown["ok"], true, "{grown}");
+        // A size within the plan that holds the floor stays the machine too small: no upgrade helps it.
+        let (within, _) = plan_for(
+            Some("lg"),
+            48 * GIB,
+            Some("2xl"),
+            Some(json!({"vcpu": 8, "memGiB": 16, "diskGiB": 32})),
+            true,
+        );
+        assert_eq!(within["error_code"], SEED_REFUSED, "{within}");
+        // cmux NEXT Max's `2xl` made below the floor: no size above it, the machine too small.
+        let (max, _) = plan_for(
+            Some("2xl"),
+            200 * GIB,
+            Some("2xl"),
+            Some(json!({"vcpu": 32, "memGiB": 64, "diskGiB": 128})),
+            true,
+        );
+        assert_eq!(max["error_code"], SEED_REFUSED, "{max}");
     }
 
     #[test]
