@@ -10,11 +10,11 @@ use serde_json::{Value, json};
 
 use crate::backoff::Backoff;
 
+#[path = "computer_use_lifecycle.rs"]
+mod computer_use_lifecycle;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
-#[path = "computer_use_lifecycle.rs"]
-mod computer_use_lifecycle;
 
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 /// The supervisor protocol range this daemon speaks (the host picks one in it).

@@ -438,7 +438,10 @@ impl Mux {
                 // The terminal's agent turn ended: its Computer Use is no longer active
                 // (its cursor hides, its live preview turns done).
                 #[cfg(unix)]
-                self.computer_use_turn_ended(format!("terminal:{}:", agent.terminal_id.as_str()), true);
+                self.computer_use_turn_ended(
+                    format!("terminal:{}:", agent.terminal_id.as_str()),
+                    true,
+                );
             }
             if origin == AgentReportOrigin::Direct {
                 // The roster only folds journal events, so a direct report

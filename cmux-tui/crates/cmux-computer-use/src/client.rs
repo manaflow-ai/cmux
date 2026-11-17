@@ -24,8 +24,7 @@ impl Connection {
         let stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(WAIT))?;
         stream.set_write_timeout(Some(WAIT))?;
-        let mut connection =
-            Self { writer: stream.try_clone()?, reader: BufReader::new(stream) };
+        let mut connection = Self { writer: stream.try_clone()?, reader: BufReader::new(stream) };
         connection.send(&json!({"secret": secret_hex}))?;
         let hello = connection.read()?;
         if hello.get("ok") != Some(&json!(true)) {

@@ -89,8 +89,7 @@ fn turning_the_preview_off_removes_every_card_and_stream() {
 
 #[test]
 fn nothing_streams_without_a_watcher() {
-    let streams = Arc::new(Streams::default());
-    let hub = PreviewHub::new(streams.clone(), true);
+    let hub = PreviewHub::new(Arc::new(Streams::default()), true);
     hub.activate("s1", "Codex");
     hub.note_window("s1", "Codex", "42", RECT, "Notes");
     assert!(hub.streaming().is_empty());

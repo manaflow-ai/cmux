@@ -305,7 +305,9 @@ fn a_turn_end_idles_the_sessions_of_its_terminal_only() {
     look(&mut client, 1, "terminal:T1:100");
     look(&mut client, 2, "terminal:T2:200");
     look(&mut client, 3, "chat-1");
-    client.send(&json!({"id": 4, "method": "session/idle", "session": "terminal:T1:", "prefix": true}));
+    client.send(
+        &json!({"id": 4, "method": "session/idle", "session": "terminal:T1:", "prefix": true}),
+    );
     let answer = client.recv();
     assert_eq!(answer["result"]["ended"], json!(["terminal:T1:100"]), "{answer}");
     client.send(&json!({"id": 5, "method": "session/idle", "session": "chat-1"}));

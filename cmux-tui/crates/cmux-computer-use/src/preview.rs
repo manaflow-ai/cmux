@@ -147,7 +147,7 @@ impl PreviewHub {
                 let mut sessions: Vec<String> = state.cards.keys().cloned().collect();
                 sessions.sort();
                 for session in sessions {
-                    let card = state.cards.get_mut(&session).expect("listed");
+                    let Some(card) = state.cards.get_mut(&session) else { continue };
                     let shown = card.frame.take().is_some();
                     card.window = None;
                     card.rect = None;
@@ -302,7 +302,7 @@ impl PreviewHub {
                 .collect();
             sessions.sort();
             for session in sessions {
-                let card = state.cards.get_mut(&session).expect("listed");
+                let Some(card) = state.cards.get_mut(&session) else { continue };
                 card.frame = Some(url.clone());
                 out.lines.push(line(&session, Some(card)));
             }
@@ -320,7 +320,7 @@ impl PreviewHub {
                 .collect();
             sessions.sort();
             for session in sessions {
-                let card = state.cards.get_mut(&session).expect("listed");
+                let Some(card) = state.cards.get_mut(&session) else { continue };
                 let shown = card.frame.take().is_some();
                 card.window = None;
                 card.rect = None;

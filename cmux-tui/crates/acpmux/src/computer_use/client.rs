@@ -501,13 +501,18 @@ impl<D: Daemon> Caller<D> {
             return;
         }
         let request = json!({"id": self.id(), "method": "session/attach", "session": self.session});
-        let Ok((mut reader, unbounded)) = open_admitted(endpoint).and_then(|(mut reader, unbounded)| {
-            let mut line = request.to_string();
-            line.push('\n');
-            reader.get_mut().write_all(line.as_bytes()).map_err(|e| Attempt::Transport(e.to_string()))?;
-            read_json(&mut reader).map_err(|e| Attempt::Transport(e.to_string()))?;
-            Ok((reader, unbounded))
-        }) else {
+        let Ok((mut reader, unbounded)) =
+            open_admitted(endpoint).and_then(|(mut reader, unbounded)| {
+                let mut line = request.to_string();
+                line.push('\n');
+                reader
+                    .get_mut()
+                    .write_all(line.as_bytes())
+                    .map_err(|e| Attempt::Transport(e.to_string()))?;
+                read_json(&mut reader).map_err(|e| Attempt::Transport(e.to_string()))?;
+                Ok((reader, unbounded))
+            })
+        else {
             return;
         };
         *attached = Some(endpoint.clone());

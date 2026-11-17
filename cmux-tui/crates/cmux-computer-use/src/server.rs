@@ -427,7 +427,7 @@ fn handle(
         "session/attach" => {
             if !conn.attached.contains(&ctx.session) {
                 *lock(&shared.attached).entry(ctx.session.clone()).or_insert(0) += 1;
-                conn.attached.push(ctx.session.clone());
+                conn.attached.push(ctx.session);
             }
             send(stream, writer, &json!({"id": id, "ok": true, "result": {}}));
         }
@@ -449,7 +449,7 @@ fn handle(
         }
         // The window's pixels are for this machine's own cmux only.
         "preview/watch" if ctx.origin != OriginKind::Local => {
-            fail("refused", "the live preview is for this machine's cmux".into())
+            fail("refused", "the live preview is for this machine's cmux".into());
         }
         "preview/watch" => {
             if conn.watch.is_none() {

@@ -151,7 +151,8 @@ impl Lifecycle {
 impl CursorSink for Lifecycle {
     fn show(&self, event: CursorEvent) {
         let session = event.session().to_string();
-        let ends = matches!(event, CursorEvent::Hide { .. } | CursorEvent::Refused { ends: true, .. });
+        let ends =
+            matches!(event, CursorEvent::Hide { .. } | CursorEvent::Refused { ends: true, .. });
         if ends {
             self.active_set().remove(&session);
             self.preview.deactivate(&session);

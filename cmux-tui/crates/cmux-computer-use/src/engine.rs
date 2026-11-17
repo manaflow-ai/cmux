@@ -415,10 +415,8 @@ impl Engine {
         let audit = parts.state_dir.as_ref().map(|d| d.join("audit.jsonl"));
         let config = Arc::new(RwLock::new(parts.config.clone()));
         parts.desktop.set_menu_guard(Arc::new(PolicyMenuGuard(config.clone())));
-        let preview = Arc::new(crate::preview::PreviewHub::new(
-            parts.preview,
-            previews_on(&parts.config),
-        ));
+        let preview =
+            Arc::new(crate::preview::PreviewHub::new(parts.preview, previews_on(&parts.config)));
         Self {
             sessions: Sessions::open(parts.state_dir.as_deref()),
             desktop: parts.desktop,

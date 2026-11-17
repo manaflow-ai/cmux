@@ -30,12 +30,11 @@ impl RemoteHostSupervisor {
     fn acting(&self, session: &str, prefix: bool) -> bool {
         let activity = super::lock(&self.inner.activity);
         activity.as_array().is_some_and(|rows| {
-            rows.iter().filter_map(|row| row["session"].as_str()).any(|key| {
-                if prefix { key.starts_with(session) } else { key == session }
-            })
+            rows.iter()
+                .filter_map(|row| row["session"].as_str())
+                .any(|key| if prefix { key.starts_with(session) } else { key == session })
         })
     }
-
 }
 
 /// The worker's socket and secret, from a host that already runs (never
@@ -78,7 +77,9 @@ impl Mux {
             let Some(endpoint) = running_endpoint(&inner) else { return };
             let request =
                 json!({"id": 1, "method": "session/idle", "session": session, "prefix": prefix});
-            if let Err(error) = cmux_computer_use::client::request(&endpoint.0, &endpoint.1, &request) {
+            if let Err(error) =
+                cmux_computer_use::client::request(&endpoint.0, &endpoint.1, &request)
+            {
                 eprintln!("cmux-tui: Computer Use: could not end {session}'s turn: {error}");
             }
         });
