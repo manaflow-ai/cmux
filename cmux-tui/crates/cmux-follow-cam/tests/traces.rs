@@ -146,7 +146,8 @@ fn manual_holds_and_a_tap_pans_back_to_the_focus() {
     let config = Config::default();
     let mut camera = Camera::new(config, SCREEN.0, SCREEN.1);
     let events = trace("terminal_typing");
-    let (early, late): (Vec<Event>, Vec<Event>) = events.iter().partition(|e| e.t_us < 1_000_000);
+    let (early, late): (Vec<Event>, Vec<Event>) =
+        events.iter().copied().partition(|e| e.t_us < 1_000_000);
     run(&mut camera, &early, 999_000);
     // A pinch: a tighter crop at the left edge.
     let pinched = Rect::new(0.0, 200.0, 405.0, 720.0);
@@ -215,4 +216,47 @@ fn the_cutter_path_matches_the_camera_at_any_frame_rate() {
             assert!((same.rect.x - frame.rect.x).abs() < 1e-6, "paths differ at {}", frame.t_us);
         }
     }
+}
+
+#[test]
+fn a_full_redraw_sent_as_many_small_rects_does_not_move_the_camera() {
+    let mut camera = Camera::new(Config::default(), SCREEN.0, SCREEN.1);
+    camera.push(Event {
+        t_us: 0,
+        signal: Signal::Window { id: 1, x: 0.0, y: 0.0, w: 2560.0, h: 1440.0 },
+    });
+    camera.push(Event {
+        t_us: 100_000,
+        signal: Signal::Damage { x: 2200.0, y: 600.0, w: 100.0, h: 40.0 },
+    });
+    let before = camera.advance(400_000);
+    // One frame's redraw of the whole screen, as 16 strips each under the
+    // full-redraw share.
+    for i in 0..16 {
+        let y = f64::from(i) * 90.0;
+        camera.push(Event {
+            t_us: 500_000,
+            signal: Signal::Damage { x: 0.0, y, w: 2560.0, h: 90.0 },
+        });
+    }
+    // Before the first damage expires (800 ms), so only the redraw can move it.
+    let after = camera.advance(850_000);
+    assert_eq!(after, before, "the split full redraw moved the camera");
+}
+
+#[test]
+fn a_source_resize_keeps_the_manual_crop_size() {
+    let mut camera = Camera::new(Config::default(), SCREEN.0, SCREEN.1);
+    camera.push(Event {
+        t_us: 0,
+        signal: Signal::Window { id: 1, x: 0.0, y: 0.0, w: 2560.0, h: 1440.0 },
+    });
+    camera.advance(100_000);
+    camera.manual(Rect::new(100.0, 100.0, 405.0, 720.0));
+    camera.push(Event { t_us: 200_000, signal: Signal::Source { w: 1920.0, h: 1080.0 } });
+    let r = camera.advance(300_000);
+    assert_eq!((r.w, r.h), (405.0, 720.0), "lost the pinched size: {r:?}");
+    camera.resume();
+    let r = camera.advance(2_000_000);
+    assert_eq!((r.w, r.h), (405.0, 720.0), "resume lost the pinched size: {r:?}");
 }
