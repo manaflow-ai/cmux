@@ -150,17 +150,7 @@ pub fn parity_for(data_shards: usize, loss: f64, important: bool) -> usize {
     if loss <= 0.001 {
         return 0;
     }
-    parity_for_ratio(data_shards, (loss * 3.0).clamp(0.10, 0.50), important)
-}
-
-/// Parity shards for an explicit source-to-parity ratio.
-///
-/// Ultra's controller owns the ratio because its held rate is a total-wire
-/// budget. Keeping this helper separate preserves Standard's historical
-/// loss-to-FEC policy while allowing Ultra to reserve exactly its configured
-/// parity share.
-pub fn parity_for_ratio(data_shards: usize, ratio: f64, important: bool) -> usize {
-    let ratio = ratio.clamp(0.0, 2.0);
+    let ratio = (loss * 3.0).clamp(0.10, 0.50);
     let n = (data_shards as f64 * ratio).ceil() as usize;
     let n = if important { n.max(1) } else { n };
     n.min(MAX_SHARDS.saturating_sub(data_shards))
