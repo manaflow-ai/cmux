@@ -382,7 +382,8 @@ impl WorkspaceRegistry {
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> Option<anyhow::Result<T>> {
-        Some(read(&self.connection.try_get()?))
+        let connection = self.connection.try_get()?;
+        Some(read(&connection))
     }
 }
 
