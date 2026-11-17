@@ -3235,3 +3235,36 @@ fn a_webkit_field_typed_into_with_keys_gets_its_caret_written_again() {
     assert!(settles_caret_after_keys(web_engine(None)), "an unknown app is WebKit's rule");
     assert!(!settles_caret_after_keys(web_engine(Some("com.google.Chrome"))));
 }
+
+#[test]
+fn after_keys_in_a_webkit_field_the_caret_leaves_the_typed_word_and_comes_back() {
+    use roles::settle_caret_writes;
+    // Live, Safari on macOS 26.6 (fresh words, 9/10): a caret written back
+    // where it is right after the keys left the autocorrection to arrive
+    // later and land at the next call's focus move ("Hello from wierd" ->
+    // "weird"); moving the caret to where the typing began and back ended
+    // the typing context (8/8 kept, single words too).
+    assert_eq!(
+        settle_caret_writes((15, 0), 15),
+        vec![(0, 0), (15, 0)],
+        "typed into an empty field"
+    );
+    assert_eq!(settle_caret_writes((9, 0), 5), vec![(4, 0), (9, 0)], "typed after other text");
+    assert_eq!(settle_caret_writes((5, 0), 5), vec![(0, 0), (5, 0)], "a single word");
+    assert_eq!(settle_caret_writes((3, 0), 7), vec![(0, 0), (3, 0)], "clamped at the start");
+    assert_eq!(
+        settle_caret_writes((6, 2), 3),
+        vec![(3, 0), (6, 2)],
+        "a selection is put back as it was"
+    );
+    assert_eq!(
+        settle_caret_writes((0, 0), 0),
+        Vec::<(isize, isize)>::new(),
+        "nothing typed: no writes"
+    );
+    assert_eq!(
+        settle_caret_writes((4, 0), 0),
+        Vec::<(isize, isize)>::new(),
+        "nothing typed: the caret is not moved"
+    );
+}

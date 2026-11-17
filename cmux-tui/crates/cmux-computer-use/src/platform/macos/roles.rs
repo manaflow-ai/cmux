@@ -254,6 +254,19 @@ pub fn settles_caret_after_keys(engine: WebEngine) -> bool {
     engine == WebEngine::Other
 }
 
+/// The caret writes made after keys typed into a WebKit page's field, in
+/// order, as UTF-16 (location, length) pairs: `at` is the field's selection
+/// read once the typed text shows, `typed` the text's UTF-16 length. The
+/// caret goes to where the typing began, then back to `at`, so the typing
+/// context of the last word ends and WebKit offers no autocorrection for it
+/// (it would otherwise accept that correction at the next focus move into
+/// another field, after this call said confirmed).
+pub fn settle_caret_writes(at: (isize, isize), typed: isize) -> Vec<(isize, isize)> {
+    // Stub (red): the caret written back where it is, as before.
+    let _ = typed;
+    vec![at]
+}
+
 /// Where a background app's focused element (`AXFocusedUIElement`) is,
 /// relative to the field keys are meant for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
