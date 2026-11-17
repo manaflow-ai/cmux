@@ -4,9 +4,11 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Terminals resize at the start of a Cmd-D / Cmd-W, not after the spring (Lawrence 2026-10-23): when a split
-/// starts, each pane it resizes tells its content the size it will rest at, once, in the first motion frame,
-/// and the final size it gives (`bounds + sizeChange`) is the size the content has once the spring landed.
+/// A pane spring tells each pane it resizes the size its content will rest at, once, when the spring starts, and the
+/// final size it gives (`bounds + sizeChange`) is the size the content has once the spring landed: a terminal sends
+/// its final grid then, not at the landing. A ratio or a width change springs (an equalize, a width preset, another
+/// client's divider drag). A split, a close and a zoom do not: each is one commit with no rest notice, and the frame
+/// that shows it gives each content its final size (`PaneLayoutCommitTests`, `TerminalPaneMotionFinalGridTests`).
 @MainActor
 @Suite(.closesItsWindows) struct PaneMotionFinalSizeTests {
     /// A terminal-like leaf under a fixed 30 pt header, as a pane's tab strip sits over its terminal.
@@ -36,7 +38,17 @@ import Testing
         }
     }
 
-    @Test func aSplitTellsEachResizedPaneItsFinalSizeOnceAtTheStart() async throws {
+    /// The grid's two columns with the first one narrower (a width preset): the same panes and columns, so the frames
+    /// spring. The first column's pane changes size; the second one's only moves.
+    static var narrowed: [LayoutScreen] {
+        [LayoutScreen(id: "s", name: "s", layout: .columns([
+            PaneMotionBench.column(0, rows: 1, width: 0.35), PaneMotionBench.column(1, rows: 1, width: 0.5),
+        ]))]
+    }
+
+    /// The first column narrows on a spring: its pane hears its final size one time, by the spring's first frame, and
+    /// that size is the size its content has when the spring lands.
+    @Test func aWidthSpringTellsEachResizedPaneItsFinalSizeOnceAtTheStart() async throws {
         let provider = Panes()
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let root = LayoutRootView(model: model, contentProvider: provider)
@@ -47,7 +59,7 @@ import Testing
         root.layoutSubtreeIfNeeded()
         let before = try #require(provider.leaves[PaneID("p0-0")])
         before.announced.removeAll()
-        model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))
+        model.apply(screens: Self.narrowed)
         root.syncWithModel()
         var frames = 0
         var announcedByFirstFrame = 0
@@ -57,8 +69,8 @@ import Testing
             if frames == 1 { announcedByFirstFrame = before.announced.count }
         }
         root.layoutSubtreeIfNeeded()
-        #expect(frames > 3, "the split sprang")
-        #expect(announcedByFirstFrame == 1, "the split pane heard its final size \(announcedByFirstFrame) times by the first frame")
+        #expect(frames > 3, "the width change sprang")
+        #expect(announcedByFirstFrame == 1, "the resized pane heard its final size \(announcedByFirstFrame) times by the first frame")
         #expect(before.announced.count == 1, "announced \(before.announced.count) times over the spring")
         let final = before.bounds.size
         let told = try #require(before.announced.first)
@@ -86,18 +98,18 @@ import Testing
         leaf.heardAt.removeAll()
         // The change's presentation waits for the frame tick, as a frame's input holds it.
         root.context.holdsPresentations = true
-        model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))
+        model.apply(screens: Self.narrowed)
         root.syncWithModel()
         root.context.holdsPresentations = false
         try #require(leaf.heardAt.isEmpty && leaf.bounds.size == start, "SETUP: the change presented in its own turn")
-        #expect(root.advanceFrame(1.0 / 120), "the split did not spring")
+        #expect(root.advanceFrame(1.0 / 120), "the width change did not spring")
         root.layoutSubtreeIfNeeded()
-        try #require(leaf.heardAt.count == 1, "the split pane heard its rest \(leaf.heardAt.count) times by the first frame")
+        try #require(leaf.heardAt.count == 1, "the resized pane heard its rest \(leaf.heardAt.count) times by the first frame")
         #expect(leaf.heardAt.first == start, "the first frame laid the content out at \(leaf.heardAt.first ?? .zero) before it heard its rest (start \(start))")
     }
 
-    /// Reduce Motion turned on while a split springs: the next frame shows the final layout and no more
-    /// frames run (PL-burst finding).
+    /// Reduce Motion turned on while a pane spring runs (a column's width on its way): the next frame shows the final
+    /// layout and no more frames run (PL-burst finding).
     @Test func reduceMotionTurnedOnMidSpringLandsInTheNextFrame() throws {
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let root = LayoutRootView(model: model, contentProvider: Panes())
@@ -106,11 +118,11 @@ import Testing
         defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
-        model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))
+        model.apply(screens: Self.narrowed)
         root.syncWithModel()
         for _ in 0..<3 { _ = root.advanceFrame(1.0 / 120) }
         let screen = try #require(root.screenViews.values.first)
-        #expect(screen.hasMotion, "the split was not springing")
+        #expect(screen.hasMotion, "the width change was not springing")
         root.context.reduceMotionOverride = true
         #expect(!root.advanceFrame(1.0 / 120), "frames go on after Reduce Motion turned on")
         #expect(!screen.hasMotion, "a pane is still between its start and its rest")

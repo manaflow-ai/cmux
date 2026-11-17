@@ -376,6 +376,11 @@ import Testing
         #expect(hosts[Self.left]?.showsLateGround == true, "the late pane does not show its ground")
         #expect(hosts[Self.right]?.showsLateGround == false && hosts[Self.added]?.showsLateGround == false, "a pane that is not late shows ground")
         #expect(screen.lateSurfaceCommits == 1, "the late pane is not counted once: \(screen.lateSurfaceCommits)")
+        // The `debug.motion` sample names the late pane apart (`late`); it is one of the panes too.
+        let sample = try #require(ScreenContentView.motionSample(screen), "the screen gives no trace sample")
+        let ids = { (key: String) in (sample[key] ?? []).compactMap { ($0 as? [Any])?.first as? String } }
+        #expect(ids("late") == [Self.left.rawValue], "the trace sample does not name the late pane apart: \(ids("late"))")
+        #expect(Set(ids("panes")) == Set([Self.left, Self.right, Self.added].map(\.rawValue)), "the trace sample's panes are not the layout's: \(ids("panes"))")
         for _ in 0..<Self.frames {
             #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a late surface keeps the frames running")
         }
@@ -552,5 +557,49 @@ import Testing
             }
         }
         #expect(after.isShown(by: shown[1]), "the first display frame after the close does not show its layout at rest: \(shown[1].panes)")
+    }
+
+    /// Two closes of that kind, the second in the turn of the first and one display frame after it (a held close key):
+    /// each frame shows what the screen showed before them, or the layout after one of them with its camera at rest, in
+    /// their order, and the last one shows the layout after both.
+    @Test(arguments: ["rows", "columns"], [0, 1])
+    func twoClosesThatMoveACameraShowOnlyWholeLayouts(of kind: String, framesBetween: Int) throws {
+        let layouts = kind == "rows"
+            ? [Self.rows([400, 400, 400, 400, 400]), Self.rows([400, 400, 400, 400]), Self.rows([400, 400, 400])]
+            : [Self.strip([1, 2, 3, 4, 5]), Self.strip([1, 2, 3, 4]), Self.strip([1, 2, 3])]
+        let harness = Harness(layouts[0], focused: "p5", holds: false) { $0.rowsEnabledOverride = true }
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let camera = max(screen.rowScrolls["c1"]?.state.spring.value ?? 0, screen.scroll.value)
+        try #require(camera > 100, "set-up: the camera is not scrolled to the pane that closes (\(camera))")
+        let before = Self.shown(screen)
+
+        var states: [Rest] = [], shown: [Frame] = []
+        for (index, focus) in [PaneID("p4"), PaneID("p3")].enumerated() {
+            // The app's order for a close: the daemon's tree, then the focus its topology lands.
+            harness.model.apply(screens: layouts[index + 1])
+            states.append(Rest(harness.model.screens, in: screen, style: harness.root.context.style, camerasAtEnd: true))
+            harness.root.syncWithModel()
+            harness.model.focus(focus, notify: false)
+            harness.root.syncWithModel()
+            shown.append(Self.shown(screen))
+            for _ in 0..<(index == 0 ? framesBetween : Self.frames) {
+                _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+                shown.append(Self.shown(screen))
+            }
+        }
+
+        // The newest layout a frame showed: none yet (what showed before the closes), then the first, then the second.
+        var reached: Int?
+        for (index, frame) in shown.enumerated() {
+            if let next = ((reached ?? 0)..<states.count).first(where: { states[$0].isShown(by: frame) }) {
+                reached = next
+            } else {
+                #expect(reached == nil && Self.same(frame, before),
+                        "frame \(index) shows no whole layout of the two closes, or one after a later one: \(frame.panes)")
+            }
+        }
+        #expect(states[1].isShown(by: shown[shown.count - 1]), "the last frame is not the layout after both closes at rest: \(shown[shown.count - 1].panes)")
     }
 }

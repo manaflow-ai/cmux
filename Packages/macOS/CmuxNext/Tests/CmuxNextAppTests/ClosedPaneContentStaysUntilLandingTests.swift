@@ -152,7 +152,10 @@ import Testing
             #expect(!screen.frameInput.snapWaitsForContent, "the close did not show at its first frame tick")
             #expect(app.cache.existingTerminal(closedTab) != nil, "the frame that shows the close tore the terminal down, before its commit")
         }
-        app.committed.run() // the turn that showed the close committed
+        // The turn that showed the close committed: the closed pane's host is torn down after that commit, and the
+        // releases held for the pane run after the commit that follows it.
+        app.committed.run()
+        app.committed.run()
         #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the commit of the frame that showed the close")
         #expect(app.cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
     }
