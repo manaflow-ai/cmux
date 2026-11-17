@@ -229,3 +229,110 @@ fn bad_json_and_bad_origins_are_refused_not_panics() {
         Err(OwnershipMirrorError::OwnerUnreachable)
     );
 }
+
+/// One row write event of the stream at `seq`.
+fn upsert(seq: u64, key: &str) -> String {
+    json!({
+        "t": "event", "stream": "s", "seq": seq, "tx": format!("tx{seq}"), "op": "put",
+        "params": {}, "actor": {}, "origin": "user", "at": seq,
+        "effects": {"state": {"seq": seq}, "writes": [
+            {"table": "t", "op": "upsert", "key": key, "n": seq, "row": {"k": key}},
+        ]},
+    })
+    .to_string()
+}
+
+fn snapshot_with_one_row() -> String {
+    json!({
+        "t": "snapshot", "stream": "s", "seq": 1, "state": {"seq": 1}, "decided": [],
+        "rows": {"table": "t", "rows": [{"key": "r1", "n": 1, "row": {"k": "r1"}}]},
+    })
+    .to_string()
+}
+
+/// Checks what a listener was told: every view once, in generation order,
+/// and its rows folded the way an app does equal `view()`'s.
+fn told_in_order(m: &OwnershipMirror, first: &OwnershipMirrorView, told: &[OwnershipMirrorView]) {
+    let generations: Vec<u64> = told.iter().map(|v| v.generation).collect();
+    let want: Vec<u64> = (first.generation + 1..=first.generation + told.len() as u64).collect();
+    assert_eq!(generations, want, "every view once, in generation order");
+    let mut rows = parse(&first.rows_json);
+    for view in told {
+        fold(&mut rows, view);
+    }
+    assert!(same(&rows, &parse(&m.view().rows_json)), "folded rows {rows} differ from view()");
+}
+
+/// A listener that holds its first view until `go`, as a slow main-thread
+/// render does, while another thread changes the mirror.
+struct Held {
+    told: Mutex<Vec<OwnershipMirrorView>>,
+    entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    go: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl OwnershipMirrorListener for Held {
+    fn on_change(&self, view: OwnershipMirrorView) {
+        // Taken first: a guard held across the wait would block the other
+        // thread's call into this listener.
+        let entered = self.entered.lock().unwrap().take();
+        if let Some(entered) = entered {
+            entered.send(()).unwrap();
+            self.go.lock().unwrap().recv().unwrap();
+        }
+        self.told.lock().unwrap().push(view);
+    }
+}
+
+#[test]
+fn views_reach_a_slow_listener_in_order_while_another_thread_changes_the_mirror() {
+    let m = OwnershipMirror::new("c".into(), "{}".into()).unwrap();
+    m.receive(snapshot_with_one_row(), 1).unwrap();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let held = Arc::new(Held {
+        told: Mutex::default(),
+        entered: Mutex::new(Some(entered_tx)),
+        go: Mutex::new(go_rx),
+    });
+    let first = m.set_listener(Some(held.clone()));
+    let other = {
+        let m = m.clone();
+        std::thread::spawn(move || m.receive(upsert(2, "a"), 2).unwrap())
+    };
+    entered.recv().unwrap();
+    // The listener still renders view 2; this call makes view 3.
+    m.receive(upsert(3, "b"), 3).unwrap();
+    go.send(()).unwrap();
+    other.join().unwrap();
+    told_in_order(&m, &first, &held.told.lock().unwrap());
+}
+
+/// A listener that calls the mirror back from its first view (an app that
+/// applies a queued frame when it renders), then records the view.
+#[derive(Default)]
+struct Reentrant {
+    mirror: Mutex<Option<Arc<OwnershipMirror>>>,
+    told: Mutex<Vec<OwnershipMirrorView>>,
+}
+
+impl OwnershipMirrorListener for Reentrant {
+    fn on_change(&self, view: OwnershipMirrorView) {
+        let mirror = self.mirror.lock().unwrap().take();
+        if let Some(m) = mirror {
+            m.receive(upsert(3, "b"), 3).unwrap();
+        }
+        self.told.lock().unwrap().push(view);
+    }
+}
+
+#[test]
+fn a_listener_that_calls_the_mirror_back_is_told_in_order() {
+    let m = OwnershipMirror::new("c".into(), "{}".into()).unwrap();
+    m.receive(snapshot_with_one_row(), 1).unwrap();
+    let listener = Arc::new(Reentrant::default());
+    *listener.mirror.lock().unwrap() = Some(m.clone());
+    let first = m.set_listener(Some(listener.clone()));
+    m.receive(upsert(2, "a"), 2).unwrap();
+    told_in_order(&m, &first, &listener.told.lock().unwrap());
+}
