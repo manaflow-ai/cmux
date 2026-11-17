@@ -15,12 +15,11 @@ name: Staging INTERNAL_TOKEN
 #   gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
 #   python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 # The value lives only in a shell variable and stdin: never printed, written to disk in the clear or passed as an
-# argument. Staging only: no production Worker, key or environment is read or written. Runs on the push that adds or
-# changes this file (which also registers it for dispatch) and on dispatch from feat-cmux-next.
+# argument. Staging only: no production Worker, key or environment is read or written. Dispatch from feat-cmux-next.
+# Dispatch-only. Its one run on push is done (prod run 42124737366, staging 42826675419). A push trigger let a
+# commit that edits this file run the edited file with the environment's Cloudflare token without a dispatch
+# (Daybreak nightly cmux-ci-25/26), so it was removed.
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths: [.github/workflows/internal-token-staging.yml]
   workflow_dispatch:
 
 permissions:

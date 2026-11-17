@@ -18,6 +18,7 @@ import Testing
     }
 
     static let since = Date(timeIntervalSince1970: 1_800_000_000)
+    static let accounts: Set<String> = ["you@example.com"]
 
     static func json(_ messages: [[String: Any]]) -> String {
         String(decoding: try! JSONSerialization.data(withJSONObject: messages), as: UTF8.self) // swiftlint:disable:this force_try
@@ -29,12 +30,13 @@ import Testing
         "subject": "[GitHub] Please verify your device",
         "content": "Verification code: 482913",
         "received": 1_800_000_030_000.0,
+        "account": "you@example.com",
         "headers": "Authentication-Results: mx.example.net;\n dkim=pass header.d=github.com header.s=pf2023;\n spf=pass\nFrom: GitHub <noreply@github.com>\n",
     ]
 
     @Test func readsMessagesSinceTheWaitStarted() async throws {
         let runner = FakeRunner(.success(Self.json([Self.github])))
-        let emails = try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since)
+        let emails = try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts)
         let email = try #require(emails.first)
         #expect(emails.count == 1)
         #expect(email.id == "mail:<abc@github.com>")
@@ -44,7 +46,29 @@ import Testing
         #expect(email.receivedAt == Date(timeIntervalSince1970: 1_800_000_030))
         let call = try #require(await runner.calls.first)
         #expect(call.first == "-l" && call.dropFirst().first == "JavaScript")
-        #expect(call.last == "1800000000000")
+        #expect(call.dropLast().last == "1800000000000")
+        #expect(call.last == #"["you@example.com"]"#)
+        #expect(email.account == "you@example.com")
+    }
+
+    /// Mail of an account the person did not opt in never leaves the source, whatever Mail answers.
+    @Test func mailOfAnotherAccountIsDropped() async throws {
+        var other = Self.github
+        other["account"] = "work@example.org"
+        let runner = FakeRunner(.success(Self.json([other])))
+        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts).isEmpty)
+    }
+
+    /// With no account opted in, Mail is not asked at all.
+    @Test func noAccountsReadsNothing() async throws {
+        let runner = FakeRunner(.success(Self.json([Self.github])))
+        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: []).isEmpty)
+        #expect(await runner.calls.isEmpty)
+    }
+
+    @Test func listsMailsAccountAddresses() async throws {
+        let runner = FakeRunner(.success(#"["you@example.com","work@example.org","you@example.com"]"#))
+        #expect(try await MailAppVerificationSource(runner: runner).availableAccounts() == ["you@example.com", "work@example.org"])
     }
 
     @Test(arguments: [
@@ -59,7 +83,7 @@ import Testing
         var message = Self.github
         message["headers"] = "Authentication-Results: mx.example.net; \(results)\n"
         let runner = FakeRunner(.success(Self.json([message])))
-        let email = try #require(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since).first)
+        let email = try #require(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts).first)
         #expect(email.senderAuthenticated == expected)
     }
 
@@ -67,23 +91,23 @@ import Testing
         var message = Self.github
         message["sender"] = "noreply@github.com"
         let runner = FakeRunner(.success(Self.json([message])))
-        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since).first?.senderAddress == "noreply@github.com")
+        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts).first?.senderAddress == "noreply@github.com")
     }
 
     @Test func malformedRowsAreSkipped() async throws {
         let runner = FakeRunner(.success(Self.json([["id": "x"], Self.github])))
-        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since).count == 1)
+        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts).count == 1)
     }
 
     @Test func nothingWhenMailIsNotRunning() async throws {
         let runner = FakeRunner(.success("[]"))
-        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since).isEmpty)
+        #expect(try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts).isEmpty)
     }
 
     @Test func aDeniedAutomationPermissionIsAnError() async {
         let runner = FakeRunner(.failure(VerificationScriptFailure(status: 1, message: "Not authorized to send Apple events to Mail. (-1743)")))
         await #expect(throws: MailAppVerificationSource.Failure.notAuthorized) {
-            try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since)
+            try await MailAppVerificationSource(runner: runner).emails(receivedSince: Self.since, accounts: Self.accounts)
         }
     }
 }

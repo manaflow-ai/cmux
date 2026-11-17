@@ -7,8 +7,9 @@ public nonisolated enum HoverCardLeave: Hashable, Sendable {
     case lingers
     /// The card hides as soon as the pointer leaves its target for anywhere
     /// but the card (a browser's tab preview). The card touches its target,
-    /// so a pointer moving onto it keeps it while it rests there. Another
-    /// target reached within `reshow` shows its card at once.
+    /// so a pointer moving onto it keeps it while it rests there, unless its
+    /// target is not `HoverTarget.enterable` (a horizontal tab's card: it hides
+    /// then too). Another target reached within `reshow` shows its card at once.
     case hides(reshow: Duration)
 
     /// The card hides as the pointer leaves its target (`hides`).
