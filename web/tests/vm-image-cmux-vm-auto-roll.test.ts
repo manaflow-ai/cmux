@@ -371,7 +371,7 @@ describe("auto-roll workflows", () => {
     expect(stepOf(settleJob, "rollback").if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'");
     expect(stepOf(settleJob, "push-token").if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'");
     const retry = stepOf(settleJob, "retry");
-    expect(retry.if).toBe("steps.roll.outputs.outcome == 'retry'");
+    expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
