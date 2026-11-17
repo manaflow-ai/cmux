@@ -31,7 +31,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   const BUSY = "0190a000-0000-7000-8000-0000000000f1";
   const QUIET = "0190a000-0000-7000-8000-0000000000f2";
-  // Recent, so the line reads seconds or minutes.
+  // Recent, so the line reads seconds or minutes. On a whole minute the clock drops its seconds ("2m"), so the
+  // checks below take a clock ending in m or s (it failed once reading "Read app.ts 2m").
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
@@ -229,11 +230,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     // The Linter finished and the watcher stopped: neither counts. The turn's clock stands beside the
     // label with no "total" (#34866): "Read app.ts 2m 9s · 2 subagents · 1 command".
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ \d+s · 2 subagents · 1 command$/,
+      /^Read [^·]+ \d+[sm] · 2 subagents · 1 command$/,
     );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+[sm]$/);
     await plain.close();
   });
 
@@ -250,7 +251,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       .allInnerTexts();
     expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+[sm]$/);
     await page.close();
   });
 
