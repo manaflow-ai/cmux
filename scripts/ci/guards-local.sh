@@ -7,6 +7,9 @@
 #   scripts/ci/guards-local.sh --group X     only group X (no stamp)
 #   scripts/ci/guards-local.sh --list        show the plan
 #
+# --results is written incrementally by run_ci_guards.py; a caller that is cut short can still compare the steps that
+# finished, while the missing steps are marked unknown for the merge gate.
+#
 # The "CI fast guards" check runs this same script. A clean full pass writes
 # ${XDG_CACHE_HOME:-~/.cache}/cmux-guards/pass/<HEAD sha>, which the agent
 # merge guard accepts for `gh pr merge --admin` on that head.

@@ -293,6 +293,24 @@ public final class ActionRegistry {
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
 
+    /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
+    /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
+    /// step B landed before its re-pin, docs/ci/app-ffi-release.md). The bind returns false and
+    /// the action stays unbound. Checked by the `everyBoundActionIsInTheCatalog` test, never
+    /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
+    /// fault.
+    public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
+    /// when the catalog does not have it.
+    func bindingDescriptor(for id: ActionID) -> ActionDescriptor? {
+        guard let descriptor = descriptor(for: id) else {
+            uncataloguedBindings.append(id)
+            return nil
+        }
+        return descriptor
+    }
+
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
@@ -345,7 +363,7 @@ public final class ActionRegistry {
         invoke: (@MainActor (ActionInvocation) -> Void)?,
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
