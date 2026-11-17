@@ -242,6 +242,69 @@ fn a_dropped_viewer_resumes_from_its_last_frame_without_a_keyframe() {
     disconnect_client(&mux, back.client, false);
 }
 
+/// The events up to and with the next `agent-cli-frame`, in order, within 5 s.
+fn through_next_frame(viewer: &Viewer) -> Vec<Value> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut events = Vec::new();
+    loop {
+        if let Some(message) = viewer.outbound.try_pop() {
+            let value: Value = serde_json::from_str(&message).expect("outbound JSON");
+            let frame = value["event"] == "agent-cli-frame";
+            events.push(value);
+            if frame {
+                return events;
+            }
+            continue;
+        }
+        assert!(Instant::now() < deadline, "no agent-cli-frame; got {events:?}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn output_data(event: &Value) -> Vec<u8> {
+    base64::engine::general_purpose::STANDARD.decode(event["data"].as_str().unwrap()).unwrap()
+}
+
+/// Codex and opencode run on the alternate screen with input modes set, and frames carry
+/// neither: an agent CLI's viewer gets them as `output` bytes, the screen before its keyframe
+/// (after it, the switch would blank the frame), the input modes after it, and each change
+/// later on, a switch of screens followed by a keyframe of the screen switched to (#44052 F1).
+#[test]
+fn an_agent_cli_viewer_follows_the_alternate_screen_and_input_modes() {
+    let (mux, surface) = terminal("hybrid-agent-screen", Some("codex"));
+    surface.inject_output_for_test(b"\x1b[?1049h\x1b[?2004h\x1b[?1hcodex> one");
+    let viewer = viewer(&mux, true);
+    viewer.attach(&mux, &surface, json!({}));
+    let events = through_next_frame(&viewer);
+    let outputs: Vec<Vec<u8>> =
+        events.iter().filter(|event| event["event"] == "output").map(output_data).collect();
+    assert_eq!(outputs, [b"\x1b[?1049h".to_vec()], "the screen before the keyframe: {events:?}");
+    let first = events.last().unwrap();
+    assert_eq!(first["base"], Value::Null, "a keyframe");
+    assert_eq!(output_bytes(&viewer), b"\x1b[?1h\x1b[?2004h", "the input modes after it");
+    let mut phone = Phone::new(first);
+    phone.term.vt_write(b"\x1b[?1049h");
+    phone.apply(first);
+    phone.term.vt_write(b"\x1b[?1h\x1b[?2004h");
+    assert_eq!(phone.term.active_screen(), ghostty_vt::Screen::Alternate);
+    assert_eq!(phone.text(), screen_text(&surface));
+
+    // The program ends: its modes go, and the shell's screen comes back as a keyframe.
+    surface.inject_output_for_test(b"\x1b[?2004l\x1b[?1l\x1b[?1049l$ ");
+    let events = through_next_frame(&viewer);
+    let outputs: Vec<u8> =
+        events.iter().filter(|event| event["event"] == "output").flat_map(output_data).collect();
+    assert_eq!(outputs, b"\x1b[?1l\x1b[?2004l\x1b[?1049l", "{events:?}");
+    let back = events.last().unwrap();
+    assert_eq!(back["base"], Value::Null, "the screen switched to, as a keyframe");
+    phone.term.vt_write(&outputs);
+    phone.apply(back);
+    assert_eq!(phone.term.active_screen(), ghostty_vt::Screen::Primary);
+    assert!(!phone.term.mode(2004, false) && !phone.term.mode(1, false));
+    assert_eq!(phone.text(), screen_text(&surface));
+    disconnect_client(&mux, viewer.client, false);
+}
+
 #[test]
 fn other_viewers_and_other_programs_keep_the_byte_stream() {
     for (agent, capability) in [(Some("claude"), false), (None, true), (Some("vim"), true)] {
