@@ -36,12 +36,9 @@ final class HomeStreamMapper {
                 let (shown, runs) = renderer.render(t)
                 return .text(shown, runs: runs)
             case let .link(url, title, site, image, theme):
-                // As HomeMapping.textParts: a preview fetched before fills the card, else the domain card.
-                guard let meta = links(url) else {
-                    let host = URL(string: url).map(TextParts.host) ?? url
-                    return .link(url: url, title: title ?? host, siteName: site ?? host, image: image, theme: theme)
-                }
-                return .link(url: url, title: meta.title ?? title, siteName: meta.site ?? site, image: meta.image ?? image, theme: theme)
+                // As HomeMapping.textParts (one card rule, HomeMapping+InlineCards.swift): a preview fetched
+                // before fills the card, else the domain card (a GitHub object's local title).
+                return HomeMapping.card(url, title: title, site: site, image: image, theme: theme, links: links)
             default:
                 return part
             }
