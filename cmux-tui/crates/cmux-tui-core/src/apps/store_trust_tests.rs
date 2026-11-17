@@ -61,7 +61,7 @@ fn write_package(root: &Path, dir: &str, id: &str) -> PathBuf {
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" },
         "implements": { "cmux.section/1": { "export": "render", "title": "Demo" } },
-        "scopes": [], "files": ["dist/"],
+        "scopes": {}, "files": ["dist/"],
         "repository": format!("https://github.com/{owner}/demo"),
     });
     std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
