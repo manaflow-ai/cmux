@@ -3640,27 +3640,6 @@ its base Mac tier (daemon tests, generated files, the Debug app scheme compile) 
 started at most once every 15 minutes on the tip (cmuxterm-hq#5424). Named
 `cmux-next base tier · <sha>`, which the kick, push attribution and base_red_excuse.py read.
 
-## note-390
-
-Above `jobs:` in `.github/workflows/cmux-next.yml`.
-
-The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
-Trusted runs (a same-repository pull request, a push or a dispatch) stay on
-vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
-are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
-Manual reruns stay minis-first. The rescue re-admits a queued run after the
-five-minute queue alarm: placement first uses a free owned GUI/session Mac,
-then the workflow's Blacksmith macOS route. macos-placement records idle
-side runners with the main picker's idle_placement() and publishes free role
-labels for the bot retry, so a job does not keep a shared concurrency slot
-on a busy Blacksmith label indefinitely. When a job takes the side label, macos-placement uploads the
-owned-pool-watch marker:
-ci-owned-pool-rescue.yml's sweeper on main adopts the run
-(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
-queued or refuses. Bot attempt 2 and later drop the stale placement output
-and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
-person's re-run stays on the side label.
-
 ## note-391
 
 Above `[[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {` in `.github/workflows/cmux-next.yml`.
@@ -3835,3 +3814,21 @@ fails this step, so the run shows it (40428066457 lost its capture to a silent r
 compile=true skips the product reuse so there is a build to capture, unless a capture of
 this key came out incomplete in the last day (then only a build that compiles anyway
 captures, and a key that never captures whole cannot turn reuse off for every landing).
+
+## note-406
+
+Above `keep=()` in `.github/workflows/cmux-next.yml`.
+
+The base Mac tier (daemon tests, generated files, the Debug app scheme compile) runs
+at most once every 15 minutes on the tip, in the run cmux-next-base-tier-kick.yml
+dispatches (cmuxterm-hq#5424). The Release compiles (nightly-next's input), the DEV
+landing compile and the fast tier still run on this push.
+
+## note-407
+
+Above `started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempt` in `.github/workflows/cmux-next.yml`.
+
+This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
+most) and its manifest upload (2) start only while the job, timed from its own start, is
+under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
+start skips it. A skipped capture is taken by the next landing.

@@ -738,7 +738,22 @@ concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && inputs.same_tree_sha == '' && inputs.dev_daily != true && github.ref != 'refs/heads/feat-cmux-next' && !startsWith(github.ref, 'refs/heads/next-batch/') && format('cmux-next-dispatch-{0}', github.ref) || format('cmux-next-{0}', github.event.pull_request.number || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && inputs.same_tree_sha == '' && inputs.dev_daily != true && github.ref != 'refs/heads/feat-cmux-next' && !startsWith(github.ref, 'refs/heads/next-batch/') }}
 
-# Why: docs/ci/cmux-next-workflow-notes.md#note-390
+# The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
+# Trusted runs (a same-repository pull request, a push or a dispatch) stay on
+# vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
+# are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
+# Manual reruns stay minis-first. The rescue re-admits a queued run after the
+# five-minute queue alarm: placement first uses a free owned GUI/session Mac,
+# then the workflow's Blacksmith macOS route. macos-placement records idle
+# side runners with the main picker's idle_placement() and publishes free role
+# labels for the bot retry, so a job does not keep a shared concurrency slot
+# on a busy Blacksmith label indefinitely. When a job takes the side label, macos-placement uploads the
+# owned-pool-watch marker:
+# ci-owned-pool-rescue.yml's sweeper on main adopts the run
+# (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
+# queued or refuses. Bot attempt 2 and later drop the stale placement output
+# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
+# person's re-run stays on the side label.
 jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-1
   pr-quiet-period:
@@ -1059,10 +1074,7 @@ jobs:
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
               --labels "$labels" --base-rev HEAD^1 --github-output "$routed" --summary "$GITHUB_STEP_SUMMARY"
             if [[ "$routed" != "$GITHUB_OUTPUT" ]]; then
-              # The base Mac tier (daemon tests, generated files, the Debug app scheme compile) runs
-              # at most once every 15 minutes on the tip, in the run cmux-next-base-tier-kick.yml
-              # dispatches (cmuxterm-hq#5424). The Release compiles (nightly-next's input), the DEV
-              # landing compile and the fast tier still run on this push.
+              # Why: docs/ci/cmux-next-workflow-notes.md#note-406
               keep=()
               [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
               python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
@@ -6292,10 +6304,7 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
-          # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
-          # most) and its manifest upload (2) start only while the job, timed from its own start, is
-          # under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
-          # start skips it. A skipped capture is taken by the next landing.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-407
           started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
           started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
