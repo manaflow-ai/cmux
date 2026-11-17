@@ -214,7 +214,7 @@ impl JournalMaintenance {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+                let _ = Mux::join_within_stop("journal maintenance worker", thread);
             }
         }
     }

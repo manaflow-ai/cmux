@@ -95,7 +95,7 @@ impl LaunchSnapshotWriter {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("launch snapshot writer", thread);
         }
     }
 
@@ -112,7 +112,7 @@ impl Drop for LaunchSnapshotWriter {
     fn drop(&mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("launch snapshot writer", thread);
         }
     }
 }

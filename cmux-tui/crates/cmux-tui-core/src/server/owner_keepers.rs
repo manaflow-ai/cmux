@@ -147,7 +147,7 @@ impl OwnerKeepersWatch {
             events.close();
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("owner keepers watch", thread);
         }
     }
 }

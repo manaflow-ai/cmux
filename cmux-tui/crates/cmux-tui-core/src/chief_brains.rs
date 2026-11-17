@@ -555,7 +555,7 @@ impl ChiefBrains {
             let _ = ended.recv_timeout(SHUTDOWN_GRACE + Duration::from_secs(1));
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("chief brains thread", thread);
         }
     }
 }

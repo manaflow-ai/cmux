@@ -301,7 +301,7 @@ impl OrphanExit {
     pub(crate) fn stop(mut self) {
         self.watch.stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = cmux_tui_core::Mux::join_within_stop("dev orphan watch", thread);
         }
     }
 }

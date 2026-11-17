@@ -227,7 +227,6 @@ impl<T> SignaledMutex<T> {
         self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
     }
 
-    #[cfg(test)]
     fn try_lock_at(
         &self,
         site: crate::diagnostics::LockSite,
@@ -241,6 +240,46 @@ impl<T> SignaledMutex<T> {
                 self.guard(error.into_inner(), site, waited_from, blocker),
             ))),
         }
+    }
+
+    /// A take with a bound, for an owner's release: a release does not wait
+    /// for a holder that does not end. `None`: the lock was not free by
+    /// `deadline`. One try is made also when `deadline` is past. A poisoned
+    /// value is taken as it is, as the release took it before this bound.
+    /// The take does not queue behind the lockers that wait.
+    #[track_caller]
+    pub(super) fn lock_by(&self, deadline: Instant) -> Option<SignaledMutexGuard<'_, T>> {
+        debug_assert_not_journal_writer_commit();
+        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
+        loop {
+            // Read before the try: a release that comes after this read
+            // changes the epoch, so the wait below does not sleep through it.
+            let observed = *self.release_epoch.lock().unwrap_or_else(PoisonError::into_inner);
+            match self.try_lock_at(site, waited_from, blocker) {
+                Ok(value) => return Some(value),
+                Err(TryLockError::Poisoned(error)) => return Some(error.into_inner()),
+                Err(TryLockError::WouldBlock) => {}
+            }
+            let epoch = self.release_epoch.lock().unwrap_or_else(PoisonError::into_inner);
+            if *epoch != observed {
+                continue;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
+                return None;
+            }
+            drop(self.released.wait_timeout(epoch, remaining));
+        }
+    }
+
+    /// The value with no take of the lock: the caller has the only handle
+    /// of this mutex.
+    pub(super) fn get_mut(&mut self) -> &mut T {
+        self.value.get_mut().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Deadline wait. The session journal writer used it on the registry

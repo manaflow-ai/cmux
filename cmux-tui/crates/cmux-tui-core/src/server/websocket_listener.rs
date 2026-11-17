@@ -40,7 +40,7 @@ impl Drop for WebSocketServer {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("WebSocket listener", thread);
         }
     }
 }

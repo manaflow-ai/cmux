@@ -454,7 +454,7 @@ impl JournalKernel {
             self.changed.notify_all();
         }
         if let Some(tailer) = self.tailer.lock().recover_poison().take()
-            && tailer.join().is_err()
+            && let Some(Err(_)) = crate::Mux::join_within_stop("session journal tailer", tailer)
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
         }

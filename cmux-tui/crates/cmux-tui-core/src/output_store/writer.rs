@@ -9,6 +9,11 @@ use std::time::{Duration, Instant};
 use super::snapshot::write_pass;
 use super::{OutputStore, PersistencePolicy};
 use crate::Mux;
+use crate::mux::stop_join;
+
+/// The writer's thread, in what the owner's release says of a thread that a
+/// stop left alive.
+const OUTPUT_STORE_WRITER: &str = "output store writer";
 
 #[derive(Default)]
 pub(super) struct WriterState {
@@ -29,6 +34,8 @@ pub(super) struct WriterState {
 pub(super) struct Writer {
     pub(super) state: Arc<(Mutex<WriterState>, Condvar)>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The thread that a stop left alive, for each later stop.
+    left: Mutex<Option<Arc<std::thread::JoinHandle<()>>>>,
     /// The line that the store's stop wrote to stderr when it made no last
     /// write; a test reads it.
     #[cfg(test)]
@@ -72,19 +79,92 @@ impl Writer {
         }
     }
 
-    pub(super) fn stop(&self) {
+    /// Stop the writer and wait for its thread's end, with the bound that
+    /// each join of a stop has (`mux/stop_join.rs`; decision of 2026-11-17).
+    /// A thread that does not end in that time (a pass that waits for a lock
+    /// or for the disk) is left alive: it goes with its name into the list
+    /// that the owner's release reads, and each later stop finds it here.
+    pub(super) fn stop(&self) -> WriterStop {
         {
             let (lock, changed) = &*self.state;
             lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true;
             changed.notify_all();
         }
-        if let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            // The writer can hold the last Mux handle, so the Mux may drop
-            // (and stop the writer) on the writer thread itself.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+        // Held to this stop's end: a stop that comes beside this one reads
+        // what this one found.
+        let mut left = self.left.lock().unwrap_or_else(PoisonError::into_inner);
+        let thread = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let Some(thread) = thread else {
+            let lives = left.as_ref().is_some_and(|thread| !thread.is_finished());
+            return if lives { WriterStop::LeftBefore } else { WriterStop::Ended };
+        };
+        // The writer can hold the last Mux handle, so the Mux may drop
+        // (and stop the writer) on the writer thread itself.
+        if thread.thread().id() == std::thread::current().id() {
+            return WriterStop::Ended;
+        }
+        if stop_join::ended_by(&thread, Instant::now() + stop_join::STOP_JOIN_WAIT) {
+            let _ = thread.join();
+            return WriterStop::Ended;
+        }
+        let thread = Arc::new(thread);
+        *left = Some(Arc::clone(&thread));
+        stop_join::left(OUTPUT_STORE_WRITER, move || thread.is_finished());
+        WriterStop::LeftNow
+    }
+}
+
+/// How a stop of the writer ended.
+pub(super) enum WriterStop {
+    /// The writer's thread ended, or the store had none.
+    Ended,
+    /// The thread did not end in this stop's bound: this stop left it alive.
+    LeftNow,
+    /// A stop before this one left the thread alive, and it still lives.
+    LeftBefore,
+}
+
+impl OutputStore {
+    /// Final write at quit, on the caller's thread: stop the writer, then
+    /// make every terminal's unwritten bytes durable.
+    ///
+    /// A stop that left the writer alive makes no last write (decision of
+    /// 2026-11-17): that write needs the pass lock, and a writer in a pass
+    /// holds it. That stop says so in one stderr line. Each later stop that
+    /// finds that thread alive makes no last write either, and has no line.
+    pub(crate) fn shutdown(&self, mux: &Mux) {
+        if self.directory.is_none() {
+            return;
+        }
+        match self.writer.stop() {
+            WriterStop::Ended => {}
+            WriterStop::LeftBefore => return,
+            WriterStop::LeftNow => {
+                let line = format!(
+                    "cmux-tui: the {OUTPUT_STORE_WRITER} did not stop within {} ms; shutdown \
+                     goes on without it and makes no last write of the output store",
+                    stop_join::STOP_JOIN_WAIT.as_millis()
+                );
+                eprintln!("{line}");
+                #[cfg(test)]
+                {
+                    *self.writer.stop_line.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(line);
+                }
+                return;
             }
         }
+        // A terminal whose bytes since its snapshot are all in a synced tail
+        // is visited too: the pass reads its screen (a digest, no snapshot)
+        // and writes a snapshot only where the tail cannot carry it, a
+        // terminal on the alternate screen included (quit_pass_tests.rs).
+        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.tail_bytes > 0 {
+                state.dirty = true;
+            }
+        }
+        self.write_now(mux);
     }
 }
 

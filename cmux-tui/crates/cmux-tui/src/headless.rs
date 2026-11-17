@@ -109,7 +109,7 @@ where
     if shutdown_requested()
         && let Some(signal_wait) = signal_wait
     {
-        let _ = signal_wait.join();
+        let _ = Mux::join_within_stop("signal thread", signal_wait);
     }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();

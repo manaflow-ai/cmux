@@ -1128,3 +1128,41 @@ fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
          write that in its record: the record file: {record:?}"
     );
 }
+
+/// The bounded join that each stop on the way to a release uses, by itself.
+/// A thread that does not end in the join's bound is left alive: the join
+/// returns with no end of the thread, and the thread is in the list that a
+/// release reads, by its name, until it ends. A thread that ends in the
+/// bound gives its end to the caller, as a join with no bound does. The 2
+/// rows above are this join at 2 of its stop sites; each other site calls
+/// the same join.
+#[test]
+fn a_bounded_join_leaves_a_thread_that_does_not_end_and_lists_it_until_its_end() {
+    const NAME: &str = "a thread of the bounded join's row";
+    let (end_the_thread, thread_runs) = mpsc::sync_channel::<()>(1);
+    let thread = std::thread::spawn(move || {
+        // Until the test drops its end of the channel.
+        let _ = thread_runs.recv();
+    });
+    // No wait: the thread cannot end before the channel closes.
+    let end = stop_join::join_for(NAME, thread, Duration::ZERO);
+    let listed = stop_join::alive_at(Instant::now());
+    drop(end_the_thread);
+    // The bound is for a list that does not let the thread go: a thread
+    // that ended leaves the list at once.
+    let listed_after = stop_join::alive_at(Instant::now() + OWNER_CALL_WAIT);
+    let ended = stop_join::join_for(NAME, std::thread::spawn(|| 7), OWNER_CALL_WAIT);
+    assert!(end.is_none(), "the join gave an end for a thread that had not ended");
+    assert!(
+        listed.contains(&NAME),
+        "a thread that the join left alive is not in the list that a release reads: {listed:?}"
+    );
+    assert!(
+        !listed_after.contains(&NAME),
+        "a thread that ended stayed in the list that a release reads: {listed_after:?}"
+    );
+    assert!(
+        matches!(ended, Some(Ok(7))),
+        "the join did not give the end of a thread that ended in its bound: {ended:?}"
+    );
+}

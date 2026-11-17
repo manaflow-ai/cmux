@@ -13,6 +13,7 @@ const RELEASE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_WRITER: &str = "session journal writer";
 const OUTPUT_CLEANUP_WORKER: &str = "output cleanup worker";
 const STORE_WRITE: &str = "a write of the session's store";
+const REGISTRY_HOLD: &str = "a hold of the registry's lock";
 
 /// How [`Mux::release_ownership`] ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -243,6 +244,12 @@ impl Mux {
     /// that each of those 3 stores has
     /// (`workspace_registry::wal_durability`), whichever thread makes it.
     ///
+    /// The same deadline holds for each thread that a bounded join of the
+    /// stop left alive (`mux/stop_join.rs`), by its name, and for the take
+    /// of the registry's lock (decision of 2026-11-17): a thread of this
+    /// owner that holds that lock and does not end cannot make the release
+    /// wait with no bound.
+    ///
     /// When one of them does not end in that wait, this owner keeps the
     /// session and says so: the locks move to a list that nothing drops
     /// (`workspace_registry::owner_release`), so they also outlive this
@@ -268,11 +275,15 @@ impl Mux {
         if !self.output_cleanup_ended_by(deadline) {
             alive.push(OUTPUT_CLEANUP_WORKER);
         }
+        // Each thread that a bounded join of the stop left alive, by name.
+        alive.extend(stop_join::alive_at(deadline));
         // A join of the journal writer that ran out, in this shutdown or
         // before it: stderr is often lost, the record is not.
         let writer_join = self.journal_ingress.late_writer_join();
         let release = {
-            let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(mut registry) = self.workspace_registry.lock_by(deadline) else {
+                return self.kept_behind_the_registry_lock(socket_path, alive, began, writer_join);
+            };
             let database = registry.session_journal_database_path();
             let session_dir = database.as_deref().and_then(Path::parent);
             let held =
@@ -312,6 +323,53 @@ impl Mux {
         };
         crate::server::cleanup(socket_path);
         release
+    }
+
+    /// The end of a release that did not get the registry's lock in its
+    /// wait: a thread of this owner holds that lock and does not give it
+    /// back (decision of 2026-11-17). The session's locks are in the locked
+    /// value and stay there, so this owner keeps its session, and it says
+    /// so as each owner that keeps its session does. The drop of this
+    /// owner's value moves the locks to the list that nothing drops
+    /// ([`Self::keep_the_locks_a_release_left`]).
+    fn kept_behind_the_registry_lock(
+        &self,
+        socket_path: &Path,
+        mut alive: Vec<&'static str>,
+        began: Instant,
+        writer_join: Option<String>,
+    ) -> OwnershipRelease {
+        alive.push(REGISTRY_HOLD);
+        self.release_left_locks.store(true, Ordering::Release);
+        // The session's folder with no read of the registry: the output
+        // store's folder is in it.
+        let session_dir = self.output_store.directory().and_then(Path::parent);
+        write_release_record(session_dir, true, &alive, began, writer_join);
+        let waited = began.elapsed();
+        eprintln!(
+            "cmux-tui: this daemon keeps its session until it exits: {} did not end in {} ms",
+            alive.join(", "),
+            waited.as_millis()
+        );
+        crate::server::cleanup(socket_path);
+        OwnershipRelease::KeptUntilExit { alive, waited }
+    }
+
+    /// At the drop of this owner's value: the session's locks that a
+    /// release left in the registry, because it did not get the registry's
+    /// lock, move to the list that nothing drops. That release said `kept
+    /// until the exit`, so the locks outlive this value. No thread holds the
+    /// registry's lock here: the drop has the only handle of the value.
+    pub(super) fn keep_the_locks_a_release_left(&mut self) {
+        if !*self.release_left_locks.get_mut() {
+            return;
+        }
+        let session_dir = self.output_store.directory().and_then(Path::parent);
+        let registry = self.workspace_registry.get_mut();
+        crate::workspace_registry::owner_release::keep_until_exit(
+            session_dir.unwrap_or(Path::new("")),
+            registry.lease.take().into_iter().chain(registry.session_guard.take()),
+        );
     }
 
     /// The release of this owner, for each store of the session folder that

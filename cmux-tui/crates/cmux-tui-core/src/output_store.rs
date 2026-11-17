@@ -1125,26 +1125,6 @@ impl OutputStore {
             .collect()
     }
 
-    /// Final write at quit, on the caller's thread: stop the writer, then
-    /// make every terminal's unwritten bytes durable.
-    pub(crate) fn shutdown(&self, mux: &Mux) {
-        if self.directory.is_none() {
-            return;
-        }
-        self.writer.stop();
-        // A terminal whose bytes since its snapshot are all in a synced tail
-        // is visited too: the pass reads its screen (a digest, no snapshot)
-        // and writes a snapshot only where the tail cannot carry it, a
-        // terminal on the alternate screen included (quit_pass_tests.rs).
-        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
-            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if state.tail_bytes > 0 {
-                state.dirty = true;
-            }
-        }
-        self.write_now(mux);
-    }
-
     /// Store every terminal's output now (a journal checkpoint and quit):
     /// the screen a respawn after a reboot gets is the screen at this point.
     /// Only terminals with bytes not yet durable are visited (unwritten

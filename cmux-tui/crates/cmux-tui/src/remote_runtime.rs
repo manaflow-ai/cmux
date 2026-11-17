@@ -412,10 +412,10 @@ impl DaemonRuntimeHandle {
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("daemon runtime thread is present").join() {
-            Ok(result) => result,
-            Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
-        }
+        let thread = self.thread.take().expect("daemon runtime thread is present");
+        let end = cmux_tui_core::Mux::join_within_stop("remote runtime", thread);
+        let Some(end) = end else { return Ok(()) }; // No end in the bound: stderr has the line.
+        end.unwrap_or_else(|_| Err(anyhow!("remote daemon runtime thread panicked")))
     }
 }
 
