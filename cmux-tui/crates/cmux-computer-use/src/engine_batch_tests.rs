@@ -159,7 +159,7 @@ fn every_step_reports_its_own_outcome_and_changes() {
 #[test]
 fn require_confirmed_lets_a_confirmed_step_through() {
     let d = desktop_with(doc(false, "", "Save"));
-    let e = rig(d.clone());
+    let e = rig(d);
     let out = batch(
         &e,
         json!([
@@ -267,7 +267,7 @@ fn by_default_only_an_error_stops_the_batch() {
 #[test]
 fn require_not_no_effect_lets_an_uncertain_step_through() {
     let d = desktop_with(doc(false, "", "Save"));
-    let e = rig(d.clone());
+    let e = rig(d);
     let out = batch(
         &e,
         json!([

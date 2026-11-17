@@ -516,7 +516,7 @@ fn batch_steps_are_read_back_after_their_own_settle() {
 fn a_batch_step_is_not_confirmed_by_a_later_step() {
     let d = Arc::new(FakeDesktop::standard());
     *d.confirms_on_reread.lock().unwrap() = Some(false);
-    let (e, _) = settling_engine(d.clone());
+    let (e, _) = settling_engine(d);
     let out = e.call(
         &ctx(None),
         "batch",
