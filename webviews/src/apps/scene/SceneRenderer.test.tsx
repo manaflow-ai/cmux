@@ -213,7 +213,7 @@ test("TextField edit, submit and cancel dispatch synchronously and submit the ed
   expect(calls).toEqual([
     ["field", "edit", { text: "recent" }],
     ["field", "submit", { text: "recent" }],
-    ["field", "cancel"],
+    ["field", "cancel", { text: "recent" }],
   ]);
 });
 

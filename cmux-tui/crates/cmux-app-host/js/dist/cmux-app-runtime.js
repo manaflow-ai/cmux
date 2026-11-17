@@ -954,7 +954,17 @@
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
       let first = true;
+      let reported;
+      if (view.type === "TextField" && key === "text") {
+        const [read, write] = signal(0);
+        reported = read;
+        record.shown = (text) => {
+          last = text;
+          write((n) => n + 1);
+        };
+      }
       effect(() => {
+        reported?.();
         const value = scalar(fn());
         if (first) {
           first = false;
@@ -2825,11 +2835,15 @@
         }
         case "submit":
         case "edit": {
+          if (typeof payload.text === "string")
+            record.shown?.(payload.text);
           const h = record.handlers[event];
           runHandler(event, h && (() => h(String(payload.text ?? ""))));
           break;
         }
         default:
+          if (event === "cancel" && typeof payload.text === "string")
+            record.shown?.(payload.text);
           runHandler(event, record.handlers[event]);
       }
     }

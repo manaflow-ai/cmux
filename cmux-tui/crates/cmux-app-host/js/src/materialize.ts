@@ -28,6 +28,9 @@ interface NodeRecord {
   menu: MenuEntry[] | null
   /** Current child ids, so a removal releases the whole subtree from the budget. */
   children: string[]
+  /** A TextField bound to a live `text`: the field reports the text it shows (with each edit, submit
+   * and cancel), which becomes the page's copy of the prop. */
+  shown?: (text: string) => void
 }
 
 export class Mount {
@@ -124,7 +127,23 @@ function build(m: Mount, view: ViewNode, depth: number): string {
   for (const [key, fn] of live) {
     let last = firstValues.get(key)
     let first = true
+    // A TextField's text is the person's while they type: the page keeps what they typed as the prop's
+    // value, and the field reports it with each edit, submit and cancel. That report becomes `last`, so
+    // the app's value goes out only when it differs from what the field shows: an edit is never echoed
+    // back (a late echo would overwrite newer typing), and an app that sets "" after a submit clears the
+    // field even when its value was "" all along (no edit reached it). The counter makes the effect run
+    // after the handler when no signal it reads changed.
+    let reported: (() => number) | undefined
+    if (view.type === "TextField" && key === "text") {
+      const [read, write] = signal(0)
+      reported = read
+      record.shown = (text) => {
+        last = text
+        write((n) => n + 1)
+      }
+    }
     effect(() => {
+      reported?.()
       const value = scalar(fn())
       if (first) {
         first = false

@@ -148,11 +148,16 @@ function install() {
         }
         case "submit":
         case "edit": {
+          // The field's text before its handler runs: the app's value after it goes back to the field
+          // only when it differs (materialize.ts `shown`).
+          if (typeof payload.text === "string") record.shown?.(payload.text)
           const h = record.handlers[event] as ((t: string) => unknown) | undefined
           runHandler(event, h && (() => h(String(payload.text ?? ""))))
           break
         }
         default:
+          // A TextField's cancel carries the text it shows, as submit does.
+          if (event === "cancel" && typeof payload.text === "string") record.shown?.(payload.text)
           runHandler(event, record.handlers[event] as (() => unknown) | undefined)
       }
   }
