@@ -87,13 +87,18 @@ import VideoToolbox
         report.finish(bound: 2)
     }
 
+    /// Bound 4, not 2: the Linux host's OpenH264 IDR itself moves teal's red by up to 4 codes
+    /// and red's blue by 3 (teal sits on R = 0, where any chroma error shows). cmux-codecs'
+    /// color test decodes the same stream in Rust and gets the same numbers, so it is the
+    /// encoder's loss, not the pane's; the pane alone is within 1 (the exact NV12 cases). A
+    /// matrix or range mismatch moves a patch by 13 to 40 codes, far past 4.
     @Test func theLinuxHostsStreamComesBackAsTheCard() throws {
         var report = Report()
         let tagged = try #require(Data(base64Encoded: RemoteColorCardFixtures.linuxHostBT709Tagged))
         let untagged = try #require(Data(base64Encoded: RemoteColorCardFixtures.linuxHostBT601Untagged))
         report.add("Linux host, BT.709 tagged", try Self.render(Self.decode(tagged)))
         report.add("Linux host before #44978, BT.601 untagged", try Self.render(Self.decode(untagged)))
-        report.finish(bound: 2)
+        report.finish(bound: 4)
     }
 
     /// The Mac host's session asks for the sRGB transfer (screen pixels are sRGB-encoded), and
