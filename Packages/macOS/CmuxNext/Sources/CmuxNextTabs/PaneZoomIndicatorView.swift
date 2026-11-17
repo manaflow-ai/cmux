@@ -88,8 +88,8 @@ public final class PaneZoomIndicatorView: NSView {
 
     /// The button's frame in an indicator with `bounds`: the bounds less the glass's padding. Nil
     /// when the bounds have no room for it (a hidden indicator has no size): the inset of a rect
-    /// smaller than the inset is the null rect, whose origin is infinite, and AppKit faults on that
-    /// frame.
+    /// smaller than the inset is the null rect, whose origin is infinite. AppKit does not keep that
+    /// frame: the button lands far outside its pane.
     static func buttonFrame(in bounds: NSRect) -> NSRect? {
         let frame = bounds.insetBy(dx: padding, dy: padding)
         return frame.isNull ? nil : frame

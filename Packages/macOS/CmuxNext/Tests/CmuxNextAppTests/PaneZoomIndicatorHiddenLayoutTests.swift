@@ -2,11 +2,11 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// Every pane holds a zoom indicator that stays hidden, with no size, until its pane zooms. AppKit
-/// lays that hidden view out too: with its pane, and again at each change of the appearance. An
+/// Every pane holds a zoom indicator that stays hidden, with no size, until its pane zooms. Its
+/// `layout()` can run in that state (its override for a change of the appearance asks for one). An
 /// inset of a rect smaller than the inset is the null rect, whose origin is infinite, and a view
-/// must never get it as its frame (AppKit logs a fault for each infinite coordinate of a frame).
-/// So an indicator with no room for its button has no frame for it.
+/// must never get it as its frame (AppKit does not keep it: the button lands far outside its pane).
+/// So an indicator with no room for its button has no frame for it, and its `layout()` sets none.
 /// No window: each case makes at most the indicator alone and calls its `layout()`.
 @MainActor @Suite struct PaneZoomIndicatorHiddenLayoutTests {
     @Test func anIndicatorWithNoSizeHasNoFrameForItsButton() {
@@ -27,17 +27,19 @@ import Testing
         #expect(indicator.button.frame == inset)
     }
 
-    /// The frame that AppKit keeps for the button of a new, hidden indicator after `layout()`. The
-    /// case prints it, for the run's log.
-    @Test func aHiddenIndicatorsLayoutKeepsItsButtonsFrameFinite() {
+    /// The `layout()` of a new, hidden indicator must leave its button's frame as it was. Without
+    /// this case, a `layout()` that insets the bounds itself passes the two cases above. The case
+    /// prints the frame that the button has after `layout()`, for the run's log.
+    @Test func aHiddenIndicatorsLayoutLeavesItsButtonsFrame() {
         let indicator = Self.indicator()
         #expect(indicator.isHidden && indicator.bounds.isEmpty, "a new indicator is hidden and has no size")
+        let before = indicator.button.frame
 
         indicator.layout()
 
         let frame = indicator.button.frame
         print("PaneZoomIndicatorHiddenLayoutTests: the button's frame after layout() with no size: \(frame)")
-        #expect(frame.origin.x.isFinite && frame.origin.y.isFinite, "the button's frame has an infinite origin: \(frame)")
+        #expect(frame == before, "layout() with no size moved the button's frame from \(before) to \(frame)")
     }
 
     private static func indicator() -> PaneZoomIndicatorView {
