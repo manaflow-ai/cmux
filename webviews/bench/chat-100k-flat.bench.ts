@@ -618,11 +618,27 @@ try {
         }
         return out;
       };
+      for (const { page } of pages) await settledAt(page).catch(() => undefined);
+      // Before the settle, so what hiding sets off (each hidden page's visibilitychange work) drains in it, not in the
+      // idle windows (run 44055105953: 20 empty chats' idle windows read 10.3/4.0/1.9 % and 7.2/5.2/3.2 % after the
+      // hide, with flat 2-4 % settle samples before it and no heap drop in them).
+      if (HIDDEN) {
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
+        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
+        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
+        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
+        for (const { page } of pages.slice(0, -1))
+          await page.evaluate(() => {
+            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+            Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+            document.dispatchEvent(new Event("visibilitychange"));
+          });
+      }
       // The pages' own settling (read-ahead, fonts, the first paints, after a burst its drain, and V8's collections after
-      // it) is not idle: it is timed from the last record in to the start of the first quiet window (SETTLE_QUIET_S
-      // above). PROFILE profiles it too, on the shown page (the pages of a launch share one renderer main thread and its
-      // V8 isolate, so one profile sees what each runs), and splits its CPU by thread. The profiler's own cost lengthens
-      // it: read the settle time from a run without PROFILE.
+      // it) is not idle: it is timed from the pages' final state (every record in, the hidden pages hidden) to the
+      // start of the first quiet window (SETTLE_QUIET_S above). PROFILE profiles it too, on the shown page (the pages
+      // of a launch share one renderer main thread and its V8 isolate, so one profile sees what each runs), and splits
+      // its CPU by thread. The profiler's own cost lengthens it: read the settle time from a run without PROFILE.
       const settleProfiled = profile ? [pages.at(-1)!.cdp] : [];
       const settleThreadsFrom = profile ? threadTicks() : undefined;
       for (const cdp of settleProfiled) {
@@ -714,20 +730,6 @@ try {
         console.log(`  ${name}: settle cpu % by thread: ${threads.map(([c, p]) => `${c} ${p.toFixed(1)}`).join(", ")}`);
         printTop(`  ${name}: settle profile, self ms (the renderer's main thread):`, self, 30);
         printTop(`  ${name}: settle profile, ms by entry (outermost script frame):`, entries, 20);
-      }
-      for (const { page } of pages) await settledAt(page).catch(() => undefined);
-      if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
-        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
-        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
-        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
-        for (const { page } of pages.slice(0, -1))
-          await page.evaluate(() => {
-            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-            Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-            document.dispatchEvent(new Event("visibilitychange"));
-          });
-        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       const shownProfiler = pages.at(-1)!.cdp;
       // Each reading is the median of REPEAT windows, so one noisy window on a shared runner cannot set the run's max
