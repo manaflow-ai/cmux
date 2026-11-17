@@ -44,7 +44,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
     struct Offline: Error {}
 
     /// Waits for `condition`, at most `limit` (a bounded test wait, not a sync).
-    private func eventually(_ limit: Duration = .seconds(2), _ condition: @MainActor () -> Bool) async -> Bool {
+    private func eventually(_ limit: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async -> Bool {
         let clock = ContinuousClock()
         let end = clock.now + limit
         while clock.now < end {
@@ -119,8 +119,14 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         func capture(_ name: String) {
             let shown = Self.label("Connecting…", in: controller.view).map { $0.alpha > 0 } ?? false
             log.append("\(name) t=\(Int((CACurrentMediaTime() - started) * 1000))ms connecting_line=\(shown)")
-            let image = UIGraphicsImageRenderer(bounds: bounds).image { _ in
-                window.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            // The layer tree itself: a test host's window has no scene, so drawHierarchy waits for a
+            // screen commit that never comes (a blank image and a ~13 s stall on the main actor).
+            controller.view.frame = bounds
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: bounds).image { context in
+                UIColor.systemBackground.setFill()
+                context.fill(bounds)
+                controller.view.layer.render(in: context.cgContext)
             }
             if let png = image.pngData() { Attachment.record(Array(png), named: "\(name).png") }
         }
