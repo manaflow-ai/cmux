@@ -125,9 +125,27 @@ pub fn sweep(
     started: SystemTime,
     mut in_use: impl FnMut(&Path) -> bool,
 ) -> Vec<PathBuf> {
-    // Nothing removes a stale clone yet: the regression test below is red.
-    let _ = (root, started, &mut in_use);
-    Vec::new()
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        if !is_clone_name(&entry.file_name()) {
+            continue;
+        }
+        let path = entry.path();
+        // symlink_metadata: a link named like a clone is never followed.
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() || !older_than(&meta, started) || in_use(&path) {
+            continue;
+        }
+        if std::fs::remove_dir_all(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 #[cfg(target_os = "macos")]
