@@ -6699,7 +6699,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const trustPasses =
     Boolean(snapshot.sessionId) &&
     (snapshot.isWorking || (snapshot.summary?.turnCount ?? 0) > 0) &&
-    trustAsk.blocked?.reason !== "trust.notTrustedNoPrompts";
+    !trustAsk.blocked?.untrusted;
   // A remote chat's question is answered on its own machine, which this pane never hears about, and
   // the floating chat's Start Agent hands a prompt off as it lands (`startInBackground`): both keep
   // Send off under the question, as before, instead of holding prompts.

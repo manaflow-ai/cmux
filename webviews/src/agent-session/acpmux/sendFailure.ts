@@ -66,10 +66,10 @@ export function failedSendText(
 ): string {
   const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
   switch (sendCause(fields)) {
+    // Pending or Not now: the folder's card above has Trust, and the prompt goes after it.
     case "trust-pending":
-      return translate("prompt.failure.trustPending");
     case "trust-untrusted":
-      return translate("prompt.failure.trustUntrusted");
+      return translate("prompt.failure.trustPending");
     case "pane":
       // The pane's bug, not the person's: logged for its report, as errorMessage logs it.
       console.error("agent pane: the host refused a request", error);

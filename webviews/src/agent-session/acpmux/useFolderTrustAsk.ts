@@ -82,7 +82,8 @@ function retryKey(chat: string | undefined, visit: unknown): string {
 
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
-export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
+/// `untrusted`: the person chose Not now; prompts wait for Trust, and the card above says so.
+export type SendBlock = { reason?: StringKey; shownAbove?: boolean; untrusted?: true };
 
 /// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
 /// a new page from the pool): a switch draws the folder's known trust from its first render, and
@@ -633,7 +634,7 @@ export function useFolderTrustAsk(
       : ask?.state === "remote"
         ? { reason: "trust.remote" }
         : ask?.state === "decided" && ask.level === "untrusted"
-          ? { reason: "trust.notTrustedNoPrompts" }
+          ? { reason: "picker.needsTrust", shownAbove: true, untrusted: true }
           : undefined;
 
   return {

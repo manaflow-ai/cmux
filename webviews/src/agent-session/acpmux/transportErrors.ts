@@ -40,8 +40,8 @@ export function isHostRefusal(error: unknown): boolean {
 // its CLI): the folder-trust gate (server/trust_gate.rs, hub/pool/mod.rs). They are not host
 // refusals: the pane's trust route asks the question.
 const DAEMON_REASON_TEXT: Record<string, StringKey> = {
-  "trust.pending": "error.trustPending",
-  "trust.untrusted": "error.trustUntrusted",
+  "trust.pending": "trust.answerFirst",
+  "trust.untrusted": "picker.needsTrust",
   // A Stop from a link that is not the chat's owner (remote_guard/cancel_owner.rs).
   "remote.session_cancel_ownership": "error.stopOwnerOnly",
   // A sub-session start (a plan build's worktree) refused at the chat's open sub-session limit

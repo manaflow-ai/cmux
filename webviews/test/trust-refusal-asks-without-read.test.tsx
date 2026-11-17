@@ -112,7 +112,7 @@ test("a trust.untrusted refusal shows Don't trust when the folder's read does no
   });
   await readGivesUp();
   expect(latest!.ask).toMatchObject({ cwd: peerFolder, state: "decided", level: "untrusted" });
-  expect(latest!.blocked?.reason).toBe("trust.notTrustedNoPrompts");
+  expect(latest!.blocked).toEqual({ reason: "picker.needsTrust", shownAbove: true, untrusted: true });
 });
 
 for (const path of ["failed row", "composer"] as const) {

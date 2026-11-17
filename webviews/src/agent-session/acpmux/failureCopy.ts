@@ -349,7 +349,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "trust-pending":
       return t("trust.answerFirst");
     case "trust-untrusted":
-      return t("trust.notTrustedNoPrompts");
+      return t("picker.needsTrust");
     case "no-team-account":
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
     case "needs-credits":
