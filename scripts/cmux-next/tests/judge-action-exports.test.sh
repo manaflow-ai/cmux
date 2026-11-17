@@ -34,6 +34,8 @@ repo() {
   git init -q -b feat && mkdir -p "${src%/*}" "${out%/*}"
   printf 'a\nb\nc\nd\ne\n' > "$src" && sed 's/^/action: /' "$src" > "$out" && echo readme > README.md
   echo md > plans/cmux-next/actions.md
+  mkdir -p Packages/macOS/Other && echo other > Packages/macOS/Other/x.txt
+  if [[ -n "${REPO_GRAPH:-}" ]]; then printf '%s\n' "$REPO_GRAPH" > "$pkg/ci-target-graph.json"; fi
   git add -A && git commit -q -m old
   edit "$1" "$2" && git commit -qam base
   git checkout -q -b pr HEAD~1
@@ -44,6 +46,7 @@ repo() {
 # edit SED_ON_SOURCE REGENERATES: change the source ('' changes the README instead).
 edit() {
   if [[ -z "$1" ]]; then echo "$RANDOM" >> README.md; return; fi
+  if [[ "$1" == other ]]; then echo "$RANDOM" >> Packages/macOS/Other/x.txt; return; fi
   sed -i.bak "$1" "$src" && rm -f "$src.bak"
   [[ "$2" == yes ]] && sed 's/^/action: /' "$src" > "$out"
   return 0
@@ -235,4 +238,34 @@ rm -rf "$cache"
 repo 's/^a$/A/' no 's/^e$/E/' no
 CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_ACTION_EXPORTS_REGEN="grep -q '^E\$' $src || exit 1; $CMUX_ACTION_EXPORTS_REGEN" judge || true
 [[ ! -e "$cache/$base_key" ]] || fail "(k) a failed base regenerate was kept"
+# (l) The target graph names the exports' inputs (action_export_inputs.py): a change to a package
+# outside the actions test target's closure builds nothing, as a README change does, while one inside
+# it builds the base. Without a graph every Packages change counts, as before.
+graph='{"packages": {}, "targets": {"CmuxNextActionsTests": {"kind": "test", "path": "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests", "targets": ["CmuxNextActions"], "packages": [], "reads": ["plans/cmux-next/"]}, "CmuxNextActions": {"kind": "regular", "path": "Packages/macOS/CmuxNext/Sources", "targets": [], "packages": []}}}'
+REPO_GRAPH="$graph" repo 's/^a$/A/' no other no
+: > "$tmp/builds"
+CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(l) an outside change failed: $(cat "$tmp/out.txt")"
+[[ ! -s "$tmp/builds" ]] || fail "(l) built the base for a change outside the exports' inputs: $(cat "$tmp/out.txt")"
+grep -q 'base drift' "$tmp/out.txt" || fail "(l) no base drift warning: $(cat "$tmp/out.txt")"
+products_are_heads "(l)"
+REPO_GRAPH="$graph" repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"
+CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(l) an inside change failed: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(l) built $(wc -l < "$tmp/builds") times for a change inside the inputs, not once"
+products_are_heads "(l)"
+repo 's/^a$/A/' no other no
+: > "$tmp/builds"
+CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(l) no graph failed: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(l) without a graph a Packages change did not build the base"
+# The key moves with an input, not with an outside package or the generated block of actions.md.
+REPO_GRAPH="$graph" repo '' no other no
+key="$(bash "$script" --inputs-key HEAD)"
+echo more >> Packages/macOS/Other/x.txt && git commit -qam outside
+[[ "$(bash "$script" --inputs-key HEAD)" == "$key" ]] || fail "(l) an outside package moved the key"
+printf 'md\n<!-- generated: action surfaces -->\nx\n<!-- /generated -->\n' > plans/cmux-next/actions.md && git commit -qam block
+key="$(bash "$script" --inputs-key HEAD)"
+printf 'md\n<!-- generated: action surfaces -->\ny\n<!-- /generated -->\n' > plans/cmux-next/actions.md && git commit -qam block2
+[[ "$(bash "$script" --inputs-key HEAD)" == "$key" ]] || fail "(l) the generated block of actions.md moved the key"
+printf 'md2\n<!-- generated: action surfaces -->\ny\n<!-- /generated -->\n' > plans/cmux-next/actions.md && git commit -qam hand
+[[ "$(bash "$script" --inputs-key HEAD)" != "$key" ]] || fail "(l) the hand-written part of actions.md kept the key"
 echo "judge-action-exports: ok"

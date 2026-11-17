@@ -18,8 +18,11 @@
 #      in the checkout for the "Regenerate stale files" step.
 #
 # The base's fresh export needs the base's generator inputs. When this event changed none of them
-# (GENERATOR_INPUTS), they are HEAD's, so HEAD's fresh export is the base's. Otherwise the changed
-# inputs are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
+# (export_inputs: the actions test target's closure in the target graph, which the regenerate step
+# alone builds from; GENERATOR_INPUTS without a graph), they are HEAD's, so HEAD's fresh export is the
+# base's. A change elsewhere in Packages no longer builds the base: 8 of the 16 slow pull request
+# runs on 2026-11-16..17 whose PR is known touched no path of that closure. Otherwise the changed
+# package and plans paths are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
 # inputs are put back, so the suites that run with `--skip-build` after this step test HEAD's
 # products. When the calling job built HEAD's package itself (CMUX_NEXT_JOB_BUILT=plain, the three
 # CI jobs that run this), a copy-on-write clone of HEAD's .build is kept before the base build and
@@ -29,7 +32,7 @@
 # testing the base's binaries. This mirrors check-settings-exports.sh.
 #
 # A fresh export is a function of the generator inputs alone (the rule above), so it is kept by their
-# key (`--inputs-key REV`: the git trees of GENERATOR_INPUTS at REV, less the exports) in a local
+# key (`--inputs-key REV`: the objects of export_inputs at REV, less the exports) in a local
 # directory, CACHE/KEY/<repository path> plus CACHE/KEY/.complete (CMUX_ACTION_EXPORTS_CACHE, default a
 # temporary one), backed by R2: in CI a key the directory lacks is read from the public bucket
 # (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off). The base autofix's Mac exports job, a feat-cmux-next
@@ -51,31 +54,37 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
-# The exports the regenerate step writes (ActionSurfaceParityTests), and every input the generator
-# reads: the local packages (the catalog and its tests) and plans/cmux-next (the inventory the
-# catalog tests read).
+# The exports the regenerate step writes (ActionSurfaceParityTests), and the broad inputs: what a base
+# build checks out from the base, and the exports' inputs when a commit has no target graph.
 EXPORTS=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
 GENERATOR_INPUTS=(Packages plans/cmux-next scripts/cmux-next/regenerate-action-contracts.sh)
 
-# The key of REV's fresh export: its generator inputs' object ids ("-" for one REV lacks), hashed.
-# The exports themselves are left out (plans/cmux-next holds them): the base autofix's commit that
-# lands fresh exports keeps the key of the commit they were made at, so a pull request on either
-# reads the same entry.
+# The paths REV's exports are made from: the CmuxNextActionsTests target, what it depends on and
+# reads, and the manifest inputs, from REV's own target graph (action_export_inputs.py). A change
+# elsewhere in Packages does not move them. GENERATOR_INPUTS when REV has no usable graph.
+export_inputs() {
+  git -C "$root" show "$1:Packages/macOS/CmuxNext/ci-target-graph.json" 2>/dev/null \
+    | python3 -I "$here/action_export_inputs.py" 2>/dev/null || printf '%s\n' "${GENERATOR_INPUTS[@]}"
+}
+# REV's actions.md less its generated block: the hand-written part, which the generated block sits in.
+generated_free() {
+  git -C "$root" show "$1:plans/cmux-next/actions.md" 2>/dev/null \
+    | awk -v b='<!-- generated: action surfaces -->' -v e='<!-- /generated -->' \
+        'index($0, b) { skip = 1 } !skip { print } index($0, e) { skip = 0 }' || true
+}
+# The key of REV's fresh export: the object ids of its inputs (export_inputs) less the exports
+# themselves, plus actions.md's hand-written part, hashed. The base autofix's commit that lands fresh
+# exports keeps the key of the commit they were made at, so a pull request on either reads the same entry.
 inputs_key() {
-  local rev="$1" path ids="" output_path inside
+  local rev="$1" path paths=()
   git -C "$root" cat-file -e "$rev^{commit}" 2>/dev/null || return 1
-  for path in "${GENERATOR_INPUTS[@]}"; do
-    inside=()
-    for output_path in "${EXPORTS[@]}"; do [[ "$output_path" != "$path"/* ]] || inside+=("$output_path"); done
-    if ((${#inside[@]})); then
-      ids+="$path $(git -C "$root" ls-tree -r --full-tree "$rev" -- "$path" \
-        | awk -F '\t' -v skip="${inside[*]}" 'BEGIN { n = split(skip, a, " "); for (i = 1; i <= n; i++) s[a[i]] = 1 } !($2 in s)' \
-        | git hash-object --stdin)"$'\n'
-    else
-      ids+="$path $(git -C "$root" rev-parse -q --verify "$rev:$path" 2>/dev/null || echo -)"$'\n'
-    fi
-  done
-  printf 'v2\n%s' "$ids" | git hash-object --stdin
+  while IFS= read -r path; do [[ -n "$path" ]] && paths+=("$path"); done < <(export_inputs "$rev")
+  {
+    printf 'v3\n'
+    git -C "$root" ls-tree -r --full-tree "$rev" -- "${paths[@]}" \
+      | awk -F '\t' -v skip="${EXPORTS[*]}" 'BEGIN { n = split(skip, a, " "); for (i = 1; i <= n; i++) s[a[i]] = 1 } !($2 in s)'
+    printf 'actions.md %s\n' "$(generated_free "$rev" | git hash-object --stdin)"
+  } | git hash-object --stdin
 }
 if [[ "${1:-}" == --inputs-key ]]; then inputs_key "${2:?--inputs-key REV}"; exit; fi
 
@@ -182,8 +191,22 @@ cache_put "$head_key" "$temp/head"
 base_key="$(inputs_key HEAD^1 || true)"
 output "base_key=$base_key"
 
+# The exports' inputs this event changed (export_inputs at either commit, less the exports; actions.md
+# when its hand-written part changed). None: HEAD's fresh export is the base's.
+inputs=()
+while IFS= read -r path; do [[ -n "$path" ]] && inputs+=("$path"); done < <(
+  { export_inputs HEAD; export_inputs HEAD^1; } | sort -u)
 changed=()
-while IFS= read -r path; do [[ -n "$path" ]] && changed+=("$path"); done < <(
+while IFS= read -r path; do
+  [[ -n "$path" && " ${EXPORTS[*]} " != *" $path "* ]] && changed+=("$path")
+done < <(git diff --no-renames --name-only HEAD^1 HEAD -- "${inputs[@]}")
+if [[ "$(generated_free HEAD^1 | git hash-object --stdin)" != "$(generated_free HEAD | git hash-object --stdin)" ]]; then
+  changed+=(plans/cmux-next/actions.md)
+fi
+# What a base build checks out from HEAD^1: those, and every other change to the package and plans, so
+# the base builds as the base did.
+from_base=(${changed[@]+"${changed[@]}"})
+while IFS= read -r path; do [[ -n "$path" ]] && from_base+=("$path"); done < <(
   git diff --no-renames --name-only HEAD^1 HEAD -- "${GENERATOR_INPUTS[@]}")
 
 # A path HEAD does not have: `git checkout HEAD^1 -- path` stages it, so the index goes back too.
@@ -206,7 +229,7 @@ elif ((${#changed[@]})); then
   restore() {
     ((restored)) && return 0
     restored=1
-    for path in "${changed[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
+    for path in "${from_base[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
     for file in ${present[@]+"${present[@]}"}; do cp "$temp/head/$file" "$file"; done
@@ -237,7 +260,7 @@ elif ((${#changed[@]})); then
   # Every export starts from the base's committed bytes too, so a file the base's export does not
   # rewrite is never read back as HEAD's fresh one, and what the cache keeps for the base's key is
   # the base's alone.
-  for path in "${changed[@]}" "${EXPORTS[@]}"; do
+  for path in "${from_base[@]}" "${EXPORTS[@]}"; do
     if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else restore_absent "$path"; fi
   done
   build > "$temp/base-build.log" 2>&1 || { cat "$temp/base-build.log" >&2; echo "::error::the base parent's package does not build here; the stale exports count as this change's: ${stale[*]}"; restore || true; exit 1; }
@@ -249,7 +272,7 @@ elif ((${#changed[@]})); then
   done
   restore || exit 1
 else
-  # The generator's inputs are the base's: HEAD's fresh export is the base's fresh export.
+  # The exports' inputs are the base's: HEAD's fresh export is the base's fresh export.
   for file in "${stale[@]}"; do mkdir -p "$temp/base/${file%/*}" && cp "$temp/head/$file" "$temp/base/$file"; done
 fi
 
