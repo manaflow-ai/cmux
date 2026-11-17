@@ -3633,6 +3633,21 @@ class IOSRouting(unittest.TestCase):
                                  owned_slots={MINI: 40, ROOT_MINI: 10})
         self.assertEqual(choice.root_runner, ROOT_MINI)
 
+    def test_a_capability_label_as_the_runner_variable_takes_the_default(self):
+        # cmux#43307, run 43970068980: vars.MACOS_RUNNER_IOS read glaeda-ios-sim, and every output named it.
+        for bad in (IOS_SIM, "glaeda-sim-xcode-26.6"):
+            out, err = io.StringIO(), io.StringIO()
+            with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+                code = ios_pool.main(["--lane", "kit", "--variable", bad], env={})
+            self.assertEqual(code, 0)
+            outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+            for key in ("label", "retry_label", "runs_on", "package_runs_on", "retry_runs_on"):
+                self.assertNotIn(bad, outputs[key], (bad, key))
+                self.assertTrue(outputs[key].strip('"').startswith("blacksmith-"), (bad, key, outputs[key]))
+            self.assertIn(f"names {bad}", err.getvalue())
+        self.assertEqual(ios_pool.runner_variable(" blacksmith-12vcpu-macos-26 "), "blacksmith-12vcpu-macos-26")
+        self.assertEqual(ios_pool.runner_variable(""), "")
+
     def test_main_prints_outputs(self):
         out = io.StringIO()
         with unittest.mock.patch("sys.stdout", out):

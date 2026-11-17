@@ -815,6 +815,23 @@ def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None,
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 
+def runner_variable(value: str) -> str:
+    """The lane's runner variable, unless it names a capability or the sim-first label, which no runner takes alone.
+
+    A runner variable is an explicit route: it is never rerouted, it is every job's retry label, and
+    ci-owned-pool-rescue.yml does not watch it. On 2026-11-16 vars.MACOS_RUNNER_IOS read `glaeda-ios-sim`
+    until 23:07Z; cmux#43307's run 43970068980 took it as runs_on, retry_runs_on and package_runs_on, and its
+    CmuxMobileKit job queued for hours with no runner on that label and no way off it. Such a value is
+    treated as unset (the 6vcpu macOS 26 default, routed as usual) with a warning in the runner job's log.
+    """
+    label = (value or "").strip()
+    if label in pr_runner_pool.CAPABILITY_LABELS or pr_runner_pool.sim_first(label):
+        print(f"::warning::the runner variable names {label}, a label no runner takes alone; using {SMALL_RUNNER}",
+              file=sys.stderr)
+        return ""
+    return label
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -837,6 +854,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--upload", default="", help="'true' for an App Store upload")
     parser.add_argument("--called", default="", help="'true' when another workflow called this one")
     args = parser.parse_args(argv)
+    args.variable = runner_variable(args.variable)
 
     # Simulator-aware runs with an Actions token retain the lane's capability
     # accounting below. Plain automatic package/screenshot routing shares the
@@ -851,7 +869,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
             jobs=1, env=values, fork=args.fork == "true"))
-        label = choice.label or args.variable or SMALL_RUNNER
+        label = runner_variable(choice.label) or args.variable or SMALL_RUNNER
         persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
         lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
