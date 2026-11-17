@@ -1298,15 +1298,21 @@
   /* Base UI's anchor width is already in drawn pixels. This portal draws its
      specified width times t once, so (anchor / t) * t equals the composer. */
   width: calc(var(--anchor-width) / var(--cmux-composer-zoom, 1));
-  /* The rows' padding and height in whole drawn pixels (after the zoom): at a compact density they came to 3.3 and
-     23.3 px, so a row's edges fell between pixels and a lone Ask row sat 1 px low (Lucas 2026-11-17). */
-  --ui-popup-padding: calc(
-    round(var(--ds-space-1) * var(--nt-density, 1) * var(--cmux-composer-zoom, 1), 1px) /
-      var(--cmux-composer-zoom, 1)
-  );
-  --ui-row-height: calc(
-    round(var(--acpmux-composer-control, 28px) * var(--cmux-composer-zoom, 1), 1px) / var(--cmux-composer-zoom, 1)
-  );
+}
+/* The rows' padding and height in whole drawn pixels (after the zoom): at a compact density they came to 3.3 and
+   23.3 px, so a row's edges fell between pixels and a lone Ask row sat 1 px low (Lucas 2026-11-17). An engine
+   without round() keeps the sizes above. */
+@supports (width: round(nearest, 1.5px, 1px)) {
+  .nt-popover {
+    --ui-popup-padding: calc(
+      round(nearest, var(--ds-space-1) * var(--nt-density, 1) * var(--cmux-composer-zoom, 1), 1px) /
+        var(--cmux-composer-zoom, 1)
+    );
+    --ui-row-height: calc(
+      round(nearest, var(--acpmux-composer-control, 28px) * var(--cmux-composer-zoom, 1), 1px) /
+        var(--cmux-composer-zoom, 1)
+    );
+  }
 }
 .nt-screen .nt-create .nt-tool-icon{width:var(--acpmux-composer-glyph);height:var(--acpmux-composer-glyph)}
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}

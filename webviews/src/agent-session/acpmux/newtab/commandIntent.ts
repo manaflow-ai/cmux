@@ -24,8 +24,6 @@ const COMMANDS = new Set([
   "cp",
   "ln",
   "cat",
-  "bat",
-  "less",
   "grep",
   "rg",
   "fd",
@@ -40,14 +38,8 @@ const COMMANDS = new Set([
   "echo",
   "printf",
   "env",
-  "export",
-  "source",
   "alias",
   "unalias",
-  "unset",
-  "exit",
-  "clear",
-  "jobs",
   "fg",
   "bg",
   "killall",
@@ -74,8 +66,6 @@ const COMMANDS = new Set([
   "ssh",
   "scp",
   "rsync",
-  "ping",
-  "dig",
   "nslookup",
   "git",
   "gh",
@@ -96,11 +86,7 @@ const COMMANDS = new Set([
   "uvx",
   "poetry",
   "ruby",
-  "gem",
-  "bundle",
-  "rake",
   "rails",
-  "go",
   "cargo",
   "rustc",
   "rustup",
@@ -128,14 +114,12 @@ const COMMANDS = new Set([
   "vi",
   "nano",
   "emacs",
-  "code",
   "zed",
   "subl",
   "tmux",
   "zsh",
   "bash",
   "sh",
-  "fish",
   "sudo",
   "pbcopy",
   "pbpaste",
@@ -154,18 +138,14 @@ const COMMANDS = new Set([
   "gradle",
   "dotnet",
   "php",
-  "composer",
   "perl",
   "lua",
   "zig",
   "nix",
-  "just",
   "eza",
   "exa",
   "lsd",
-  "cmux",
   "lsof",
-  "kill",
   "ffmpeg",
   "tsc",
   "vite",
@@ -216,17 +196,85 @@ const AMBIGUOUS = new Set([
   "say",
   "set",
   "test",
+  "just",
+  "go",
+  "code",
+  "clear",
+  "exit",
+  "source",
+  "export",
+  "bundle",
+  "kill",
+  "ping",
+  "dig",
+  "less",
+  "rake",
+  "gem",
+  "composer",
+  "bat",
+  "fish",
+  "jobs",
 ]);
 
 /// Agent CLIs: their bare name starts that agent's chat in the page (launchRows.ts).
 const AGENT_COMMANDS = new Set(["claude", "codex", "opencode", "gemini", "aider", "amp", "cursor-agent", "goose"]);
 
-/// Shell syntax a sentence does not have: pipes, `&&`, redirects, `$VAR`, `$(…)`, backticks.
-const SHELL_SYNTAX = /(\|\||&&|[|;<>`]|\$\(|\$[A-Za-z_{])/;
+/// Shell operators a sentence does not have: `|`, `||`, `&&`, a redirect, `$VAR`, `$(…)`. Not backticks,
+/// `;` or a lone `<`/`>`: a prompt quotes code and writes "a > b".
+const SHELL_OPERATOR = /(\|\||&&|\s\|\s|\s\d?>>?\s|\$\(|\$[A-Za-z_{])/;
 /// `VAR=value` before a command.
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
-/// A word that only a command line has: a flag, a relative or home path.
-const SHELL_WORD = /^(-{1,2}[A-Za-z0-9]|\.{1,2}\/|~\/|\/)/;
+/// A flag: `-l`, `--force`.
+const FLAG = /^-{1,2}[A-Za-z0-9]/;
+/// A path argument: `.`, `./x`, `../x`, `~/x`, `/x`.
+const PATH = /^(\.{1,2}(\/|$)|~\/|\/)/;
+/// Words a sentence has and a command line almost never does: "git is slow", "go to the settings".
+const PROSE_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "to",
+  "and",
+  "or",
+  "but",
+  "of",
+  "for",
+  "with",
+  "in",
+  "on",
+  "into",
+  "from",
+  "it",
+  "this",
+  "that",
+  "my",
+  "me",
+  "i",
+  "we",
+  "you",
+  "your",
+  "why",
+  "how",
+  "what",
+  "not",
+  "isn't",
+  "doesn't",
+  "don't",
+  "can't",
+  "won't",
+  "should",
+  "please",
+  "so",
+  "if",
+  "when",
+  "all",
+]);
 
 /// The words of a command line, `sudo` and leading `VAR=value` set aside.
 function commandWords(text: string): string[] {
@@ -237,38 +285,45 @@ function commandWords(text: string): string[] {
 }
 
 /// How `text` reads, for the Run row. `agents` are the harness ids the page can start; `recent` are
-/// command lines the host sent (`omnibar.commands`).
+/// command lines the host sent (`omnibar.commands`). It errs toward the prompt: a Run row that leads
+/// runs on Return, so only a line that reads as nothing but a command leads with it.
 export function commandLikeness(
   text: string,
   context: { agents?: readonly string[]; recent?: readonly string[] } = {},
 ): CommandLikeness {
   const line = text.trim();
-  // A prompt on many lines, an attachment's token, or a question is words for the agent.
+  // A prompt on many lines or with an attachment's token is words for the agent.
   if (!line || /[\n\r]/.test(line) || line.includes(INLINE_ATTACHMENT_MARK)) return "prose";
   if (context.recent?.some((command) => command === line)) return "command";
+  // A question is never run, whatever it names ("which file handles /api?").
+  if (line.endsWith("?")) return "prose";
   const words = commandWords(line);
   const first = words[0]!.toLowerCase();
-  const syntax = SHELL_SYNTAX.test(line) || words.slice(1).some((word) => SHELL_WORD.test(word));
-  const question = line.endsWith("?");
+  const rest = words.slice(1);
+  const operator = SHELL_OPERATOR.test(line);
+  const flag = rest.some((word) => FLAG.test(word));
+  const prose = rest.some((word) => PROSE_WORDS.has(word.toLowerCase().replace(/[,.!:]+$/, "")));
+  // A path makes a short line a command ("cd ~/fun", "open ."), never a sentence that names one.
+  const shaped = operator || flag || (!prose && words.length <= 3 && rest.some((word) => PATH.test(word)));
   // `./build.sh`, `../bin/x`: a path run as a program. A bare `/path` is an address (newTabIntent).
   if (first.startsWith("./") || first.startsWith("../")) return "command";
+  // An agent's name with a folder ("codex ~/fun/cmux") starts that agent there (launchRows.ts).
   if (AGENT_COMMANDS.has(first) || context.agents?.includes(first)) {
-    if (syntax) return "command";
+    if (operator || flag) return "command";
     return words.length === 1 ? "agent" : "prose";
   }
   if (COMMANDS.has(first)) {
-    if (syntax) return "command";
-    if (question) return "maybe";
-    return words.length <= 6 ? "command" : "maybe";
+    if (shaped) return "command";
+    return prose || words.length > 5 ? "maybe" : "command";
   }
   if (AMBIGUOUS.has(first)) {
-    if (syntax) return "command";
-    if (question) return "prose";
-    if (words.length <= 2) return "command";
-    return words.length === 3 ? "maybe" : "prose";
+    if (shaped) return "command";
+    if (prose) return "prose";
+    if (words.length === 1) return "command";
+    return words.length === 2 ? "maybe" : "prose";
   }
-  // An unknown program with shell syntax (`foo --bar`, `mytool | head`): maybe.
-  return syntax && !question && words.length <= 8 ? "maybe" : "prose";
+  // An unknown program with shell syntax (`mytool --verbose`, `mytool | head`): maybe.
+  return (operator || flag) && !prose && words.length <= 6 ? "maybe" : "prose";
 }
 
 /// Whether `text` is more than one line: a prompt, with fewer rows under it.

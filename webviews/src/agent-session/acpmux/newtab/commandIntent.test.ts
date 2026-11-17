@@ -25,8 +25,12 @@ test.each([
   ["sudo brew upgrade", "command"],
   ["FOO=1 bun test", "command"],
   ["make", "command"],
-  ["make test", "command"],
-  ["open the settings", "maybe"],
+  ["make test", "maybe"],
+  ["git is broken", "maybe"],
+  ["open .", "command"],
+  ["find . -name '*.ts'", "command"],
+  ["git commit -m 'fix the build'", "command"],
+  ["open the settings", "prose"],
   ["mytool --verbose", "maybe"],
   ["claude", "agent"],
   ["claude --resume", "command"],
@@ -35,6 +39,13 @@ test.each([
   ["how do i rebase", "prose"],
   ["which file handles tabs?", "prose"],
   ["codex cmux", "prose"],
+  ["codex ~/fun/cmux", "prose"],
+  ["just fix the build", "prose"],
+  ["go to the settings", "prose"],
+  ["code a login form", "prose"],
+  ["make the /api route faster", "prose"],
+  ["which file handles /api?", "prose"],
+  ["fix `foo` in bar.ts", "prose"],
   ["ls\nls", "prose"],
 ] as const)("%p reads as %p", (text, likeness) => {
   expect(commandLikeness(text, { agents: ["claude", "codex"] })).toBe(likeness);
@@ -50,7 +61,18 @@ test("a command leads with Run, Ask second", () => {
 });
 
 test("a maybe keeps Ask first and Run second", () => {
-  expect(kinds("open the settings")).toEqual(["ask", "run"]);
+  expect(kinds("make test")).toEqual(["ask", "run"]);
+});
+
+test("an agent's folder start keeps Return over Run", () => {
+  expect(kinds("codex ~/fun/cmux")[0]).toBe("launch");
+  expect(kinds("codex ~/fun/cmux")).not.toContain("run");
+});
+
+test("a workspace named exactly the text keeps Return over Run", () => {
+  const omnibar = { ...EMPTY_OMNIBAR, workspaces: [{ id: "w1", name: "git status" }] };
+  const rows = screenRows("git status", { omnibar, ask, agents }).map((row) => row.type);
+  expect(rows.slice(0, 3)).toEqual(["workspace", "run", "ask"]);
 });
 
 test("words for the agent get no Run row", () => {

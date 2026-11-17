@@ -290,7 +290,8 @@ function navigationRows(
   const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
   // What leads above Ask: the address, the page a site's whole name or a host-like word completes
   // ("reddit", "reddit.c"; "reddi" or "app" ask), or a tab or workspace named exactly that.
-  const top = open.length || namesSite(query, completed[0]) ? found[0] : exactMatch(query, found, context.omnibar);
+  const addressTop = open.length > 0 || namesSite(query, completed[0]);
+  const top = addressTop ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   // The open tabs and workspaces, then the chats and the agents to start, then the visited pages:
@@ -302,7 +303,8 @@ function navigationRows(
   const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
   const named = agent.named ? agent.launch : [];
   // What Return takes and what follows it, before the sections: a sure command first, then the
-  // named starts, then the lead (an address or exact name, Ask; the web search with no agent).
+  // named starts, then the lead (an address or exact name, Ask; the web search with no agent). An
+  // agent's folder start and a tab or workspace named exactly the text keep Return over Run.
   const searchLeads = !ask.length && !top;
   const lead = searchLeads
     ? search
@@ -313,12 +315,12 @@ function navigationRows(
           ? [...ask, top]
           : [top, ...ask]
         : ask;
-  const head =
-    likeness === "command" || (likeness === "agent" && !named.length)
-      ? [...run, ...named, ...lead]
-      : named.length
-        ? [...named, ...run, ...lead]
-        : [...lead.slice(0, 1), ...run, ...lead.slice(1)];
+  const runLeads = (likeness === "command" || likeness === "agent") && !named.length && !(top && !addressTop);
+  const head = runLeads
+    ? [...run, ...lead]
+    : named.length
+      ? [...named, ...run, ...lead]
+      : [...lead.slice(0, 1), ...run, ...lead.slice(1)];
   // The rows under the head share what is left of MAX_SUGGESTIONS (the web search counts): one row
   // per section in turn, so each section the text finds keeps a row and no section's many push the
   // others out; each keeps its own order. The tabs, workspaces and pages keep their cap together.

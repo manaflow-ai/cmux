@@ -2048,3 +2048,28 @@ test("a page that has focus already reports its field ready at once, and only on
   await render("cmd-t-2");
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
 });
+
+test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("git status");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("true");
+  await press(field, "Enter");
+  expect(shells).toEqual(["git status"]);
+  expect(asks).toEqual([]);
+  field = await typePrompt("git status");
+  await press(field, "Enter", { metaKey: true });
+  expect(shells).toEqual(["git status"]);
+  expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
