@@ -140,7 +140,7 @@ impl Hub {
     /// a new subagent group, a permission card), the row after it is named by its first chunk read.
     pub(super) fn before_agent_update(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         params: Option<&Value>,
     ) -> Option<String> {
         let update = params.and_then(|p| p.get("update"))?;
@@ -257,10 +257,7 @@ impl Hub {
         // The model request failed and Codex tries again (`turn_retry.rs`). A sign-in the model
         // API refuses ends the turn at its second retry: Codex's own retries never end.
         if let Some(retry) = retrying {
-            let shared = self.sessions.lock().ok().and_then(|s| s.get(&session.id).cloned());
-            if let Some(shared) = shared {
-                self.end_sign_in_refused(&shared, &retry);
-            }
+            self.end_sign_in_refused(session, &retry);
             self.turn_retrying(session, retry);
         }
         if let Some((old, new, notice)) = superseded {
