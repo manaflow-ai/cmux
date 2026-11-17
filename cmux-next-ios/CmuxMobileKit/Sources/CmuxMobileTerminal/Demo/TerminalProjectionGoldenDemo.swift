@@ -28,7 +28,10 @@ import UIKit
 /// (then `.done` after the last), and `debug.golden-text` the surface's rows,
 /// for the UI test to attach beside the screenshot.
 /// `rotation_and_keyboard` also shows and hides the keyboard
-/// (`.kbup`, `.kbdown`); `scrollback_reaches_line_one` scrolls to the top (`.top`).
+/// (`.kbup`, `.kbdown`). After `.done` the UI test turns the phone, and for
+/// `scrollback_reaches_line_one` swipes up through the history the way a
+/// person does (the page asks for older rows only while a finger drags or a
+/// fling decelerates); `debug.golden-text` names the oldest row held.
 public struct TerminalProjectionGoldenRoot: View {
     @State private var model: TerminalModel
     @State private var host: TerminalTabHost
@@ -122,6 +125,8 @@ public struct TerminalProjectionGoldenRoot: View {
         var out = "grid \(grid.columns)x\(grid.rows)\(model.isTUI ? " alternate screen" : "") side \(side.rawValue)"
         out += " mac \(golden.macColumns)x\(golden.macRows) mac-pty-resizes-asked \(mac.resizesAsked)\n"
         if let rows = surface.screenRows() {
+            // The oldest row the page holds: the scrollback test swipes until it is line 0001.
+            out += "held \(rows.rows.count) rows, oldest |\(rows.rows.first ?? "")|\n"
             let keep = grid.rows + 12
             let first = max(0, rows.rows.count - keep)
             for index in first..<rows.rows.count {
@@ -161,14 +166,6 @@ public struct TerminalProjectionGoldenRoot: View {
             await wait(2.5)
             readBack()
             note("\(golden.stages.count + 2).kbdown")
-            await wait(Self.stageSeconds)
-        case "scrollback_reaches_line_one":
-            for _ in 0..<8 {
-                model.scrollToTop()
-                await wait(1)
-            }
-            readBack()
-            note("\(golden.stages.count + 1).top")
             await wait(Self.stageSeconds)
         default:
             break

@@ -239,7 +239,12 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// Portrait on a phone's screen everywhere but a Mac's shared screen, which turns with the
     /// phone; an unfolded foldable's screen turns everywhere.
     public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        ScreenSharingOrientation.shared.allowed(in: window)
+#if DEBUG
+        // The projection golden screenshots turn the phone to show the terminal re-wrapped in
+        // landscape (and the Mac pane at its width); the shipping app stays portrait on a phone.
+        if UserDefaults.standard.string(forKey: "CmuxMobileProjectionGolden") != nil { return .allButUpsideDown }
+#endif
+        return ScreenSharingOrientation.shared.allowed(in: window)
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

@@ -88,12 +88,48 @@ final class TerminalProjectionGoldenShotsUITests: XCTestCase {
         XCTAssertTrue(probe.label == prefix + "done", "\(name) \(side) never finished: \(probe.label)")
         XCTAssertFalse(seen.isEmpty, "\(name) \(side): no stage on screen")
 
+        if name == "scrollback_reaches_line_one" {
+            // Swipe up through the history as a person does, about one a second, until the page
+            // holds line 0001 and shows it, or 30 s pass.
+            let start = Date()
+            var swipes = 0
+            var heldAt: Int?
+            while Date().timeIntervalSince(start) < 30 {
+                app.swipeDown(velocity: .fast)
+                swipes += 1
+                RunLoop.current.run(until: Date().addingTimeInterval(1))
+                if heldAt == nil, text.label.contains("oldest |line 0001") { heldAt = swipes }
+                if let heldAt, swipes >= heldAt + 3 { break }
+            }
+            let result = "swipes \(swipes) in \(Int(Date().timeIntervalSince(start))) s; line 0001 held after "
+                + (heldAt.map { "\($0) swipes" } ?? "never") + "\n" + (text.label.components(separatedBy: "\n").prefix(2).joined(separator: "\n"))
+            print("projection golden: \(name) \(side): \(result)")
+            let note = XCTAttachment(string: result)
+            note.name = "\(name)-\(side)-swipes.txt"
+            note.lifetime = .keepAlways
+            add(note)
+            shot("2-top")
+        }
+
         if side == "phone", name == "rotation_and_keyboard" {
+            let window = app.windows.firstMatch
+            // Wait for the window's bounds to turn, as the rotation lands.
+            func turned(wide: Bool) -> Bool {
+                let deadline = Date().addingTimeInterval(10)
+                while Date() < deadline {
+                    let size = window.frame.size
+                    if (size.width > size.height) == wide { break }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+                let size = window.frame.size
+                return (size.width > size.height) == wide
+            }
             XCUIDevice.shared.orientation = .landscapeLeft
-            RunLoop.current.run(until: Date().addingTimeInterval(3))
+            XCTAssertTrue(turned(wide: true), "the window never turned to landscape: \(window.frame)")
             shot("9-landscape")
             XCUIDevice.shared.orientation = .portrait
-            RunLoop.current.run(until: Date().addingTimeInterval(3))
+            XCTAssertTrue(turned(wide: false), "the window never turned back to portrait: \(window.frame)")
             shot("10-portrait-again")
         }
     }
