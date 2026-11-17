@@ -233,22 +233,30 @@ pub fn i420_to_bgrx(
 ) {
     let (ky, rv, gu, gv, bu) = coefficients(yuv);
     let y0 = if yuv.full_range { 0 } else { 16 };
-    for row in 0..h {
-        let yr = &y[row * strides.0..row * strides.0 + w];
-        let ur = &u[(row / 2) * strides.1..];
-        let vr = &v[(row / 2) * strides.2..];
-        let o = &mut out[row * w * 4..(row + 1) * w * 4];
-        for col in 0..w {
-            let c = (i32::from(yr[col]) - y0) * ky + 32768;
-            let d = i32::from(ur[col / 2]) - 128;
-            let e = i32::from(vr[col / 2]) - 128;
-            let px = &mut o[col * 4..col * 4 + 4];
-            px[0] = ((c + bu * d) >> 16).clamp(0, 255) as u8;
-            px[1] = ((c - gu * d - gv * e) >> 16).clamp(0, 255) as u8;
-            px[2] = ((c + rv * e) >> 16).clamp(0, 255) as u8;
-            px[3] = 0;
+    // A plane shorter than `w` x `h` says stops the conversion there (no panic).
+    for (row, o) in out.chunks_exact_mut(w * 4).take(h).enumerate() {
+        let (Some(yr), Some(ur), Some(vr)) = (
+            y.get(row * strides.0..).and_then(|r| r.get(..w)),
+            u.get((row / 2) * strides.1..),
+            v.get((row / 2) * strides.2..),
+        ) else {
+            return;
+        };
+        for (col, (px, &luma)) in o.chunks_exact_mut(4).zip(yr).enumerate() {
+            let (Some(&cb), Some(&cr)) = (ur.get(col / 2), vr.get(col / 2)) else {
+                return;
+            };
+            let c = (i32::from(luma) - y0) * ky + 32768;
+            let d = i32::from(cb) - 128;
+            let e = i32::from(cr) - 128;
+            px.copy_from_slice(&[code(c + bu * d), code(c - gu * d - gv * e), code(c + rv * e), 0]);
         }
     }
+}
+
+/// A 16.16 fixed-point value as an 8-bit code, clamped.
+fn code(v: i32) -> u8 {
+    u8::try_from((v >> 16).clamp(0, 255)).unwrap_or(u8::MAX)
 }
 
 #[cfg(test)]
