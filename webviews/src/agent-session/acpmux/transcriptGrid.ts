@@ -18,6 +18,13 @@ export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// line, then the block gap to whatever comes next.
 export const TRANSCRIPT_FOOTER_GAP = gridLength("gap-footer");
 export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control");
+/// The running turn's live line (Thinking, Working, "Running …", the activity line), the turn's last row: ONE
+/// height in every state, under a run or under a reply, the reply footer's 32 slot it swaps with when the turn
+/// ends. Two heights (22 under a run, 32 under a reply) moved the line each time the row over it changed
+/// (cmux#24569). Leo, 2026-11-16: "we need to decide do we want 22 or 32 and centralize it so this doesnt
+/// happen"; 32 (cmux#43627). Every consumer reads this one value: model.ts `liveLineRow` and conversation.css
+/// `--cv-live-line`; no live-line rule sets a height of its own (test/live-line-height.test.ts).
+export const TRANSCRIPT_LIVE_LINE = TRANSCRIPT_FOOTER_CONTROL;
 
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so

@@ -21,6 +21,7 @@ import {
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
+  TRANSCRIPT_LIVE_LINE,
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
@@ -1579,6 +1580,8 @@ const META_ROW_PT = gridLength("transcript-action-control");
 const metaRow = () => META_ROW_PT * chromeScale;
 /// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
 const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
+/// The running turn's live line, in every state (transcriptGrid.ts `TRANSCRIPT_LIVE_LINE`, the one value).
+const liveLineRow = () => TRANSCRIPT_LIVE_LINE * chromeScale;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -2347,9 +2350,9 @@ function fallbackRowHeight(
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
-  // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
+  // The running turn's line as its last row is the footer's slot (liveLineRow(), conversation.css
+  // `--cv-live-line`; transcriptGrid.ts TRANSCRIPT_LIVE_LINE), so the end-of-turn swap keeps its place.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(liveLineRow());
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
   // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
@@ -2358,7 +2361,7 @@ function fallbackRowHeight(
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
+  if (row.kind === ACTIVITY_LINE) return finish(row.below ? liveLineRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
@@ -3360,7 +3363,7 @@ export function layoutConversation(
         height = custom
           ? customHeight
           : edge === LIVE_STEP_EDGE
-            ? footerRow()
+            ? liveLineRow()
             : measuredRowHeight(
                 row,
                 width,

@@ -100,6 +100,10 @@
      button, the buttons touching, the first glyph's box on the prose's left edge (Leo, 2026-11-02,
      of the 20 glyphs in 32 buttons: "WHY ARE THESE SO BIG"). */
   --cv-footer-row: var(--grid-transcript-footer-control);
+  /* The running turn's live line, in every state and under a run or a reply: one height, the footer's slot it
+     swaps with (transcriptGrid.ts TRANSCRIPT_LIVE_LINE, the one value; cmux#24569, cmux#43627). Every live-line
+     rule reads this; none sets a height of its own (test/live-line-height.test.ts). */
+  --cv-live-line: var(--cv-footer-row);
   /* Claude Code desktop's 24 buttons, touching, pitch 24 (Leo, 2026-11-04, beside Claude's: "spaing
      bad"): the row action box's 28 spread Copy, Read aloud and More a sixth wider than Claude's. */
   --cv-footer-button: var(--cv-action-button);
@@ -2602,7 +2606,7 @@ pre.cv-math-source {
    "weird indenting /cut off text?" earlier that day (#33157). */
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-row);
+  height: var(--cv-live-line);
   padding-top: 0;
 }
 /* Right under a step row it keeps this slot, its ⌃B hint on its line, the run gap under the run (transcriptGrid.ts
@@ -7000,11 +7004,11 @@ a.cv-sha:focus-visible {
    when the turn ends. */
 .acpmux-row.acpmux-activityLine.acpmux-row--below {
   min-height: 0;
-  height: var(--cv-footer-row);
+  height: var(--cv-live-line);
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-row);
+  min-height: var(--cv-live-line);
 }
 /* Right under a step row it keeps the slot too, as the Thinking line does (transcriptGrid.ts MARK_LIVE_STEP). */
 
