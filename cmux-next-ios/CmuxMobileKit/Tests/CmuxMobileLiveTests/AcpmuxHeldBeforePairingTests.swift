@@ -92,6 +92,53 @@ import Testing
         #expect(await connection.heldByteCount <= AcpmuxConnection.heldByteLimit + envelope.count)
     }
 
+    /// A plain notification is held to the budget while its frames arrive: one longer than what
+    /// is left is cut off before it is all read or parsed, not after it was put together.
+    @Test func aPlainNotificationPastTheBudgetIsCutOffWhileItArrives() async throws {
+        let text = Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"text":"\#(String(repeating: "a", count: 12 << 20))"}}"#.utf8)
+        let frames = Self.split(text)
+        let channel = FramesChannel(frames)
+        let connection = AcpmuxConnection(channel: channel, held: true)
+        await connection.start()
+        let end = ContinuousClock.now + .seconds(20)
+        while !channel.closed, ContinuousClock.now < end {
+            try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
+        }
+        #expect(channel.closed, "a \(text.count)-byte notification was kept before pairing")
+        #expect(channel.read < frames.count, "all \(frames.count) frames were read and joined before the cut")
+        #expect(channel.read <= AcpmuxConnection.heldByteLimit / AcpmuxConnection.MessageJoiner.chunk + 2)
+    }
+
+    /// The answer to one of this phone's own requests may be larger than the budget, compressed
+    /// or not (an older Mac's whole list, a first page with tools on): it is kept whole and
+    /// handed over once the check passed.
+    @Test func aCompressedAnswerPastTheBudgetIsKept() async throws {
+        let pad = 20 << 20
+        let channel = AnsweringChannel { id in
+            let text = Data(#"{"id":\#(id),"jsonrpc":"2.0","result":{"pad":"\#(String(repeating: "a", count: pad))"}}"#.utf8)
+            guard let envelope = AcpmuxHeldBeforePairingTests.deflated(text) else { return [] }
+            return AcpmuxHeldBeforePairingTests.split(envelope)
+        }
+        let connection = AcpmuxConnection(channel: channel, held: true)
+        await connection.start()
+        let id = try await connection.submit("_acpmux/watch", .object([:]))
+        let end = ContinuousClock.now + .seconds(20)
+        while !channel.allRead, !channel.closed, ContinuousClock.now < end {
+            try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
+        }
+        #expect(!channel.closed, "the answer to this phone's own request was refused")
+        await connection.admit()
+        let reply = try await connection.reply(to: id)
+        #expect(reply["pad"]?.stringValue?.utf8.count == pad)
+        await connection.close()
+    }
+
+    /// `data` in the link's 16 KiB frames.
+    static func split(_ data: Data) -> [Data] {
+        let chunk = AcpmuxConnection.MessageJoiner.chunk
+        return stride(from: 0, to: data.count, by: chunk).map { data.subdata(in: $0..<min($0 + chunk, data.count)) }
+    }
+
     /// The mobile host's envelope (`DeflatedMessage`): 0x00, text length, deflate length, raw deflate.
     static func deflated(_ text: Data) -> Data? {
         var body = Data(count: text.count / 100 + 4096)
@@ -172,11 +219,14 @@ private final class FramesChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let lock = NSLock()
     private var frames: [Data]
+    private var count = 0
     private var ended = false
 
     init(_ frames: [Data]) { self.frames = frames }
 
     var closed: Bool { lock.withLock { ended } }
+    /// Frames the phone read.
+    var read: Int { lock.withLock { count } }
 
     func send(_ data: Data) async throws {}
 
@@ -184,10 +234,51 @@ private final class FramesChannel: LinkChannel, @unchecked Sendable {
         while true {
             let next: Data?? = lock.withLock {
                 if ended { return .some(nil) }
-                return frames.isEmpty ? nil : .some(frames.removeFirst())
+                guard !frames.isEmpty else { return nil }
+                count += 1
+                return .some(frames.removeFirst())
             }
             if let next { return next }
             try await Task.sleep(for: .milliseconds(5)) // test: a Mac that went quiet
+        }
+    }
+
+    func close(code: String, reason: String) async { lock.withLock { ended = true } }
+}
+
+/// A Mac that answers each request with the frames `answer` makes for its id.
+private final class AnsweringChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private let answer: @Sendable (Int) -> [Data]
+    private var queue: [Data] = []
+    private var answered = 0
+    private var ended = false
+
+    init(answer: @escaping @Sendable (Int) -> [Data]) { self.answer = answer }
+
+    var closed: Bool { lock.withLock { ended } }
+    /// Every answer was queued and read.
+    var allRead: Bool { lock.withLock { answered > 0 && queue.isEmpty } }
+
+    func send(_ data: Data) async throws {
+        guard let request = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let id = request["id"]?.numberValue else { return }
+        let frames = answer(Int(id))
+        lock.withLock {
+            queue += frames
+            answered += 1
+        }
+    }
+
+    func receive() async throws -> Data? {
+        while true {
+            let next: Data?? = lock.withLock {
+                if ended { return .some(nil) }
+                return queue.isEmpty ? nil : .some(queue.removeFirst())
+            }
+            if let next { return next }
+            try await Task.sleep(for: .milliseconds(2)) // test: a Mac with nothing more to say
         }
     }
 
