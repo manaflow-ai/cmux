@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44022514490",
+  "recorded_at": "2026-11-17T05:24:21Z",
+  "reason": "cmux-tui a39f25955ca2 changes the image's cmux-tui (pinned f40c3823fc2e)",
+  "dry_run": false,
+  "cmux_tui": "a39f25955ca28fc0c37205a78b6bc87529d46d1f",
+  "fixes": [
+    {
+      "sha": "a39f25955ca28fc0c37205a78b6bc87529d46d1f",
+      "mergedAt": "2026-11-16T20:54:43-08:00",
+      "subject": "cmux-tui panic ratchet: three indexing hits become lookups (cmux-tui 831 > 830, cmux-tui-core 854 > 852) (#45127)"
+    },
+    {
+      "sha": "6fc3c8f0779d30868b8f2213a1217c503e9c71d1",
+      "mergedAt": "2026-11-16T20:53:00-08:00",
+      "subject": "Palette ranker: stress harness at 100 to 100,000 rows; a keystroke allocates per shown row, not per match (#45013)"
+    },
+    {
+      "sha": "cdce96f1b6053123948adf8a2478e472ce803744",
+      "mergedAt": "2026-11-16T20:52:08-08:00",
+      "subject": "cmux NEXT Rust: run the unsafe-holding crates' tests under Miri (#45020)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T05:24:21Z",
+    "snapshot_id": "sh-788170730f134fcf93778f458529c0ab",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44022514490): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "97591a3126311b11d443cdeb851acd055a2b203f",
+    "image": "cloud-native-auto-a39f2595-44022514490-1",
+    "revision": "ci-44022514490-1",
+    "at": "2026-11-17T05:24:21Z"
+  },
+  "rolled_back": false
+}
