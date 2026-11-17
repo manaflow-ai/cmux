@@ -104,7 +104,6 @@ final class NewTabSparePool {
         self.memoryPressure = memoryPressure
     }
 
-
     /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
     func prewarm() {
         if services.agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }

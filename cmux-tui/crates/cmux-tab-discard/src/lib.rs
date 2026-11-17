@@ -25,3 +25,6 @@ pub use setting::{Mode, Setting};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod stress_tests;

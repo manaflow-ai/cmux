@@ -22,7 +22,18 @@ Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.p
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
   terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
-      [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty]
+      [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
+
+--trace (terminal_throughput_trace.py): the first timed burst of each terminal runs under one Instruments recording of
+every process (System Trace and Time Profiler). Per thread of the terminal's processes, over the burst window: running,
+runnable and blocked time, each system call's count, wall time and bytes, and the heaviest frames; one
+TERMINAL-THROUGHPUT-HOP line per read or write row with bytes, which is each hop's MB/s and blocked share. The traced
+burst runs slower than the others (the recording costs CPU); it is still a timed run.
+
+--next-arm LABEL:CMUX_NEXT_NAME=VALUE (repeatable): before NEXT's own bursts, the same warm-up and timed bursts in
+another launch of the same app with those launch variables (a daemon knob through DaemonDiagnosticKnobs set to its
+old value), so a change behind a knob gets its before and after on one Mac in one step. Prints
+TERMINAL-THROUGHPUT-ARM per arm; the report keeps them under next_arms; the rows stay NEXT's own.
 """
 import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
 
@@ -208,6 +219,45 @@ class Breakdown:
 
 
 
+def parse_arm(text):
+    """`base:CMUX_NEXT_X=0,CMUX_NEXT_Y=1` -> ("base", {"CMUX_NEXT_X": "0", "CMUX_NEXT_Y": "1"}) (pure). Only
+    CMUX_NEXT_* names: the app strips every other inherited CMUX variable, so any other name would measure nothing."""
+    label, sep, pairs = text.partition(":")
+    env = {}
+    for pair in filter(None, pairs.split(",")):
+        name, eq, value = pair.partition("=")
+        if not eq or not name.startswith("CMUX_NEXT_"):
+            raise ValueError(f"--next-arm {text!r}: {pair!r} is not CMUX_NEXT_NAME=VALUE")
+        env[name] = value
+    if not sep or not label or not env or not label.replace("-", "").isalnum():
+        raise ValueError(f"--next-arm {text!r}: want LABEL:CMUX_NEXT_NAME=VALUE[,...]")
+    return label, env
+
+
+def is_python(process_name):
+    """The writer's process as Instruments names it (/usr/bin/python3 runs as `Python`) (pure)."""
+    return process_name.lower().startswith("python")
+
+
+def start_trace(opts, i, terminal):
+    """--trace: an Instruments recording over the first timed burst of `terminal` (terminal_throughput_trace.py)."""
+    if not opts.trace or i != 1:
+        return None
+    from terminal_throughput_trace import Recorder
+    return Recorder(opts.out, f"{terminal}-{i}")
+
+
+def finish_trace(tracer, terminal, keep):
+    """Stops `tracer`, prints its summary (TERMINAL-THROUGHPUT-TRACE) and one TERMINAL-THROUGHPUT-HOP line per I/O
+    row with bytes, and returns the summary for the report."""
+    from terminal_throughput_trace import hop_lines
+    summary = tracer.stop(keep, is_python)
+    print("TERMINAL-THROUGHPUT-TRACE " + json.dumps({"terminal": terminal, **summary}), flush=True)
+    for line in hop_lines(summary):
+        print(f"TERMINAL-THROUGHPUT-HOP {terminal} | {line}", flush=True)
+    return summary
+
+
 def payload_block(seed=571, size=1 << 20):
     """About `size` bytes of terminal text, the same every run (pure)."""
     rng = random.Random(seed)
@@ -272,31 +322,36 @@ def run_record(label, i, res):
     return rec
 
 
-def measure_next(opts, writer, payload, scratch):
+def measure_next(opts, writer, payload, scratch, label="next", env=None):
+    """NEXT's bursts in one launch of the app; `env` adds to its launch environment (an --next-arm), `label` names
+    the rows."""
     from bench_launch import BenchApp
     out = {"runs": []}
-    app = BenchApp(opts.app, out=os.path.join(opts.out, "next"))
+    app = BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
     try:
         app.launch()
         time.sleep(3)  # test harness: let the first window settle before the first burst
         plan = [("warmup", opts.warmup_mb * MB)] + [(i, 0) for i in range(1, opts.runs + 1)]
         for i, limit in plan:
-            result = os.path.join(scratch, f"next-{i}.json")
+            result = os.path.join(scratch, f"{label}-{i}.json")
             cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
+            tracer = start_trace(opts, i, "next") if label == "next" else None
             probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
-                               f"next-{i}") if opts.breakdown and i != "warmup" else None)
-            reply = app.rpc("action.run", {"action": "newTab", "args": {"name": f"throughput-{i}", "focus": True,
-                                                                         "command": cmd}})
+                               f"{label}-{i}") if opts.breakdown and i != "warmup" and not tracer else None)
+            tab = f"throughput-{i}" if label == "next" else f"throughput-{label}-{i}"
+            reply = app.rpc("action.run", {"action": "newTab", "args": {"name": tab, "focus": True, "command": cmd}})
             if isinstance(reply, dict) and reply.get("error"):
                 out["error"] = f"newTab: {reply['error']}"
                 break
             res = wait_result(result, opts.timeout, alive=lambda: app.process.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "next", lambda name: "cmux" in name or is_python(name))
             if probe:
                 out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
             if i == "warmup":
-                out["warmup"] = run_record("next-warmup", 0, res)
+                out["warmup"] = run_record(f"{label}-warmup", 0, res)
                 continue
-            out["runs"].append(run_record("next", i, res))
+            out["runs"].append(run_record(label, i, res))
     except Exception as e:  # a failed launch (LaunchError printed its report) or a dead socket
         out["error"] = f"{type(e).__name__}: {e}"[:400]
     finally:
@@ -360,11 +415,14 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
                 "--quit-after-last-window-closed=true", "--confirm-close-surface=false", "--window-save-state=never",
                 "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
         log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
+        tracer = start_trace(opts, i, "ghostty")
         probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", delay=0.8)
-                 if opts.breakdown and i != "warmup" else None)
+                 if opts.breakdown and i != "warmup" and not tracer else None)
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             res = wait_result(result, opts.timeout, alive=lambda: proc.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "ghostty", lambda name: "ghostty" in name.lower() or is_python(name))
             if probe:
                 out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
         finally:
@@ -412,6 +470,13 @@ def main(argv=None):
     parser.add_argument("--no-ghostty", action="store_true")
     parser.add_argument("--breakdown", action="store_true",
                         help="per burst: CPU per process and a mid-burst sample of each (TERMINAL-THROUGHPUT-BREAKDOWN)")
+    parser.add_argument("--trace", action="store_true",
+                        help="the first timed burst of each terminal under Instruments (System Trace and Time Profiler): "
+                             "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
+    parser.add_argument("--next-arm", action="append", default=[], metavar="LABEL:NAME=VALUE[,NAME=VALUE]",
+                        help="before NEXT's own bursts, the same bursts in another launch of the same app with these "
+                             "launch variables (a daemon knob's off value): a same-Mac A/B in one step "
+                             "(TERMINAL-THROUGHPUT-ARM, report next_arms)")
     opts = parser.parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
     scratch = tempfile.mkdtemp(prefix="tput.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
@@ -423,7 +488,20 @@ def main(argv=None):
         size = write_payload(payload, opts.mb)
         report = {"suite": "terminal-throughput", "payload_bytes": size, "runs_per_terminal": opts.runs,
                   "host": platform.node(), "missing": []}
+        arms = [parse_arm(a) for a in opts.next_arm]
+        for arm, env in arms:
+            got = measure_next(opts, writer, payload, scratch, label=f"next-{arm}", env=env)
+            got["env"], got["median_mb_s"] = env, summarize(got["runs"])
+            report.setdefault("next_arms", {})[arm] = got
         report["next"] = measure_next(opts, writer, payload, scratch)
+        if arms:
+            head = summarize(report["next"]["runs"])
+            for arm, got in report["next_arms"].items():
+                print("TERMINAL-THROUGHPUT-ARM " + json.dumps({
+                    "arm": arm, "env": got["env"], "arm_mb_s": [r.get("mb_s") for r in got["runs"]],
+                    "head_mb_s": [r.get("mb_s") for r in report["next"]["runs"]], "arm_median": got["median_mb_s"],
+                    "head_median": head, "head_over_arm": round(head / got["median_mb_s"], 3)
+                    if head and got["median_mb_s"] else None}), flush=True)
         first = next((r for r in report["next"]["runs"] if r.get("cols")), report["next"].get("warmup") or {})
         grid = (first.get("cols"), first.get("rows"))
         if opts.no_ghostty:

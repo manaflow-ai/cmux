@@ -57,6 +57,7 @@ public struct StateFolderMove: Sendable {
             items.moveBundleItems(bundleID: build.bundleID)
             // The bundle id the helper's own folder is named by (`ComputerUseHelperDaemon.defaultStateDirectory`).
             items.moveComputerUseRuntime(bundleID: build.bundleID ?? "com.cmuxterm.app")
+            items.moveComputerUseCopies(bundleID: build.bundleID ?? "com.cmuxterm.app")
         }
         guard let pair = folders(build: build) else { return .nothing }
         let (old, new) = pair
@@ -71,8 +72,8 @@ public struct StateFolderMove: Sendable {
         return outcome
     }
 
-    /// Renames the folder `old` to `new`, leaving a symlink at `old`; never over a folder with files.
-    static func move(old: URL, new: URL) -> Outcome {
+    /// Renames the folder `old` to `new`, leaving a symlink at `old` unless `link` is false; never over a folder with files.
+    static func move(old: URL, new: URL, link: Bool = true) -> Outcome {
         do {
             try FileManager.checked.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
@@ -84,7 +85,7 @@ public struct StateFolderMove: Sendable {
             return .kept("rename: \(String(cString: strerror(errno)))")
         }
         // Best effort: without the link a running older daemon still has its open files, and the next one starts here.
-        _ = symlink(new.path, old.path)
+        if link { _ = symlink(new.path, old.path) }
         return .moved
     }
 }

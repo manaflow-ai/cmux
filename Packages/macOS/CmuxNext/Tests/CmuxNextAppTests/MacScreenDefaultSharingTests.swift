@@ -93,6 +93,7 @@ struct MacScreenDefaultSharingTests {
     private func makePages(_ file: URL, hub: DeviceHub, granted: Bool) async -> (MacScreenPages, Writes) {
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         await pages.store.load()
+        pages.host.helper = { nil }
         pages.host.readPermissions = { (granted, false) }
         await pages.host.refreshPermissions()
         let writes = Writes()

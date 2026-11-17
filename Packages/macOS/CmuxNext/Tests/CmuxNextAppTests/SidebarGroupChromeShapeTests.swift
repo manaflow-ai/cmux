@@ -26,7 +26,7 @@ import Testing
                 let last = try #require(list.rowViews[.workspace(SidebarGroupLineLayoutTests.members[2])])
                 #expect(rail.minX == header.frame.minX)
                 #expect(rail.minY == header.frame.maxY)
-                #expect(rail.width == 4)
+                #expect(rail.width == 3.5)
                 #expect(rail.maxY == last.frame.maxY)
                 let bottomLeft: CACornerMask = header.pill.contentsAreFlipped() ? .layerMinXMaxYCorner : .layerMinXMinYCorner
                 #expect(!header.pill.maskedCorners.contains(bottomLeft), "the chip continues into the rail")
@@ -69,7 +69,7 @@ import Testing
             #expect(rail.alpha == 1)
             #expect(rail.frame.minX == header.frame.minX)
             #expect(rail.frame.minY == header.frame.maxY)
-            #expect(rail.frame.width == 4)
+            #expect(rail.frame.width == 3.5)
             #expect(rail.frame.maxY == last.frame.maxY)
             for row in list.displayed.rows where row.y >= rail.frame.minY && row.y < rail.frame.maxY {
                 #expect(rail.frame.maxX <= list.frame(for: row).minX, "the parent rail must remain clear of every member and nested header")
@@ -106,7 +106,7 @@ import Testing
                 return nil
             }
             #expect(ids == [SidebarGroupLineLayoutTests.looseID] + SidebarGroupLineLayoutTests.members)
-            #expect(SidebarStyle.groupBarWidth == (style == .band ? 4 : 2))
+            #expect(SidebarStyle.groupBarWidth == (style == .band ? 3.5 : 2))
         }
     }
 }

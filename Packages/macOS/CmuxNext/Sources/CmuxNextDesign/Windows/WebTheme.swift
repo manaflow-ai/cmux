@@ -42,6 +42,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+    /// `auto`, `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``):
+    /// `data-cmux-font-smoothing` on `<html>`. Under `antialiased` and `subpixel` the bootstrap
+    /// stylesheet sets `-webkit-font-smoothing` on every element over the page's own; `auto` leaves
+    /// the page's own.
+    public let fontSmoothing: String
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
@@ -203,6 +208,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         motion = Self.motionValue(Motion.web.policy)
         self.glass = (glass ?? .current).rawValue
         decorations = ThemeDecorations.current.payload
+        fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -213,7 +219,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`,
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
     /// and `decorations` while a personality slot is filled
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
@@ -223,7 +229,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -240,6 +246,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     (function () {
       if (window.cmuxTheme) return;
       var style = null;
+      // appearance.fontSmoothing: antialiased or subpixel wins over every rule of the page (many set
+      // antialiased); auto (no rule) leaves the page's own.
+      function smoothing(mode, value) {
+        var root = 'html[data-cmux-font-smoothing="' + mode + '"]';
+        return root + ',' + root + ' *,' + root + ' *::before,' + root + ' *::after{-webkit-font-smoothing:' + value + ' !important}';
+      }
       function ensureStyle() {
         if (style || !document.documentElement) return;
         style = document.createElement('style');
@@ -251,7 +263,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           'body{background:transparent !important}' +
           still + ' *,' + still + ' *::before,' + still + ' *::after,' + still +
           '{transition-duration:0s !important;transition-delay:0s !important;animation-duration:0s !important;' +
-          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}';
+          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}' +
+          smoothing('antialiased', 'antialiased') + smoothing('subpixel', 'subpixel-antialiased');
         (document.head || document.documentElement).appendChild(style);
       }
       // appearance.colorTransition: every color variable is a registered <color>, so a theme or
@@ -365,6 +378,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};
@@ -452,14 +466,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, the divider
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 
