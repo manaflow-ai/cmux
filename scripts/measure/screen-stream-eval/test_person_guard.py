@@ -48,6 +48,13 @@ class DecideTests(unittest.TestCase):
     def test_future_apple_target_covered(self):
         self.assertEqual(guard.decide(["rd", "apple-rfb"], ["owner-laptop"], MACHINES, None)[0], "apple-rfb")
 
+    def test_headless_rfb_viewer_allowed_on_persons_mac(self):
+        self.assertEqual(guard.decide(["apple-rfb"], ["owner-laptop"], MACHINES, 0, viewer=True), (None, None))
+        # Only apple-rfb is headless: a GUI viewer is still refused there, and apple-rfb as host.
+        self.assertEqual(guard.decide(["apple-rfb", "apple-high"], ["owner-laptop"], MACHINES, 0, viewer=True)[0],
+                         "apple-high")
+        self.assertEqual(guard.decide(["apple-rfb"], ["owner-laptop"], MACHINES, 0)[0], "apple-rfb")
+
     def test_unknown_host_active_console_refused(self):
         target, reason = guard.decide(["apple-high"], ["stranger"], MACHINES, 30)
         self.assertEqual(target, "apple-high")
@@ -112,6 +119,21 @@ class CheckTests(unittest.TestCase):
         ok = subprocess.run([sys.executable, "-I", str(HERE / "person_guard.py"), "check", "rd,webrtc"],
                             env=env, capture_output=True, text=True)
         self.assertEqual((ok.returncode, ok.stderr), (0, ""))
+
+    def test_cli_viewer_role_as_peer_agent_calls_it(self):
+        # peer.py's viewer agent runs `check TARGET viewer` for each target the host asks for.
+        host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip() or socket.gethostname()
+        registry = os.path.join(self.tmp, "person.json")
+        Path(registry).write_text(json.dumps({"machines": {host.lower(): {"roles": ["leo-mac"], "aliases": []}}}))
+        env = {**os.environ, "CMUX_FLEET_REGISTRY": registry}
+
+        def cli(*args):
+            return subprocess.run([sys.executable, "-I", str(HERE / "person_guard.py"), "check", *args],
+                                  env=env, capture_output=True, text=True).returncode
+        self.assertEqual(cli("apple-rfb", "viewer"), 0)
+        self.assertEqual(cli("apple-high", "viewer"), 2)
+        self.assertEqual(cli("apple-rfb"), 2)
+        self.assertEqual(cli("apple-rfb", "host"), 2)
 
 
 class HarnessTests(unittest.TestCase):
