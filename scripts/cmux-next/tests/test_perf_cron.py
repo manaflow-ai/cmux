@@ -2731,6 +2731,72 @@ class NoHostTipTests(OneRunRule):
         cron.decide(state, at(cron.HOST_WAIT_HOURS + 0.1), None, None, lambda sha: [], None)
         self.assertNotIn("build", state["current"]["parts"])
 
+    def test_a_tip_with_no_cmux_tui_tree_runs_its_linux_parts_and_its_mac_parts_wait_for_the_tree(self):
+        """2026-11-17 07:13Z: no commit since the last tip had a published tree, so no tip started, and the web-ui
+        rows (Linux, no tree needed) of cmux#44534 waited hours. Only the Mac parts wait for the tree."""
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        d = cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui"], None, tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"], d["part"], d["linux_part"]), ("part", self.NEW, "", "web-ui"))
+        self.assertIn("cmux-tui tree", d["reason"])
+        cur = state["current"]
+        self.assertEqual(cur["parts_todo"], ["build", "motion", "web-ui"])
+        self.assertNotIn("host_asked_since", cur, "a missing tree is no host's silence")
+        cur["parts_todo"].remove("web-ui")
+        cur["parts"]["web-ui"] = {"state": "done"}
+        d = cron.decide(state, at(1), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual(d["action"], "none")
+        self.assertIn("cmux-tui tree", d["reason"])
+        d = cron.decide(state, at(1.5), None, None, lambda sha: [], None, tree_ready=lambda sha: True)
+        self.assertEqual((d["action"], d["part"]), ("part", "build"), "the tree came: the Mac parts run")
+        self.assertNotIn("tree_wait_since", state["current"])
+
+    def test_a_tip_whose_tree_never_comes_finishes_with_its_linux_rows(self):
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui"], None, tree_ready=no_tree)
+        cur = state["current"]
+        cur["parts_todo"].remove("web-ui")
+        cur["parts"]["web-ui"] = {"state": "done"}
+        d = cron.decide(state, at(cron.TREE_WAIT_HOURS - 0.1), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual(d["action"], "none", "within the bound it waits")
+        d = cron.decide(state, at(cron.TREE_WAIT_HOURS + 0.1), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"]), ("finish", self.NEW), d["reason"])
+        self.assertEqual({n: p["state"] for n, p in cur["parts"].items()},
+                         {"web-ui": "done", "build": "no_tree", "motion": "no_tree"})
+        self.assertIn("no published cmux-tui tree", cur["parts"]["motion"]["reason"])
+
+    def test_a_bisect_step_never_waits_for_a_tree(self):
+        state = cron.empty_state(T0)
+        state["current"] = cron.new_measurement(self.OLD, "bisect", ["build", "motion"], T0, {"good": "9" * 40, "bad": "8" * 40})
+        d = cron.decide(state, T0, None, None, lambda sha: [], None, tree_ready=lambda sha: False)
+        self.assertEqual(d["part"], "build", "its commit was picked for a published tree (bisect_measurable)")
+
+    def test_the_plan_picks_the_newest_commit_when_none_since_the_last_tip_has_a_tree(self):
+        commits = ["c" * 40, "d" * 40, "e" * 40]
+
+        def git(*args, check=True):
+            return "\n".join(commits) if args[0] == "rev-list" else commits[0]
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "plan.out")
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                    mock.patch.object(cron, "measure_version", lambda sha: 3), \
+                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                    mock.patch.object(cron, "tree_published", lambda sha: False), \
+                    mock.patch.object(cron, "github_busy", lambda *a: None), \
+                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                    mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion", "web-ui"]), \
+                    mock.patch.object(cron, "gh_request", lambda *a, **k: {}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 output=out))
+            plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
+            state = json.load(open(os.path.join(d, "state.json")))
+        self.assertEqual((plan["action"], plan["sha"], plan["part"], plan["linux_part"]),
+                         ("part", commits[0], "", "web-ui"), plan["reason"])
+        self.assertEqual(state["current"]["kind"], "tip")
+
     def test_a_linux_part_that_failed_for_its_setup_runs_once_more(self):
         cur = cron.new_measurement(self.NEW, "tip", ["web-ui-flat", "web-ui-flat-grown"], T0)
         no_browser = {"state": "failed", "worker": LINUX, "tail": [
