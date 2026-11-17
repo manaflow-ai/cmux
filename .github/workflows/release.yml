@@ -757,10 +757,20 @@ jobs:
       - name: Verify signed app SSH daemon contract
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          # cmux-next bundles the Rust CLI (bin/cmux, with bin/cmux-tui -> cmux), which has
+          # no classic `remote-daemon-status` command. Like nightly-next
+          # (verify-signed-ssh-daemon-contract.sh), check the manifest and daemon bytes only.
+          cli_args=(--verify-cli)
+          if [[ "$(readlink "$app/Contents/Resources/bin/cmux-tui" || true)" == cmux ]]; then
+            echo "bin/cmux is the cmux-next Rust CLI: skipping --verify-cli (no remote-daemon-status)"
+            cli_args=()
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
             --assets-dir remote-daemon-assets \
-            --app "build-universal/Build/Products/Release/cmux.app" --verify-cli
+            --app "$app" ${cli_args[@]+"${cli_args[@]}"}
 
       # sign-cmux-bundle.sh ran only the static sidecar checks while the
       # keychain existed. Run the full check, with the handshake, now.
