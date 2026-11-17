@@ -51,6 +51,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// The group's record lives in the team's cloud directory, so the link means the same
         /// thing on every Mac, the iPhone and every Chief.
         case group(String, workspace: String?)
+        /// A team's Cloud chat or workspace (contract C5): `cloud/session/<team>/<vm>/<session>` or
+        /// `cloud/workspace/<team>/<vm>/<workspace>`. Its record lives in the team's TeamDO, so it opens
+        /// for every member of the team; a person outside it is refused (``cloudSessionPlan``).
+        case cloudSession(team: String, machine: String, session: String, kind: CloudSessionKind)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
         case legacyWorkspace(UUID, fallback: UUID?)
@@ -126,6 +130,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .group(let id, let workspace):
             text += "group/\(id)"
             if let workspace { text += "/workspace/\(workspace)" }
+        case .cloudSession(let team, let vm, let session, let kind):
+            text += "cloud/\(kind.rawValue)/\(team)/\(vm)/\(session)"
         case .agent(let harness, let session):
             text += "agent/\(harness)/\(session)"
             // The order schemas/deeplinks/agent-link.json states, so every emitter writes the
@@ -198,6 +204,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .agent(let harness, let session): return Self.isHarness(harness) && Self.isAgentSession(session)
         case .group(let id, let workspace):
             return Self.isGroupID(id) && (workspace.map { Self.isResourceID($0, prefix: "ws_") } ?? true)
+        case .cloudSession(let team, let vm, let session, _):
+            return Self.isTeamID(team) && Self.isCloudVM(vm) && Self.isCloudSessionID(session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
