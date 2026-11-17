@@ -7,6 +7,8 @@ name: PR checks
 # None of them fails a pull request. PR size warns on one over 800 lines with
 # no `Size:` line and runs on every push, a base-only one included.
 # The description lints (pr-capture-check and three more) run in pr-body-checks.yml.
+# The Swift logic report (swift-logic) adds a line with the pull request's own Swift logic growth to its
+# status comment; it never fails either.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
 # skips the link and split-plan, whose answers stay the previous head's. On 2026-10-26,
