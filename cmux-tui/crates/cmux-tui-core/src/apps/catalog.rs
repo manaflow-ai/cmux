@@ -204,12 +204,14 @@ impl Package {
         std::fs::read(path).ok()
     }
 
-    /// `strings/<locale>.json` falling back to English.
+    /// `strings/<locale>.json` for the full tag (`de-CH`), then its
+    /// language (`de`), falling back to English.
     pub fn strings(&self, locale: &str) -> Value {
         let Some(dir) = self.manifest.get("strings").and_then(Value::as_str) else {
             return Value::Null;
         };
-        for candidate in [locale, "en"] {
+        let language = locale.split('-').next().unwrap_or(locale);
+        for candidate in [locale, language, "en"] {
             if let Some(raw) = self.read(&format!("{dir}/{candidate}.json"))
                 && let Ok(value) = serde_json::from_slice::<Value>(&raw)
             {
