@@ -113,14 +113,20 @@ class CuaSession:
     def _stderr_tail(self):
         if self.stderr is None:
             return ""
+        code = None
+        if self.process is not None:
+            try:  # its stdout closes as it exits, a moment before it can be reaped and its stderr is all written
+                code = self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
         try:
             self.stderr.flush()
             self.stderr.seek(0)
             words = " ".join(self.stderr.read().decode("utf-8", "replace").split())
         except (OSError, ValueError):
             return ""
-        if self.process is not None and self.process.poll() is not None:
-            words = f"exit {self.process.returncode}; {words}" if words else f"exit {self.process.returncode}"
+        if code is not None:
+            words = f"exit {code}; {words}" if words else f"exit {code}"
         return f" ({words[-400:]})" if words else ""
 
     def open(self):
@@ -154,6 +160,9 @@ class CuaSession:
     def close(self):
         process, self.process = self.process, None
         if process is None:
+            stderr, self.stderr = self.stderr, None
+            if stderr is not None:
+                stderr.close()
             return
         try:
             process.stdin.close()

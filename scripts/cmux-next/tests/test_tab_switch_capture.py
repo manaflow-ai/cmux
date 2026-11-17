@@ -6,6 +6,7 @@ two others never built, because fetching the head also fetched ghostty ("upload-
 import io
 import os
 import re
+import shutil
 import stat
 import sys
 import tempfile
@@ -15,6 +16,14 @@ from contextlib import redirect_stdout
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 import tab_switch_capture as cap  # noqa: E402
+
+FOLDERS = []  # every fake driver's folder, removed when the module's tests end
+
+
+def tearDownModule():
+    for folder in FOLDERS:
+        shutil.rmtree(folder, ignore_errors=True)
+
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
@@ -38,6 +47,7 @@ for line in sys.stdin:
 
 def fake_driver(mode, grant=True):
     folder = tempfile.mkdtemp(prefix="tsw-cua-")
+    FOLDERS.append(folder)
     path = os.path.join(folder, "cua-driver")
     with open(path, "w") as f:
         f.write(FAKE.replace("MODE", repr(mode)).replace("GRANT", repr(grant)))
@@ -91,6 +101,7 @@ class Preflight(unittest.TestCase):
                                  "    sys.exit(1)\n", 1))
         saved = os.environ.get("HOME")
         os.environ["HOME"] = tempfile.mkdtemp(prefix="tsw-step-home-")
+        FOLDERS.append(os.environ["HOME"])
         try:
             self.assertEqual(cap.preflight(driver)["screen_recording"], True)
         finally:
