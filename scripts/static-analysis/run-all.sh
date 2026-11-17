@@ -3,7 +3,7 @@
 # table of findings and runtime. Reports only: it blocks nothing and exits 0 when
 # every tool ran, whatever it found. Run it on the fleet, never on a person's Mac:
 #
-#   cmux-ci test -- bash scripts/static-analysis/run-all.sh
+#   cmux-ci test -- bash scripts/static-analysis/run-all.sh   (cmux: --setup webviews, for knip's bun)
 #
 # SA_ONLY="ruff gitleaks" runs a subset; SA_SKIP (default "periphery", the slowest)
 # leaves tools out. Each tool's full report lands in

@@ -8,7 +8,7 @@ crashed. Nothing here is a CI job or a gate: run them yourself on the fleet, nev
 person's Mac.
 
 ```bash
-cmux-ci test -- bash scripts/static-analysis/run-all.sh            # every tool, one table
+cmux-ci test --setup webviews -- bash scripts/static-analysis/run-all.sh  # every tool, one table (knip needs bun)
 cmux-ci test -- bash scripts/static-analysis/ast-grep.sh           # one tool
 SA_ONLY="zizmor gitleaks" bash scripts/static-analysis/run-all.sh  # a subset
 ```
