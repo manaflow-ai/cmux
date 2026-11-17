@@ -393,8 +393,8 @@ trap cleanup EXIT INT TERM HUP
 
 # ------------------------------------------------------------------ (b) TCC writes as root, SIP on or off
 sys_db="/Library/Application Support/com.apple.TCC/TCC.db"
-# Whether root can open the database read-write (no write is made: sqlite opens it O_RDWR and reads one row; SIP
-# refuses the open itself for a protected file).
+# Whether root can open the database for writing. Inconclusive by design: SQLite falls back to read-only when the OS
+# refuses a write open, so "ok" does not mean a write would land. The probe never writes TCC.db.
 tcc_try() { /usr/bin/python3 -I -c 'import sqlite3, sys; c = sqlite3.connect("file:" + sys.argv[1] + "?mode=rw", uri=True); c.execute("select count(*) from access").fetchone(); print("open read-write ok")' "$1" 2>&1 | tail -1; }
 say "{\"stage\":\"tcc\",\"db\":\"system\",\"read\":$(jstr "$(/usr/bin/sqlite3 "$sys_db" "select service||' auth='||auth_value||' rows='||count(*)||' e.g. '||max(client) from access where service in ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServicePostEvent','kTCCServiceListenEvent') and client not like '%cmux-build-worker/bin/worker-%' group by service, auth_value; select 'worker binaries: '||count(*)||' rows, granted '||sum(auth_value=2) from access where client like '%cmux-build-worker/bin/worker-%'" 2>&1 | tr '\n' ';')"),\"write\":$(jstr "$(tcc_try "$sys_db")")}"
 
