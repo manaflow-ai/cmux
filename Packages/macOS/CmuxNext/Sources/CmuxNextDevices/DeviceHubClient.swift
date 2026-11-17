@@ -134,7 +134,7 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers. With `machineKey` (``MachineKey``)
+    /// Registers or updates this device, signed by the key it registers. With `machineKey` (``DeviceIdentity/machineKey``)
     /// and `appId` (the bundle id) the hub lists the record under this Mac's machine id and retires this
     /// install's older records on the Mac (PROTOCOL.md, One record per machine); nil omits the field.
     public func registerDevice(name: String, platform: DevicePlatform, machineKey: String? = nil,

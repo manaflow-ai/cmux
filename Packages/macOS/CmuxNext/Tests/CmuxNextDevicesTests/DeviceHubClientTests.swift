@@ -53,7 +53,7 @@ import Testing
     @Test func registrationSendsThisMacsMachineKeyAndAppId() async throws {
         let identity = DeviceIdentity.software()
         let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio","machineId":"m1","appId":"com.example.nightly"}}"#)])
-        let key = MachineKey.key(platformUUID: "0a1b2c3d-0000-1111-2222-333344445555")
+        let key = DeviceIdentity.machineKey(platformUUID: "0a1b2c3d-0000-1111-2222-333344445555")
         let device = try await makeClient(hub, identity: identity)
             .registerDevice(name: "Studio", platform: .macos, machineKey: key, appId: "com.example.nightly")
         #expect(device.machineId == "m1" && device.appId == "com.example.nightly")
@@ -62,8 +62,8 @@ import Testing
         #expect(body["appId"] as? String == "com.example.nightly")
         // The key is a lowercase 64-hex digest, the same for any case of the UUID, never the UUID itself.
         #expect(key.count == 64 && key.allSatisfy { "0123456789abcdef".contains($0) })
-        #expect(key == MachineKey.key(platformUUID: "0A1B2C3D-0000-1111-2222-333344445555"))
-        #expect(MachineKey.current.map { $0.count == 64 } ?? true)
+        #expect(key == DeviceIdentity.machineKey(platformUUID: "0A1B2C3D-0000-1111-2222-333344445555"))
+        #expect(DeviceIdentity.machineKey.map { $0.count == 64 } ?? true)
     }
 
     /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.

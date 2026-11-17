@@ -85,7 +85,7 @@ Mac twice: "this needs to quiet down ... stop writing so much". So registration 
 machine and the install:
 
 - `machineKey`: lowercase hex SHA-256 (64 characters) of `"cmux-device-hub machine v1\n"` and the
-  Mac's IOPlatformUUID, uppercased (`CmuxNextDevices/MachineKey.swift`). Every build on the Mac
+  Mac's IOPlatformUUID, uppercased (`CmuxNextDevices/DeviceIdentity+MachineKey.swift`). Every build on the Mac
   sends the same key; the hardware id never leaves the Mac.
 - `appId`: the install whose identity this is (the bundle id), 1-200 characters.
 

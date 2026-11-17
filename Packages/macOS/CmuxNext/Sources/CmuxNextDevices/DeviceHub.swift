@@ -55,7 +55,7 @@ public final class DeviceHub {
     /// The relay secret store (the Keychain): every call off the main actor, one at a time.
     @ObservationIgnored let vault: RelaySecretVault
     @ObservationIgnored let platform: DevicePlatform
-    /// What registration names this Mac and this install by (``MachineKey``, the bundle id); nil omits it.
+    /// What registration names this Mac and this install by (``DeviceIdentity/machineKey``, the bundle id); nil omits it.
     @ObservationIgnored let machineKey: String?
     @ObservationIgnored let appId: String?
     @ObservationIgnored let now: @Sendable () -> Date
@@ -94,7 +94,7 @@ public final class DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain), deviceName: deviceName,
-                         machineKey: MachineKey.current, appId: bundleIdentifier,
+                         machineKey: DeviceIdentity.machineKey, appId: bundleIdentifier,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) })
     }
 
