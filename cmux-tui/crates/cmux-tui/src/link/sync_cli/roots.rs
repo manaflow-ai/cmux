@@ -14,7 +14,8 @@
 //! The pair is the SHA-256 of the base record's key ([`super::base::key`]), never a path.
 //!
 //! Best effort: a failure is one stderr line and never fails the push; the whole registration
-//! gives up after [`BUDGET`].
+//! gives up after [`budget`] (10 s, and a second more for each MiB of tree, at most a minute: a
+//! folder of a million files has a tree of about 64 MiB, a push of it takes minutes anyway).
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -31,8 +32,11 @@ use super::store::{self, WHOLE_FILE_MAX};
 
 /// The tree blob's first line.
 pub(super) const TREE_HEADER: &str = "cmux-sync-tree 1\n";
-/// Longest a root registration may add to a push.
-const BUDGET: Duration = Duration::from_secs(10);
+/// Longest a root registration with a tree of `tree_bytes` may add to a push.
+fn budget(tree_bytes: usize) -> Duration {
+    let mib = u64::try_from(tree_bytes / (1024 * 1024)).unwrap_or(u64::MAX);
+    Duration::from_secs(10u64.saturating_add(mib).min(60))
+}
 /// A cached chunk list not used for this long goes (a root not registered again for 90 days
 /// expires on the platform too).
 const CHUNKS_KEPT: Duration = Duration::from_secs(90 * 24 * 60 * 60);
@@ -189,7 +193,8 @@ pub(super) fn register(
 ) {
     let files = needed(local, remote_root, next, size_of);
     let tree = tree(files, &chunks_of);
-    if let Err(error) = store::register_root(&pair(local, remote_root), tree, BUDGET) {
+    let budget = budget(tree.len());
+    if let Err(error) = store::register_root(&pair(local, remote_root), tree, budget) {
         eprintln!("{}", json!({"store": {"root": false, "error": format!("{error:#}")}}));
     }
     sweep_chunks();
@@ -263,6 +268,15 @@ mod tests {
         let expected =
             [sha('1'), sha('9'), small_a, small_b, history_only].map(|hash| format!("{hash}\n"));
         assert_eq!(text, format!("{TREE_HEADER}{}", expected.concat()));
+    }
+
+    #[test]
+    fn a_root_registration_is_bounded_and_grows_with_its_tree_up_to_a_minute() {
+        use std::time::Duration;
+        assert_eq!(super::budget(100), Duration::from_secs(10));
+        assert_eq!(super::budget(20 * 1024 * 1024), Duration::from_secs(30));
+        assert_eq!(super::budget(64 * 1024 * 1024), Duration::from_secs(60));
+        assert_eq!(super::budget(usize::MAX), Duration::from_secs(60));
     }
 
     #[test]
