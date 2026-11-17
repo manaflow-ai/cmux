@@ -35,6 +35,9 @@ const signedOutCodex = withStuckSummary(
       summary(5.5, { status: "failed", durationMs: 4_000, error: "Not logged in · Please run /login" }),
     ],
     {
+      // Its turn still reads as running (the report: the agent never answers, signed out), so the
+      // base drew the stuck card beside the error.
+      isWorking: true,
       title: "Codex chat",
       harness: "codex",
       model: "gpt-5-codex",

@@ -798,8 +798,6 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650;letter-spacing:var(--text-heading--letter-spacing)}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
-/* The attention appears over the transcript, outside the measured bottom stack. The composer and
-   its draft stay at the same position when an episode starts or clears. */
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}

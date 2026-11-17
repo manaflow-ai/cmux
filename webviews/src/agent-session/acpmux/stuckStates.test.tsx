@@ -3,7 +3,7 @@
 // state."):
 // - a mark a click sets and an owner must clear (an answered ask, a Retry's "Retrying…") lets go
 //   past its deadline when the owner never clears it (answerHold.ts);
-// - a notice about the live turn (the stuck banner, the automatic retry's line) reads one turn
+// - a notice about the live turn (the automatic retry's line) reads one turn
 //   phase, so it never shows beside "Reconnecting…" or under a turn that ended (turnPhase.ts);
 // - Restart acpmux never holds the pane on "Restarting…" when the app never answers (hostRetry.ts).
 import { afterEach, expect, jest, test } from "bun:test";
