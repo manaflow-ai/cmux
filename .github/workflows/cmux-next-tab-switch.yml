@@ -115,7 +115,14 @@ jobs:
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 3600 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
-          if [[ -n "$step" ]]; then
+          # 75: the step was still queued at --queue-timeout. A foreground step keeps its place then, but this job
+          # ends here and nothing else reads the step (a re-run submits a new --key), so cancel it: left queued it
+          # later takes a whole PR mini exclusive for no reader. 2026-11-17: 61 such orphans from finished frames
+          # jobs sat in the display queue and drained the side-std minis that the fast tier and generated files use.
+          # The reason must not start with "queue-timeout " (the controller refuses that cancel for a waiting job).
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "frames job $GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT ends without its report: no reader for this step" || true
+          elif [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out" || "$client" artifact --failed "$step" "$out" || true
           fi
           echo "fleet step ${step:-none} exited $status; report: $([[ -s "$out" ]] && echo returned || echo none)"
