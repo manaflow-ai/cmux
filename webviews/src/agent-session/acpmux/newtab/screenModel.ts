@@ -16,6 +16,7 @@ import {
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
@@ -61,7 +62,9 @@ export type ScreenRow =
   /// A chat that matches the text (launchRows.ts): opens it.
   | ChatRow
   /// Start an agent in a folder (launchRows.ts): "Codex in ~/fun/cmux".
-  | LaunchRow;
+  | LaunchRow
+  /// Run `command` in a terminal in the page's folder, as `!command` does (commandIntent.ts).
+  | { type: "run"; command: string };
 
 /// The omnibar's agent sources: the chats to search, the folders and agents to start, and the
 /// disk's answer for a typed path (``FolderListing``). All optional: without them the rows are as
@@ -242,6 +245,19 @@ function navigationRows(
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const query = text.trim();
+  const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
+  // Many lines are a prompt (Lucas 2026-11-17): Ask alone, no matches, starts, search or actions.
+  if (intent.kind === "prompt" && isMultiline(query)) return ask;
+  // A shell command gets a Run row: first when it reads as one (`ls`, `git status`), second when
+  // it may be words too (`open the settings`), after an agent's starts for its bare name (`claude`).
+  const likeness =
+    intent.kind === "prompt"
+      ? commandLikeness(query, {
+          agents: context.agents?.map((agent) => agent.id) ?? [],
+          recent: context.omnibar.commands,
+        })
+      : "prose";
+  const run: ScreenRow[] = likeness === "prose" ? [] : [{ type: "run", command: query }];
   const actionID = (kind: "terminal" | "browser" | "chat") =>
     kind === "terminal" ? "newSurface" : kind === "browser" ? "openBrowser" : "palette.newAgentChat";
   const createQuery = withoutInlineTokens(query).trim();
@@ -269,7 +285,6 @@ function navigationRows(
   ].slice(0, MAX_ACTION_ROWS);
   const search: ScreenRow[] =
     intent.kind === "url" && intent.url.startsWith("file:") ? [] : [{ type: "search", text: query }];
-  const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
   const open: ScreenRow[] = intent.kind === "url" ? [{ type: "open", url: intent.url, text: query }] : [];
   const completed = completions(query, context.omnibar);
   const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
@@ -286,29 +301,39 @@ function navigationRows(
   const agentFound = agentRows(query, context);
   const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
   const named = agent.named ? agent.launch : [];
-  // The rows under the lead share what is left of MAX_SUGGESTIONS (the named starts, the lead and
-  // the web search count): one row per section in turn, so each section the text finds keeps a row
-  // and no section's many push the others out; each keeps its own order.
-  const fit = (lead: ScreenRow[]) => {
-    // The tabs, workspaces and pages keep their cap together, as before the agent rows.
-    const kept = ranked(rest, context.omnibar.uses).slice(0, cap);
-    return share(
-      [
-        kept.filter((row) => rowSection(row) === "open"),
-        agent.chats,
-        agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
-        kept.filter((row) => rowSection(row) !== "open"),
-      ],
-      MAX_SUGGESTIONS - named.length - lead.length - search.length,
-    );
-  };
+  // What Return takes and what follows it, before the sections: a sure command first, then the
+  // named starts, then the lead (an address or exact name, Ask; the web search with no agent).
+  const searchLeads = !ask.length && !top;
+  const lead = searchLeads
+    ? search
+    : !ask.length
+      ? [top!]
+      : top
+        ? order === "chat"
+          ? [...ask, top]
+          : [top, ...ask]
+        : ask;
+  const head =
+    likeness === "command" || (likeness === "agent" && !named.length)
+      ? [...run, ...named, ...lead]
+      : named.length
+        ? [...named, ...run, ...lead]
+        : [...lead.slice(0, 1), ...run, ...lead.slice(1)];
+  // The rows under the head share what is left of MAX_SUGGESTIONS (the web search counts): one row
+  // per section in turn, so each section the text finds keeps a row and no section's many push the
+  // others out; each keeps its own order. The tabs, workspaces and pages keep their cap together.
+  const kept = ranked(rest, context.omnibar.uses).slice(0, cap);
+  const below = share(
+    [
+      kept.filter((row) => rowSection(row) === "open"),
+      agent.chats,
+      agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
+      kept.filter((row) => rowSection(row) !== "open"),
+    ],
+    MAX_SUGGESTIONS - head.length - search.length,
+  );
   // No agent to ask: a question or a word is searched, an address still opens first.
-  if (!ask.length) {
-    if (!top) return [...named, ...search, ...fit(search), ...actions];
-    return [...named, top, ...fit([top]), ...actions, ...search];
-  }
-  const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...named, ...lead, ...fit(lead), ...actions, ...search];
+  return [...head, ...below, ...actions, ...(searchLeads ? [] : search)];
 }
 
 /// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
