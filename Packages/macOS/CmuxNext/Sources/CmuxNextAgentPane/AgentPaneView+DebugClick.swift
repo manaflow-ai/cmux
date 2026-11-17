@@ -104,6 +104,15 @@ extension AgentPaneView {
     /// Whether the document has painted, independently of the loading cover's give-up deadline.
     public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
 
+    /// Whether the page's own pixels are on screen: it painted, it is in a window, no view over it keeps it hidden or
+    /// clear (the loading state, a move cover), and a Chromium page lies in its window's content (not held away until
+    /// it drew there, ``debugChromiumPageShown``).
+    public var debugPageOnScreen: Bool {
+        guard debugPageHasPainted, window != nil, !pageContent.isHiddenOrHasHiddenAncestor,
+              !sequence(first: pageContent, next: \.superview).contains(where: { $0.alphaValue < 0.01 }) else { return false }
+        return !pageDrawsOverCovers || debugChromiumPageShown
+    }
+
     /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
     /// hidden or under a clear (alpha 0) ancestor, and with a size.
     public var debugChromiumPageShown: Bool {
