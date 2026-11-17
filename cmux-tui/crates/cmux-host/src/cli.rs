@@ -320,6 +320,12 @@ fn run_agent(mut cfg: Config) -> u8 {
     if !crate::updater::first_ready::run(&cfg.paths) {
         return code(1);
     }
+    // A machine whose image predates git and gh with the cmux GitHub App, updated in place,
+    // gets that wiring now (github_wiring.rs); never fatal.
+    // SAFETY: geteuid has no preconditions.
+    if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+        crate::github_wiring::ensure(&cfg.paths);
+    }
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
     let install = install_layout(cfg.server_mode);

@@ -23,7 +23,10 @@ _handle_prompt = agent.handle_prompt
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    # fake_agent's own reader: it leaves out the lead marks acpmux puts ahead of a prompt a program sent (`cmux agents
+    # chat send` from a script: "From a program that did not say who it is, not the person:") and the hidden guidance,
+    # so a prompt from a script still starts with "stream:".
+    text = agent.prompt_text(params)
     if not text.startswith("stream:"):
         return _handle_prompt(rid, params)
     words = text[len("stream:"):].split()
