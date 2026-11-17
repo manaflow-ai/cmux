@@ -198,7 +198,7 @@ final class LayoutViewContext {
         if let entry = retired.removeValue(forKey: pane) {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
-            entry.host.leavingRank = nil
+            entry.host.isLeaving = false
             entry.host.chrome.isHidden = entry.host.isHidden
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
@@ -259,13 +259,13 @@ final class LayoutViewContext {
     }
 
     /// Takes `pane`'s host out of the layout without tearing it down; it is released at `until`. The layout change
-    /// that takes the pane out has not shown yet: the host and its ring stay as they show, at the stacking rank
-    /// `shownAtRank` and with no clicks, until it does (``hideRetiredShown(of:)`` hides them then: no hit, no focus, no
-    /// AX, and a hidden terminal stops drawing), so no frame shows the old layout without this pane. A pane with no
-    /// host does nothing.
-    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement, shownAtRank: Int) {
+    /// that takes the pane out has not shown yet: the host and its ring stay as they show, with no clicks, until it
+    /// does (``hideRetiredShown(of:)`` hides them then: no hit, no focus, no AX, and a hidden terminal stops drawing),
+    /// so no frame shows the old layout without this pane. The stacking order changes in the pass that hides them, so
+    /// they keep their rank until then. A pane with no host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        host.leavingRank = shownAtRank
+        host.isLeaving = true
         retired[pane] = (host, screen, until, true)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
         // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
@@ -288,13 +288,13 @@ final class LayoutViewContext {
     }
 
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
-    /// (``retire(_:from:until:shownAtRank:)``) hide, their rings with them. Their teardown is work no frame
+    /// (``retire(_:from:until:)``) hide, their rings with them. Their teardown is work no frame
     /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
     @discardableResult
     func hideRetiredShown(of screen: ScreenID) -> Bool {
         var hid = false
         for (pane, entry) in retired where entry.screen == screen && entry.shown {
-            entry.host.leavingRank = nil
+            entry.host.isLeaving = false
             entry.host.isHidden = true
             entry.host.chrome.isHidden = true
             retired[pane]?.shown = false

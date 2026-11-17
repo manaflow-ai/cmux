@@ -314,7 +314,7 @@ final class ScreenContentView: NSView {
             // a close's go (`releaseDeparted`).
             guard zooming || !context.livePanes.contains(pane) else { continue }
             if context.hosts[pane]?.superview === self {
-                context.retire(pane, from: screenID, until: zooming ? .zoom : .landing, shownAtRank: liveRank(of: pane, in: before))
+                context.retire(pane, from: screenID, until: zooming ? .zoom : .landing)
                 frameInput.snapDeparted.append(pane)
             } else if !zooming {
                 context.release(pane)

@@ -30,7 +30,7 @@ extension ScreenContentView {
     /// resize press's (Reduce Motion, pane animations off; RESIZE P0 13, KEY SNAP GRID): each size drawn ahead takes its
     /// grid to the program in the key's turn, as a key spring's first refresh does (RESIZE P0 11), so the program redraws
     /// before the tick shows the press. A structural change's (a split, a close, a zoom) is render only: its grid goes
-    /// when it shows (m58).
+    /// when it shows.
     func holdsSnapForContent(keyPress: Bool = false) -> Bool {
         guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
         let strip = stripShift, scale = self.scale
@@ -115,7 +115,7 @@ extension ScreenContentView {
     /// take the new size: the program's rules and status line end at the old width for a refresh). So the snap waits with
     /// the terminal, as a key spring's frames do (``PaneMotionHoldFollowing/aheadOfFollowAwaitsContent(refreshesWaited:)``,
     /// each content bounds its wait), and the tick that shows it shows the redraw with the new size in one commit. A
-    /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows (m58).
+    /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows.
     func heldSnapAwaitsContent() -> Bool {
         guard frameInput.snapWaitsForContent, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
         frameInput.snapRefreshesWaited += 1

@@ -144,8 +144,7 @@ extension ScreenContentView {
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
-            // A pane a change took out shows where it was until that change shows.
-            return host.leavingRank ?? liveRank(of: host.pane, in: geometry)
+            return liveRank(of: host.pane, in: geometry)
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
             if case let .columnEdge(id) = divider.kind { return 4 + cornerRank(geometry.dock.first { $0.column == id }) }

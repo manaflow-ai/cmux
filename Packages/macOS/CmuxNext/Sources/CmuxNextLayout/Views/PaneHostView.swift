@@ -258,10 +258,8 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The pane left its screen's layout (a close, or a zoom of another pane) in a change that has not shown yet
-    /// (`LayoutViewContext.retire`): the host shows as it was, at the stacking rank it had (this value), until that
-    /// change shows, and takes no clicks. Nil for a pane of the layout.
-    var leavingRank: Int?
-    var isLeaving: Bool { leavingRank != nil }
+    /// (`LayoutViewContext.retire`): the host shows as it was, and takes no clicks, until that change shows.
+    var isLeaving = false
 
     /// The pane's layout change showed before a producer in its content had drawn at the pane's new size
     /// (`ScreenContentView.presentHeldSnap`, `PaneCommitSurface`): the pane shows its content's own ground over its
