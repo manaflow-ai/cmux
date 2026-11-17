@@ -31,7 +31,7 @@ extension CEFEngine {
 
     /// Moves the caches aside here (before Chromium can open the profile)
     /// and deletes them off the main thread: they can hold many files.
-    private static func removeCaches(in directory: URL) {
+    static func removeCaches(in directory: URL) {
         let manager = FileManager.default
         var aside: [URL] = []
         for name in cacheDirectories {
