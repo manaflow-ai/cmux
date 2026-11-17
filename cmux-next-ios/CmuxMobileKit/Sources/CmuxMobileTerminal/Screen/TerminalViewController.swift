@@ -1581,10 +1581,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// deadline and the held frame's cap leave the pending place alone until
     /// it does (a restore then would find the rows still missing).
     private var olderRowsAsked = false
+    /// Scroll to Top asked for older rows: the replay they come in is read
+    /// from its first row and asks again, until the session has none (the
+    /// Mac's Scroll to Top reaches its first row; a projection holds a window).
+    private var topAsked = false
     /// A place is waiting to be put back (the held frame stays for it).
     private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
     /// A place is waiting and the replay that places it is in (or overdue).
-    private var restoreDue: Bool { readingMark != nil || (pendingRestore != nil && !olderRowsAsked) }
+    private var restoreDue: Bool { readingMark != nil || topAsked || (pendingRestore != nil && !olderRowsAsked) }
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
@@ -1593,6 +1597,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         pendingRestore = nil
         olderRowsAsked = false
         readingMarkAwaitsReport = false
+        if topAsked {
+            topAsked = false
+            guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+            scroll.restoreReading(.init(row: 0, delta: -scrollView.adjustedContentInset.top))
+            topAsked = model.session.loadOlderHistory()
+            return
+        }
         guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
         let reader = rowReader
@@ -1642,6 +1653,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The person took the page (a drag, typing, Jump to bottom): a place
     /// still waiting for its replay is dropped.
     private func dropPendingRestore() {
+        topAsked = false
         guard pendingRestore != nil else { return }
         pendingRestore = nil
         olderRowsAsked = false
@@ -3052,6 +3064,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scroll.reveal(row: document.originRow, delta: -scrollView.adjustedContentInset.top)
         placesFromReport = false
         applyScroll()
+        // Rows older than the phone holds (a projection's window, a Mac
+        // terminal attached with its latest screen first): their replay comes
+        // back to the top (`restoreReadingMark`).
+        topAsked = model.session.loadOlderHistory()
     }
 
     /// The Mac's Send Text…: a field whose text is typed into the terminal as is, no Return.
