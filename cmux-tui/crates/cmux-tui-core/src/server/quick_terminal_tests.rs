@@ -685,3 +685,139 @@ fn a_hidden_quick_terminal_of_wire_requests_survives_a_restart() {
     drop(wire);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Whether the layout `node` of an event has a leaf of `pane`, in its tree or in the tree of a column.
+fn has_leaf(node: &Value, pane: PaneId) -> bool {
+    match node {
+        Value::Object(fields) => {
+            (fields.get("type") == Some(&json!("leaf")) && fields.get("pane") == Some(&json!(pane)))
+                || fields.values().any(|child| has_leaf(child, pane))
+        }
+        Value::Array(items) => items.iter().any(|child| has_leaf(child, pane)),
+        _ => false,
+    }
+}
+
+/// The count of the entries of the layout undo of the screen.
+fn undo_entries(wire: &Wire) -> usize {
+    wire.mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len())
+}
+
+/// A make sends the layout of its screen with the new pane floating and marked: no layout event has the new
+/// pane as a tiled pane.
+#[test]
+fn no_layout_event_of_a_make_has_the_new_pane_tiled() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    wire.focus(panes[0]);
+    let events = wire.mux.subscribe();
+
+    let data = wire.toggle();
+    let quick = pane(&data["pane"]);
+    let layouts = layouts(&events.try_iter().collect::<Vec<_>>());
+    let last = layouts.last().expect("a make sends the layout of its screen");
+    assert_eq!(last["quick_terminal"], json!({"pane": quick, "hidden": false, "from": panes[0]}));
+    assert_eq!(last["active_pane"], json!(quick));
+    assert!(has_leaf(last, quick), "the fixture: the layout names the new pane: {last}");
+    for layout in layouts.iter().filter(|layout| has_leaf(layout, quick)) {
+        assert_eq!(layout["quick_terminal"]["pane"], json!(quick), "no mark: {layout}");
+        assert_eq!(pane(&layout["floating"][0]["pane"]), quick, "the new pane is tiled: {layout}");
+    }
+}
+
+/// A hide and a show are acts of the focus, not changes of the layout: they add no entry to the layout undo.
+#[test]
+fn a_hide_and_a_show_add_no_undo_entry() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    let entries = undo_entries(&wire);
+
+    wire.toggle();
+    wire.toggle();
+    wire.quick("hide");
+    wire.focus(quick);
+    assert_eq!(wire.mark(), json!({"pane": quick, "hidden": false, "from": panes[0]}));
+    assert_eq!(undo_entries(&wire), entries, "a hide or a show added an entry of the layout undo");
+}
+
+/// An undo of the layout puts back the frames and the list of before its change. It does not show a quick
+/// terminal that is hidden now, and it does not hide one that shows now.
+#[test]
+fn an_undo_of_the_layout_keeps_the_hide_of_now() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    // The quick terminal shows at the time of its move, and is hidden at the time of the undo.
+    wire.ok(json!({
+        "cmd": "float-pane", "pane": quick, "mode": "on", "x": 0.1, "y": 0.2, "w": 0.4, "h": 0.5,
+    }));
+    wire.toggle();
+    let hidden = json!({"pane": quick, "hidden": true, "from": panes[0]});
+    assert_eq!(wire.mark(), hidden);
+
+    let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    assert_eq!(undone["undone"], true, "{undone}");
+    assert_eq!(frame_of(&wire.floating()[0]), frame(0.55, 0.55, 0.45, 0.45), "the move is undone");
+    assert_eq!(wire.mark(), hidden, "the undo of a move showed a hidden quick terminal");
+    assert_eq!(wire.active(), json!(panes[0]));
+
+    // The quick terminal is hidden at the time another pane floats, and shows at the time of the undo.
+    wire.ok(json!({"cmd": "float-pane", "pane": panes[1], "mode": "on"}));
+    wire.toggle();
+    wire.focus(panes[0]);
+    let shown = json!({"pane": quick, "hidden": false, "from": panes[0]});
+    assert_eq!(wire.mark(), shown);
+
+    let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    assert_eq!(undone["undone"], true, "{undone}");
+    assert_eq!(wire.floating_panes(), vec![quick], "the float of the other pane is undone");
+    assert_eq!(wire.mark(), shown, "the undo of another float hid a quick terminal that shows");
+}
+
+/// A close of the pane that has the focus gives the focus to a pane that shows. A hidden quick terminal stays
+/// hidden, also when it had the focus last.
+#[test]
+fn a_close_of_the_focused_pane_gives_no_focus_to_a_hidden_quick_terminal() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.toggle();
+    assert_eq!(wire.active(), json!(panes[0]));
+
+    wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
+    assert_eq!(wire.panes().len(), 2, "the closed pane is gone, the quick terminal stays");
+    assert_eq!(wire.active(), json!(panes[1]), "the focus went to the hidden quick terminal");
+    assert_eq!(wire.mark(), json!({"pane": quick, "hidden": true, "from": null}));
+}
+
+/// The last tiled pane closes while another pane floats and the quick terminal is hidden: the other floating
+/// pane becomes the tiled pane and gets the focus. The hidden quick terminal stays as it is.
+#[test]
+fn the_last_tiled_pane_rule_takes_another_floating_pane_first() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.ok(json!({"cmd": "float-pane", "pane": panes[1], "mode": "on"}));
+    wire.quick("hide");
+    assert_eq!(wire.floating_panes(), vec![quick, panes[1]], "the hidden one is at the back");
+    assert_eq!(wire.active(), json!(panes[0]));
+
+    wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
+    assert_eq!(wire.floating_panes(), vec![quick], "the other floating pane is the tiled pane");
+    assert_eq!(wire.active(), json!(panes[1]));
+    assert_eq!(wire.mark(), json!({"pane": quick, "hidden": true, "from": null}));
+}
+
+/// The last other pane of the screen closes while the quick terminal is hidden: the quick terminal becomes
+/// the tiled pane of the screen, it has the focus, and it is a plain pane. No shell is lost and the screen
+/// never shows nothing.
+#[test]
+fn the_quick_terminal_alone_becomes_the_tiled_pane_and_shows() {
+    let (mut wire, panes) = Wire::with_panes(1);
+    let (quick, surface) = made(&mut wire, panes[0]);
+    wire.toggle();
+    assert_eq!(wire.mark()["hidden"], true);
+
+    wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
+    assert_eq!(wire.panes(), vec![quick]);
+    assert_eq!(wire.pane_of(surface), Some(quick), "the terminal of the quick terminal lives");
+    assert!(wire.floating().is_empty(), "the only pane of a screen is tiled");
+    assert!(wire.mark().is_null(), "a tiled pane has no mark");
+    assert_eq!(wire.active(), json!(quick));
+}
