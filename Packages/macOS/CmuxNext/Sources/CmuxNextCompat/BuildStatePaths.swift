@@ -127,6 +127,26 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
 
+    /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm
+    /// `CMUX_VM_DEFAULT_CONFIG`): `<config>/vm.json`; nil for every other build (cmux-vm's own default).
+    public var vmConfigFile: URL? {
+        ownRoot.map { _ in configDirectory.appendingPathComponent("vm.json", isDirectory: false) }
+    }
+
+    /// The tool lists `cmux mcp serve` keeps of a chat's other MCP servers (cmux-tui `upstream_listing`), instead of
+    /// `~/.cache/cmux/mcp-upstreams`: in the DEV build's own caches; nil for every other build.
+    public var mcpUpstreamsCache: URL? { ownCaches?.appendingPathComponent("mcp-upstreams", isDirectory: true) }
+
+    /// The installed mux plugins (cmux-tui `plugin_manager`), instead of `~/.local/share/cmux/mux-plugins`; nil for
+    /// every other build.
+    public var muxPluginsDirectory: URL? { ownRoot?.appendingPathComponent("mux-plugins", isDirectory: true) }
+
+    /// What a DEV build's daemon reads classic cmux's data from (`classic_import.*`): a folder that stands for
+    /// classic's Application Support, its sessions in `cmux/` and the import's ledger in `cmux-next/<bundle id>/`.
+    /// It starts empty, so a DEV build never imports the person's classic (production) workspaces; a test puts a
+    /// classic session there to exercise the import. Nil for every other build (the person's classic data).
+    public var classicImportDirectory: URL? { ownRoot?.appendingPathComponent("classic-import", isDirectory: true) }
+
     /// Whether this build imports classic cmux's preferences from the other channels' defaults
     /// (`ClassicPreferenceImport`): a DEV build never derives its settings from another build's.
     public var importsOtherBuildsPreferences: Bool { !isolatesSharedState }
@@ -149,19 +169,40 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public static let agentSkillsDirectoryKey = "CMUX_AGENT_SKILLS_DIR"
     /// The Cloud secrets Keychain service (cmux-tui `cli/cloud_secret.rs`).
     public static let cloudSecretsServiceKey = "CMUX_NEXT_CLOUD_SECRETS_SERVICE"
+    /// The `cmux vm` config (cmux-vm `config::default_config_path`).
+    public static let vmConfigFileKey = "CMUX_VM_DEFAULT_CONFIG"
+    /// The MCP tool lists (cmux-tui `cli/mcp/upstream_listing.rs`).
+    public static let mcpUpstreamsCacheKey = "CMUX_NEXT_MCP_UPSTREAMS_DIR"
+    /// The mux plugins (cmux-tui `plugin_manager::install_root`).
+    public static let muxPluginsDirectoryKey = "CMUX_NEXT_MUX_PLUGINS_DIR"
+    /// Classic cmux's data for the import (cmux-tui-core `classic_import_router::Places`).
+    public static let classicImportDirectoryKey = "CMUX_NEXT_CLASSIC_IMPORT_DIR"
+    /// The build's settings defaults (``SettingsBuildDefaults``, a JSON object of dotted keys) for the Rust settings
+    /// owner (cmux-config `BUILD_DEFAULTS_ENV`): set by the launch for every build that has any, not only a DEV build.
+    public static let settingsBuildDefaultsKey = "CMUX_NEXT_SETTINGS_BUILD_DEFAULTS"
 
     /// Every variable ``environment`` may set: the daemon's and acpmux's allow-listed environments pass these on.
     public static let environmentKeys = [settingsFileKey, cloudSecretsFileKey, cloudSecretsServiceKey, keysAuditFileKey,
-                                         hostBudgetFileKey, automationsDirectoryKey, customizeDirectoryKey, agentSkillsDirectoryKey]
+                                         hostBudgetFileKey, automationsDirectoryKey, customizeDirectoryKey, agentSkillsDirectoryKey,
+                                         vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
+
+    /// What an allow-listed child (the daemon, acpmux) gets from the app's environment: ``environmentKeys`` and the
+    /// build's settings defaults.
+    public static let childEnvironmentKeys = environmentKeys + [settingsBuildDefaultsKey]
 
     /// What this build's children read its files from: every ``environmentKeys`` entry for a DEV
     /// build, nothing for every other (they keep reading the shared defaults).
     public var environment: [String: String] {
         guard isolatesSharedState else { return [:] }
-        return [Self.settingsFileKey: settingsFile.path, Self.cloudSecretsFileKey: cloudSecretsIndex.path,
-                Self.cloudSecretsServiceKey: cloudSecretsService, Self.keysAuditFileKey: keysAuditFile.path,
-                Self.hostBudgetFileKey: hostBudgetFile.path, Self.automationsDirectoryKey: automationsDirectory.path,
-                Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path]
+        var environment = [Self.settingsFileKey: settingsFile.path, Self.cloudSecretsFileKey: cloudSecretsIndex.path,
+                           Self.cloudSecretsServiceKey: cloudSecretsService, Self.keysAuditFileKey: keysAuditFile.path,
+                           Self.hostBudgetFileKey: hostBudgetFile.path, Self.automationsDirectoryKey: automationsDirectory.path,
+                           Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path]
+        environment[Self.vmConfigFileKey] = vmConfigFile?.path
+        environment[Self.mcpUpstreamsCacheKey] = mcpUpstreamsCache?.path
+        environment[Self.muxPluginsDirectoryKey] = muxPluginsDirectory?.path
+        environment[Self.classicImportDirectoryKey] = classicImportDirectory?.path
+        return environment
     }
 
     /// What `CmuxNextApp.prepareLaunchEnvironment` sets in the app's environment: each ``environment`` entry the
@@ -172,10 +213,10 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
         environment.filter { key, _ in process[key].map(\.isEmpty) ?? true }
     }
 
-    /// The values of ``environmentKeys`` set in `environment` (a process environment), to pass to a child
+    /// The values of ``childEnvironmentKeys`` set in `environment` (a process environment), to pass to a child
     /// whose environment is an allow list.
     public static func childEnvironment(from environment: [String: String]) -> [String: String] {
-        environmentKeys.reduce(into: [:]) { out, key in
+        childEnvironmentKeys.reduce(into: [:]) { out, key in
             if let value = environment[key], !value.isEmpty { out[key] = value }
         }
     }
@@ -216,8 +257,15 @@ extension BuildIdentity {
     /// The folder name of the state a build keeps under its bundle id (`<Application Support>/<name>`,
     /// `<Caches>/<name>`): the Chief home, the mobile host's state and the browser profiles. `bundleID` names
     /// the build the caller resolves for; nil when it is blank.
+    ///
+    /// A DEV build (``isolatesSharedState``) names it by its ``key``, so two copies of one bundle id with their own
+    /// shipped tags (`com.cmuxterm.app.debug` with `CMUX_TAG` a and b) never share it. A tagged DEV build
+    /// (`com.cmuxterm.app.debug.<tag>`) and the untagged one have their bundle id as key, so their folders stay
+    /// where they are; NIGHTLY, cmux NEXT, RC and release keep the bundle id. Another bundle id than this build's
+    /// is that bundle's own folder.
     public func stateFolderName(for bundleID: String?) -> String? {
         guard let bundleID, !bundleID.isEmpty else { return nil }
-        return bundleID
+        guard isolatesSharedState, let own = self.bundleID, Array(own.utf8) == Array(bundleID.utf8) else { return bundleID }
+        return key
     }
 }

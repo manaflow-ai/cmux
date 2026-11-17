@@ -16,7 +16,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/TerminalThemeStore.swift	1	pe
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/WorkspaceBackgroundStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/IncognitoWorkspaceLedger.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeFolder.swift	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
-Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProfileStorage.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProfileStorage.swift	1	per build: the bundle id's folder, the build key in a DEV build (BuildIdentity.stateFolderName), so two copies of one bundle id with their own tags never share it
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostPrototype.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/SiteZoomLevels.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/CookieBackups.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)

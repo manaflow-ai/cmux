@@ -119,7 +119,9 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// roots (per-build isolation S4, cx-is1kf.5).
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
                                         "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE",
-                                        "CLOUD_SECRETS_FILE", "CLOUD_SECRETS_SERVICE", "KEYS_AUDIT_FILE"].map { "CMUX_NEXT_" + $0 }
+                                        "CLOUD_SECRETS_FILE", "CLOUD_SECRETS_SERVICE", "KEYS_AUDIT_FILE",
+                                        "MCP_UPSTREAMS_DIR", "MUX_PLUGINS_DIR", "CLASSIC_IMPORT_DIR",
+                                        "SETTINGS_BUILD_DEFAULTS"].map { "CMUX_NEXT_" + $0 }
 
     /// The Cloud selection an app exports to its own terminals once its Cloud bootstrap resolves (AppDelegate):
     /// the `cmux` CLI there reads them as that app's backend. A person or a script may set them on purpose to
@@ -204,25 +206,34 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// Unsets inherited cmux variables in this process. Run first thing in
     /// `main`, before any thread starts and before the environment freeze
     /// (``ProcessEnvironmentGuard``). Returns the removed keys.
+    ///
+    /// `settingsBuildDefaults` is this build's ``BuildStatePaths/settingsBuildDefaultsKey`` value
+    /// (`SettingsBuildDefaults.childEnvironmentValue`): set for the Rust settings owner, and nil unsets one
+    /// inherited from another build.
     @discardableResult
     public static func stripInheritedEnvironment(
         bundle: Bundle = .main,
         statePaths: BuildStatePaths = .current,
+        settingsBuildDefaults: String? = nil,
         environmentGuard: ProcessEnvironmentGuard = .process
     ) -> [String] {
         let bundled = bundledEnvironment(bundle)
-        let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
-                                 bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
+        let process = ProcessInfo.processInfo.environment
+        let keys = inheritedKeys(processEnvironment: process, bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
         // This build's own space replaces any inherited one, so every Rust child that inherits
         // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
-        let space = childBuildSpace(BuildIdentity(bundleID: bundle.bundleIdentifier, bundledTag: bundled["CMUX_TAG"]))
+        let space = childBuildSpace(BuildIdentity(bundle: bundle))
+        // A build without settings defaults never passes on another build's.
+        let unset = settingsBuildDefaults == nil && process[BuildStatePaths.settingsBuildDefaultsKey] != nil
+            ? keys + [BuildStatePaths.settingsBuildDefaultsKey] : keys
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
-            for key in keys { unsetenv(key) }
+            for key in unset { unsetenv(key) }
             // Then this build's own values: its space, and for a DEV build its own settings file and the
             // files beside it (``BuildStatePaths``; nothing for NIGHTLY or stable), read over what is left, so an
             // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
             var values = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
             if let space { values[buildSpaceKey] = space }
+            if let settingsBuildDefaults { values[BuildStatePaths.settingsBuildDefaultsKey] = settingsBuildDefaults }
             for (key, value) in values { setenv(key, value, 1) }
         }
         return keys.sorted()

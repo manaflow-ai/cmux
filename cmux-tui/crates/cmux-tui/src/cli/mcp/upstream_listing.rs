@@ -29,13 +29,20 @@ pub(super) struct Listing {
     pub instructions: Option<String>,
 }
 
+/// A DEV build's own folder (BuildStatePaths `mcpUpstreamsCacheKey`).
+const DIR_ENV: &str = "CMUX_NEXT_MCP_UPSTREAMS_DIR";
+
 /// The folder of this process ([`dir_from`] its environment).
 pub(super) fn default_dir() -> Option<PathBuf> {
     dir_from(|name| std::env::var_os(name))
 }
 
-/// The person's folder, `~/.cache/cmux/mcp-upstreams`, for the environment `env`.
+/// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which the Mac app
+/// sets: BuildStatePaths), else the person's, `~/.cache/cmux/mcp-upstreams`, which NIGHTLY and stable share.
 pub(super) fn dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    if let Some(own) = env(DIR_ENV).filter(|dir| !dir.is_empty()) {
+        return Some(PathBuf::from(own));
+    }
     let home = env("HOME").filter(|h| !h.is_empty())?;
     Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
 }

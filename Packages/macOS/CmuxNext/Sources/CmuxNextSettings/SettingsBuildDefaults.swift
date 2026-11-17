@@ -1,3 +1,5 @@
+import Foundation
+
 /// Defaults that depend on the running build rather than the schema. They fill keys that no layer
 /// sets (the file, MDM, the team policy), in the effective root only: cmux-next.json is shared by
 /// NIGHTLY, cmux NEXT, RC and stable, so a NIGHTLY default written there would become stable's value too
@@ -30,7 +32,13 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
 
     /// The value of `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS` (``BuildStatePaths/settingsBuildDefaultsKey``) for this
     /// build's Rust children: nil when the build has none.
-    public var childEnvironmentValue: String? { nil }
+    public var childEnvironmentValue: String? {
+        guard !values.isEmpty else { return nil }
+        let dotted = Dictionary(uniqueKeysWithValues: values.map { ($0.key.joined(separator: "."), $0.value) })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(dotted)).flatMap { String(data: $0, encoding: .utf8) }
+    }
 
     /// `root` with every build default whose key it leaves unset.
     func filling(_ root: JSONValue) -> JSONValue {

@@ -241,6 +241,8 @@ pub struct Schema {
     pub rows: Vec<Row>,
     by_key: HashMap<String, usize>,
     by_path: HashMap<Vec<String>, usize>,
+    /// The build's defaults applied to their rows ([`Schema::with_build_defaults`]).
+    build_defaults: std::collections::BTreeMap<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -315,7 +317,10 @@ impl Schema {
         SCHEMA.get_or_init(|| {
             let parsed = Schema::parse_keeping(EMBEDDED, |embedded, _| RowText::Embedded(embedded));
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
-            parsed.expect("the embedded settings schema parses")
+            let schema = parsed.expect("the embedded settings schema parses");
+            // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
+            let defaults = std::env::var(BUILD_DEFAULTS_ENV).ok();
+            schema.with_build_defaults(&build_defaults_from(defaults.as_deref()))
         })
     }
 
@@ -352,6 +357,7 @@ impl Schema {
             rows,
             by_key,
             by_path,
+            build_defaults: std::collections::BTreeMap::new(),
         })
     }
 

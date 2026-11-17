@@ -31,7 +31,10 @@ public import Foundation
 ///    `CMUX_NEXT_NO_ACTIVATE=1`, test window placement, showcase):
 ///    `~/.cmux/chief/isolated/<tag>`, so automation never reads or writes the
 ///    user's real Chief.
-/// 4. Every build but NIGHTLY: `~/.cmux/chief/<bundle id>`, with
+/// 4. Every build but NIGHTLY: `~/.cmux/chief/<bundle id>` (a DEV build's
+///    build key, ``folderName(of:appBuild:bundleID:tag:)``: the same name
+///    for a tagged or the untagged DEV build, `<bundle id>--<tag>` for a copy
+///    of one bundle id that ships its own `CMUX_TAG`), with
 ///    `.<account>` appended for an account other than `default`. NIGHTLY
 ///    (and a process without a bundle id): `~/.cmux/chief/<account>` (the
 ///    account from `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). A DEBUG build may name

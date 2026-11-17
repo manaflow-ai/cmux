@@ -438,7 +438,10 @@ On the Mac a dev build's settings and local state are its own too: `BuildStatePa
 Keychain service, keys audit, host budget, recovery drafts, agent home, chat uploads and caches under
 `~/Library/Application Support/cmux-next/builds/<key>` (caches: `~/Library/Caches/cmux-next/builds/<key>`), starts them
 empty (schema defaults plus `SettingsBuildDefaults`, never a copy of nightly's) and names them to its Rust children
-through its environment; nightly, stable and the other shipped builds keep `~/.config/cmux`. The gate's "Dev build state
+through its environment (also its `cmux vm` config, MCP tool lists, mux plugins and classic import folder, which
+starts empty: a DEV build never imports the person's classic data); nightly, stable and the other shipped builds keep
+`~/.config/cmux`. Its `SettingsBuildDefaults` reach the Rust settings owner as `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, and
+state named after the bundle id (Chief home, mobile host, Chromium profiles) uses `BuildIdentity.stateFolderName`. The gate's "Dev build state
 is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
 sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
 

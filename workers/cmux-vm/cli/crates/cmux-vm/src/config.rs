@@ -151,7 +151,14 @@ fn load_config(
     serde_json::from_str(&text).map_err(|e| wrap(format!("parse config {}: {e}", path.display())))
 }
 
-fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+/// The default config file, read when it exists: `CMUX_VM_DEFAULT_CONFIG` (a cmux DEV build names its own,
+/// so the person's `vm.json` is NIGHTLY's and stable's only), else `$XDG_CONFIG_HOME/cmux/vm.json` or
+/// `~/.config/cmux/vm.json`. Unlike `CMUX_VM_CONFIG` it is no explicit file: a missing one is no error and
+/// the stored agent token still comes first.
+pub fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    if let Some(own) = env("CMUX_VM_DEFAULT_CONFIG").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(own));
+    }
     let base = env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| env("HOME").map(|home| PathBuf::from(home).join(".config")))?;

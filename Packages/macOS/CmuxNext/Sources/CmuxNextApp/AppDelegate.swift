@@ -158,8 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
         // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
         let settingsRead = SettingsController.readAtLaunch(
-            file: CmuxConfigFile.launchFile(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault,
-                                                                     devBuild: BuildStatePaths.current.isolatesSharedState))
+            file: CmuxConfigFile.launchFile(), buildDefaults: CmuxNextApp.settingsBuildDefaults)
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)

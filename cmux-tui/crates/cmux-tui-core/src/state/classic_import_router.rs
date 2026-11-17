@@ -46,6 +46,9 @@ use crate::state::store::{StateChanges, StateCommit};
 use crate::workspace_registry::WorkspaceMutation;
 use crate::{Mux, ResourceTarget};
 
+/// The folder a DEV build's launch names for classic's data (BuildStatePaths `classicImportDirectoryKey`).
+const CLASSIC_DIR_ENV: &str = "CMUX_NEXT_CLASSIC_IMPORT_DIR";
+
 /// Advertised in identify: the daemon answers `classic_import.plan` and
 /// `classic_import.record`.
 pub const CAPABILITY: &str = "classic-import-v1";
@@ -69,6 +72,11 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct Places {
     pub(crate) home: PathBuf,
+    /// Classic's Application Support: `<home>/Library/Application Support`, or a DEV build's own folder
+    /// ([`CLASSIC_DIR_ENV`]), which also holds the ledger (`cmux-next/<bundle id>/classic-migration`).
+    pub(crate) support: PathBuf,
+    /// The home whose classic socket locks say classic runs: `home`, or the DEV build's own folder.
+    pub(crate) probe_home: PathBuf,
     pub(crate) xdg_state_home: Option<String>,
     /// Where classic's `/tmp` socket lock is (`/tmp`; a test's own folder).
     pub(crate) tmp: PathBuf,
@@ -79,27 +87,38 @@ impl Places {
         Self::from_vars(|name| std::env::var_os(name))
     }
 
-    /// The places of a process with the environment `var`.
+    /// The places of a process with the environment `var`. A DEV build's launch names its own folder
+    /// ([`CLASSIC_DIR_ENV`]): classic's files, the ledger and whether classic runs are all read there, so a DEV
+    /// build never imports (or records against) the person's classic, production data. The folder starts
+    /// empty; a test puts a classic session in it.
     pub(crate) fn from_vars(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Self> {
         let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-        let home = var(home_var).filter(|value| !value.is_empty())?;
+        let home = PathBuf::from(var(home_var).filter(|value| !value.is_empty())?);
+        if let Some(own) = var(CLASSIC_DIR_ENV).filter(|value| !value.is_empty()).map(PathBuf::from)
+        {
+            return Some(Self {
+                home,
+                xdg_state_home: Some(own.join("state").to_string_lossy().into_owned()),
+                tmp: own.join("tmp"),
+                probe_home: own.clone(),
+                support: own,
+            });
+        }
         Some(Self {
-            home: PathBuf::from(home),
+            support: home.join("Library/Application Support"),
+            probe_home: home.clone(),
+            home,
             xdg_state_home: var("XDG_STATE_HOME").and_then(|value| value.into_string().ok()),
             tmp: PathBuf::from("/tmp"),
         })
     }
 
-    fn support(&self) -> PathBuf {
-        self.home.join("Library/Application Support")
-    }
-
     fn finder(&self, bundle_id: &str) -> Finder {
-        Finder::new(&self.support(), Some(bundle_id))
+        Finder::new(&self.support, Some(bundle_id))
     }
 
     fn folder(&self, bundle_id: &str) -> Result<Folder, ResourceError> {
-        ledger::default_directory(&self.home, bundle_id).map(Folder::new).ok_or_else(|| {
+        ledger::directory_in(&self.support, bundle_id).map(Folder::new).ok_or_else(|| {
             ResourceError::validation_invalid(
                 Some("bundle_id"),
                 "bundle_id is a reverse-DNS bundle identifier",
@@ -108,10 +127,11 @@ impl Places {
     }
 
     fn classic_running(&self, source: &Source) -> bool {
-        let root = RunningProbe::default_state_root(&self.home, self.xdg_state_home.as_deref());
+        let root =
+            RunningProbe::default_state_root(&self.probe_home, self.xdg_state_home.as_deref());
         RunningProbe { state_root: root }.is_open(
             source,
-            &self.home,
+            &self.probe_home,
             &self.tmp,
             seconds(std::time::SystemTime::now()),
         )
@@ -602,5 +622,11 @@ pub(crate) fn dispatch_in(
 
 #[cfg(test)]
 pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
-    Places { home: home.to_path_buf(), xdg_state_home: None, tmp: home.join("tmp") }
+    Places {
+        home: home.to_path_buf(),
+        support: home.join("Library/Application Support"),
+        probe_home: home.to_path_buf(),
+        xdg_state_home: None,
+        tmp: home.join("tmp"),
+    }
 }
