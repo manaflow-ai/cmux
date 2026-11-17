@@ -276,6 +276,17 @@ pub(super) struct Inner {
     pub failed: HashMap<String, String>,
     /// The local apps' folder fingerprints the catalog was last read with.
     pub local_prints: HashMap<String, u64>,
+    /// The watched folders the catalog refused at the last reload pass that
+    /// logged, with why: a refusal is logged when it is new or its reason
+    /// changed, not again on every other app's save.
+    pub local_rejected_logged: HashMap<PathBuf, String>,
+    /// The watched folders' fingerprints `catalog` was read with: a reload
+    /// pass reuses the read of each folder whose fingerprint is unchanged.
+    pub local_dir_prints: HashMap<PathBuf, u64>,
+    /// The watched folders' fingerprints at the last reload pass, whether it
+    /// applied anything or not: a pass that reads only the folders a save
+    /// names (`local_reload::Scope::Folders`) keeps these for the others.
+    pub local_seen: HashMap<PathBuf, u64>,
     /// Each local app's last good copy (`rollback.rs`), and the fingerprint
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
@@ -374,6 +385,7 @@ impl Supervisor {
         let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
+        let local_dir_prints = local_before.dirs().clone();
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
@@ -466,6 +478,9 @@ impl Supervisor {
                 launches,
                 failed: HashMap::new(),
                 local_prints,
+                local_rejected_logged: HashMap::new(),
+                local_seen: local_dir_prints.clone(),
+                local_dir_prints,
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
