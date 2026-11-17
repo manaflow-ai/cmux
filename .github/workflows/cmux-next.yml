@@ -194,6 +194,7 @@ on:
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
       - schemas/build-identity/vectors.json
+      - scripts/measure/screen-stream-eval/wifi-away-holds.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
@@ -548,6 +549,7 @@ on:
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
       - schemas/build-identity/vectors.json
+      - scripts/measure/screen-stream-eval/wifi-away-holds.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
