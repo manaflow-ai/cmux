@@ -121,6 +121,10 @@ fn subscribe_rejects_oversized_window_before_registration() {
 async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let small_rounds = measure_first_windows(populated_index("s", 20), "small").await;
     let god_rounds = measure_first_windows(populated_index("g", 11_000), "god").await;
+    acpmux_book::gate_rounds::report(
+        "v2.pr05.first_list_window",
+        &[("small", &small_rounds), ("god", &god_rounds)],
+    );
     let small_p95 = best_p95(&small_rounds);
     let god_p95 = best_p95(&god_rounds);
     let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
@@ -139,6 +143,10 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_index = populated_index("g", 11_000);
     let small_changes = measure_summary_changes(&small_index, "s0");
     let god_changes = measure_summary_changes(&god_index, "g0");
+    acpmux_book::gate_rounds::report(
+        "v2.pr05.summary_change",
+        &[("small", &small_changes), ("god", &god_changes)],
+    );
     let small_change_p95 = best_p95(&small_changes);
     let god_change_p95 = best_p95(&god_changes);
     let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();

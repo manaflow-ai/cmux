@@ -506,16 +506,14 @@ final class SidebarNoticeCardView: NSView {
             label.font = Typography.caption
             label.frame = frame
         }
-        // The x and the text button sit on the first row: the glyph's own, else the heading's or the title's. The x
-        // centers on that row's capitals (live-qa 2026-10-21: centered in the padding corner it sat a point above the heading).
-        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
-        let rowMid = rows.glyphRow ? icon.frame.midY
-            : first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
+        // The text button sits on the first row: the glyph's own, else the title's.
         let dismissMid = rows.glyphRow ? icon.frame.midY : titleLabel.frame.minY + line.body / 2
         dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
-        let scale = window?.backingScaleFactor ?? 2
-        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((rowMid - close / 2) * scale).rounded() / scale,
-                                   width: close, height: close)
+        // The x in the card's top trailing corner, concentric with the card (Lawrence 2026-11-15: a card's x must be
+        // concentric with its corner): the same inset from the top and the side, its hover the corner less it.
+        let corner = Metrics.cornerControl(outerRadius: Self.cardCornerRadius, side: close)
+        closeButton.frame = corner.topTrailingFrame(side: close, in: b, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
         // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
         let trailingWidth = trailingButton.fittingWidth
         let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1

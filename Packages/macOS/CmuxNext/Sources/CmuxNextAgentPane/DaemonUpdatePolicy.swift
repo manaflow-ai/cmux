@@ -15,9 +15,9 @@ import os
 ///   (someone's own), is left alone;
 /// - no wait for a quiet moment: a target is updated mid-turn from the first ask, since a machine
 ///   where agents always work never has an idle moment, and the restarted daemon resumes what it
-///   interrupted (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE. IT JUST WONT. YOU'LL JUST HAVE TO
-///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
-///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
+///   interrupted (the rule of the daemon update, in the code since 2026-10-26: no wait for an idle
+///   machine, and an interrupted turn is accepted because the daemon resumes it).
+///   One that cannot update now (unreachable, another update running) is asked
 ///   again with backoff (2 minutes, doubling, at most 30 minutes apart; a busy one at most 4, as
 ///   a Cloud start holds it a minute or two) and is left for the next launch after 6 hours; an
 ///   unreachable one shows as offline, never as a failure, and is asked again at once when it
@@ -57,7 +57,7 @@ public actor DaemonUpdatePolicy {
         public var busyMaximum: Duration = .seconds(240)
         /// A target busy for this long is updated mid-turn
         /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero,
-        /// the default (Leo's order above): every update runs mid-turn from the first ask.
+        /// the default (the rule above): every update runs mid-turn from the first ask.
         public var updateBusyAfter: Duration = .zero
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.

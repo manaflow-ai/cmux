@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
 import { BACKGROUND_PANE } from "./backgroundPane";
+import { RUNNING_TRAY_LIST_LINE } from "../subagents/subagentSelectors";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -234,7 +235,7 @@ export default agentPaneEntry({
         // A headed tray starts folded (cmux#28875): open it, as the person does.
         if (ctx.document.querySelector('.acpmux-running-tray__head[aria-expanded="false"]'))
           await ctx.click({ selector: ".acpmux-running-tray__head" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
       },
     },
     docked: {

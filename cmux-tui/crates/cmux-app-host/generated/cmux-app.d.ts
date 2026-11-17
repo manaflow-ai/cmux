@@ -189,7 +189,7 @@ declare namespace Cmux {
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
-  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
+  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }
@@ -411,7 +411,7 @@ declare namespace Cmux {
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
   type SettingsChange = { keys: Array<string> }
-  type SettingsEdit = { op: "set" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
+  type SettingsEdit = { op: "set" | "set_exact" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
@@ -569,6 +569,17 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
+
+/** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
+interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
+/** `page.read`'s answer: the page's address and title, its main text as reader-mode blocks, and its links. */
+interface CmuxPageRead {
+  tab: string; url: string; title: string
+  article: { title: string; byline: string | null; site: string | null; blocks: CmuxPageBlock[] }
+  links: Array<{ text: string; href: string }>
+}
+/** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
+interface CmuxPageHint { label: string; text: string; href: string | null }
 
 interface CmuxGlobal {
   agent: {
@@ -1066,7 +1077,7 @@ interface CmuxGlobal {
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
     /** `git.status` (read, scope `git:read`) */
-    status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.GitStatusResult>
+    status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; github?: boolean }, Cmux.GitStatusResult>
     worktree: {
       /** `git.worktree.apply` (mutation, scope `git:execute`) */
       apply: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.MutationResult<Cmux.GitWorktreeApplyResult>>
@@ -1900,6 +1911,15 @@ interface CmuxGlobal {
   readonly theme: CmuxTheme
   /** A short notice from the app's own toast presenter; one slot per app (a new toast replaces the last). A string is the title. */
   toast(options: { title: string; message?: string; tone?: "success" | "warning" | "danger" } | string): Promise<null>
+  /** A browser tab's page, drawn by the cmux app (WebKit or CEF). `tab` is a `tab_…` id; without it, the focused browser tab of the front window. */
+  page: {
+    /** `page.read` (read, scope `page:read`): the page's main text as reader-mode blocks, and its links. Text is capped (400 blocks, 500 links). */
+    read: CmuxOp<{ tab?: string }, CmuxPageRead>
+    /** `page.hints` (mutation, scope `page:write`, needs a gesture): `show` draws link-hint labels over the clickable elements in view (the built-in `f` labels) and lists them; `clear` removes them. A scroll removes them too. */
+    hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
+    /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
+    follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void
@@ -1912,7 +1932,9 @@ interface CmuxSignalMap {
   "agent.list": { params: { state?: string }; value: Array<Cmux.AgentSnapshot> }
   /** `chat.list`: Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it. Scope: any of `chat:read`; pushed by `chat.changed`. */
   "chat.list": { params: {  }; value: Array<Cmux.ChatSummary> }
-  /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it. Scope: any of `integration:github:read`, `net:api.github.com`; polled every 300 s (never faster than 60 s): nothing pushes it yet. */
+  /** `github.changes`: Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live. Scope: any of `integration:github:read`, `net:api.github.com`; pushed by `github.changed` from outside this machine: while that push is live it re-reads every 900 s, and until it is, it polls every 60 s (never faster than 30 s). */
+  "github.changes": { params: { /** branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added). */ show?: "branch" | "mine" | "mentions" | "review-requested" | "search"; /** owner/name: the repository for show: branch; for the others it narrows the list to that repository. */ repo?: string; /** The head branch for show: branch. */ branch?: string; /** The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`. */ query?: string; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** At most this many pull requests (default 10). Each costs four conditional reads. */ limit?: number; /** The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; author: string; draft: boolean; state: "open" | "merged" | "closed"; /** The head branch. */ headRef: string; headSha: string; /** Lines added. */ additions: number; /** Lines removed. */ deletions: number; /** The head commit's check runs and commit statuses, the latest of each. */ checks: { /** failing when any check failed, else pending when any runs, else passing; none with no checks. */ state: "failing" | "pending" | "passing" | "none"; failing: number; pending: number; passing: number }; /** Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came. */ review: "approved" | "changes-requested" | "review-required" | "commented" | "none"; updatedAt: string }> }
+  /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls. Scope: any of `integration:github:read`, `net:api.github.com`; pushed by `github.changed` from outside this machine: while that push is live it re-reads every 900 s, and until it is, it polls every 300 s (never faster than 60 s). */
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */
   "workspace.list": { params: { order?: "session" | "personal" }; value: Array<Cmux.WorkspaceSnapshot> }
@@ -1933,7 +1955,7 @@ interface CmuxWatch<T> {
   /** Stops reading for this reader; automatic when the render or effect that called watch is disposed. */
   dispose(): void
 }
-interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored for pushed sources. */ everySeconds?: number }
+interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored while a push is live. */ everySeconds?: number }
 interface CmuxWatchFn {
   /** `params` may be a function: it is tracked, and the reader moves to the new (name, params) when its answer changes (a setting). */
   <N extends CmuxSignalName>(name: N, params?: CmuxSignalMap[N]["params"] | (() => CmuxSignalMap[N]["params"]), options?: CmuxWatchOptions): CmuxWatch<CmuxSignalMap[N]["value"]>

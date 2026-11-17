@@ -243,6 +243,10 @@ impl ConnectionState {
             false
         }
     }
+    /// A sid this connection ended itself and still keeps.
+    pub(super) fn ended_here(&self, sid: &str) -> bool {
+        self.ended_here.iter().any(|ended| ended == sid)
+    }
     /// The client's `unsub` of a sid this connection ended itself: it is forgotten, and the
     /// request is answered with nothing. False for a sid the connection never ended.
     pub(super) fn unsubscribe_ended(&mut self, sid: &str) -> bool {

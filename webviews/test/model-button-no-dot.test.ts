@@ -11,6 +11,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("model-button-no-dot.test.ts", async () => {
   const ENTRY = "agent-pane.model-button-default-effort";
@@ -70,40 +71,43 @@ await requireBrowserLane("model-button-no-dot.test.ts", async () => {
   /// What the model button draws: its text as read (each drawn label's attr() content in place), every
   /// pseudo-element's content, and any element whose painted box is a small circle.
   const drawn = (page: Page) =>
-    page.evaluate(() => {
-      const button = document.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button");
-      if (!button) throw new Error("no model button");
-      const visible = (element: Element) => {
-        const style = getComputedStyle(element);
-        const box = element.getBoundingClientRect();
-        return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
-      };
-      const pseudo: string[] = [];
-      const dots: string[] = [];
-      const words: string[] = [];
-      const walk = (node: Node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          words.push(node.textContent ?? "");
-          return;
-        }
-        if (!(node instanceof Element) || !visible(node)) return;
-        for (const which of ["::before", "::after"] as const) {
-          const content = getComputedStyle(node, which).content;
-          if (content && content !== "none" && content !== "normal") {
-            pseudo.push(content);
-            if (which === "::before") words.push(content.startsWith('"') ? content.slice(1, -1) : content);
+    page.evaluate(
+      ({ MODEL_PICKER }) => {
+        const button = document.querySelector<HTMLElement>(MODEL_PICKER);
+        if (!button) throw new Error("no model button");
+        const visible = (element: Element) => {
+          const style = getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+        };
+        const pseudo: string[] = [];
+        const dots: string[] = [];
+        const words: string[] = [];
+        const walk = (node: Node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            words.push(node.textContent ?? "");
+            return;
           }
-        }
-        const style = getComputedStyle(node);
-        const box = node.getBoundingClientRect();
-        const round = Number.parseFloat(style.borderTopLeftRadius) >= Math.min(box.width, box.height) / 2 - 0.5;
-        const painted = style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
-        if (round && painted && box.width <= 10 && box.height <= 10) dots.push(node.className.toString());
-        for (const child of node.childNodes) walk(child);
-      };
-      walk(button);
-      return { text: words.join(" ").replace(/\s+/g, " ").trim(), pseudo, dots };
-    });
+          if (!(node instanceof Element) || !visible(node)) return;
+          for (const which of ["::before", "::after"] as const) {
+            const content = getComputedStyle(node, which).content;
+            if (content && content !== "none" && content !== "normal") {
+              pseudo.push(content);
+              if (which === "::before") words.push(content.startsWith('"') ? content.slice(1, -1) : content);
+            }
+          }
+          const style = getComputedStyle(node);
+          const box = node.getBoundingClientRect();
+          const round = Number.parseFloat(style.borderTopLeftRadius) >= Math.min(box.width, box.height) / 2 - 0.5;
+          const painted = style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
+          if (round && painted && box.width <= 10 && box.height <= 10) dots.push(node.className.toString());
+          for (const child of node.childNodes) walk(child);
+        };
+        walk(button);
+        return { text: words.join(" ").replace(/\s+/g, " ").trim(), pseudo, dots };
+      },
+      { MODEL_PICKER },
+    );
 
   for (const [engine] of engines) {
     for (const variant of ["profile-default", "profile-update-pending"]) {

@@ -33,6 +33,8 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The waits for another process this open ran before its first paint, as the host sees them.
+    @ObservationIgnored public internal(set) var openWaits = AgentPaneOpenWaits()
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
@@ -382,6 +384,16 @@ public final class AgentPaneModel {
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// Writes the page's `pane.copyText` text and says whether it took: the person's clipboard in the app
+    /// (``writeGeneralClipboard(_:)``), a recorder in a test, which must never replace the clipboard of whoever
+    /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
+    @ObservationIgnored let writeClipboard: @MainActor (String) -> Bool
+
+    /// The app's clipboard write: replaces the general pasteboard's contents with `text`.
+    public static func writeGeneralClipboard(_ text: String) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(text, forType: .string)
+    }
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -394,9 +406,11 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        writeClipboard: @escaping @MainActor (String) -> Bool = AgentPaneModel.writeGeneralClipboard
     ) {
         self.allowsTabConversion = allowsTabConversion
+        self.writeClipboard = writeClipboard
         self.host = host
         self.attentionTabs = attentionTabs
         self.transport = transport
@@ -478,6 +492,8 @@ public final class AgentPaneModel {
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
         (hasPainted, paintedFromKeptTail, paintedSettled, pageReportedPaint) = (false, false, false, false)
+        // The chat's open starts here: the page's own load and connection ran before any tab asked.
+        openWaits = AgentPaneOpenWaits()
         return true
     }
 
@@ -543,6 +559,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
+            if ready { openWaits.ran(.connected) }
             if ready, let waiting = whenClientReady {
                 whenClientReady = nil
                 waiting()

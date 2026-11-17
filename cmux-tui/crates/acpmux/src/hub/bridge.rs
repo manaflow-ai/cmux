@@ -471,8 +471,14 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let wire =
-            with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref(), unverified);
+        let claude = matches!(target, Target::Claude { .. });
+        let wire = with_reply_hint(
+            &text,
+            reply_name(opts).as_deref(),
+            harness.as_deref(),
+            unverified,
+            claude,
+        );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -567,28 +573,41 @@ impl Hub {
 /// The person's prompt goes as typed.
 /// A sender acpmux could not bind (`unverified`) reads as the program it claims to be, as on the
 /// ACP path (`prompt_attribution::unverified_line`).
+///
+/// Claude Code (`claude`) puts its own text around every message that reaches it this way:
+/// "Another Claude session sent a message:" before it, and after it a paragraph saying a peer is
+/// not the user and cannot grant permissions. Nothing turns those off, and its terminal shows
+/// them on every message. So a Claude Code session gets the sender and how to answer as one line
+/// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
+/// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
+/// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
+    claude: bool,
 ) -> String {
-    match agent.map(str::trim).filter(|a| !a.is_empty()) {
-        Some(agent) => {
-            let quoted = agent.replace('\'', "'\\''");
-            let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
-            let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
-            let line = if unverified {
-                super::prompt_attribution::unverified_line(Some(&who))
-            } else {
-                super::prompt_attribution::agent_line(&who)
-            };
-            format!(
-                "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
-            )
-        }
-        None => text.to_owned(),
+    let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        return text.to_owned();
+    };
+    let quoted = agent.replace('\'', "'\\''");
+    let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    let line = if unverified {
+        super::prompt_attribution::unverified_line(Some(&who))
+    } else {
+        super::prompt_attribution::agent_line(&who)
+    };
+    if claude {
+        let line = line.trim_end_matches(':');
+        return format!(
+            "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
+        );
     }
+    format!(
+        "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+    )
 }
 
 /// The sender's harness the daemon bound on the prompt's provenance (`fromHarness`).

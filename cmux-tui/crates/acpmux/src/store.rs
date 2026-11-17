@@ -41,7 +41,7 @@ mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
 mod text_index;
-pub use shared_value::SharedValue;
+pub use shared_value::{SharedRows, SharedValue};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -391,7 +391,7 @@ pub struct SessionMeta {
     /// where an agent lists them once (perf100). Kept in `session.parts.json`, not
     /// `session.json` (`store/meta_parts.rs`): every other metadata save leaves it unwritten.
     #[serde(default, skip_serializing_if = "meta_parts::skip_commands")]
-    pub available_commands: Option<Value>,
+    pub available_commands: Option<SharedValue>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
     #[serde(
         default,
@@ -461,7 +461,7 @@ pub struct SessionMeta {
     /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle_launch: Option<crate::hub::StoredLaunch>,
+    pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -596,11 +596,11 @@ pub struct SessionMeta {
     pub subsession_limits: SubsessionLimits,
     /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
     #[serde(default)]
-    pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    pub races: std::sync::Arc<Vec<crate::race_records::Race>>,
     /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
     /// acpmux alone, never from a request. Shared as `races` is.
-    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
-    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
+    #[serde(default, skip_serializing_if = "crate::plan_build_records::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::plan_build_records::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
@@ -808,7 +808,7 @@ impl TurnUsage {
 #[serde(rename_all = "camelCase")]
 pub struct ToolInventory {
     #[serde(default)]
-    pub rows: Vec<ToolRow>,
+    pub rows: SharedRows,
     /// The chat can turn MCP servers off (Claude Code, through
     /// `--disallowedTools` at each start); ACP harnesses take their tools at
     /// session start only.
@@ -827,7 +827,7 @@ impl ToolInventory {
 }
 
 /// One row of a chat's tool list (the summary's `tools`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolRow {
     /// `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.

@@ -65,15 +65,15 @@ enum MainMenu {
     }
 
     /// The compact Release menu keeps the common path visible while every catalog action
-    /// remains available through the command palette. The allowlist is intentionally explicit so
-    /// a new catalog placement cannot silently reintroduce menu overload.
+    /// remains available through the command palette. Every catalog `main_menu` placement is either
+    /// here or palette-only by a reason in the catalog's tests/main_menu_bar.rs, so none goes missing silently.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
         .app: [
             "about", "openSettings", "customize.open", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
         ],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
-            "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
+            "openFolder", "file.open", "macScreen.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
             "reopenClosedWorkspace", "reopenClosedBrowserPanel", "home.stopAllAgents",
         ],
         .view: [

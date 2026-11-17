@@ -216,7 +216,7 @@ extension DaemonStore {
         case .overflow:
             // Presence cleared on every tab, and the events it stands for named nothing.
             snapshotMemo.untracked = true
-        case .connected, .disconnected, .daemonShutdown, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
+        case .connected, .disconnected, .daemonShutdown, .screenDeviceChanged, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
              .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
              .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:

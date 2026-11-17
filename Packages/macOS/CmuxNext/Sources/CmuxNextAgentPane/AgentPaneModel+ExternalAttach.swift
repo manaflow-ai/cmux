@@ -31,12 +31,37 @@ extension AgentPaneModel {
     }
 
     /// File `url`'s MIME type and bytes as base64, for the page's `{name, type, data}`; nil for a
-    /// folder, a file that can't be read or one over ``externalFileLimit``.
+    /// folder, a symlink, a file that can't be read or one over ``externalFileLimit``.
     nonisolated static func externalFile(_ url: URL) -> (url: URL, type: String, data: String)? {
-        guard let values = try? url.blockingResourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
-              (values.fileSize ?? 0) <= externalFileLimit,
-              let data = try? Data(blockingContentsOf: url) else { return nil }
+        guard let data = readExternalRegularFile(url, limit: externalFileLimit) else { return nil }
         return (url, UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "", data.base64EncodedString())
+    }
+
+    /// The bytes of the regular file at `url`, at most `limit` of them; nil for a symlink, a folder
+    /// or anything else. The type and size checks and the read go through one descriptor opened with
+    /// `O_NOFOLLOW`, so another app can't name a symlink to a file only cmux may read, or swap the
+    /// file between the check and the read (Daybreak nightly cmux-app-41).
+    nonisolated static func readExternalRegularFile(_ url: URL, limit: Int) -> Data? {
+        assertBlockingAllowed(.fileIO)
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0, info.st_size <= off_t(limit) else { return nil }
+        var bytes = Data(count: Int(info.st_size))
+        var filled = 0
+        let ok = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let base = buffer.baseAddress else { return true }
+            while filled < buffer.count {
+                let count = read(fd, base + filled, buffer.count - filled)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { return count == 0 }
+                filled += count
+            }
+            return true
+        }
+        guard ok else { return nil }
+        return bytes.prefix(filled)
     }
 
     /// `chat.composer.get`'s answer for this chat: `{session, attachments: [{name, mimeType, bytes,
