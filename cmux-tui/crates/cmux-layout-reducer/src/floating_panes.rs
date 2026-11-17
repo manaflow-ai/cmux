@@ -5,7 +5,7 @@
 //! last entry is the front pane. A build that does not know the list shows every pane tiled and loses none.
 //!
 //! The rules are pure. The daemon keeps the list on the screen, stores it and puts it in the layout undo; a frontend
-//! draws it. Every function takes `panes`, each pane of the screen once, and the list, and gives the next list:
+//! draws it. Each public free function but `new_frame` takes `panes`, each pane of the screen once, and the list:
 //!
 //! - **F1, membership.** Every entry names a pane of the screen, and no pane has two entries.
 //! - **F2, ground.** A screen keeps at least one tiled pane: [`place`] refuses to float the last one

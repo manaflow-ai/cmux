@@ -358,23 +358,24 @@ impl Supervisor {
             .collect()
     }
 
-    /// Installs the customization app with its required scopes the first
-    /// time it appears; a record the user changed (uninstalled) stays.
+    /// Installs the customization app the first time it appears while cmux
+    /// runs, as it installs at start (`seed_customize`): its read scopes and
+    /// the sandbox, nothing more until the person allows it. A record the
+    /// user changed (uninstalled) stays. Base red: this path seeded every
+    /// required scope unsandboxed, so a customize folder that a shared
+    /// collection (`customize library import ... --on`) or a profile wrote
+    /// got `terminal:write` and `actions:run` with no card.
     pub(super) fn seed_customize_locked(&self, inner: &mut super::supervisor::Inner) {
-        let Some(facts) = inner.catalog.packages.get(CUSTOMIZE_APP).map(Package::facts) else {
+        let Some(next) = inner
+            .catalog
+            .packages
+            .get(CUSTOMIZE_APP)
+            .and_then(|package| seed_customize(&inner.mirror, package))
+        else {
             return;
         };
-        let seed = Op::Seed { app: CUSTOMIZE_APP.into(), hidden: false };
-        if let Ok(outcome) = mirror::reduce(&inner.mirror, &seed, Some(&facts))
-            && outcome.changed
-        {
-            // This app appeared after the migration snapshot. Preserve its
-            // eligibility if a failed migration retries on the next start.
-            let mut mirror = outcome.mirror;
-            mirror.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
-            if self.persist(&mirror).is_ok() {
-                inner.mirror = mirror;
-            }
+        if self.persist(&next).is_ok() {
+            inner.mirror = next;
         }
     }
 }

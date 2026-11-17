@@ -96,7 +96,8 @@ import Foundation
             ProvisionalSplit.rememberStandInTarget(paneHandle, in: store)
             guard let shown = ProvisionalSplit.shownPane(paneHandle, in: store), let pane = store.panesByHandle[shown],
                   store.tabsBySurface[provisional.surface] == nil else { return nil }
-            let tab = TabModel(provisional)
+            // The restore of a lift puts back the record that the lift took out: the stand-in keeps its one record.
+            let tab = pane.takeLiftedTab(provisional.surface) ?? TabModel(provisional)
             pane.insertTab(tab, at: pane.tabs.count)
             store.index.insert(tab, in: pane)
             return .createdTab(surface: provisional.surface, pane: shown)
@@ -247,7 +248,7 @@ import Foundation
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):
-            guard let tab = store.panesByHandle[pane]?.removeTab(surface: surface) else {
+            guard let tab = store.panesByHandle[pane]?.liftTab(surface: surface) else {
                 if let stray = store.tabsBySurface[surface] { store.index.remove(stray) }
                 return store.reportMirrorViolation("intent overlay undo found provisional surface \(surface) missing from pane \(pane)")
             }

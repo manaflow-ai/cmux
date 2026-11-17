@@ -1,5 +1,6 @@
 //! Floating pane placement: unit tests of each rule, and a property test that mixes float, put back, move, raise,
-//! open and close against a second model of the rules. `PROPTEST_CASES` sets the case count.
+//! open and close against a second model of the rules. The seed is fixed and `PROPTEST_CASES` sets the case count
+//! (`tests::property_config`).
 
 use super::*;
 use proptest::prelude::*;
@@ -130,6 +131,16 @@ fn a_new_floating_pane_does_not_hide_the_one_before_it() {
 }
 
 #[test]
+fn a_place_is_taken_by_a_corner_at_its_x_and_its_y_only() {
+    let base = FloatFrame::centered(NEW_EXTENT, NEW_EXTENT);
+    // One pane at the same x with another y, and one at the same y with another x: the first place is free.
+    let list = [entry(1, FloatFrame { y: 0, ..base }), entry(2, FloatFrame { x: 0, ..base })];
+    assert_eq!(new_frame(&list), base);
+    let next = FloatFrame { x: base.x + CASCADE_STEP, y: base.y + CASCADE_STEP, ..base };
+    assert_eq!(new_frame(&[entry(1, base)]), next);
+}
+
+#[test]
 fn the_list_follows_the_panes_of_the_screen() {
     let a = frame(0, 0, 300_000, 300_000);
     let b = frame(100_000, 100_000, 300_000, 300_000);
@@ -158,6 +169,21 @@ fn a_mode_has_one_wire_name() {
         assert_eq!(FloatMode::parse(mode.as_str()), Some(mode));
     }
     assert_eq!(FloatMode::parse("float"), None);
+    // The names leave the process, so each is held as text.
+    assert_eq!(FloatMode::Toggle.as_str(), "toggle");
+    assert_eq!(FloatMode::On.as_str(), "on");
+    assert_eq!(FloatMode::Off.as_str(), "off");
+}
+
+#[test]
+fn a_list_that_breaks_the_rules_is_restored_before_an_act() {
+    let first = frame(0, 0, 300_000, 300_000);
+    let second = frame(100_000, 100_000, 300_000, 300_000);
+    // Pane 9 is not on the screen, and pane 1 has two entries.
+    let list = [entry(1, first), entry(9, second), entry(1, second)];
+    assert_eq!(place(&[1u8, 2, 3], &list, &2, FloatMode::Off, None), Ok(vec![entry(1, first)]));
+    assert_eq!(raised(&[1u8, 2, 3], &list, &1), vec![entry(1, first)]);
+    assert_eq!(raised(&[1u8, 2, 3], &list, &2), vec![entry(1, first)]);
 }
 
 /// One act of the property test. `pane` picks a pane of the screen by index; one index past the end names a pane
@@ -306,12 +332,8 @@ fn pick(panes: &[u8], index: usize) -> u8 {
     panes.get(index % (panes.len() + 1)).copied().unwrap_or(250)
 }
 
-fn cases() -> u32 {
-    std::env::var("PROPTEST_CASES").ok().and_then(|value| value.parse().ok()).unwrap_or(256)
-}
-
 proptest! {
-    #![proptest_config(ProptestConfig { cases: cases(), ..ProptestConfig::default() })]
+    #![proptest_config(crate::tests::property_config())]
 
     /// Any mix of the acts keeps F1 to F4, and gives the list the second model gives.
     #[test]

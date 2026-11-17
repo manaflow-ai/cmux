@@ -185,7 +185,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
-            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+            (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {
@@ -221,7 +221,7 @@ fn a_launch_without_servers_removes_the_last_mcp_config() {
     let file = root.join("s.json");
     let mut with = super::AgentTools::default();
     with.servers.push(super::McpServer {
-        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        name: crate::acpmux_mcp_names::SERVER_NAME.to_owned(),
         command: "acpmux".into(),
         args: vec![],
         env: vec![],
@@ -277,7 +277,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        servers: vec![server(crate::acpmux_mcp_names::SERVER_NAME), server("cmux-cua")],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -288,7 +288,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     let folded = tools.scoped(&env).for_session("s-allowlist").folded();
     assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
     let acpmux = &folded.servers[0];
-    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert_eq!(acpmux.name, crate::acpmux_mcp_names::SERVER_NAME);
     assert!(
         acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
         "{:?}",
@@ -309,7 +309,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -325,7 +325,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|s| s["name"] == crate::acpmux_mcp::SERVER_NAME)
+        .find(|s| s["name"] == crate::acpmux_mcp_names::SERVER_NAME)
         .unwrap();
     assert_eq!(acpmux["env"]["GH_TOKEN"], "gho_profile", "{acpmux}");
     assert_eq!(acpmux["env"]["GH_CONFIG_DIR"], "/home/u/.config/gh-work", "{acpmux}");
@@ -468,7 +468,7 @@ fn the_github_status_server_reaches_every_harness_kind() {
         ..memory_inputs(&root, None)
     };
     let tools = resolve(&inputs).for_session("s1");
-    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acpmux = crate::acpmux_mcp_names::SERVER_NAME;
     let acp = tools.acp_servers();
     let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
     assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));

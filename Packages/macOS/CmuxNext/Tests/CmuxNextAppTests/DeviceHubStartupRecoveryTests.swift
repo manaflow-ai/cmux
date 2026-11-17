@@ -20,7 +20,7 @@ struct DeviceHubStartupRecoveryTests {
     }
 
     private func settings() -> SettingsController {
-        SettingsController(registry: ActionRegistry(), fileURL: FileManager.default.temporaryDirectory
+        SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(), fileURL: FileManager.default.temporaryDirectory
             .appending(path: "hub-recovery-\(UUID().uuidString)/config.json"))
     }
 
@@ -89,6 +89,87 @@ struct DeviceHubStartupRecoveryTests {
         #expect(pages.hubStartupError == nil)
         #expect(clock.sleeperCount == 0)
         #expect(count == 2)
+    }
+
+    /// Signed out, Device Hub Address empty, and the launch restore not ended (on a fresh home it can stall):
+    /// Screen Sharing says to sign in, never that the address is not a valid web address.
+    @Test func signedOutWithAnEmptyHubAddressIsNotAnInvalidAddress() async throws {
+        let pages = pages()
+        let (began, reportBegan) = AsyncStream<Void>.makeStream()
+        let (restore, endRestore) = AsyncStream<Void>.makeStream()
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {
+            reportBegan.yield()
+            for await _ in restore { break }
+        }, userID: { nil }, accessToken: { throw CancellationError() }), bundleIdentifier: "test.hub-recovery",
+            loginKeychain: LoginKeychain())
+        defer { endRestore.finish(); reportBegan.finish() }
+        service.start(settings: settings())
+        var starts = began.makeAsyncIterator()
+        _ = await starts.next()
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        guard case .signedOut? = MacScreenHomeSnapshot(home: home).devices else {
+            Issue.record("signed out with an empty hub address read \(String(describing: MacScreenHomeSnapshot(home: home).devices))")
+            return
+        }
+        #expect(service.settingsModel.state.available)
+        #expect(service.settingsModel.state.status.text == L.t("devices.status.signedOut", "Sign in to cmux to see your devices."))
+    }
+
+    @Observable @MainActor final class RestoreState {
+        var restoring = true
+    }
+
+    /// While the saved sign-in restores, the pages say they are loading; once it ends signed out, they say sign in.
+    @Test func aRestoringAccountReadsAsLoadingThenSignedOut() async throws {
+        let pages = pages(), account = RestoreState()
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { nil },
+            accessToken: { throw CancellationError() }, isRestoring: { account.restoring }),
+            bundleIdentifier: "test.hub-recovery", loginKeychain: LoginKeychain())
+        defer { service.willSignOut() }
+        service.start(settings: settings())
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        #expect(MacScreenHomeSnapshot(home: home).devices == MacScreenHomeSnapshot.setupDevices(configured: true, restoring: true))
+        #expect(MacScreenHomeSnapshot(home: home).devices?.note == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        #expect(service.settingsModel.state.available)
+        #expect(service.settingsModel.state.signIn == nil)
+        account.restoring = false
+        for await restoring in ObservationStream({ pages.hubRestoring }) where !restoring { break }
+        guard case .signedOut? = MacScreenHomeSnapshot(home: home).devices else {
+            Issue.record("a restore that ended signed out did not read as signed out")
+            return
+        }
+    }
+
+    /// Signed in, with the hub's first identity load not answering yet (a login Keychain held by a pending
+    /// SecurityAgent prompt answers no read until someone answers the prompt): the pages say they are loading,
+    /// never "sign in". Seen on a fleet Mac's NIGHTLY: signed in, its Screen Sharing page offered only Sign In.
+    @Test func aSignedInAccountWhoseHubIsStillStartingReadsAsLoading() async throws {
+        let pages = pages()
+        let (started, reportStart) = AsyncStream<Void>.makeStream()
+        var load: CheckedContinuation<DeviceHub, Never>?
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { "account" },
+            accessToken: { throw CancellationError() }), bundleIdentifier: "test.hub-recovery", loginKeychain: LoginKeychain(),
+            selectedBaseURL: URL(string: "https://hub.invalid"),
+            makeAppHub: { _, _, _, _, _ in
+                await withCheckedContinuation { load = $0; reportStart.yield() }
+            })
+        let (installed, reportInstall) = AsyncStream<Void>.makeStream()
+        service.hubChanged = { made, _, _ in if made != nil { reportInstall.yield() } }
+        defer { service.willSignOut(); reportStart.finish(); reportInstall.finish() }
+        service.start(settings: settings())
+        var starts = started.makeAsyncIterator()
+        _ = await starts.next()
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        #expect(MacScreenHomeSnapshot(home: home).devices?.note == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        #expect(service.settingsModel.state.signIn == nil)
+        #expect(service.settingsModel.state.status.text == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        let hub = makeHub()
+        try #require(load).resume(returning: hub)
+        // `pages.hub` is a plain property (not observed): wait for the service's own install callback.
+        var installs = installed.makeAsyncIterator()
+        _ = await installs.next()
+        #expect(pages.hub === hub)
+        #expect(!pages.hubConnecting)
     }
 
     @Observable @MainActor final class AccountState {

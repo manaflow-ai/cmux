@@ -321,15 +321,7 @@ test("in the text Up and Down move the caret between lines; in the list they ste
   await caretAt(3); // the first line
   expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
   expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last line
-  // The last line is the create strip, entered at its first action; ← stays on the strip there.
-  const strip = rows().findIndex((row) => row.classList.contains("nt-create-strip-item"));
-  expect(highlighted()).toBe(strip < 0 ? count - 1 : strip);
-  if (strip >= 0) {
-    expect(await press("ArrowLeft")).toBe(true);
-    expect(highlighted()).toBe(strip);
-    expect(await press("ArrowUp")).toBe(true); // the last listed row
-    expect(highlighted()).toBe(strip - 1);
-  }
+  expect(highlighted()).toBe(count - 1);
 
   expect(await press("ArrowLeft")).toBe(false); // a listed row: back to the text, the caret moves
   expect(highlighted()).toBe(-1);

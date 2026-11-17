@@ -443,6 +443,8 @@ impl Supervisor {
         }
         let key = HostKey { app: app.to_string(), preview: false };
         outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
+        // Its web panes' calls end too (page_calls.rs).
+        outs.extend(self.cancel_page_calls_locked(inner, Some(app), reason));
         if let Some(host) = inner.hosts.get_mut(&key) {
             host.grant = Grant { revoked: true, ..Grant::default() };
             outs.extend(host.queued_runs.drain(..).map(|run| run.refuse("apps.disabled", reason)));
@@ -459,7 +461,10 @@ impl Supervisor {
     pub(super) fn regrant_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
         let key = HostKey { app: app.to_string(), preview: false };
         let grant = Self::grant_for(inner, &key);
-        let Some(host) = inner.hosts.get_mut(&key) else { return vec![] };
+        // A web pane's calls made under the old grant do not outlive it,
+        // whether or not the app has a host.
+        let mut outs = self.cancel_page_calls_locked(inner, Some(app), "grants_changed");
+        let Some(host) = inner.hosts.get_mut(&key) else { return outs };
         host.grant = grant;
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -472,9 +477,9 @@ impl Supervisor {
             host.state = HostState::Restarting;
             process.shutdown();
             // Calls made under the old grant do not outlive it.
-            return self.cancel_provider_calls_locked(inner, &key, "revoked");
+            outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
         }
-        vec![]
+        outs
     }
 
     pub(super) fn on_host_message(&self, key: &HostKey, generation: u64, message: FromHost) {

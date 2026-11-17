@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use super::read_paths::{resource, touched};
 use super::*;
 
+mod parked_terminals;
 mod tab_state_fields;
 mod workspace_state_fields;
 

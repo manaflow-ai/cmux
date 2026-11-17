@@ -165,7 +165,9 @@ the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/te
 clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
 ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
 in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
-while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
+while hops come in, or when a hop finds it half full; a drain that pops nothing parks (a claimed slot not yet
+published never spins it), and after 1 s with nothing to write it sleeps with no timer until the next hop wakes it
+(one unpark per idle spell: tracing on but idle costs no wakeups). A full ring drops records and
 counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
 
 | Hop | Process, thread | Carries |

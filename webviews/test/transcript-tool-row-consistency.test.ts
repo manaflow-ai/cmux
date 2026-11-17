@@ -92,13 +92,14 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
       }
     });
 
-    test(`a failed Read step and a failed command step both say "Failed" to a screen reader only (${theme.file})`, async () => {
+    test(`a failed Read and a failed command step both say "Failed" to a screen reader only (${theme.file})`, async () => {
       const page = await open("agent-pane.tool-errors", "failed-step-mixed", theme.name, 760);
       try {
         const tags = await page.evaluate(() =>
           [
             ...document.querySelectorAll<HTMLElement>(
-              ".cv-steps .cv-tool > .cv-tool__failed, .cv-steps .cv-command > .cv-command__failed",
+              // The failed Read is its own row (reads never group since 2026-11-17); the command a step.
+              ".acpmux-row .cv-tool > .cv-tool__failed, .acpmux-row .cv-command > .cv-command__failed",
             ),
           ].map((tag) => ({
             text: tag.textContent!.trim(),

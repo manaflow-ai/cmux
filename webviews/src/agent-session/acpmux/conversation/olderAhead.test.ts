@@ -14,3 +14,16 @@ test("rising: only while the reader scrolls up, not at rest, going down, or afte
   ahead.reset();
   expect(ahead.rising(1032)).toBe(false);
 });
+
+test("rising: a wheel up held at the loaded rows' top counts, though the view did not move", () => {
+  const ahead = new OlderAhead();
+  ahead.scrolled(0, 1000);
+  ahead.scrolled(0, 1016);
+  expect(ahead.rising(1016)).toBe(false);
+  ahead.wheeledUp(1020);
+  expect(ahead.rising(1030)).toBe(true);
+  expect(ahead.rising(1020 + 151)).toBe(false);
+  ahead.wheeledUp(1200);
+  ahead.reset();
+  expect(ahead.rising(1200)).toBe(false);
+});

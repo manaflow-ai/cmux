@@ -24,6 +24,29 @@ public nonisolated enum MacScreenSharingLook: String, Sendable, CaseIterable, Ha
     }
 }
 
+/// How the home page draws Your Devices (Debug Settings `macScreen.devicesLook`, Leo 2026-11-16 on the
+/// list: "this needs to shut up"). A row says something only when there is something to do now: a Mac
+/// that can be viewed shows its name, a dot and the buttons; one that cannot shows one short word.
+public nonisolated enum MacScreenDevicesLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// Viewable Macs first; offline Macs folded under one "Offline" row that opens to their names.
+    case quiet
+    /// The same rows, offline Macs listed last as one dim line each.
+    case offlineLines
+    /// Only Macs that are online; one dim line counts the offline ones.
+    case onlineOnly
+    /// The list before 2026-11-16: status, access and an instruction on every row, disabled buttons.
+    case classic
+
+    public var tunableTitle: String {
+        switch self {
+        case .quiet: "Quiet (default): offline Macs folded under Offline"
+        case .offlineLines: "Offline as dim lines at the end"
+        case .onlineOnly: "Online only, offline counted"
+        case .classic: "Classic (before 2026-11-16)"
+        }
+    }
+}
+
 /// Debug Settings declarations of Mac Screen.
 public nonisolated struct MacScreenTunables {
     public nonisolated init() {}
@@ -35,6 +58,12 @@ public nonisolated struct MacScreenTunables {
         help: "How the Screen Sharing page draws Allow Mac Screen on this Mac and its permissions. Applies at once.",
         default: .list, code: "MacScreenTunables.sharingLook")
 
+    /// The look of the home page's Your Devices list.
+    public static let devicesLook = Tunable<MacScreenDevicesLook>.choice(
+        "macScreen.devicesLook", section, "Your Devices look",
+        help: "How the Screen Sharing page lists your other Macs, offline ones above all. Applies at once.",
+        default: .quiet, code: "MacScreenTunables.devicesLook")
+
     /// Every Mac Screen tunable, for Debug Settings.
-    public static var all: [TunableDescriptor] { [sharingLook.descriptor] }
+    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor] }
 }

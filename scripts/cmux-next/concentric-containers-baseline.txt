@@ -108,7 +108,7 @@ webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }
 webviews/src/pages/server-cards/server/server.css: .sv-banner { border-radius: 6px }
-webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: 10px }
+webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: var(--page-size-10) }
 webviews/src/pages/shared/desktop.css: .ui-tooltip, .ui-title-tooltip { border-radius: 5px }
 webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
 webviews/src/styles.css: .comment-composer, .comment-card { border-radius: 10px }

@@ -33,7 +33,7 @@ chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "STABLE-SMOKE host $(hostname -s) chip=\"$chip\" macOS $(sw_vers -productVersion)"
 case "$chip" in *M6*) echo "STABLE-SMOKE refused: never on an M6 mini" >&2; exit 3 ;; esac
 
-curl -fsSL --proto '=https' --retry 3 -A cmux-stable-next/1 -o "$out/in.dmg" "$url" || { echo "download failed" >&2; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-stable-next/1 -o "$out/in.dmg" "$url" || { echo "download failed" >&2; exit 3; }
 dmg="$out/in.dmg"
 if [[ -n "$resign" ]]; then
   [[ "$resign" =~ ^[0-9]+$ && "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resign= needs a build number and commit=" >&2; exit 2; }

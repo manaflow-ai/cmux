@@ -4,30 +4,24 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Lawrence 2026-11-11: "omnibar height should be same as tabbar tab height which should be same as
-/// workspace rows height", with "same roundness as chrome". At every built-in density the omnibar, a
-/// tab pill and a sidebar workspace row's fill are one height (``Metrics/chromeRowHeight``) and one corner
-/// radius, Chrome's.
-///
-/// Lawrence 2026-11-13 (density thread) then made the browser chrome Helium's: at Default the omnibar and a tab pill
-/// are Helium's 28 pt row with its 8 pt corner (plans/cmux-next/helium-density/source-values.md), every density keeps
-/// that 8:28 ratio, and the browser row (`browserRowHeight`) no longer follows the sidebar row, which keeps its own
-/// height.
+/// Each built-in density draws a browser's chrome (Lucas 2026-11-14, measured and read in outputs/2026-11-14-helium-match):
+/// Default is Helium 0.21.2's tabs (29 pt rows and tabs, the 28 pt location bar, 8 pt corners, a 12 pt
+/// dropdown corner), Comfortable is roomier (40 pt rows and tabs, the 34 pt location bar, 40 pt dropdown rows),
+/// Spacious that grown with its text. Every density keeps Default's roundness on its own heights (Lucas 2026-11-14). Compact and Ultra-compact keep one 20 pt row for all three with
+/// Chrome's ratio corner (8 on 30).
 @MainActor @Suite(.serialized) struct DensityItemConsistencyTests {
-    /// The one chrome row per built-in density: Comfortable is Chrome's `kLocationBarHeight` (34),
-    /// Default Chrome's `kVerticalTabHeight` (30, also the Codex sidebar row), Compact today's 24 pt
-    /// tab and row, Ultra-compact a 20 pt row with 11 pt omnibar text.
-    nonisolated static let expectedHeight: [DensityPreset: CGFloat] = [
-        .ultraCompact: 20, .compact: 20, .cozy: 28, .comfortable: 31, .spacious: 34,  // Helium's 28 at Default, Chrome's 34
-    ]
+    struct Expected {
+        var omnibar: CGFloat, tab: CGFloat, row: CGFloat
+        var omnibarRadius: CGFloat, cardRadius: CGFloat, tabRadius: CGFloat, rowRadius: CGFloat
+    }
 
-    /// The sidebar row's fill per density, which the browser row no longer follows.
-    nonisolated static let expectedRowHeight: [DensityPreset: CGFloat] = [
-        .ultraCompact: 20, .compact: 20, .cozy: 30, .comfortable: 34, .spacious: 42,
-    ]
-
-    /// Helium's ratio (8 on 28), rounded to whole points.
-    nonisolated static func chromeRadius(_ height: CGFloat) -> CGFloat { (height * 8 / 28).rounded() }
+    nonisolated static let expected: [DensityPreset: Expected] = Dictionary(uniqueKeysWithValues:
+        zip(DensityPreset.allCases, [24.0, 28, 30, 32, 36]).map { preset, row in
+            let t = preset.scaleFactor
+            func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
+            return (preset, Expected(omnibar: half(29 * t), tab: row, row: row,
+                                     omnibarRadius: half(8 * t), cardRadius: half(12 * t), tabRadius: half(9 * t), rowRadius: half(9 * t)))
+        })
 
     private func inDensity(_ preset: DensityPreset, _ body: () throws -> Void) rethrows {
         // Scoped, so the app-wide settings (and every other suite) are never touched.
@@ -37,36 +31,28 @@ import Testing
     }
 
     @Test(arguments: DensityPreset.allCases)
-    func omnibarTabAndRowShareOneHeight(preset: DensityPreset) throws {
-        let expected = try #require(Self.expectedHeight[preset])
-        let expectedRow = try #require(Self.expectedRowHeight[preset])
+    func omnibarTabAndRowTakeTheBrowsersHeights(preset: DensityPreset) throws {
+        let want = try #require(Self.expected[preset])
         inDensity(preset) {
-            let omnibar = OmnibarMetrics.current.barHeight
-            let tab = Metrics.tabHeight
-            let row = SidebarRowTokens.current.listRowHeight
-            #expect(omnibar == expected, "\(preset): omnibar \(omnibar), want \(expected)")
-            #expect(tab == expected, "\(preset): tab \(tab), want \(expected)")
-            #expect(row == expectedRow, "\(preset): sidebar row fill \(row), want \(expectedRow)")
+            #expect(OmnibarMetrics.current.barHeight == want.omnibar, "\(preset): omnibar \(OmnibarMetrics.current.barHeight)")
+            #expect(Metrics.tabHeight == want.tab, "\(preset): tab \(Metrics.tabHeight)")
+            #expect(SidebarRowTokens.current.listRowHeight == want.row, "\(preset): row fill \(SidebarRowTokens.current.listRowHeight)")
         }
     }
 
     @Test(arguments: DensityPreset.allCases)
-    func omnibarTabAndRowShareChromesRoundness(preset: DensityPreset) throws {
-        let height = try #require(Self.expectedHeight[preset])
-        let chrome = Self.chromeRadius(height)
+    func omnibarTabAndRowTakeTheBrowsersCorners(preset: DensityPreset) throws {
+        let want = try #require(Self.expected[preset])
         inDensity(preset) {
-            // The resting bar rounds as a tab; its open dropdown takes Helium's roundness on the row's height, 17 on 39
-            // (Lucas 2026-11-14), and its highlighted row the tab's ratio on its own height.
             let omnibar = OmnibarGlassLook.current.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight)
-            let tab = Metrics.tabCornerRadius
-            let row = tab  // rows draw the tab radius (SidebarDensityTokens.rowCornerRadius)
-            #expect(omnibar == chrome, "\(preset): omnibar radius \(omnibar), Chrome's \(chrome)")
-            let card = OmnibarStyle.cardCornerRadius
-            #expect(card == min((OmnibarStyle.rowHeight * 17 / 39).rounded(), OmnibarStyle.barHeight / 2),
-                    "\(preset): the dropdown's corner \(card) is Helium's share of its row")
-            #expect(OmnibarStyle.rowCornerRadius == Metrics.chromeRowCornerRadius(height: OmnibarStyle.rowHeight))
-            #expect(tab == chrome, "\(preset): tab radius \(tab), Chrome's \(chrome)")
-            #expect(row == chrome, "\(preset): row radius \(row), Chrome's \(chrome)")
+            #expect(omnibar == want.omnibarRadius, "\(preset): omnibar radius \(omnibar)")
+            #expect(OmnibarStyle.cardCornerRadius == want.cardRadius, "\(preset): dropdown radius \(OmnibarStyle.cardCornerRadius)")
+            #expect(Metrics.tabCornerRadius == want.tabRadius, "\(preset): tab radius \(Metrics.tabCornerRadius)")
+            #expect(SidebarRowTokens.current.listRowCornerRadius == want.rowRadius,
+                    "\(preset): row radius \(SidebarRowTokens.current.listRowCornerRadius)")
+            // The highlighted suggestion row is concentric with the card across its inset.
+            #expect(abs(OmnibarStyle.rowCornerRadius - (OmnibarStyle.cardCornerRadius - OmnibarStyle.rowSideInset)) < 0.0001
+                || OmnibarStyle.rowSideInset == OmnibarStyle.edgeInset, "\(preset): the highlighted row is not concentric")
         }
     }
 

@@ -20,6 +20,13 @@ name: cmux-next tab switch (advisory)
 # The display run is an exclusive fleet measure step (one app alone on an idle display worker), submitted by the
 # build-fleet gateway runner's thin cmux-ci client, as cmux-next-perf-bench.yml and cmux-next-hot-verify.yml do. The
 # gateway admits this job only once glaeda's runner hook lists (cmux-next-tab-switch.yml, frames) in GATEWAY_JOBS.
+#
+# It is a background step (--background): it queues behind every foreground job, a foreground step that needs the
+# display worker preempts it, and when this job stops waiting the client cancels it, so it gives its place back. As a
+# foreground step it kept its place after the job gave up, with nobody left to read it. In the 24 hours to
+# 2026-11-17 02:10Z the frames job submitted 321 steps; 133 started after their job had left (116 could not measure),
+# they took 31 of the 68 exclusive host-hours, the exclusive queue's p90 wait was about 9 hours, and every lane
+# measurement (startup launch A/Bs) waited behind them. Leo's ask: a measurement step waits minutes, not hours.
 
 on:
   pull_request:
@@ -61,6 +68,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
       - name: Gate tests
         run: python3 tests/test_cmux_next_tab_switch_gate.py
       - name: Does this change touch a tab, a pane or the chat pane?
@@ -82,8 +93,8 @@ jobs:
       && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     # The job holds one of the gateway runner's two tokens while it waits, so it waits at most an hour for an idle
-    # display worker (the exclusive queue's p95 is longer at peak) and an hour for the build and the measure; past
-    # that the verdict has no report, which only warns while GATE_MODE is report.
+    # display worker and an hour for the build and the measure. Past the hour in the queue the client cancels the
+    # background step (exit 75) and the verdict has no report, which only warns while GATE_MODE is report.
     timeout-minutes: 130
     permissions: {}
     steps:
@@ -97,14 +108,14 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          mkdir -p "$RUNNER_TEMP/tab-switch"
           if ! [[ -x "$client" ]]; then
             echo "::error title=Tab switch::$client is not installed on runner $RUNNER_NAME; nothing was measured."
             exit 1
           fi
+          mkdir -p "$RUNNER_TEMP/tab-switch"
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
-          "$client" run --class exclusive --measurement --display \
+          "$client" run --class exclusive --measurement --display --background \
             --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \

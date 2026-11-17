@@ -240,7 +240,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
-        item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+        item.aliases = ActionDescriptor.paletteAliases[actionID] ?? []
+        item.keywords += item.aliases
         item.rankBias = Self.rankBias(for: descriptor.paletteTier)
         return item
     }

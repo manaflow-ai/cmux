@@ -34,9 +34,7 @@ use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "acpmux";
-/// The session the tools act for, set in this server's env with its caller token.
-pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+pub use crate::acpmux_mcp_names::{SERVER_NAME, SESSION_ENV};
 /// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
 /// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that

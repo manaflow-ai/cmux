@@ -109,8 +109,9 @@ would do it, spring curves", "proper physics". Design:
   fraction. Every moving pane is laid out live at the rect its spring presents
   on every display frame, its tab strip, terminal and page included, as a
   live window resize is (Lawrence 2026-10-18: "content must move while it
-  animates"); nothing holds a final-size layout under a clip. A zoom or
-  unzoom does the same on the `zoom` spring: the zooming pane is the topmost
+  animates"); nothing holds a final-size layout under a clip. A zoom does
+  the same on the `zoom` spring and an unzoom on the shorter `unzoom` spring
+  (a close takes `paneClose`, shorter than `split`): the zooming pane is the topmost
   layer, its tab strip whole in every frame, and covers the other panes,
   which stay opaque and still. A released divider stays where the pointer let go;
   a Shift release lands it on a snap on the pane spring, a split divider's from the
@@ -196,7 +197,8 @@ would do it, spring curves", "proper physics". Design:
    changes stay as a crossfade of at most 0.1 s, and hover and pressed fills
    are instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
-   time constant x1.5, about Apple's system pacing), `"off"` (every change in
+   time constant x1.5, about Apple's system pacing, and never past the 300 ms
+   cap: see "The cap and the pairs"), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
@@ -281,7 +283,7 @@ app runs.
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
 | `theme` | `appearance.colorTransition.duration` (200 ms) | every theme and color change, through `ColorTransition` (cx-3rf4z): the window backdrop blends from the color on screen in OKLab (or sRGB) keyframes, so a quick A, B, C switch retargets from the blend in flight; a theme, light/dark, app theme or accent change fades each window from its last composited frame (`WindowColorFade`: the frame on screen lies over the window and fades out on the curve, so a second change mid-fade starts from the blend; terminal surfaces have no single color); scope overrides fade their roots' areas; a workspace switch fades the sidebar and titlebar areas and blends the Liquid Glass tint on the window's MotionClock; a room takes a workspace's colors at any light/dark; curves, spring timing and the color mix come from cmux-motion (app FFI ABI 3); web pages transition their `--cmux-*` colors (registered `<color>` properties) with the same duration, curve and blend space. Curve: `easeOut` default, `easeInOut`, `linear`, `spring` (response, damping; colors hold at the target), `cubicBezier`. `enabled: false` or duration 0 is instant; Reduce Motion: a crossfade of at most 0.1 s by default (`reduceMotion: instant` or `full`); `ui.animationSpeed: off` is instant. The content swap of a workspace switch never fades. |
-| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.36 s at normal speed, under 400 ms; a plain fade under Reduce Motion |
+| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.30 s at normal speed, the cap; a plain fade under Reduce Motion |
 | `pinLift` | 0.15 s, linear | Home list pin drag: the tile scaling up to the lift (MessagesLab `beginPinDrag`, a `CABasicAnimation` with no timing function) |
 | `pinSettle` | 0.25 s, linear | Home list pin drag: a dropped tile scaling back (`landPinDrag`, the same) |
 | `pinShrink` | 0.22 s | Home list pin drag: a ghost shrinking onto its row's avatar and fading out (`landPinDrag`) |
@@ -311,8 +313,48 @@ Leaving stops the marquee at once; a title caught mid-scroll springs back
 with `disappear` from its presented position. `normal` scales delay,
 scroll and hold by 1.5; Reduce Motion and `off` never start it.
 
-"normal" multiplies every response and fade duration by 1.5; damping does
-not change. Loops keep their period (they show state, not transitions).
+"normal" multiplies every response and fade duration by 1.5, up to the cap;
+damping does not change. Loops keep their period (they show state, not
+transitions).
+
+### The cap and the pairs
+
+No motion that a person waits for ends visibly after 300 ms, at any speed
+(`MotionPolicy.cap`; `MotionCapTests` asks every token at "fast" and at
+"normal"). The time of a spring is its visible end (within 0.5% of its travel,
+`SpringParameters.perceivedDuration`); the time of a fade or a tween is its
+duration. At "fast" no token is over the cap. At "normal" a time that 1.5x
+would take past the cap is cut to the cap (a spring gets the response 0.25,
+which ends visibly at 294 ms), and a time under the cap is not changed. The
+agent cursor's glide and the attention ring's arrival swell take the same cut
+(`MotionPolicy.scaled`). The cap never makes a motion shorter than its token.
+
+At "normal" the cut changes these (before, then now): the springs `zoom`,
+`exit` and `scroll` (354 ms, 294 ms), `settle` (390 ms, 294 ms), `popover`
+(425 ms, 294 ms) and `pinDrag` (381 ms, 294 ms); the fades `launch`,
+`clickPulse`, `cursorHide` and `hibernateIcon`, the agent cursor's longest
+glide and the attention ring's arrival swell (360 ms, 300 ms).
+
+Not under the cap, because no one waits for them: the ambient fades
+(`MotionFade.isAmbient`: `focusFlash`, `wallpaper`, `highlight`,
+`hibernateRing`; each keeps a limit of its own in `MotionCapTests`), the loops,
+the attention blinks and the marquee.
+
+The exit of a pair ends sooner than its enter: a person waits for what arrives
+and not for what leaves. `MotionPair.all` is the one list of the pairs:
+
+| Pair | Enter | Exit | Visible end at "fast" (enter, exit) |
+| --- | --- | --- | --- |
+| pane split and close | `split` | `paneClose` | 100 ms, 75 ms |
+| pane zoom and unzoom | `zoom` | `unzoom` | 235 ms, 177 ms |
+| appear and disappear | `appear` | `disappear` | 158 ms, 129 ms |
+| popup open and close | `popover` | `popoverClose` | 283 ms, 177 ms |
+| fade in and out | `fadeIn` | `fadeOut` | 120 ms, 80 ms |
+| tab open and close | `tabOpen` (tween) | `tabClose` (tween) | 200 ms, 200 ms |
+
+The tab pair is the one equal pair: a strip change is one tween for every tab
+(the tab that opens or closes and the tabs that make or take room move on one
+clock), and the open and the close use the same one.
 
 ## Why these values
 
