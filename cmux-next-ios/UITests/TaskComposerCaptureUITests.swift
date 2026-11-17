@@ -64,8 +64,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     /// Closes an open menu: a tap on the bar's title, away from every control.
     @MainActor
     private static func closeMenu(_ app: XCUIApplication) -> String? {
-        // On the prompt canvas, clear of every control (the title opens its own menu now).
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32)).tap()
+        // Right of the open menu (the agents menu covers the left of the canvas) and below the bar.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.3)).tap()
         pause(0.8)
         return nil
     }
@@ -95,6 +95,14 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// A tap on a pill the settings row may have scrolled partly off screen (XCUI scrolls it in).
+    @MainActor
+    private static func revealTap(_ element: XCUIElement, _ what: String) -> String? {
+        guard element.waitForExistence(timeout: 10) else { return "no \(what)" }
+        element.tap()
+        return nil
+    }
+
     /// The composer's own bar (the Workspaces list's bar is still there behind it).
     @MainActor
     private static func composerBar(_ app: XCUIApplication) -> XCUIElement {
@@ -104,9 +112,11 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     /// Opens the title's menu (a tap on the title: Rename, then Chat or Terminal).
     @MainActor
     private static func openTitleMenu(_ app: XCUIApplication) -> String? {
-        steps([
-            { tap(composerBar(app), "the title") },
-            { app.buttons["Rename"].firstMatch.waitForExistence(timeout: 5) ? nil : "the title's menu did not open" },
+        // The title is the bar's first text (the subtitle, "Terminal · cmux", is the second).
+        let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch
+        return steps([
+            { tap(composerBar(app).staticTexts.firstMatch, "the title") },
+            { rename.waitForExistence(timeout: 5) ? nil : "the title's menu did not open" },
         ])
     }
 
@@ -209,14 +219,14 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
                          { C.tap(C.any(app, "taskComposer.settings.claude-cr"), "Router's settings") },
                          { C.tap(C.any(app, "taskComposer.model.claude-cr"), "Router's model menu") }])
             },
             // Each setting the Mac lists, its own picker: effort (the model's levels), mode (the
             // modes a phone may start) and the agent's other options (Fast mode).
             Scene(group: g, id: "agent-settings-two", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
                          { C.tap(C.any(app, "taskComposer.settings.claude"), "Claude Code's settings") },
                          { Self.check(C.any(app, "taskComposer.effort.claude").exists, "no effort picker") }])
             },
@@ -356,7 +366,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
                          { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs") }, { Self.closeMenu(app) },
-                         { Self.check(app.staticTexts["+2"].exists, "the +2 is cut off") }])
+                         { let count = Int(app.buttons["taskComposer.start"].firstMatch.label.split(separator: " ").last ?? "") ?? 1
+                           return Self.check(count > 1 && app.staticTexts["+\(count - 1)"].exists, "the +N is cut off") }])
             },
             // The title's menu: rename the task in place, and Chat or Terminal (A13).
             Scene(group: g, id: "launch-menu", args: Self.list) { app in
@@ -365,12 +376,12 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "title-renaming", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
-                         { C.tap(app.buttons["Rename"].firstMatch, "Rename") },
+                         { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
                          { Self.check(Self.composerBar(app).textFields.firstMatch.waitForExistence(timeout: 4), "no rename field") }])
             },
             Scene(group: g, id: "title-renamed", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
-                         { C.tap(app.buttons["Rename"].firstMatch, "Rename") },
+                         { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
                          { let field = Self.composerBar(app).textFields.firstMatch
                            guard field.waitForExistence(timeout: 4) else { return "no rename field" }
                            field.typeText(XCUIKeyboardKey.delete.rawValue.padding(toLength: 40, withPad: XCUIKeyboardKey.delete.rawValue, startingAt: 0))
