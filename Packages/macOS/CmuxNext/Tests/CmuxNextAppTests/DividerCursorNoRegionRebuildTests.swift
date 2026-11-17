@@ -18,13 +18,14 @@ import Testing
 /// worker): off screen AppKit tracks nothing.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct DividerCursorNoRegionRebuildTests {
+    /// The spring is a ratio change's: the first row of the second column takes half of its column, so that column's two
+    /// row dividers move in every frame. A split, a close and a zoom spring nothing (each shows in one frame).
     @Test func aSpringFrameInvalidatesNoDividerCursorRects() async throws {
         let columns = (0..<4).map { PaneMotionBench.column($0, rows: 3, width: 0.25) }
         let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
         defer { probe.close() }
-        var next = columns
-        next[1] = PaneMotionBench.column(1, rows: 2, width: 0.25)
-        probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
+        let next = ScreenLayout.columns(columns).settingRatio(0.5, for: "s1-0")
+        probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: next)])
         for _ in 0..<4 { await Task.yield() }
         probe.window.orderFrontRegardless()
         try #require(probe.window.isVisible, "the window is not on screen: this test needs a display worker")
@@ -58,9 +59,9 @@ struct DividerCursorNoRegionRebuildTests {
         #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer on the divider")
         #expect(NSCursor.current === handle.resizeCursor, "the app shows the resize cursor: \(NSCursor.current.debugName)")
 
-        var next = columns
-        next[1] = PaneMotionBench.column(1, rows: 2, width: 0.5)
-        probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
+        // Another ratio for that divider's split (its upper row takes half of its column): the divider springs down.
+        let next = ScreenLayout.columns(columns).settingRatio(0.5, for: "s1-0")
+        probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: next)])
         for _ in 0..<4 { await Task.yield() } // The layout syncs the model change on its observation turn.
         let frames = probe.settle()
         try #require(frames > 1, "the change started no spring")
