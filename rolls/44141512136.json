@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44141512136",
+  "recorded_at": "2026-11-17T18:11:00Z",
+  "reason": "cmux-tui 72ab42308ad4 changes the image's cmux-tui (pinned 43544e52652f)",
+  "dry_run": false,
+  "cmux_tui": "72ab42308ad4b60333265d657c53135205eed8ab",
+  "fixes": [
+    {
+      "sha": "72ab42308ad4b60333265d657c53135205eed8ab",
+      "mergedAt": "2026-11-17T09:04:24-08:00",
+      "subject": "Agent pane: Send, Retry and uploads never come back \"Not sent: it needs your own key press or click\" (#45429)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T18:11:00Z",
+    "snapshot_id": "sh-ca0fc187e88c4603921ac2d0b8b8e185",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44141512136): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "253136ee7f059f2314bfaf74e78e114ec00752fb",
+    "image": "cloud-native-auto-72ab4230-44141512136-1",
+    "revision": "ci-44141512136-1",
+    "at": "2026-11-17T18:11:00Z"
+  },
+  "rolled_back": false
+}
