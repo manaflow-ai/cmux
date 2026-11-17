@@ -362,9 +362,9 @@ export type OrderedDraftPart =
   | { type: "text"; text: string }
   | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
-/** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
+/** Anthropic's per-image limit; acpmux fits a larger image to it (cmux-tui acpmux `model_copies::fit_inline`). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
+export { base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
  * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes

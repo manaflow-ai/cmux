@@ -432,6 +432,8 @@ mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+#[cfg(test)]
+mod turns_inline_fit_tests;
 pub(crate) mod usage_warnings;
 #[cfg(test)]
 mod usage_warnings_tests;

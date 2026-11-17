@@ -3,23 +3,15 @@
 // stalls typing (Leo, 2026-10-24: "they freeze the composer... this cannot be acceptable"), and
 // here on the page only where no worker starts. Nothing in it touches the DOM.
 
-/** Conservative shared preview size; original files stay available through session tools.
- * https://platform.claude.com/docs/en/build-with-claude/vision */
-export const MAX_IMAGE_SIDE = 1568;
-/** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
-export const IMAGE_BUDGET_BYTES = 1536 * 1024;
+/// The page never scales the picture it sends (Leo, "What every coder should know about gamma";
+/// claude-sr2-coord, 2026-11-17: "Composer image fit: do it in Rust, not JS"): a canvas scales
+/// sRGB codes, so a 1 px black and white checkerboard came out 127 grey where its light is 188.
+/// It sends the picture at its own size, and acpmux scales it to the model's edge and bytes in
+/// linear light as it writes the prompt to the agent (cmux-tui acpmux `model_copies::fit_inline`).
+/// Only the chip's thumbnail (drawThumb) is scaled here: that is for the person's eyes alone.
 
-/// The steps an image that does not fit takes, in order: its longest side, then the JPEG quality.
-/// A PNG source tries PNG at each side first (a screenshot's text stays sharp). Past the last step
-/// the smallest try goes anyway: an image is never refused for its size (Leo, 2026-10-24: "we
-/// shouldn't have this limit").
-export const FIT_STEPS = [
-  { side: MAX_IMAGE_SIDE, quality: 0.9 },
-  { side: MAX_IMAGE_SIDE, quality: 0.8 },
-  { side: 1200, quality: 0.75 },
-  { side: 800, quality: 0.7 },
-  { side: 512, quality: 0.6 },
-] as const;
+/** JPEG quality of a JPEG source's metadata-free copy, at its own size. */
+export const JPEG_QUALITY = 0.92;
 
 /** The most pixels a picture is decoded at to make its preview: past it, it goes as a file. A
  * 12K x 8K photo (96 MP) is about 400 MB of pixels while it is scaled. */
@@ -111,8 +103,7 @@ function canDraw(): boolean {
 }
 
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
-/// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
-/// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
+/// pixels at the image's own size, never scaled (acpmux fits it to the model in linear light). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
   if (!canDraw()) return undefined;
@@ -140,34 +131,25 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
   }
 }
 
+/// The picture's pixels at its own size, one canvas pixel for each of its own (no scaling, so no
+/// averaging of sRGB codes), encoded again without its metadata: JPEG for a JPEG source, PNG for
+/// any other. acpmux fits it to the model (see the top of this file).
 async function fit(bitmap: ImageBitmap, type: string): Promise<Omit<PreparedImage, "thumb"> | undefined> {
-  const longest = Math.max(bitmap.width, bitmap.height, 1);
-  let smallest: Blob | undefined;
-  let triedPng = 0;
-  for (const step of FIT_STEPS) {
-    const scale = Math.min(1, step.side / longest);
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-    if (type !== "image/jpeg" && triedPng !== width) {
-      triedPng = width;
-      const canvas = new OffscreenCanvas(width, height);
-      const context = canvas.getContext("2d");
-      if (!context) return undefined;
-      context.drawImage(bitmap, 0, 0, width, height);
-      const png = await canvas.convertToBlob({ type: "image/png" });
-      if (png.size <= IMAGE_BUDGET_BYTES)
-        return { mimeType: "image/png", data: base64(new Uint8Array(await png.arrayBuffer())) };
-    }
-    const flat = new OffscreenCanvas(width, height);
-    const context = flat.getContext("2d");
-    if (!context) return undefined;
+  const width = Math.max(1, bitmap.width);
+  const height = Math.max(1, bitmap.height);
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+  const jpeg = type === "image/jpeg";
+  if (jpeg) {
     context.fillStyle = "#fff";
     context.fillRect(0, 0, width, height);
-    context.drawImage(bitmap, 0, 0, width, height);
-    smallest = await flat.convertToBlob({ type: "image/jpeg", quality: step.quality });
-    if (smallest.size <= IMAGE_BUDGET_BYTES) break;
   }
-  return smallest && { mimeType: "image/jpeg", data: base64(new Uint8Array(await smallest.arrayBuffer())) };
+  context.drawImage(bitmap, 0, 0);
+  const blob = jpeg
+    ? await canvas.convertToBlob({ type: "image/jpeg", quality: JPEG_QUALITY })
+    : await canvas.convertToBlob({ type: "image/png" });
+  return { mimeType: jpeg ? "image/jpeg" : "image/png", data: base64(new Uint8Array(await blob.arrayBuffer())) };
 }
 
 /// The width-to-height ratio of a `width` x `height` image's thumbnail (drawThumb): its own shape,

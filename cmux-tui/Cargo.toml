@@ -424,6 +424,9 @@ ip_network = "0.4"
 # any bottleneck; CUBIC is the controller cmux-wg selects.
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
+# Model-sized copies of pasted JPEGs (acpmux src/model_copies.rs). Pure Rust, decode only.
+zune-jpeg = "0.5"
+zune-core = "0.5"
 libc = "0.2"
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }

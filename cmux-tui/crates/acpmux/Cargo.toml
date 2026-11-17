@@ -149,9 +149,11 @@ getrandom.workspace = true
 base64 = "0.22"
 bytes.workspace = true
 tempfile = "3"
-# Model-sized copies of large PNG uploads (src/model_copies.rs).
+# Model-sized copies of large images (src/model_copies.rs).
 png.workspace = true
 cmux-image-linear.workspace = true
+zune-jpeg.workspace = true
+zune-core.workspace = true
 unicode-width = "0.2"
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
