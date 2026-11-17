@@ -112,6 +112,9 @@ enum Ending {
     HalfClose,
     /// Drop the stream after the last write: no more reads.
     Drop,
+    /// Abort the connection (the stack resets it, as `abort_conns` does when
+    /// a mesh peer goes away). The peer must see an error, never an EOF.
+    Abort,
 }
 
 /// One side's script.
@@ -143,8 +146,12 @@ impl Script {
             total,
             max_write,
             max_read,
-            read_chance: [1.0, 0.5, 0.05][rng.below(3) as usize],
-            ending: if rng.chance(0.25) { Ending::Drop } else { Ending::HalfClose },
+            read_chance: [1.0, 0.5, 0.2][rng.below(3) as usize],
+            ending: match rng.below(100) {
+                0..10 => Ending::Abort,
+                10..35 => Ending::Drop,
+                _ => Ending::HalfClose,
+            },
             end_after_peer: 0,
         }
     }
@@ -161,9 +168,9 @@ impl Scenario {
         let mut rng = Rng(seed);
         let link = Link::draw(&mut rng);
         let mut scripts = [Script::draw(&mut rng), Script::draw(&mut rng)];
-        // Both dropping leaves nobody reading: the run has nothing to check
-        // past the writes. Keep at least one reader.
-        if scripts.iter().all(|script| script.ending == Ending::Drop) {
+        // Keep at least one side reading to the end, or the run has
+        // nothing to check past the writes.
+        if scripts.iter().all(|script| script.ending != Ending::HalfClose) {
             scripts[1].ending = Ending::HalfClose;
         }
         // A dropping side may wait for the peer's bytes first, as a request
@@ -202,6 +209,13 @@ struct Channel {
 impl Channel {
     fn send(&mut self, now: Duration, to_server: bool, packet: Vec<u8>) {
         self.sent += 1;
+        if tracing() {
+            eprintln!(
+                "{now:>12?} {} {}",
+                if to_server { "c->s" } else { "s->c" },
+                describe(&packet)
+            );
+        }
         if is_reset(&packet) {
             self.resets += 1;
         }
@@ -237,6 +251,29 @@ impl Channel {
     }
 }
 
+fn tracing() -> bool {
+    std::env::var_os("CMUX_WG_TCP_MODEL_TRACE").is_some()
+}
+
+/// An IPv4 TCP packet's flags, sequence numbers and payload length.
+fn describe(packet: &[u8]) -> String {
+    let header = usize::from(packet.first().copied().unwrap_or(0) & 0x0f) * 4;
+    let Some(tcp) = packet.get(header..) else { return "short".into() };
+    if tcp.len() < 20 {
+        return "short".into();
+    }
+    let word = |at: usize| u32::from_be_bytes([tcp[at], tcp[at + 1], tcp[at + 2], tcp[at + 3]]);
+    let flags = tcp[13];
+    let names: String = [(0x02, 'S'), (0x10, '.'), (0x01, 'F'), (0x04, 'R'), (0x08, 'P')]
+        .iter()
+        .filter(|(bit, _)| flags & bit != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    let data = tcp.len() - usize::from(tcp[12] >> 4) * 4;
+    let window = u16::from_be_bytes([tcp[14], tcp[15]]);
+    format!("[{names}] seq {} ack {} len {data} win {window}", word(4), word(8))
+}
+
 /// Whether an IPv4 TCP packet has RST set.
 fn is_reset(packet: &[u8]) -> bool {
     let header = usize::from(packet.first().copied().unwrap_or(0) & 0x0f) * 4;
@@ -254,13 +291,40 @@ struct Side {
     stream: Option<WgStream>,
     ended: bool,
     reading: bool,
+    /// The script ended in an abort the harness has yet to carry out.
+    abort: bool,
 }
 
 impl Side {
     fn new(end: End, script: Script, seed: u64) -> Self {
         let mut rng = Rng(seed ^ if end == End::Client { 0xc11e } else { 0x5e7e });
         let data = (0..script.total).map(|_| rng.next() as u8).collect();
-        Self { end, script, rng, data, written: 0, stream: None, ended: false, reading: true }
+        Self {
+            end,
+            script,
+            rng,
+            data,
+            written: 0,
+            stream: None,
+            ended: false,
+            reading: true,
+            abort: false,
+        }
+    }
+
+    fn status(&self) -> String {
+        format!(
+            "[wrote {}/{}, ended {}, reading {}, stream {:?}]",
+            self.written,
+            self.data.len(),
+            self.ended,
+            self.reading,
+            self.stream.as_ref().map(|stream| (
+                stream.leftover.len(),
+                stream.inbound.len(),
+                stream.inbound.is_closed()
+            ))
+        )
     }
 
     /// Whether this side has nothing left to do but read.
@@ -298,7 +362,7 @@ impl Side {
         }
         // Reads: maybe none this step.
         if self.reading && !oracle.saw_eof(self.end) && self.rng.chance(self.script.read_chance) {
-            for _ in 0..4 {
+            for _ in 0..1024 {
                 let size = self.rng.range(1, self.script.max_read as u64) as usize;
                 let mut buffer = vec![0u8; size];
                 let mut read = ReadBuf::new(&mut buffer);
@@ -325,7 +389,7 @@ impl Side {
         // script waits for.
         if !self.ended && self.written == self.data.len() {
             let (read, _) = oracle.progress(self.end);
-            if read >= self.script.end_after_peer || oracle.saw_eof(self.end) {
+            if read >= self.script.end_after_peer || oracle.saw_eof(self.end) || !self.reading {
                 match self.script.ending {
                     Ending::HalfClose => match Pin::new(&mut *stream).poll_shutdown(cx) {
                         Poll::Ready(Ok(())) => {
@@ -338,6 +402,14 @@ impl Side {
                         }
                         Poll::Pending => {}
                     },
+                    Ending::Abort => {
+                        // The harness aborts once both ends hold their
+                        // streams, then drops this one.
+                        self.reading = false;
+                        self.ended = true;
+                        self.abort = true;
+                        acted = true;
+                    }
                     Ending::Drop => {
                         // Dropping the stream closes the write side once the
                         // queued writes are in, like `close(2)`.
@@ -391,7 +463,8 @@ async fn run(seed: u64) -> Result<Outcome, String> {
         duplicated: 0,
         resets: 0,
     };
-    let mut oracle = StreamOracle::new(false);
+    let aborts = scenario.scripts.iter().any(|script| script.ending == Ending::Abort);
+    let mut oracle = StreamOracle::new(aborts);
     let mut sides = [
         Side::new(End::Client, scenario.scripts[0], seed),
         Side::new(End::Server, scenario.scripts[1], seed),
@@ -410,17 +483,18 @@ async fn run(seed: u64) -> Result<Outcome, String> {
     let mut cx = Context::from_waker(waker);
     let mut opened = [false, false];
     let mut released = false;
+    let mut last_states: (Option<String>, Option<String>) = (None, None);
 
     loop {
         let elapsed = now();
         if elapsed > HANG_BOUND {
             return Err(format!(
                 "hang: not finished after {HANG_BOUND:?} (client read {:?}, server read {:?}, \
-                 sides done {}/{}, client conns {}, server conns {})",
+                 client {}, server {}, client conns {}, server conns {})",
                 oracle.progress(End::Client),
                 oracle.progress(End::Server),
-                sides[0].done(&oracle),
-                sides[1].done(&oracle),
+                sides[0].status(),
+                sides[1].status(),
                 client.conns.len(),
                 server.conns.len(),
             ));
@@ -457,6 +531,13 @@ async fn run(seed: u64) -> Result<Outcome, String> {
         for side in &mut sides {
             busy |= side.act(&mut oracle, &mut cx).map_err(|violation| violation.to_string())?;
         }
+        for (side, stack) in sides.iter_mut().zip([&mut client, &mut server]) {
+            if side.abort && opened.iter().all(|opened| *opened) {
+                stack.abort_conns(|_| true);
+                side.abort = false;
+                side.stream = None;
+            }
+        }
         if busy {
             busy |= client.step();
             busy |= server.step();
@@ -470,6 +551,19 @@ async fn run(seed: u64) -> Result<Outcome, String> {
             busy = true;
         }
 
+        if tracing() {
+            let state = |stack: &TcpStack| {
+                stack.conns.first().map(|conn| {
+                    let socket = stack.sockets.get::<smoltcp::socket::tcp::Socket>(conn.handle);
+                    socket.state().to_string()
+                })
+            };
+            let states = (state(&client), state(&server));
+            if states != last_states {
+                eprintln!("{elapsed:>12?} states client {:?} server {:?}", states.0, states.1);
+                last_states = states;
+            }
+        }
         let finished =
             opened.iter().all(|opened| *opened) && sides.iter().all(|side| side.done(&oracle));
         if finished && !released {
@@ -501,7 +595,7 @@ async fn run(seed: u64) -> Result<Outcome, String> {
             let next = to_duration(client.poll_delay())
                 .min(to_duration(server.poll_delay()))
                 .min(channel.next_due().map_or(Duration::MAX, |due| due.saturating_sub(elapsed)))
-                .min(Duration::from_millis(50));
+                .min(Duration::from_millis(10));
             next.max(Duration::from_micros(100))
         };
         tokio::time::advance(step).await;
