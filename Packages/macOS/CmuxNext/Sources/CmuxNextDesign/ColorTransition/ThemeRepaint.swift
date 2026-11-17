@@ -170,17 +170,21 @@ enum ThemeRepaint {
         }
         for responder in responders { responder() }
         guard !shown.isEmpty else { return }
-        // The views lay out and display now (the work the next display cycle does), so colors
-        // set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
-        for root in blendRoots {
-            root.layoutSubtreeIfNeeded()
-            root.displayIfNeeded()
-        }
+        settle(blendRoots, views: passes.flatMap(\.views))
         for entry in shown {
             for (property, before) in entry.colors {
                 let now = property.value(in: entry.layer)
                 if !same(before, now) { transition.blend(entry.layer, property, from: before, to: now) }
             }
+        }
+    }
+
+    /// The blend's regions lay out and display now (the work the next display cycle does), so colors
+    /// set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
+    static func settle(_ roots: [NSView], views: [NSView]) {
+        for root in roots {
+            root.layoutSubtreeIfNeeded()
+            root.displayIfNeeded()
         }
     }
 
