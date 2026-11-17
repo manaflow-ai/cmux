@@ -563,10 +563,36 @@ try {
         const elapsed = (performance.now() - began) / 1000;
         return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
       };
+      // The renderers' CPU ticks by thread name (main, compositor, V8 workers, ...), so a cost that is not JavaScript
+      // (GC helpers, raster, IPC) is named too: WAKES=1 splits each idle window by it, PROFILE the settle.
+      const threadTicks = () => {
+        const out = new Map<string, number>();
+        for (const pid of renderers(root)) {
+          let tasks: string[] = [];
+          try {
+            tasks = fs.readdirSync(`/proc/${pid}/task`);
+          } catch {
+            continue;
+          }
+          for (const task of tasks) {
+            try {
+              const comm = fs.readFileSync(`/proc/${pid}/task/${task}/comm`, "utf8").trim().replace(/\d+$/, "");
+              const stat = fs.readFileSync(`/proc/${pid}/task/${task}/stat`, "utf8");
+              const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+              out.set(comm, (out.get(comm) ?? 0) + Number(fields[11]) + Number(fields[12]));
+            } catch {
+              // Gone.
+            }
+          }
+        }
+        return out;
+      };
       // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
-      // timed from the last record in to the first of two quiet seconds. PROFILE profiles it too (every page of a launch
-      // of many chats; the profiler's own cost lengthens it, so read its settle time from a run without PROFILE).
-      const settleProfiled = profile ? (count > 1 ? pages.map((p) => p.cdp) : [pages.at(-1)!.cdp]) : [];
+      // timed from the last record in to the first of two quiet seconds. PROFILE profiles it too, on the shown page (the
+      // pages of a launch share one renderer main thread and its V8 isolate, so one profile sees what each runs), and
+      // splits its CPU by thread. The profiler's own cost lengthens it: read the settle time from a run without PROFILE.
+      const settleProfiled = profile ? [pages.at(-1)!.cdp] : [];
+      const settleThreadsFrom = profile ? threadTicks() : undefined;
       for (const cdp of settleProfiled) {
         await cdp.send("Profiler.enable");
         await cdp.send("Profiler.start");
@@ -594,12 +620,21 @@ try {
         const entries = new Map<string, number>();
         for (const [index, cdp] of settleProfiled.entries()) {
           const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
-          const file = settleProfiled.length > 1 ? `${name}-settle-${index}.cpuprofile` : `${name}-settle.cpuprofile`;
+          const file = `${name}-settle${index ? `-${index}` : ""}.cpuprofile`;
           fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
           for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
           for (const [site, ms] of entryTimes(cpu, sources)) entries.set(site, (entries.get(site) ?? 0) + ms);
         }
-        printTop(`  ${name}: settle profile, self ms over ${settleProfiled.length} page(s):`, self, 30);
+        const elapsed = (performance.now() - settleFrom) / 1000;
+        const threads = [...threadTicks()]
+          .map(
+            ([comm, ticks]) =>
+              [comm, ((ticks - (settleThreadsFrom!.get(comm) ?? 0)) / TICK_HZ / elapsed) * 100] as const,
+          )
+          .filter(([, pct]) => pct > 0)
+          .sort((a, b) => b[1] - a[1]);
+        console.log(`  ${name}: settle cpu % by thread: ${threads.map(([c, p]) => `${c} ${p.toFixed(1)}`).join(", ")}`);
+        printTop(`  ${name}: settle profile, self ms (the renderer's main thread):`, self, 30);
         printTop(`  ${name}: settle profile, ms by entry (outermost script frame):`, entries, 20);
       }
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
@@ -663,28 +698,6 @@ try {
         const wakesFrom = WAKES ? { ...(await pageWakes()), switches: switches() } : undefined;
         // WAKES=1: the renderers' CPU in the window by thread name (main, compositor, V8 workers, ...), so a cost that
         // is not JavaScript (GC helpers, raster, IPC) is named too.
-        const threadTicks = () => {
-          const out = new Map<string, number>();
-          for (const pid of renderers(root)) {
-            let tasks: string[] = [];
-            try {
-              tasks = fs.readdirSync(`/proc/${pid}/task`);
-            } catch {
-              continue;
-            }
-            for (const task of tasks) {
-              try {
-                const comm = fs.readFileSync(`/proc/${pid}/task/${task}/comm`, "utf8").trim().replace(/\d+$/, "");
-                const stat = fs.readFileSync(`/proc/${pid}/task/${task}/stat`, "utf8");
-                const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-                out.set(comm, (out.get(comm) ?? 0) + Number(fields[11]) + Number(fields[12]));
-              } catch {
-                // Gone.
-              }
-            }
-          }
-          return out;
-        };
         const threadsFrom = WAKES ? threadTicks() : undefined;
         idleWindows.push(await window(IDLE_S));
         if (threadsFrom) {
