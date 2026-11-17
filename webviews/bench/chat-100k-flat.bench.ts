@@ -75,13 +75,28 @@ const RESIZE = process.env.RESIZE !== "0";
 // idle_open_cpu_pct; none is in ratio_max.
 const PAINT = process.env.PAINT !== "0";
 const RESIZE_WIDTHS = [700, 620, 540, 460];
-// CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
-// a row are at most SETTLE_PCT of a core (a 1 s sample counts 10 ms ticks, so a 1 % threshold would be one tick of
-// noise) or SETTLE_MAX_S pass. That time is the row cpu_settle_s, kept out of ratio_max, and the idle windows start
-// after it: a burst's drain is read as a time, not folded into the idle CPU.
+// CPU settle, so the idle windows read steady state: once a launch's chats are loaded or grown, its renderers' CPU and
+// the shown page's V8 heap in use (the pages share one renderer and isolate) are sampled every second. The settle ends
+// at the start of the first SETTLE_QUIET_S (20) seconds in which (a) no sample is a spike, above max(SETTLE_SPIKE_PCT
+// (10) % of a core, 3x the window's median); (b) the window's mean CPU is at most max(SETTLE_PCT (2) %, SETTLE_K (1.5)x
+// the matched empty launch's steady idle) (an empty launch, run first, has no match and skips this); and (c) the heap
+// never drops more than max(2 %, 2 MB) from one sample to the next. Why: after a load or growth V8's memory reducer
+// runs full collections on a timer (8 s after the last one, so about 9 s apart here, two of them), each a 1 s sample
+// at 100-220 % of a core, and the old rule (two quiet seconds under 2 %) could end before them, so they fell into the
+// idle windows by chance: the same commit back to back read long_x20 idle 5.79x and 1.21x, settle 6 s and 54 s, and 2 %
+// sits under 20 empty chats' own idle (3-6 %), so empty settled by luck. 20 s covers the reducer's 8-16 s timer, (a)
+// and (c) see a collection by its CPU or its heap drop, and (b) waits out a slow drain. SETTLE_MAX_S (120) caps it; a
+// launch that hits the cap reports settle = the cap and cpu_settle_capped 1, and its idle windows still run. Its cost
+// is kept, in rows of its own and out of ratio_max: cpu_settle_s (the settle time) and gc_spike_cpu_s (the CPU-seconds
+// of the settle's spikes that came with a heap drop, the collections). Each idle window's heap is read too, and a drop
+// in one is logged and counted (idle_gc_windows), so a collection the settle missed shows.
 const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
-const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
-const SETTLE_HEAP = process.env.SETTLE_HEAP === "1";
+const SETTLE_K = Number(process.env.SETTLE_K ?? 1.5);
+const SETTLE_SPIKE_PCT = Number(process.env.SETTLE_SPIKE_PCT ?? 10);
+const SETTLE_QUIET_S = Number(process.env.SETTLE_QUIET_S ?? 20);
+const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 120);
+// A heap drop that counts as a collection: more than 2 % of the heap and more than 2 MB (a small heap's jitter).
+const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
@@ -221,7 +236,15 @@ const printTop = (title: string, sites: Map<string, number>, limit: number) => {
     console.log(`    ${ms.toFixed(1).padStart(8)} ms  ${site}`);
 };
 
-type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
+type Launch = {
+  name: string;
+  idlePct: number;
+  streamPct: number;
+  mb: number;
+  renderers: number;
+  settleS: number;
+  capped: boolean;
+};
 
 const releases: (() => unknown)[] = [];
 const release = async () => {
@@ -269,7 +292,12 @@ try {
     name: string,
     chat: Template,
     count: number,
-    { profile, grow = 0, runGrow = 0 }: { profile?: string; grow?: number; runGrow?: number } = {},
+    {
+      profile,
+      grow = 0,
+      runGrow = 0,
+      match,
+    }: { profile?: string; grow?: number; runGrow?: number; match?: Launch } = {},
   ): Promise<Launch> => {
     // The stand-in daemon for this launch: `count` chats of `chat`, and what streamed into each since.
     const sessions = Array.from({ length: count }, (_, index) => ({
@@ -588,41 +616,75 @@ try {
         }
         return out;
       };
-      // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
-      // timed from the last record in to the first of two quiet seconds. PROFILE profiles it too, on the shown page (the
-      // pages of a launch share one renderer main thread and its V8 isolate, so one profile sees what each runs), and
-      // splits its CPU by thread. The profiler's own cost lengthens it: read the settle time from a run without PROFILE.
+      // The pages' own settling (read-ahead, fonts, the first paints, after a burst its drain, and V8's collections after
+      // it) is not idle: it is timed from the last record in to the start of the first quiet window (SETTLE_QUIET_S
+      // above). PROFILE profiles it too, on the shown page (the pages of a launch share one renderer main thread and its
+      // V8 isolate, so one profile sees what each runs), and splits its CPU by thread. The profiler's own cost lengthens
+      // it: read the settle time from a run without PROFILE.
       const settleProfiled = profile ? [pages.at(-1)!.cdp] : [];
       const settleThreadsFrom = profile ? threadTicks() : undefined;
       for (const cdp of settleProfiled) {
         await cdp.send("Profiler.enable");
         await cdp.send("Profiler.start");
       }
+      // The shown page's V8 heap in use, MB (the pages share one isolate): a collection reads as a drop in it.
+      const heapMB = async () =>
+        ((await pages.at(-1)!.cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize / 2 ** 20;
       const settleFrom = performance.now();
-      const settleSamples: number[] = [];
-      // PROFILE, WAKES or SETTLE_HEAP=1: the renderer's V8 heap in use after each sample (the pages share one isolate), so a sample
-      // that a collection drove reads as a drop in it.
-      const settleHeap: number[] | undefined = profile || WAKES || SETTLE_HEAP ? [] : undefined;
-      let settleS = SETTLE_MAX_S;
-      for (let quietSince = -1; (performance.now() - settleFrom) / 1000 < SETTLE_MAX_S;) {
-        const sampleFrom = performance.now();
+      const settleSamples: { from: number; s: number; pct: number; heap: number }[] = [];
+      const meanBar = match ? Math.max(SETTLE_PCT, SETTLE_K * match.idlePct) : undefined;
+      let settleS: number | undefined;
+      let settledMedian: number | undefined;
+      while ((performance.now() - settleFrom) / 1000 < SETTLE_MAX_S) {
+        const from = performance.now();
         const pct = await window(1);
-        settleSamples.push(pct);
-        if (settleHeap) {
-          const { usedSize } = (await pages.at(-1)!.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
-          settleHeap.push(usedSize / 2 ** 20);
-        }
-        if (pct > SETTLE_PCT) quietSince = -1;
-        else if (quietSince < 0) quietSince = sampleFrom;
-        else {
-          settleS = (quietSince - settleFrom) / 1000;
+        const s = (performance.now() - from) / 1000;
+        settleSamples.push({ from, s, pct, heap: await heapMB() });
+        // The quiet window: the samples from the latest one that started at least SETTLE_QUIET_S seconds ago.
+        const now = performance.now();
+        let first = settleSamples.length - 1;
+        while (first >= 0 && (now - settleSamples[first]!.from) / 1000 < SETTLE_QUIET_S) first--;
+        if (first < 0) continue;
+        const quiet = settleSamples.slice(first);
+        const pcts = quiet.map((sample) => sample.pct);
+        const spikeBar = Math.max(SETTLE_SPIKE_PCT, 3 * median(pcts));
+        const mean = pcts.reduce((sum, v) => sum + v, 0) / pcts.length;
+        const cpuFlat = pcts.every((v) => v <= spikeBar) && (meanBar === undefined || mean <= meanBar);
+        const heapFlat = quiet.every(
+          (sample, index) => index + first === 0 || !heapDropped(settleSamples[index + first - 1]!.heap, sample.heap),
+        );
+        if (cpuFlat && heapFlat) {
+          settleS = (quiet[0]!.from - settleFrom) / 1000;
+          settledMedian = median(pcts);
           break;
         }
       }
+      const capped = settleS === undefined;
+      const settledS = settleS ?? SETTLE_MAX_S;
+      // The CPU-seconds of the settle's collections: its spikes (against the settled level, or the whole settle's median
+      // when it hit the cap) that came with a heap drop in that sample or the next (one can straddle a sample's end).
+      const gcBar = Math.max(SETTLE_SPIKE_PCT, 3 * (settledMedian ?? median(settleSamples.map((v) => v.pct))));
+      let gcSpikeCpuS = 0;
+      let gcSpikes = 0;
+      for (const [index, sample] of settleSamples.entries()) {
+        const prev = settleSamples[index - 1];
+        const next = settleSamples[index + 1];
+        const dropped =
+          (prev !== undefined && heapDropped(prev.heap, sample.heap)) ||
+          (next !== undefined && heapDropped(sample.heap, next.heap));
+        if (sample.pct > gcBar && dropped) {
+          gcSpikeCpuS += (sample.pct / 100) * sample.s;
+          gcSpikes++;
+        }
+      }
       console.log(
-        `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
+        `  ${name}: CPU settled in ${settledS.toFixed(1)} s` +
+          (capped ? ` (cap: no ${SETTLE_QUIET_S} s quiet window in ${SETTLE_MAX_S} s)` : "") +
+          `; mean bar ${meanBar === undefined ? "none (empty launch)" : `${meanBar.toFixed(2)} %`}` +
+          `; ${gcSpikes} collection spike(s), ${gcSpikeCpuS.toFixed(2)} cpu-s` +
+          `; samples ${settleSamples.map((v) => v.pct.toFixed(1)).join(", ")}`,
       );
-      if (settleHeap) console.log(`  ${name}: settle heap MB ${settleHeap.map((v) => v.toFixed(0)).join(", ")}`);
+      console.log(`  ${name}: settle heap MB ${settleSamples.map((v) => v.heap.toFixed(0)).join(", ")}`);
       if (settleProfiled.length) {
         fs.mkdirSync(profile!, { recursive: true });
         const self = new Map<string, number>();
@@ -696,6 +758,7 @@ try {
         return total;
       };
       const idleWakes: (Wakes & { switches: number })[] = [];
+      let idleGcWindows = 0;
       for (let round = 0; round < REPEAT; round++) {
         // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
         // source, summed over the pages.
@@ -708,7 +771,15 @@ try {
         // WAKES=1: the renderers' CPU in the window by thread name (main, compositor, V8 workers, ...), so a cost that
         // is not JavaScript (GC helpers, raster, IPC) is named too.
         const threadsFrom = WAKES ? threadTicks() : undefined;
+        const heapFrom = await heapMB();
         idleWindows.push(await window(IDLE_S));
+        const heapTo = await heapMB();
+        if (heapDropped(heapFrom, heapTo)) {
+          idleGcWindows++;
+          console.log(
+            `  ${name}: idle window ${round + 1} (${idleWindows.at(-1)!.toFixed(2)} %) had a collection: heap ${heapFrom.toFixed(0)} -> ${heapTo.toFixed(0)} MB`,
+          );
+        }
         if (threadsFrom) {
           const to = threadTicks();
           const by = [...to]
@@ -930,8 +1001,11 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS };
-      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settleS, p95: settleS, unit: "s" });
+      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS: settledS, capped };
+      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settledS, p95: settledS, unit: "s" });
+      perfRow({ name: `${ROW}.${name}.cpu_settle_capped`, p50: Number(capped), p95: Number(capped), unit: "count" });
+      perfRow({ name: `${ROW}.${name}.gc_spike_cpu_s`, p50: gcSpikeCpuS, p95: gcSpikeCpuS, unit: "s", clock: "cpu" });
+      perfRow({ name: `${ROW}.${name}.idle_gc_windows`, p50: idleGcWindows, p95: idleGcWindows, unit: "count" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
       perfRow({
@@ -958,20 +1032,32 @@ try {
   if (CASES !== "grown-many" && CASES !== "long-many") {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
-      const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
-      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
+      const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE, match: emptyOne });
+      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
       pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
     }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
-    const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
+    const runningOne = await runLaunch("running_x1", small, 1, {
+      profile: PROFILE,
+      runGrow: Math.ceil(ROWS / 3),
+      match: emptyOne,
+    });
     pairs.push(["running_x1", runningOne, emptyOne]);
   }
   const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
   if (emptyMany && CASES !== "grown-many")
-    pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE }), emptyMany]);
+    pairs.push([
+      `long_x${CHATS}`,
+      await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE, match: emptyMany }),
+      emptyMany,
+    ]);
   if (emptyMany && CASES !== "main" && CASES !== "long-many")
-    pairs.push([`grown_x${CHATS}`, await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns }), emptyMany]);
+    pairs.push([
+      `grown_x${CHATS}`,
+      await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns, match: emptyMany }),
+      emptyMany,
+    ]);
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];
   for (const [label, big, base] of pairs) {
@@ -993,9 +1079,12 @@ try {
     .map(([label, big]) => [label, big.settleS] as [string, number])
     .reduce((a, b) => (b[1] > a[1] ? b : a));
   const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
+  const cappedLaunches = [...new Set(pairs.flatMap(([, big, base]) => [big, base]))].filter((l) => l.capped);
   console.log(
-    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s`,
+    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s` +
+      (cappedLaunches.length ? `; hit the ${SETTLE_MAX_S} s cap: ${cappedLaunches.map((l) => l.name).join(", ")}` : ""),
   );
+  perfRow({ name: `${ROW}.cpu_settle_capped`, p50: cappedLaunches.length, p95: cappedLaunches.length, unit: "count" });
   perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
   // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
   const excess = Math.max(0, settleMax - emptySettle);

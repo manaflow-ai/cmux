@@ -37,13 +37,13 @@ for round in $(seq 1 "$rounds"); do
       [[ $side == b ]] && git apply "$patch"
       log="$out/ab-$case-$side-$round.log"
       echo "chat-flat-patch-ab: round $round $case side $side"
-      CASES=$case RESIZE=0 PAINT=0 SETTLE_HEAP=1 bun bench/chat-100k-flat.bench.ts "$rows" "$chats" >"$log" 2>&1 || {
+      CASES=$case RESIZE=0 PAINT=0 bun bench/chat-100k-flat.bench.ts "$rows" "$chats" >"$log" 2>&1 || {
         status=$?
         echo "chat-flat-patch-ab: round $round $case side $side failed ($status)"
         tail -30 "$log"
       }
       [[ $side == b ]] && git apply -R "$patch"
-      grep -E "CPU settled|settle heap|idle windows|_cpu_ratio|longest CPU settle|^[a-z_0-9]+ \| " "$log" | grep -v PERF_ROW || true
+      grep -E "CPU settled|settle heap|had a collection|idle windows|_cpu_ratio|longest CPU settle|^[a-z_0-9]+ \| " "$log" | grep -v PERF_ROW || true
     done
   done
 done
