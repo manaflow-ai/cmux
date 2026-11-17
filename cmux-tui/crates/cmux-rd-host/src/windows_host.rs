@@ -17,12 +17,12 @@
 //! Mac offers to view it, and any session the hub still hands it is ended with the reason.
 //! The plan is in docs/device-hub/windows-host.md.
 
+use crate::screen_host::consent::LocalConsent;
+use crate::Res;
 use cmux_hub_host::hub::{now_ms, Hub, HubError};
 use cmux_hub_host::identity::{self, Account, Device};
 use cmux_hub_host::net::Message;
 use cmux_hub_host::printable;
-use crate::screen_host::consent::LocalConsent;
-use crate::Res;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
