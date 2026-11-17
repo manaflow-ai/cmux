@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import { runChild } from "./helpers/run-child";
 
 import {
   classifyCodexCanaryOutcome,
@@ -71,18 +72,18 @@ describe("guest alias wait", () => {
     expect(guestAliasWaitCommand("coderouter.cmux.internal")).toContain("getent hosts");
   });
 
-  test.skipIf(process.platform !== "linux")("waits for an alias the provider steers late, then reports it", () => {
+  test("waits for an alias the provider steers late, then reports it", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "canary-alias-"));
     try {
       // getent answers only from its third call, like a guest whose
       // /etc/hosts block lands a second or two after the first exec.
-      writeFileSync(path.join(dir, "getent"), `#!/bin/bash\nn=$(cat "${dir}/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${dir}/count"; [ "$n" -ge 3 ]\n`);
+      writeFileSync(path.join(dir, "getent"), `#!/bin/sh\nn=$(cat "${dir}/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${dir}/count"; [ "$n" -ge 3 ]\n`);
       chmodSync(path.join(dir, "getent"), 0o755);
-      const out = execFileSync(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 10)!], {
+      const run = await runChild(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 10)!], {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-        encoding: "utf8",
       });
-      const report = parseGuestAliasWait(out);
+      expect(run.error).toBeUndefined();
+      const report = parseGuestAliasWait(run.stdout);
       expect(report.aliasResolved).toBe(true);
       expect(report.aliasWaitMs).toBeGreaterThanOrEqual(900);
       expect(report.guestUptimeS).toBeGreaterThan(0);
@@ -92,21 +93,21 @@ describe("guest alias wait", () => {
     }
   });
 
-  test.skipIf(process.platform !== "linux")("stops at its budget under /bin/sh when the alias never resolves", () => {
+  test("stops at its budget under /bin/sh when the alias never resolves", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "canary-alias-"));
     try {
       writeFileSync(path.join(dir, "getent"), "#!/bin/sh\nexit 2\n");
       chmodSync(path.join(dir, "getent"), 0o755);
       const startedAt = Date.now();
       // A wait that ignores its budget is killed here, well short of the
-      // guest exec's 120 s, and the test fails with ETIMEDOUT.
-      const out = execFileSync(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 2)!], {
+      // guest exec's 120 s, and the test fails on run.error.
+      const run = await runChild(GUEST_SHELL, ["-c", guestAliasWaitCommand("coderouter.cmux.internal", 2)!], {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-        encoding: "utf8",
         timeout: 8_000,
       });
       const elapsedMs = Date.now() - startedAt;
-      const report = parseGuestAliasWait(out);
+      expect(run.error).toBeUndefined();
+      const report = parseGuestAliasWait(run.stdout);
       expect(report.aliasResolved).toBe(false);
       expect(report.aliasWaitMs).toBeGreaterThanOrEqual(1_000);
       expect(report.aliasWaitMs).toBeLessThan(4_000);
