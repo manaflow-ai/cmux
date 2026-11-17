@@ -310,7 +310,6 @@ inline std::vector<std::pair<std::string, std::string>> OwnRendererHeaders(const
   if (domain != kOwnRendererPageId || !main_frame || browser_id <= 0 || browser_id != owner_browser_id) return {};
   return {
       {"Cross-Origin-Opener-Policy", "same-origin"},
-      {"Origin-Agent-Cluster", "?1"},
   };
 }
 
