@@ -1,5 +1,5 @@
 //! `workspace create`: the new workspace's first terminal may start in a
-//! folder (`--cwd`) and run a command (`--shell <script>` or exact argv after
+//! folder (`--directory`) and run a command (`--shell <script>` or exact argv after
 //! `--`), as classic `cmux new-workspace --cwd --command` did. It opens in
 //! the background unless `--focus` is given, and goes where
 //! `workspaces.newPlacement` puts it unless `--top` puts it first; run from a
@@ -42,7 +42,7 @@ pub(super) fn workspace_create(
         params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
     }
     // The daemon refuses these with --empty: there is no terminal to launch.
-    if let Some(cwd) = flags.take("cwd") {
+    if let Some(cwd) = flags.take("directory") {
         params.insert("cwd".into(), Value::String(cwd));
     }
     match (argv, flags.take("shell")) {
