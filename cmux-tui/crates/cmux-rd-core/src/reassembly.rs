@@ -104,9 +104,19 @@ impl Reassembler {
     }
 
     /// True after a loss until a keyframe or a frame that references
-    /// [`Self::last_released`] is released.
+    /// [`Self::last_released`] is released, except while a keyframe newer
+    /// than the loss is still arriving or being repaired by NACK: that
+    /// keyframe recovers the stream, and asking for another one meanwhile
+    /// only adds a second keyframe burst to a path that is already losing.
+    /// Should it miss its deadline, it is lost and the request comes back.
     pub fn need_recovery(&self) -> bool {
-        self.need_recovery
+        self.need_recovery && !self.keyframe_in_repair()
+    }
+
+    /// A keyframe is pending: every pending frame is newer than every
+    /// finished one, so it is newer than any loss.
+    pub fn keyframe_in_repair(&self) -> bool {
+        self.pending.values().any(|p| p.flags & flags::KEYFRAME != 0 && p.flags & flags::TILE == 0)
     }
 
     /// Takes the losses recorded since the last call.

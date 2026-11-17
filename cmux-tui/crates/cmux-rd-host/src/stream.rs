@@ -18,7 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{Encoded, EngineConfig, IdrHold, IdrReason, MediaEngine, Output};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -106,7 +106,10 @@ fn pacing_enabled() -> bool {
 /// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
 /// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
 /// that carried it was read), so a remote viewer's key press can be matched to its injection
-/// (`scripts/screen-share-vs.py`). All on the protocol clock in µs.
+/// (`scripts/screen-share-vs.py`). An IDR's frame line carries `idr_reason`; a loss the engine
+/// did not answer with a keyframe gets `{"idr_held", "stream", "unacked_keyframe", "at_us"}`
+/// (`repairing`: a keyframe sent earlier may still be repaired; `spacing`: the last loss keyframe
+/// was under 250 ms ago). All on the protocol clock in µs.
 struct Timing {
     out: std::fs::File,
     input_us: Option<u64>,
@@ -170,6 +173,33 @@ impl Timing {
         let line = serde_json::json!({ "inject_us": inject_us, "recv_us": self.recv_us });
         let _ = writeln!(self.out, "{line}");
     }
+
+    /// The engine answered a loss without a keyframe at `at_us`, and why.
+    fn idr_held(&mut self, stream: u16, hold: IdrHold, at_us: u64) {
+        use std::io::Write;
+        let _ = writeln!(self.out, "{}", idr_held_line(stream, hold, at_us));
+    }
+}
+
+/// The timing log's `idr_reason` for a frame: the engine's reason when it
+/// asked for the keyframe, `"encoder"` for one the encoder chose itself, and
+/// none for a P-frame. Every IDR in the log has a reason.
+fn idr_log_reason(frame_idr: bool, asked: Option<IdrReason>) -> Option<&'static str> {
+    frame_idr.then(|| asked.map_or("encoder", IdrReason::as_str))
+}
+
+/// The timing log's line for a loss the engine did not answer with a keyframe.
+fn idr_held_line(stream: u16, hold: IdrHold, at_us: u64) -> serde_json::Value {
+    let frame = match hold {
+        IdrHold::Repairing { frame } => Some(frame),
+        IdrHold::Spacing => None,
+    };
+    serde_json::json!({
+        "idr_held": hold.as_str(),
+        "stream": stream,
+        "unacked_keyframe": frame,
+        "at_us": at_us,
+    })
 }
 
 /// Keep the ticket and session alive while a viewer reattaches after a network
@@ -481,7 +511,7 @@ impl MediaSession {
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
             // An IDR the engine did not ask for is the encoder's own choice.
-            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
+            let idr = idr_log_reason(frame.idr, req.idr_reason);
             (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
@@ -562,6 +592,9 @@ impl MediaSession {
     ) {
         for datagram in &out.datagrams {
             let _ = carrier.send_datagram(datagram);
+        }
+        if let (Some(timing), Some((stream, hold))) = (self.timing.as_mut(), out.idr_held) {
+            timing.idr_held(stream, hold, now_us());
         }
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
@@ -658,12 +691,34 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{idr_held_line, idr_log_reason, viewer_silent_too_long};
+    use cmux_rd_engine::{IdrHold, IdrReason};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    /// Every IDR in the host timing log names why it was sent, and every loss
+    /// the engine held back from a keyframe gets a line saying why.
+    #[test]
+    fn every_idr_and_every_held_loss_keyframe_logs_a_reason() {
+        for (asked, want) in [
+            (Some(IdrReason::Start), "start"),
+            (Some(IdrReason::Recovery), "recovery"),
+            (Some(IdrReason::TailProbe), "tail_probe"),
+            (Some(IdrReason::TooLarge), "too_large"),
+            (None, "encoder"),
+        ] {
+            assert_eq!(idr_log_reason(true, asked), Some(want));
+        }
+        assert_eq!(idr_log_reason(false, None), None, "a P-frame is no IDR");
+        let line = idr_held_line(0, IdrHold::Repairing { frame: 9 }, 42);
+        assert_eq!(line["idr_held"], "repairing");
+        assert_eq!(line["unacked_keyframe"], 9);
+        assert_eq!(line["at_us"], 42);
+        assert_eq!(idr_held_line(0, IdrHold::Spacing, 1)["idr_held"], "spacing");
     }
 }
 
