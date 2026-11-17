@@ -15,9 +15,11 @@
 //!   terminal id is copied as at most 32 bytes). A full ring drops the record and
 //!   counts it (`{"dropped":N}` in the file).
 //!
-//! The writer thread drains the ring every [`DRAIN_INTERVAL`] while tracing is on
+//! The writer thread drains the ring every [`DRAIN_INTERVAL`] while hops come in
 //! (a deliberate timer: a diagnostic mode, never on in a normal run), or at once
-//! when a hop finds the ring half full (the one wake a hop may send). Each record
+//! when a hop finds the ring half full. After [`IDLE_BEFORE_SLEEP`] with nothing to
+//! write it sleeps with no timer, and the next hop wakes it (one `unpark` per idle
+//! spell: the only other wake a hop sends). Each record
 //! is one JSON line: hop name, flow id or 0, terminal hex id, pid, thread id and
 //! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (the performance counter on Windows,
 //! `CLOCK_MONOTONIC` elsewhere): the clock of the app's signposts, so no offset is guessed.
@@ -33,7 +35,7 @@
 use std::cell::UnsafeCell;
 use std::io::Write;
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -164,6 +166,8 @@ struct Shared {
     dropped: AtomicU64,
     /// A hop asked the writer to drain early (cleared by the writer).
     nudged: AtomicBool,
+    /// The writer sleeps with no timer (idle); the next hop clears it and wakes the writer.
+    asleep: AtomicBool,
     /// Records written so far, for [`flush`] (records pushed: `ring.tail`).
     written: Mutex<usize>,
     written_changed: Condvar,
@@ -191,6 +195,7 @@ pub fn init() -> bool {
             ring: Ring::new(),
             dropped: AtomicU64::new(0),
             nudged: AtomicBool::new(false),
+            asleep: AtomicBool::new(false),
             written: Mutex::new(0),
             written_changed: Condvar::new(),
             drains: AtomicU64::new(0),
@@ -210,11 +215,15 @@ fn sink() -> Option<&'static Sink> {
 }
 
 /// The writer thread: drains the ring every [`DRAIN_INTERVAL`] (or when nudged),
-/// one JSON line per record, one flush per drain.
+/// one JSON line per record, one flush per drain. A drain that pops nothing parks
+/// (a slot a preempted producer claimed but has not published yet counts in
+/// `waiting()` with nothing to pop: looping on it spun a core), and after
+/// [`IDLE_BEFORE_SLEEP`] of empty drains it parks with no timer until a hop wakes it.
 fn write_records(file: std::fs::File, sink: &Shared) {
     let mut out = std::io::BufWriter::new(file);
     let mut reported = 0;
     let pid = std::process::id();
+    let mut idle_since = std::time::Instant::now();
     loop {
         let mut count = 0;
         while let Some(record) = sink.ring.pop() {
@@ -246,7 +255,23 @@ fn write_records(file: std::fs::File, sink: &Shared) {
         }
         sink.drains.fetch_add(1, Ordering::Relaxed);
         sink.nudged.store(false, Ordering::Relaxed);
-        if sink.ring.waiting() == 0 {
+        if count > 0 {
+            idle_since = std::time::Instant::now();
+            if sink.ring.waiting() > 0 {
+                continue; // more came in while this drain wrote
+            }
+        }
+        if count == 0 && sink.ring.waiting() == 0 && idle_since.elapsed() >= IDLE_BEFORE_SLEEP {
+            sink.asleep.store(true, Ordering::Relaxed);
+            // Pairs with the fence in `push`: either that hop sees `asleep` and unparks, or this check sees its
+            // record (`tail`), so no hop is left unwritten while the writer sleeps.
+            fence(Ordering::SeqCst);
+            if sink.ring.waiting() == 0 {
+                std::thread::park();
+            }
+            sink.asleep.store(false, Ordering::Relaxed);
+            idle_since = std::time::Instant::now();
+        } else {
             std::thread::park_timeout(DRAIN_INTERVAL);
         }
     }
@@ -368,7 +393,14 @@ fn push(sink: &Sink, record: Record) {
         shared.dropped.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    // The one wake a hop may send: the ring is half full before the next timed drain.
+    // Pairs with the writer's fence before it sleeps (see `write_records`).
+    fence(Ordering::SeqCst);
+    // The first hop after an idle spell wakes the sleeping writer (one swap clears it: one unpark per spell).
+    if shared.asleep.load(Ordering::Relaxed) && shared.asleep.swap(false, Ordering::Relaxed) {
+        sink.writer.unpark();
+        return;
+    }
+    // The other wake a hop may send: the ring is half full before the next timed drain.
     if shared.ring.waiting() >= HIGH_WATER && !shared.nudged.swap(true, Ordering::Relaxed) {
         sink.writer.unpark();
     }
@@ -480,6 +512,7 @@ mod tests {
             ring: Ring::new(),
             dropped: AtomicU64::new(0),
             nudged: AtomicBool::new(false),
+            asleep: AtomicBool::new(false),
             written: Mutex::new(0),
             written_changed: Condvar::new(),
             drains: AtomicU64::new(0),
