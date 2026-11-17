@@ -177,13 +177,13 @@ jobs:
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
 
   # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
-  # else from here. Before this file is on feat-cmux-next the dispatch has nothing to start, and says so.
+  # else from here. A dispatch that never starts ends this job red (below).
   hand-off:
     name: start the look on feat-cmux-next
     needs: plan
     if: ${{ needs.plan.outputs.eligible == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
+    timeout-minutes: 25
     # actions: write starts the run; nothing here can write pr-media or the PR.
     permissions:
       actions: write
@@ -199,12 +199,33 @@ jobs:
         run: |
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
-          if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
-            echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "hot verify: could not start the look on feat-cmux-next ($(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)); this workflow may not be there yet" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
+          # A dispatch that fails is a PR with no look. It used to print a line and end green, so no one saw the
+          # PRs it lost. It now retries for at most 20 minutes (a rate limit waits for its reset, read from the
+          # rate_limit endpoint, which costs no quota) and ends red if the look never started.
+          deadline=$(( $(date +%s) + 20 * 60 ))
+          pause=30
+          for attempt in 1 2 3 4 5 6; do
+            if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+                -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
+              echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12} (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            why="$(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)"
+            echo "hot verify: attempt $attempt could not start the look: $why"
+            wait_s=$pause
+            if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
+              # Only a spent core bucket waits for its reset; a secondary rate limit keeps the short backoff.
+              remaining=1 reset=0
+              read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || echo "1 0") || true
+              [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
+            fi
+            (( $(date +%s) + wait_s < deadline )) || break
+            sleep "$wait_s"
+            pause=$(( pause * 2 ))
+          done
+          echo "::error title=hot verify::could not start the look on feat-cmux-next for ${HEAD_SHA:0:12}: $why"
+          echo "hot verify: no look for ${HEAD_SHA:0:12}; the dispatch failed: $why" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   # The feat-cmux-next half. The pull request, read again: open, into feat-cmux-next, from this repository,
   # still at the head the plan saw.
@@ -420,6 +441,12 @@ jobs:
           fi
           echo "::error title=hot verify::the fleet step (${step:-none}, exit $status) returned no out.tar"
           echo "result=failed" >> "$GITHUB_OUTPUT"
+          # A client that stops waiting (exit 75 after --queue-timeout) leaves its step queued, and `look again`
+          # queues another: the first would run later with nobody to post it (23 of 49 queued looks were such
+          # orphans, 2026-11-17 13:49Z). Cancel it; a step that already ended is not cancelled again.
+          if [[ -n "$step" ]]; then
+            "$client" cancel "$step" --reason "hot verify: the look's client stopped waiting (exit $status)" || true
+          fi
           # A look with no result is never green.
           exit 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -429,6 +456,19 @@ jobs:
           path: ${{ runner.temp }}/look/out.tar
           if-no-files-found: error
           retention-days: 1
+      # A look cancelled while it waits (a newer run for the PR, the job's time limit) leaves its fleet step queued.
+      - name: Cancel the fleet step of a cancelled look
+        if: ${{ cancelled() }}
+        run: |
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "hot verify: $client is not installed on runner $RUNNER_NAME; no fleet step to cancel"
+            exit 0
+          fi
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$RUNNER_TEMP/look.log" 2>/dev/null | head -1 | cut -d' ' -f2 || true)"
+          if [[ -n "$step" ]]; then
+            "$client" cancel "$step" --reason "hot verify: the look was cancelled" || true
+          fi
 
   # One more look when this one failed on the fleet. A failed `look` job returned no out.tar: the look never
   # judged the change, the fleet or its runner lost it. On 2026-11-16 that was a lent Mac's disk decline
