@@ -368,8 +368,14 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
             made
         }
     };
-    // Past the bytes (a noisy image, or one already within the edge): smaller again.
-    within_bytes(made, max_bytes)
+    // Past the bytes (a noisy image, or one already within the edge): smaller again, saved too.
+    let first_edge = made.1.max(made.2);
+    let fitted = within_bytes(made, max_bytes)?;
+    let edge = fitted.1.max(fitted.2);
+    if edge != first_edge {
+        save(&saved.with_file_name(format!(".model-{edge}.png")), &fitted.0);
+    }
+    Some(fitted)
 }
 
 /// The whole JPEG upload whose first bytes are `head`, the rest read from `file`, when its header

@@ -159,12 +159,35 @@ async fn whole_log(c: &mut Client, session: &str) -> String {
     }
 }
 
-/// A PNG's bytes (its signature is what the type is read from), `n` long, distinct per `seed`.
+/// A PNG's bytes, distinct per `seed`. Within the inline image size, a real PNG of grey noise of
+/// up to about `n` bytes: one that goes inline is read for its metadata, and a PNG that cannot be
+/// read is never sent inline (`image_privacy.rs`). Past it, `n` bytes of which only the signature
+/// and header name are real (the type is read from them): it goes by path, and no copy of it is
+/// made.
 fn png(n: usize, seed: u8) -> Vec<u8> {
-    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    bytes.push(seed);
-    bytes.resize(n.max(bytes.len()), seed);
-    bytes
+    if n > acpmux::prompt_uploads::INLINE_IMAGE_BYTES {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        bytes.push(seed);
+        bytes.resize(n, seed);
+        return bytes;
+    }
+    let side = ((n.saturating_sub(2048) as f64).sqrt() as u32).max(1);
+    let mut state = 0x2545_f491_4f6c_dd1du64 ^ u64::from(seed);
+    let data: Vec<u8> = (0..side * side)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, side, side);
+    e.set_color(png::ColorType::Grayscale);
+    e.set_depth(png::BitDepth::Eight);
+    e.set_compression(png::Compression::Fast);
+    e.write_header().unwrap().write_image_data(&data).unwrap();
+    out
 }
 
 fn b64(bytes: &[u8]) -> String {
