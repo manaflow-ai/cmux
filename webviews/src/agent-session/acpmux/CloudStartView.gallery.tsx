@@ -27,6 +27,12 @@ const galleryGitHub = createGitHubPicker(
   () => false,
 );
 
+// The checklist folds behind its summary; open it to show the clone row's line.
+const openChecklist: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-cloud-start__summary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__checklist"));
+};
+
 const showStart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
 };
@@ -328,6 +334,19 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           clone: { state: "running", ...timing },
         },
       },
+    },
+    "checklist-left-on-mac": {
+      note: "A very large folder sent only a first pass: the copy row says how many files stayed on this Mac, so the copy does not read as complete.",
+      props: {
+        start: {
+          ...begun,
+          machine: known.machine,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", phase: "complete", leftOnMac: 1204, ...timing },
+        },
+        showSteps: true,
+      },
+      play: openChecklist,
     },
     "checklist-setup-cached": {
       note: "The environment snapshot is ready, so setup completes from cache.",

@@ -209,6 +209,9 @@ export type CloudStartupOperation = {
   fallback?: string;
   /// The cmux GitHub App's install page, when the machine could not read a private repository.
   installUrl?: string;
+  /// A very large folder's first pass: how many files stayed on this Mac (`left_on_mac`), so the card
+  /// does not read a partial copy as complete. Absent when nothing was left.
+  leftOnMac?: number;
   progress?: {
     receivedBytes?: number;
     objects?: number;
@@ -369,10 +372,16 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
     if (machineTiming) Object.assign(next, prefixedTiming("machine", machineTiming));
     if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
   }
-  const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
+  const cloneFields = fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"];
+  const clone = operation(cloneFields);
   // The copy's final answer does not repeat why a seed copied: its live lines said so, and it stays.
   const ended = clone?.state === "done" || clone?.state === "failed";
-  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
+  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl", "leftOnMac"]), ...clone } : clone;
+  else {
+    // A plain copy's end reports no seed state, only the files its first pass left here: the copy is over.
+    const leftOnMac = filesLeftOnMac(asRecord(cloneFields));
+    if (leftOnMac !== undefined) next.clone = { ...(next.clone ?? { state: "done" }), leftOnMac };
+  }
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
   // The host's question: `null` takes it away (answered, or the wait ended); a malformed one changes nothing.
@@ -431,6 +440,12 @@ function pick<T extends object, K extends keyof T>(value: T | undefined, keys: r
   return picked;
 }
 
+/** A first pass's count of files left on this Mac (`left_on_mac`): a positive whole number, else undefined. */
+function filesLeftOnMac(record: Record<string, unknown> | undefined): number | undefined {
+  const left = number(record?.leftOnMac ?? record?.left_on_mac);
+  return left !== undefined && Number.isSafeInteger(left) && left > 0 ? left : undefined;
+}
+
 function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -469,6 +484,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     : undefined;
   const fallback = line(record.fallback, 80);
   const installUrl = httpsUrl(record.installUrl ?? record.install_url);
+  const leftOnMac = filesLeftOnMac(record);
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
@@ -477,6 +493,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     ...(phase && { phase }),
     ...(fallback && { fallback }),
     ...(installUrl && { installUrl }),
+    ...(leftOnMac !== undefined && { leftOnMac }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }

@@ -300,6 +300,46 @@ test("the clone row words each part of a seed and of a copy", () => {
   expect(row({ state: "done", phase: "complete", fallback: "git_failed" })?.detail).toBe("Copying the folder instead");
 });
 
+test("the clone row says how many files a first pass left on this Mac, and nothing when none", () => {
+  const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
+    startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
+  expect(row({ state: "done", phase: "complete", leftOnMac: 1204 })?.detail).toBe("1,204 files stayed on this Mac");
+  expect(row({ state: "done", phase: "complete", leftOnMac: 1 })?.detail).toBe("1 file stayed on this Mac");
+  expect(row({ state: "done", phase: "complete", fallback: "not_git", leftOnMac: 2 })?.detail).toBe(
+    "Copying the folder instead, because it is not a git repository · 2 files stayed on this Mac",
+  );
+  expect(row({ state: "done", phase: "complete" })?.detail).toBeUndefined();
+});
+
+test("the opened checklist shows the files left on this Mac in the pane's words", async () => {
+  const start: CloudStartProgress = {
+    key: "k",
+    task: "hi",
+    state: "starting",
+    hasRepository: true,
+    clone: { state: "done", phase: "complete", leftOnMac: 1204 },
+  };
+  const host = installDom();
+  root = createRoot(host);
+  await act(async () => root?.render(<CloudStartView start={start} showSteps />));
+  await act(async () => (host.querySelector(".acpmux-cloud-start__summary") as HTMLButtonElement).click());
+  const detail = host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail');
+  expect(detail?.textContent).toBe("1,204 files stayed on this Mac");
+  await act(async () =>
+    root?.render(
+      <CloudStartView start={{ ...start, clone: { state: "done", phase: "complete", leftOnMac: 1 } }} showSteps />,
+    ),
+  );
+  expect(host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail')?.textContent).toBe(
+    "1 file stayed on this Mac",
+  );
+  await act(async () =>
+    root?.render(<CloudStartView start={{ ...start, clone: { state: "done", phase: "complete" } }} showSteps />),
+  );
+  expect(host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail')).toBeNull();
+  expect(host.textContent).not.toContain("stayed on this Mac");
+});
+
 test("a copy's steps before its first file show, and keep saying why it copies", () => {
   const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
     startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
