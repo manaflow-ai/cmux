@@ -12,7 +12,8 @@
 //! mismatch (BT.601 in, BT.709 out) moves saturated red by tens of codes; a range mismatch
 //! lifts or crushes black and white. `COLOR_DIFF_DIR=DIR` also writes `color-diff.png`
 //! (rows: source, Rust viewer, Mac Metal viewer, a reader that ignores the tag and assumes
-//! BT.601) and `color-diff.txt` there.
+//! BT.601), `color-diff.txt` and `color-card.h264` (the card as one fine-quantized IDR,
+//! Annex-B) there.
 
 use cmux_codecs::{H264Decoder, open_encoder};
 use cmux_encode::color::{self, Yuv};
@@ -174,6 +175,8 @@ fn every_viewer_shows_the_hosts_colours() {
         let dir = std::path::PathBuf::from(dir);
         std::fs::create_dir_all(&dir).expect("artifact dir");
         std::fs::write(dir.join("color-diff.txt"), &report).expect("report");
+        // The card's IDR as the Linux host sends it (Annex-B), for the Mac viewer's test.
+        std::fs::write(dir.join("color-card.h264"), fine_idr(&host_pic)).expect("access unit");
         let mut img = src.clone();
         img.extend(&rows[2].1);
         img.extend(&rows[3].1);
@@ -186,6 +189,26 @@ fn every_viewer_shows_the_hosts_colours() {
         let bound = if path.starts_with("converter") { 2 } else { 6 };
         assert!(max <= bound, "{path}, {region}: {max} codes off (bound {bound})\n{report}");
     }
+}
+
+/// The card's IDR from the host's OpenH264 settings with the quantizer held fine (QP <= 6), so
+/// a viewer test that decodes it measures the colour path, not the rate controller.
+fn fine_idr(pic: &I420) -> Vec<u8> {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::openh264::{OpenH264, OpenH264Api, OpenH264Options};
+    let cfg = EncCfg {
+        width: W as u32,
+        height: H as u32,
+        fps: 30,
+        kbps: 50_000,
+        threads: 1,
+        screen_content: true,
+    };
+    let opts = OpenH264Options { min_qp: Some(0), max_qp: Some(6), ..OpenH264Options::default() };
+    let mut enc = OpenH264::with_options(&cfg, OpenH264Api::from_source(), &opts).expect("encoder");
+    let mut au = Vec::new();
+    assert!(enc.encode(pic, true, 0, &mut au).expect("encode"), "an IDR");
+    au
 }
 
 /// An RGB PNG (stored deflate blocks: no compression crate).

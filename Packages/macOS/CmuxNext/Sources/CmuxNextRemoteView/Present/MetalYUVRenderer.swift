@@ -12,7 +12,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
     // size) is touched only on `queue`; the rest is immutable after init.
     let queue = DispatchQueue(label: "cmux.remote-view.render", qos: .userInteractive)
     private let layer: CAMetalLayer
-    private let commandQueue: any MTLCommandQueue
+    let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
@@ -35,12 +35,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
     /// or a plane that does not map to a texture).
     func render(_ frame: RemoteDecodedFrame) -> Bool {
         let buffer = frame.pixelBuffer
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        guard CVPixelBufferGetPlaneCount(buffer) == 2,
-              let luma = texture(buffer, plane: 0, format: .r8Unorm),
-              let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
-        let size = CGSize(width: width, height: height)
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         if layer.drawableSize != size {
             // An explicit transaction: this thread has no run loop to commit an implicit one.
             CATransaction.begin()
@@ -49,9 +44,22 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
             CATransaction.commit()
         }
         guard let drawable = layer.nextDrawable(),
-              let commands = commandQueue.makeCommandBuffer() else { return false }
+              let commands = commandQueue.makeCommandBuffer(),
+              encodeDraw(buffer, into: drawable.texture, commands: commands) else { return false }
+        commands.present(drawable)
+        commands.commit()
+        return true
+    }
+
+    /// Encodes the YUV to RGB draw of `buffer` into `target` (BGRA8, the buffer's size) on
+    /// `commands`; the caller presents or reads back and commits. False when a plane does not
+    /// map to a texture.
+    func encodeDraw(_ buffer: CVPixelBuffer, into target: any MTLTexture, commands: any MTLCommandBuffer) -> Bool {
+        guard CVPixelBufferGetPlaneCount(buffer) == 2,
+              let luma = texture(buffer, plane: 0, format: .r8Unorm),
+              let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
         let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = drawable.texture
+        pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .dontCare
         pass.colorAttachments[0].storeAction = .store
         guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass),
@@ -67,8 +75,6 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         // The cache textures must outlive the GPU's reads.
         let retained = RetainedTextures(luma: luma, chroma: chroma)
         commands.addCompletedHandler { _ in retained.release() }
-        commands.present(drawable)
-        commands.commit()
         return true
     }
 
