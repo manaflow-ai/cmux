@@ -118,7 +118,8 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
 
 /// A chat folder that names a GitHub repository instead of a folder on this Mac: `github:owner/name`.
 /// Only a Cloud start takes one (its machine clones the repository); a chat here is refused.
-public nonisolated enum AgentPaneGitHubFolder {
+public nonisolated struct AgentPaneGitHubFolder {
+    public nonisolated init() {}
     public static let prefix = "github:"
     /// The refusal's code for a chat here that names one (`session/new`'s `cwd`, `workspace.useFolder`).
     public static let cloudOnlyReason = "github.cloud_only"
