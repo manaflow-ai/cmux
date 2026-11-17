@@ -49,10 +49,11 @@ extension AgentPaneImageCopies {
         return item
     }
 
-    /// An image file's bytes, read off the main actor; nil for another type or a failed read.
+    /// An image file's bytes, read off the main actor (not mapped: the main actor puts them on the
+    /// pasteboard); nil for another type or a failed read.
     @concurrent static func imageBytes(_ file: URL) async -> Data? {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true else { return nil }
-        return try? Data(contentsOf: file, options: .mappedIfSafe)
+        return try? Data(contentsOf: file)
     }
 
     /// The name Save Image As… offers: the image's name with its copy's extension (no hash), or the

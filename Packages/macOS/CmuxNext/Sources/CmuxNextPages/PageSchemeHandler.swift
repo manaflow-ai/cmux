@@ -274,9 +274,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         active.remove(ObjectIdentifier(task))
     }
 
+    /// Reads `file`'s bytes off the main actor. Never mapped: the main actor hands the body to
+    /// `WKURLSchemeTask.didReceive(_:)` or CEF, whose copy would fault a mapping's pages in there.
     @concurrent nonisolated static func read(_ file: URL) async -> Data? {
         // concurrency-allow: @concurrent, so this read never runs on the main actor
-        try? Data(contentsOf: file, options: .mappedIfSafe)
+        try? Data(contentsOf: file)
     }
 
     /// Where `url` goes: a dynamic prefix of the page, else the file it names inside `root`. Nil

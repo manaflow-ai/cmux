@@ -58,7 +58,8 @@ public nonisolated struct FileDocument {
         guard stat(real.path, &info) == 0 else { throw .notFound }
         guard info.st_mode & S_IFMT == S_IFREG else { throw .notFile }
         guard Int(info.st_size) <= maximumBytes else { throw .tooLarge }
-        // concurrency-allow: FileDocument is nonisolated; the pages call it from @concurrent functions only
+        // concurrency-allow: FileDocument is nonisolated; the pages call it from @concurrent functions only.
+        // Mapped is fine: decoded and hashed here, off main; only the snapshot leaves.
         guard let bytes = try? Data(contentsOf: real, options: .mappedIfSafe) else { throw .notFound }
         let (text, exact) = decode(bytes)
         let reason: FileReadOnlyReason? = if isBinary(bytes) {

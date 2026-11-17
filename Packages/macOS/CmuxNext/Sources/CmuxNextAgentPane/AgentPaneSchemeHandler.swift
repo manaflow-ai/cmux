@@ -96,10 +96,11 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         active.remove(ObjectIdentifier(task))
     }
 
-    /// Reads `file` off the main thread.
+    /// Reads `file`'s bytes off the main thread. Never mapped: the main actor hands the body to
+    /// `WKURLSchemeTask.didReceive(_:)`, whose copy would fault a mapping's pages in there.
     @concurrent nonisolated static func read(_ file: URL) async -> Data? {
         // concurrency-allow: @concurrent, so this read never runs on the main actor
-        try? Data(contentsOf: file, options: .mappedIfSafe)
+        try? Data(contentsOf: file)
     }
 
     /// The file `url` names inside `root`, or nil for another scheme or

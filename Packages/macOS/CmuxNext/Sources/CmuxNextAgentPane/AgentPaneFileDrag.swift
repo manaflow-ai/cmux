@@ -60,11 +60,11 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         }
     }
 
-    /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (a mapped
-    /// read of the local copy) and its picture, scaled to at most 160 pt.
+    /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (read, not
+    /// mapped: the main actor puts them on the pasteboard) and its picture, scaled to at most 160 pt.
     @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
-              let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
+              let data = try? Data(blockingContentsOf: file) else { return Contents() }
         guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
         let scale = 160 / max(image.size.width, image.size.height, 160)
         image.size = CGSize(width: image.size.width * scale, height: image.size.height * scale)

@@ -276,7 +276,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     @concurrent nonisolated private static func read(_ file: URL) async -> Data? {
         guard let size = try? file.blockingResourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
               size.isRegularFile == true, (size.fileSize ?? 0) <= bundleImageLimit else { return nil }
-        return try? Data(blockingContentsOf: file, options: .mappedIfSafe)
+        // Not mapped: the page scheme handler hands these bytes to WebKit or CEF on the main actor.
+        return try? Data(blockingContentsOf: file)
     }
 }
 

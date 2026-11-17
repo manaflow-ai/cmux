@@ -120,8 +120,9 @@ public final class DiffPatchSource: PageDynamicResourceSource {
     }
 
     @concurrent private static func read(_ resolver: DiffPatchResolver, _ request: PageResourceRequest) async -> PageResource? {
-        // concurrency-allow: @concurrent, so this mapped read never runs on the main actor
-        guard let file = resolver.file(for: request), let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
+        // concurrency-allow: @concurrent, so this read never runs on the main actor. Not mapped: the
+        // page scheme handler hands the patch to WebKit or CEF on the main actor.
+        guard let file = resolver.file(for: request), let data = try? Data(contentsOf: file) else { return nil }
         return PageResource(data: data, mimeType: DiffPatchResolver.mimeType + "; charset=utf-8")
     }
 }

@@ -36,6 +36,7 @@ nonisolated public struct ArchiveSignature: Sendable, Equatable, Decodable {
         guard let publicKey, !publicKey.isEmpty, !publicKey.hasPrefix("$(") else { return "this app has no update signing key" }
         // Every signature the publisher writes names its length: one that names none (or a bad one) is refused.
         guard let length, length >= 0 else { return "the download's signature names no length" }
+        // Mapped is fine: verified here, in BuildSwitchDownload's @concurrent keep, off main.
         guard let data = try? Data(blockingContentsOf: file, options: .alwaysMapped) else { return "could not read the download" }
         if data.count != length { return "the download is \(data.count) bytes, its feed item says \(length)" }
         return ContentSignature.verify(data, signature: edSignature, publicKey: publicKey)

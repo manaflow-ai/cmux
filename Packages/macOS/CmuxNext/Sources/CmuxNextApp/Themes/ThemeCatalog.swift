@@ -96,7 +96,7 @@ final class ThemeCatalog {
         var colors: [String: ThemeFileColors] = [:]
         // Shipped themes first, so the user's folder replaces a clash.
         for (name, file) in themeFiles(resources: resources, home: home, environment: environment) {
-            // concurrency-allow: nonisolated, called from a detached task at launch
+            // concurrency-allow: nonisolated, from a detached task at launch; mapped is fine: decoded here
             guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count <= maximumThemeFileBytes else { continue }
             let text = String(decoding: data, as: UTF8.self)
             strips[name] = ThemeSwatch.strip(themeFile: text)

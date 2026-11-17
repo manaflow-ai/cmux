@@ -65,7 +65,8 @@ nonisolated struct AgentPaneReplyImages {
             return pdfThumbnail(url)
         }
         guard (values.fileSize ?? Int.max) <= maximumBytes else { return .failure(.imageTooLarge) }
-        // concurrency-allow: local(_:) is @concurrent, so this read never runs on the main actor
+        // concurrency-allow: local(_:) is @concurrent, so this read never runs on the main actor.
+        // Mapped is fine: only the data URL built here, off main, leaves this function.
         guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
             return .failure(.imageFailed)
         }

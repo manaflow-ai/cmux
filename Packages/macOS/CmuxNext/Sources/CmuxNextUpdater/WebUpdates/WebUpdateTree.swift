@@ -50,6 +50,7 @@ nonisolated public struct WebUpdateTree: Sendable {
             }
             if files.isEmpty { hash.update(data: Data("empty \(top)\n".utf8)) }
             for rel in files {
+                // Mapped is fine: hashed here; only the digest leaves.
                 guard let data = try? Data(contentsOf: root.appending(path: rel), options: .mappedIfSafe) else {
                     throw .integrity("unreadable \(rel)")
                 }

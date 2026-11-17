@@ -153,7 +153,8 @@ nonisolated enum DiffSessionRoot {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return }
         for name in names where name.hasPrefix(".branch-session-") && name.hasSuffix(".json") {
             let url = root.appending(path: name)
-            // concurrency-allow: nonisolated sweep; DiffPageRuntime runs it from a @concurrent task
+            // concurrency-allow: nonisolated sweep; DiffPageRuntime runs it from a @concurrent task.
+            // Mapped is fine: parsed here, off main.
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count < 64 * 1024,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = object["token"] as? String, DiffPatchResolver.isValidToken(token),

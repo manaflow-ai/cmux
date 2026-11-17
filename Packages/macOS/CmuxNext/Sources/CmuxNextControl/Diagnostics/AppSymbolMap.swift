@@ -30,7 +30,8 @@ public struct AppSymbolMap: Sendable {
     public static let main: AppSymbolMap? = {
         guard let header = _dyld_get_image_header(0), let uuid = Self.uuid(of: header),
               let url = Bundle.main.url(forResource: "cmux-symbols", withExtension: "bin"),
-              // concurrency-allow: diagnostics only, read once off the main thread.
+              // concurrency-allow: diagnostics only, read once off the main thread. Mapped is
+              // fine: init copies it into arrays here.
               let data = try? Data(contentsOf: url, options: .mappedIfSafe)
         else { return nil }
         return AppSymbolMap(data: data, uuid: uuid)
