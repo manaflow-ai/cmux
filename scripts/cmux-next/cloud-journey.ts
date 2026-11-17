@@ -116,7 +116,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { answeredPath, DAEMON_CHECK, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench.ts";
+import { answeredPath, DAEMON_CHECK, MachineFailed, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -1099,7 +1099,7 @@ export async function runStartBench(args: {
   };
   const platformRunning = async (machine: string) => {
     const m = await args.api.read("cloud.machine.get", { machine }, 15_000);
-    if (m?.status === "failed") throw new Error("machine failed");
+    if (m?.status === "failed") throw new MachineFailed("machine failed");
     return m?.status === "running" && Boolean(m?.host);
   };
   const platformRemove = (machine: string) => args.api.deleteMachine(machine, `${args.tag}-start-delete-${machine}`).then(() => undefined);
@@ -1146,7 +1146,12 @@ export async function runStartBench(args: {
     if (r.status !== 200) throw new Error(`exec: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
     return { code: Number(r.body?.exitCode ?? 1), stdout: String(r.body?.stdout ?? ""), stderr: String(r.body?.stderr ?? "") };
   };
-  const vmRemove = async (id: string) => { await vm("DELETE", `/v1/vms/${id}`, undefined, 60_000); };
+  // http() answers a refusal instead of throwing: a delete that is neither 204 nor 404 is said, never silent.
+  const vmDeleted = async (route: string) => {
+    const r = await vm("DELETE", route, undefined, 60_000);
+    if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw new Error(`DELETE ${route.split("/").slice(0, 3).join("/")}: HTTP ${r.status}`);
+  };
+  const vmRemove = (id: string) => vmDeleted(`/v1/vms/${id}`);
 
   let platformSnapshot: string | null = null;
   let vmSnapshot: string | null = null;
@@ -1162,14 +1167,17 @@ export async function runStartBench(args: {
         const id = snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id;
         if (typeof id !== "string") throw new Error(`snapshot.create answered no id: ${short(snap)}`);
         platformSnapshot = id;
-        for (let i = 0; i < 180; i++) {
-          const list = await args.api.read("cloud.snapshot.list", {});
+        let ready = false;
+        for (let i = 0; i < 180 && !ready; i++) {
+          const list = await args.api.read("cloud.snapshot.list", {}).catch(() => null);
           const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
           const row = rows.find((s) => s?.id === id);
-          if (row?.status === "ready") break;
           if (row?.status === "failed") throw new Error("snapshot failed");
-          await sleep(2_000);
+          ready = row?.status === "ready";
+          if (!ready) await sleep(2_000);
         }
+        // A capture still running when the source goes would make every restore wait on it: no snapshot path then.
+        if (!ready) throw new Error("snapshot not ready within 6 minutes");
       } finally {
         await platformRemove(source).catch(() => undefined);
       }
@@ -1182,7 +1190,8 @@ export async function runStartBench(args: {
         try {
           for (let i = 0; i < 300 && !(await vmRunning(source).catch(() => false)); i++) await sleep(1_000);
           await vmExec(source)("echo ok");
-          const s = await vm("POST", `/v1/vms/${source}/snapshots`, { displayName: `start bench ${args.tag}` }, 300_000);
+          // ttlSeconds: a run killed before its own delete leaves no snapshot behind for good.
+          const s = await vm("POST", `/v1/vms/${source}/snapshots`, { displayName: `start bench ${args.tag}`, ttlSeconds: 3600 }, 300_000);
           const id = s.body?.id ?? s.body?.snapshot?.id;
           if (typeof id !== "string") throw new Error(`snapshot: HTTP ${s.status} ${short(s.body?.error ?? s.body)}`);
           vmSnapshot = id;
@@ -1204,9 +1213,17 @@ export async function runStartBench(args: {
       ...(vmOrigin ? [{ path: "vm-api-cold" as const, create: vmCreate(null, "vm-api-cold"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
       ...(vmSnapshot ? [{ path: "vm-api-snapshot" as const, create: vmCreate(vmSnapshot, "vm-api-snapshot"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
     ];
+    // The matrix step stops at 80 minutes and a killed run deletes nothing: no new round starts past 55.
+    const until = Date.now() + 55 * 60_000;
     for (let run = 0; run < args.n; run++) {
+      if (Date.now() > until) {
+        notes.push(`stopped after ${run} rounds: past 55 minutes`);
+        break;
+      }
       for (const target of targets) {
         const sample = await timeStart(target, run);
+        // The table is public (the job summary): an error is scrubbed before it is kept.
+        if (sample.error !== null) sample.error = scrub(sample.error, args.journey.secrets);
         samples.push(sample);
         console.log(`start bench ${sample.path}${sample.asked !== sample.path ? ` (asked ${sample.asked})` : ""} #${run}: ${sample.ok ? "ok" : "FAIL"} ${JSON.stringify(sample.ms)}${sample.error ? ` ${scrub(sample.error, args.journey.secrets)}` : ""}`);
         write();
@@ -1214,8 +1231,17 @@ export async function runStartBench(args: {
     }
   } finally {
     write();
-    if (platformSnapshot) await args.api.op("cloud.snapshot.delete", { snapshot: platformSnapshot }, `${args.tag}-start-snapshot-delete`).catch(() => notes.push("platform snapshot delete failed"));
-    if (vmSnapshot) await vm("DELETE", `/v1/snapshots/${vmSnapshot}`, undefined, 60_000).catch(() => notes.push("VM API snapshot delete failed"));
+    // A snapshot whose capture still runs answers busy: the same keyed delete again, for up to two minutes.
+    if (platformSnapshot) {
+      const snapshot = platformSnapshot;
+      for (let attempt = 1; ; attempt++) {
+        const error = await args.api.op("cloud.snapshot.delete", { snapshot }, `${args.tag}-start-snapshot-delete`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
+        if (error === null || /not_found/.test(error)) break;
+        if (attempt >= 12) { notes.push(`platform snapshot delete failed: ${scrub(error, args.journey.secrets).slice(0, 200)}`); break; }
+        await sleep(10_000);
+      }
+    }
+    if (vmSnapshot) await vmDeleted(`/v1/snapshots/${vmSnapshot}`).catch((e) => notes.push(`VM API snapshot delete failed (its ttl ends it within the hour): ${String((e as Error)?.message ?? e)}`));
     rmSync(stateDir, { recursive: true, force: true });
     write();
   }
@@ -2719,7 +2745,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name);
+    // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.

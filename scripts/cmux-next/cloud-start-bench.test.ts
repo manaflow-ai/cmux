@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { answeredPath, quantile, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench";
+import { staleJourneyMachines } from "./cloud-journey";
+import { answeredPath, MachineFailed, quantile, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench";
 
 /** A clock the target's calls move: each call costs what the script says, sleeps cost their ms. */
 function fakeClock() {
@@ -91,5 +92,38 @@ describe("the start bench summary", () => {
     expect(answeredPath({ machine: "m", claim: { behind: false } })).toBe("spare");
     expect(answeredPath({ machine: "m", spare_fallback: "no_spare" })).toBe("cold");
     expect(answeredPath({ machine: "m" })).toBeNull();
+  });
+});
+
+describe("the start bench leaves nothing behind", () => {
+  test("a machine that failed ends its sample at once, and is still removed", async () => {
+    const { clock } = fakeClock();
+    const removed: string[] = [];
+    const target: StartTarget = {
+      path: "cold",
+      create: async () => ({ machine: "m4" }),
+      running: async () => { throw new MachineFailed("machine failed"); },
+      exec: () => async () => ({ code: 0, stdout: "ok", stderr: "" }),
+      remove: async (m) => { removed.push(m); },
+    };
+    const s = await timeStart(target, 0, clock, 300_000);
+    expect(s.ok).toBe(false);
+    expect(s.error).toBe("machine failed");
+    // No poll ran: the failure ended the sample before the budget.
+    expect(clock.now()).toBe(0);
+    expect(removed).toEqual(["m4"]);
+  });
+
+  test("the leaked-machine sweep takes a killed bench's machines, by their exact names only", () => {
+    const old = Date.UTC(2026, 10, 1);
+    const tag = `jr-${old.toString(36)}`;
+    const rows = [
+      { id: "a", name: `cloud start bench ${tag} spare 0`, status: "running" },
+      { id: "b", name: `cloud start bench ${tag} source`, status: "running" },
+      { id: "c", name: `cloud start bench ${tag} snapshot 4`, status: "paused" },
+      { id: "d", name: `cloud start bench ${tag} mine`, status: "running" },
+      { id: "e", name: `my cloud start bench ${tag} cold 1`, status: "running" },
+    ];
+    expect(staleJourneyMachines(rows, Date.UTC(2026, 10, 17)).map((m) => m.id)).toEqual(["a", "b", "c"]);
   });
 });

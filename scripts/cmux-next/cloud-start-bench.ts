@@ -44,6 +44,9 @@ export type StartSample = {
 };
 
 /** What the bench needs of one path: the create, one status read, the exec route, the delete. */
+/** A `running` read that saw the machine fail: the sample ends at once. */
+export class MachineFailed extends Error {}
+
 export type StartTarget = {
   path: StartPath;
   /** Before the timed create, not timed: e.g. wait for the warm to name a ready spare. Its facts join the sample's. */
@@ -86,7 +89,12 @@ export async function timeStart(target: StartTarget, run: number, clock: StartCl
     if (made.path) sample.path = made.path;
     Object.assign(sample.facts, made.facts ?? {});
     for (;;) {
-      if (await target.running(machine).catch(() => false)) break;
+      // A read that failed is read again; a machine that failed ends the sample now, not at the budget.
+      const up = await target.running(machine).catch((e) => {
+        if (e instanceof MachineFailed) throw e;
+        return false;
+      });
+      if (up) break;
       if (left() <= 0) throw new Error(`not running within ${budgetMs} ms`);
       await clock.sleep(POLL_MS);
     }
