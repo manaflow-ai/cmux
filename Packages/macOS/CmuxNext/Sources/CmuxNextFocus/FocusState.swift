@@ -179,6 +179,9 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     public var appActive = false
     /// The topology the window last sent, with the machine's own selection
     /// changes (`select` effects) applied: equal to the machine's topology.
+    /// The tab a Toggle Browser Focus Mode for page tab `key` names (`FocusEvent.toggleBrowserFocusMode`).
+    public func focusModeTab(for key: String) -> String? { key }
+
     public var topology = FocusTopology()
     public var pane: String?
     public var target: Target = .content
