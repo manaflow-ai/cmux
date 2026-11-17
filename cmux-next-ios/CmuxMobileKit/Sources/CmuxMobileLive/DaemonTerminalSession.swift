@@ -129,6 +129,13 @@ public final class DaemonTerminalSession: TerminalSession {
     public private(set) var historyRowsOmitted = 0
     /// The attach a ``loadOlderHistory()`` replaces, while the new one is out.
     private var replacing: DaemonClient?
+    /// A ``loadOlderHistory()`` fetch whose replay is not on the screen yet.
+    /// The attach's reply comes before its `vt-state` is decoded (a big
+    /// replay takes a while), so `replacing` clears first: a second fetch
+    /// then would drop that replay unread, and `historyRowsOmitted` would
+    /// stay at the rows before it. Cleared by the replay (its
+    /// `history_rows_omitted`) or a dropped link.
+    private var historyFetchOut = false
     /// Rows of history the first attach asks for: none, the screen alone.
     static let initialHistoryRows = 0
     /// Rows each ``loadOlderHistory()`` adds (a bounded chunk: about 200 KB
@@ -440,6 +447,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        historyFetchOut = false
         eventTask?.cancel()
         eventTask = nil
         inbox?.close()
@@ -586,8 +594,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Returns whether the fetch was sent (its reset and replay follow).
     @discardableResult
     public func loadOlderHistory() -> Bool {
-        guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
+        guard attached, !attaching, replacing == nil, !historyFetchOut, tailReplay, historyRowsOmitted > 0,
               let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
+        historyFetchOut = true
         historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
         replacing = client
@@ -912,6 +921,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 // A failed fetch of older rows: the old attach no longer
                 // feeds the screen, so this is a dropped link, retried below.
                 replacing = nil
+                historyFetchOut = false
                 attached = false
                 Task { await old.close() }
                 dropInputLane()
@@ -958,6 +968,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func channelEnded(_ client: DaemonClient) {
         guard self.client === client else { return }
         self.client = nil
+        historyFetchOut = false
         dropInputLane()
         attached = false
         stopLeaseRefresh()
@@ -1012,6 +1023,7 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+            historyFetchOut = false
         case let .hybridFrame(stream, frame, _):
             hybridResume = (stream, frame)
         case .hybridFallback(let reason):
@@ -1025,6 +1037,7 @@ public final class DaemonTerminalSession: TerminalSession {
         case .resetMirror(let alternate):
             // A `resized` replay holds the whole history.
             historyRowsOmitted = 0
+            historyFetchOut = false
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
             show(.output(TerminalReclaimHold.reset))
