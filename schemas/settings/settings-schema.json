@@ -34314,12 +34314,20 @@
     },
     {
       "accepts" : [
+        "auto",
         "antialiased",
-        "system"
+        "subpixel"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingAuto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
         {
           "title" : {
             "key" : "settings.choice.fontSmoothingThin",
@@ -34329,16 +34337,16 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.fontSmoothingSystem",
-            "text" : "System"
+            "key" : "settings.choice.fontSmoothingSmooth",
+            "text" : "Smooth"
           },
-          "value" : "system"
+          "value" : "subpixel"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "antialiased",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -34346,22 +34354,26 @@
       },
       "help" : {
         "key" : "settings.appearance.fontSmoothing.help",
-        "text" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+        "text" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.fontSmoothing",
       "keywords" : [
-        "font",
-        "text",
-        "smoothing",
-        "antialiasing",
+        "AppleFontSmoothing",
         "antialiased",
-        "thin",
+        "antialiasing",
+        "auto",
         "bold",
-        "weight",
-        "rendering",
         "crisp",
-        "AppleFontSmoothing"
+        "font",
+        "rendering",
+        "smooth",
+        "smoothing",
+        "subpixel",
+        "system",
+        "text",
+        "thin",
+        "weight"
       ],
       "kind" : "choice",
       "page_hidden" : false,
