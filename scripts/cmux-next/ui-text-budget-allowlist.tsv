@@ -221,14 +221,11 @@ schemas/settings/source/sidebar.json	settings.sidebar.priorityView.enabled.summa
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.alternating	15	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.cap	17	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.repeating	16	12
-webviews/src/agent-session/acpmux/Localizable.xcstrings	approval.title	7	6
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudRepository.lifetime	30	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStart.stalled	29	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStartup.folderTooBig	31	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStartup.folderTooBigRepos	27	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	composer.cloudStartingPlaceholder	11	6
-webviews/src/agent-session/acpmux/Localizable.xcstrings	edited.undoHostLabel	16	6
-webviews/src/agent-session/acpmux/Localizable.xcstrings	edited.undoLabel	8	6
 webviews/src/agent-session/acpmux/Localizable.xcstrings	error.subsessionsFull	23	20
 webviews/src/agent-session/acpmux/Localizable.xcstrings	git.push.nothing	12	10
 webviews/src/agent-session/acpmux/Localizable.xcstrings	handoff.checkpointPlaceholder	7	6
@@ -256,7 +253,6 @@ webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.failure.cloudTeamMa
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.failure.codexConfig	25	20
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.failure.noCredit	25	20
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.failure.teamCap	29	20
-webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.outside.title	12	6
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.signIn.error.busy	13	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	waiting.commentNotCopied	15	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	waiting.older	18	12
