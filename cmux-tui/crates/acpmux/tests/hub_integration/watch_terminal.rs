@@ -452,6 +452,43 @@ async fn with_the_setting_off_a_chat_handed_to_a_terminal_is_view_only() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Claude Code queues a finished background task's `<task-notification>` mid-turn as it queues a
+/// typed prompt (an `enqueue` line with no origin), then takes it with a `queued_command`
+/// attachment of `commandMode: task-notification` and an `absorbed_mid_turn` remove: the sequence
+/// a real 2.1 transcript holds. On the default path (the setting off) it is no prompt of the
+/// person's: it never shows as one, and the turn it arrived in still ends.
+#[tokio::test]
+async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
+    let (hub, sid, file, mut terminal, root, first) = handed_to_terminal_as(1500, false).await;
+    terminal.type_line("start");
+    assert_eq!(terminal.until("RUN", 1).await, ["start"]);
+    assert_eq!(until_prompts(&hub, &sid, 2).await, [first.as_str(), "start"]);
+    let note = "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n\
+                <summary>Background command \"build\" completed (exit code 0)</summary>\n\
+                </task-notification>";
+    let source = uuid::Uuid::now_v7().to_string();
+    append(
+        &file,
+        &[
+            json!({"type": "queue-operation", "operation": "enqueue", "content": note}),
+            json!({"type": "attachment", "uuid": uuid::Uuid::now_v7().to_string(), "attachment": {
+                "type": "queued_command", "prompt": note, "source_uuid": source,
+                "commandMode": "task-notification"}}),
+            json!({"type": "queue-operation", "operation": "remove", "content": note,
+                   "reason": "absorbed_mid_turn", "commandUuid": source}),
+        ],
+    );
+    assert_eq!(terminal.until("END", 1).await, ["start"]);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(prompts(&hub, &sid), [first.as_str(), "start"], "the notification showed as typed");
+    let k = kinds(&hub, &sid);
+    let started = k.iter().filter(|k| *k == "turn_started").count();
+    let ended = k.iter().filter(|k| *k == "turn_end").count();
+    assert_eq!(started, ended, "a turn was left open: {k:?}");
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Turning the setting off mid-turn (recovery): the chat is a View Only watch at once (binding
 /// and tags gone, a new send refused as `watch.read_only`), and nothing is cut or lost. The
 /// terminal's turn runs to its end and shows; a send the harness already took (its inbox) runs
