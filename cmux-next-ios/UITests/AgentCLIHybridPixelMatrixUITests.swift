@@ -136,14 +136,24 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
 
     // MARK: Sessions
 
-    private func fixture(_ name: String) -> String {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("verify/agent-cli-hybrid/\(name).json").path
+    /// The session file: bundled into this test target (`project.yml`), so the matrix runs on a
+    /// device too; the checkout's copy when the bundle has none.
+    private func fixtureData(_ name: String) throws -> Data {
+        if let url = Bundle(for: Self.self).url(forResource: name, withExtension: "json") {
+            return try Data(contentsOf: url)
+        }
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("verify/agent-cli-hybrid/\(name).json")
+        return try Data(contentsOf: path)
+    }
+
+    /// The session as the app takes it from its environment (`AgentCLIHybridBench`): LZFSE, base64.
+    private func packedFixture(_ name: String) throws -> String {
+        try (fixtureData(name) as NSData).compressed(using: .lzfse).base64EncodedString()
     }
 
     private func session(_ name: String) throws -> [String: Any] {
-        let data = try Data(contentsOf: URL(fileURLWithPath: fixture(name)))
-        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        try XCTUnwrap(try JSONSerialization.jsonObject(with: fixtureData(name)) as? [String: Any])
     }
 
     private func leanFrameTimes(_ name: String) throws -> [Int] {
@@ -186,8 +196,13 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
                       between: ((XCUIApplication) -> Void)?) -> Still? {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
+        guard let packed = try? packedFixture(name) else {
+            XCTFail("\(name): no session file")
+            return nil
+        }
+        app.launchEnvironment["CMUX_HYBRID_BENCH_SESSION_LZFSE"] = packed
         app.launchArguments += [
-            "-CmuxMobileHybridBench", "-CmuxMobileHybridBenchFile", fixture(name),
+            "-CmuxMobileHybridBench",
             "-CmuxMobileHybridBenchMode", mode, "-CmuxMobileHybridBenchStillMs", String(atMs),
             "-CmuxMobileHybridBenchPan", panEnd ? "end" : "start",
         ]

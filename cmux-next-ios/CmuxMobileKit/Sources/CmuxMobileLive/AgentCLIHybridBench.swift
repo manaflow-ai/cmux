@@ -88,8 +88,8 @@ final class AgentCLIHybridBench {
         hybrid = mode == "hybrid" || mode == "lean"
         // The setting the session reads at attach (off unless this run is hybrid).
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
-        let session = defaults.string(forKey: "CmuxMobileHybridBenchFile")
-            .flatMap { FileManager.default.contents(atPath: $0) }
+        let session = (Self.sessionFromEnvironment() ?? defaults.string(forKey: "CmuxMobileHybridBenchFile")
+            .flatMap { FileManager.default.contents(atPath: $0) })
             .flatMap { BenchSession($0) }
         daemon = HybridBenchDaemon(session: session, hybrid: hybrid, lean: mode == "lean")
         let daemon = daemon
@@ -103,6 +103,17 @@ final class AgentCLIHybridBench {
     }
 
     private func log(_ text: String) { NSLog("[hybrid-bench] %@", text) }
+
+    /// The environment variable a UI test hands the session in: the session file, LZFSE
+    /// compressed, base64. On a device the app cannot read the test runner's files, so the
+    /// pixel matrix sends the session itself (`-CmuxMobileHybridBenchFile` reads a path).
+    nonisolated static let sessionEnvironmentKey = "CMUX_HYBRID_BENCH_SESSION_LZFSE"
+
+    static func sessionFromEnvironment() -> Data? {
+        guard let text = ProcessInfo.processInfo.environment[sessionEnvironmentKey],
+              let packed = Data(base64Encoded: text) else { return nil }
+        return try? (packed as NSData).decompressed(using: .lzfse) as Data
+    }
 
     /// `-CmuxMobileHybridBenchStillMs T`: stop at the daemon's frame of `T` ms (from the
     /// session's start) and hold the screen: the lean frames up to that frame, or the PTY bytes
