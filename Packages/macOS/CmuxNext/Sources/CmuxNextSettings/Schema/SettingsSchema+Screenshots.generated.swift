@@ -21,7 +21,7 @@ nonisolated enum ScreenshotsSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.screenshots.findTools", "Find Screenshot Apps"),
-                help: SettingsText.keyed("settings.screenshots.findTools.help", "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."),
+                help: SettingsText.keyed("settings.screenshots.findTools.help", "Also shows the folders of apps like CleanShot X and Shottr."),
                 kind: .toggle,
                 default: .bool(ScreenshotsSettings.findToolsDefault),
                 keywords: ["screenshots", "screen recording", "cleanshot", "shottr", "kap", "capture"]
@@ -31,7 +31,7 @@ nonisolated enum ScreenshotsSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.screenshots.folders", "More Screenshot Folders"),
-                help: SettingsText.keyed("settings.screenshots.folders.help", "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."),
+                help: SettingsText.keyed("settings.screenshots.folders.help", "Also shows the pictures and videos in these folders."),
                 kind: .folderList,
                 default: .array(ScreenshotsSettings.foldersDefault.map { .string($0) }),
                 keywords: ["screenshots", "folders", "pictures", "videos", "recordings"]

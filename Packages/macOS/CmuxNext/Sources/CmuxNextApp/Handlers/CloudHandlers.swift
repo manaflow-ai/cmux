@@ -43,16 +43,15 @@ enum CloudHandlers {
     /// Binds `id` with an availability reason and a throwing body.
     static func bind(_ id: ActionID, _ registry: ActionRegistry, reason: @escaping @MainActor () -> String?,
                      _ body: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
+        registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
             do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
-        assert(bound, "\(id) is not in the action catalog")
     }
 
     static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
         let signedOutCreation = cloud.signedOutCreation
-        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+        registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
@@ -103,7 +102,6 @@ enum CloudHandlers {
                 return nil
             }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
         }
-        assert(bound, "newCloudMachine is not in the action catalog")
     }
 
     // MARK: Resolution
