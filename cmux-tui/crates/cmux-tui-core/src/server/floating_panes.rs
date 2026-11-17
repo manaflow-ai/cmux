@@ -116,3 +116,8 @@ pub(super) fn floating_json(list: &[Floating<PaneId>]) -> Value {
 #[cfg(test)]
 #[path = "floating_panes_tests.rs"]
 mod tests;
+
+/// Wire tests for the quick terminal (`quick-terminal-v1`): its mark rides on the floating list.
+#[cfg(test)]
+#[path = "quick_terminal_tests.rs"]
+mod quick_terminal_tests;
