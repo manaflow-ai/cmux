@@ -339,6 +339,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             element.accessibilityLabel = label
             element.accessibilityTraits = .button
             if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            element.accessibilityIdentifier = area.identifier
             element.activate = { [weak self] in
                 guard let self, index < self.hits.count else { return }
                 self.perform(self.hits[index].hit)

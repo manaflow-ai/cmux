@@ -52,6 +52,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
         /// (`WhoElseCard`), in place of the tool row.
         case whoElse(String, WhoElseCall)
+        /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
+        /// the line when it is open.
+        indirect case worked(WorkedFold)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -84,6 +87,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var nextPrompt: String?
     /// The tones the chat gave this turn's senders' sessions (`AgentTones`), by session id.
     var senderTones: [String: Int] = [:]
+    /// A finished turn folds its work under "Worked for" (`WorkedFold`).
+    var foldsWork = true
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -141,7 +146,7 @@ final class ChatTranscriptBuilder {
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
-               earlierHistory: Bool = false) -> [ChatTurnRows] {
+               earlierHistory: Bool = false, foldsWork: Bool = true) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
@@ -153,7 +158,7 @@ final class ChatTranscriptBuilder {
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
-                                          senderTones: turnTones(turn))
+                                          senderTones: turnTones(turn), foldsWork: foldsWork)
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -276,6 +281,11 @@ final class ChatTranscriptBuilder {
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
         }
+        // A finished turn's work folds under "Worked for" (WorkedFold): the rows from here to the
+        // closing cards, but for the final reply (`replyRows`).
+        let workStart = rows.count
+        let finalReply = running ? nil : turnRows.lastIndex(where: { if case .message = $0 { true } else { false } })
+        var replyRows: Set<String> = []
         for (index, row) in turnRows.enumerated() {
             let isLastRow = index == turnRows.count - 1
             switch row {
@@ -304,6 +314,7 @@ final class ChatTranscriptBuilder {
                     nextGap = 10
                 }
                 blockRows[key] = BlockRows(messageID: messageID, turnID: turnID, firstGap: firstGap, rows: answerRows)
+                if index == finalReply { replyRows.formUnion(answerRows.map(\.id)) }
                 if let ask {
                     let answer = context.nextPrompt.map { ask.chosenAnswer($0) }
                     add("n-\(row.id)", .nextStep(ask, answer: answer, canAnswer: answer == nil && context.isLast))
@@ -340,6 +351,10 @@ final class ChatTranscriptBuilder {
                 message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
                 add(row.id, .steer(message))
             }
+        }
+        if !running, context.foldsWork {
+            WorkedFold.fold(&rows, work: workStart..<rows.count, keeping: replyRows, turnID: turnID,
+                            status: turn.status, seconds: turn.duration)
         }
         if let wrapUp {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
@@ -380,7 +395,7 @@ enum ChatNativeEligibility {
     /// A kind with a native layout (math blocks need the web renderer).
     static func isCandidate(_ kind: ChatRow.Kind) -> Bool {
         switch kind {
-        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions: true
+        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions, .worked: true
         case .block(_, let block): if case .math = block.kind { false } else { true }
         default: false
         }
@@ -398,6 +413,7 @@ enum ChatNativeEligibility {
         case .tool(let call) where isSettling("tool-\(call.id)"): return false
         case .toolGroup(let calls, _) where isSettling("group-\(calls.first?.id ?? "")"): return false
         case .thought where isSettling("thought-\(row.id)"): return false
+        case .worked where isSettling(WorkedFold.key(turnID: row.turnID)): return false
         default: break
         }
         switch row.kind {
@@ -407,6 +423,8 @@ enum ChatNativeEligibility {
         case .tool(let call): return isOpen("tool-\(call.id)") != true
         case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
         case .thought: return isOpen("thought-\(row.id)") == nil
+        // Open, it draws its rows in SwiftUI under the line (`WorkedForRow`).
+        case .worked: return isOpen(WorkedFold.key(turnID: row.turnID)) != true
         default: return true
         }
     }

@@ -37,7 +37,8 @@ final class AgentDisclosureUITests: XCTestCase {
         }
         field.typeText("What is in the README?")
         app.buttons["Send"].firstMatch.tap()
-        let group = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read a file")).firstMatch
+        // A short turn can end, and fold under "Worked for", before the group is seen.
+        let group = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Read a file", "Worked for")).firstMatch
         XCTAssertTrue(group.waitForExistence(timeout: 20), "the turn's tool group arrives\n\(app.debugDescription)")
         let stop = app.buttons["Stop"].firstMatch
         expect(stop, "exists == false", "the turn ends")
@@ -78,7 +79,7 @@ final class AgentDisclosureUITests: XCTestCase {
     /// The disclosure line nearest the bottom of the transcript that is on screen and tappable.
     @MainActor
     private func lowestDisclosure(in app: XCUIApplication) -> (label: String, nth: Int) {
-        let pattern = NSPredicate(format: "label MATCHES %@", "^(Read|Ran|Edited|Searched|Thought|Running|Reading).*")
+        let pattern = NSPredicate(format: "label MATCHES %@", "^(Worked for|Read|Ran|Edited|Searched|Thought|Running|Reading).*")
         let candidates = app.buttons.matching(pattern)
         XCTAssertTrue(candidates.firstMatch.waitForExistence(timeout: 15), "the demo chat has a disclosure\n\(app.debugDescription)")
         let screen = app.windows.firstMatch.frame
