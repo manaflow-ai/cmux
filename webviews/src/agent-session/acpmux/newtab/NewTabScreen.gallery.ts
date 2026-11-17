@@ -9,6 +9,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { MODEL_PICKER } from "../composerSelectors";
+import { translateNewTab } from "./strings";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -213,6 +214,11 @@ async function typePrompt(ctx: PlayContext, text: string): Promise<void> {
   await ctx.type(text, { selector });
 }
 
+function noFixedCreateButtons(ctx: PlayContext): void {
+  if (ctx.document.querySelector(".nt-create [data-create]"))
+    throw new Error("the home screen still shows fixed creation buttons");
+}
+
 async function wrapPrompt(ctx: PlayContext, wrapped: boolean): Promise<void> {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField));
   const field = ctx.document.querySelector<MarkdownFieldElement>(".nt-field")!;
@@ -415,10 +421,29 @@ export default agentPaneEntry({
   ],
   variants: withAllChats({
     ...Object.fromEntries(
+      (["terminal", "browser", "chat"] as const).map((kind) => [
+        `create-command-${kind}`,
+        {
+          note: `The ${kind} creation command appears only when the composer search matches.`,
+          ready: newTab(),
+          snapshot: noChat(manySessions(3)),
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field"));
+            noFixedCreateButtons(ctx);
+            await typedSuggestions(ctx, translateNewTab(`create.${kind}`), (rows) =>
+              rows.filter((row) => row.type === "create").length === 1
+                ? undefined
+                : "the search did not isolate one creation command",
+            );
+          },
+        },
+      ]),
+    ),
+    ...Object.fromEntries(
       [0.8, 0.9, 1, 1.1, 1.2].map((scale) => [
         `density-${Math.round(scale * 100)}`,
         {
-          note: `Minimal composer, suggestions and create buttons at ${scale} times Default.`,
+          note: `Minimal composer and searchable suggestions at ${scale} times Default.`,
           ready: newTab({ template: "minimal", omnibar: FF_OMNIBAR }),
           snapshot: reasoningChat(),
           play: async (ctx: PlayContext) => {
@@ -432,7 +457,8 @@ export default agentPaneEntry({
               String(Math.round(16.5 * scale * 2) / 2 / 16.5),
             );
             ctx.document.defaultView?.dispatchEvent(new Event("cmux-ui-scale-change"));
-            await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-create [data-create]").length === 3);
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field"));
+            noFixedCreateButtons(ctx);
             await typedSuggestions(ctx, "ff", ffProblem);
           },
         },
@@ -594,7 +620,7 @@ export default agentPaneEntry({
     // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
     // column ends on its Legacy models, with no caption; Add harness… ends the rail.
     "computer-first-setup": {
-      note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
+      note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Sign in for Cloud (signed out: the one Cloud row signs in, in Cloud's place); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
       snapshot: noChat(),
       native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
@@ -662,7 +688,7 @@ export default agentPaneEntry({
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
-    // Minimal opens with the composer and create buttons, without a greeting or widgets.
+    // Minimal opens with the composer, without fixed creation buttons, a greeting or widgets.
     // `minimal-default` is a host that sends no template (the app's unset key).
     "wrap-one-line": {
       note: "One character before wrapping, with the typing caret at the end and suggestions below the box.",
@@ -677,7 +703,7 @@ export default agentPaneEntry({
       play: (ctx) => wrapPrompt(ctx, true),
     },
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: the composer and its chips, then three centered create buttons, without a look switcher, greeting or widgets.",
+      note: "Minimal, New Tab's default layout: the composer and its chips, without fixed creation buttons, a look switcher, greeting or widgets.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
@@ -691,27 +717,26 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".nt-style")) throw new Error("the minimal page shows a look switcher");
         if (ctx.document.querySelector(".nt-composer[data-composer-look]"))
           throw new Error("the minimal page did not keep Claude's look");
-        const create = ctx.document.querySelector(".nt-create");
-        if (create?.querySelectorAll("button[data-create]").length !== 3)
-          throw new Error("Minimal is missing its three create buttons");
-        if (!create.previousElementSibling?.classList.contains("nt-composer"))
-          throw new Error("the create buttons do not follow the composer and its chips");
+        noFixedCreateButtons(ctx);
       },
     },
     "minimal-saved-codex-create": {
       composerLook: "codex",
-      note: "A saved Codex preference keeps Claude Minimal and its three centered create buttons.",
+      note: "A saved Codex preference keeps Claude Minimal without fixed creation buttons.",
       ready: newTab({ template: "minimal" }),
       snapshot: reasoningChat(),
     },
     "minimal-create-narrow": {
       composerLook: "claude",
-      note: "Claude Minimal in a narrow pane: the create buttons wrap below the composer and its chips.",
+      note: "Claude Minimal in a narrow pane: a matching creation command appears in the composer suggestions.",
       ready: newTab({ template: "minimal" }),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
         ctx.document.body.style.maxWidth = "300px";
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-create button[data-create]").length === 3);
+        await typedSuggestions(ctx, translateNewTab("create.browser"), (rows) =>
+          rows.some((row) => row.type === "create") ? undefined : "the browser creation command is missing",
+        );
+        noFixedCreateButtons(ctx);
       },
     },
     "fix-from-link": {
@@ -884,7 +909,7 @@ export default agentPaneEntry({
       },
     },
     "stage-layout": {
-      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
+      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you); the recent chats under them.",
       ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
@@ -930,30 +955,15 @@ export default agentPaneEntry({
       },
     },
     "typed-over-note": {
-      note: "Suggestions cover the create row with the composer's tint, blur, rim and shadow.",
+      note: "Suggestions keep the composer's tint, blur, rim and shadow without fixed creation controls.",
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
       snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await typePrompt(ctx, "fix the flaky upload test");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
-        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
         checkSuggestionSurface(ctx);
-        const cover = popover.getBoundingClientRect();
-        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-create > *")].filter((item) => {
-          const rect = item.getBoundingClientRect();
-          return (
-            rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
-          );
-        });
-        if (!under.length) throw new Error("the suggestions do not reach the create row under the field");
-        for (const item of under) {
-          const rect = item.getBoundingClientRect();
-          const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
-          const hit = ctx.document.elementFromPoint(Math.max(rect.left, cover.left) + Math.min(8, rect.width / 2), y);
-          if (!hit?.closest(".nt-popover")) throw new Error(`"${item.textContent?.trim()}" draws over the suggestions`);
-        }
+        noFixedCreateButtons(ctx);
       },
     },
     "harnesses-from-menu": {
@@ -1222,7 +1232,7 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed instruction: Ask first (Return's, highlighted), then a web search in the popover. Create buttons stay under the composer; the cards stay where they were.",
+      note: "A typed instruction: Ask first (Return's, highlighted), then a web search in the popover. Unrelated creation commands stay hidden; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1230,21 +1240,21 @@ export default agentPaneEntry({
       },
     },
     "typed-hover": {
-      note: 'Leo 2026-10-31 ("i cant even press enter on that hello anymore it doesnt send it to claude"): "helo" typed, the pointer resting on the New browser tab button under the composer. Ask Claude Code keeps Return\'s highlight, so Return sends the prompt.',
+      note: '"helo" typed, the pointer resting on the web search suggestion. Ask Claude Code keeps Return\'s highlight, so Return sends the prompt.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "helo");
-        await ctx.hover({ selector: '.nt-create button[data-create="browser"]' });
+        await ctx.hover({ selector: '.nt-row[data-type="search"]' });
       },
     },
     "typed-hover-return": {
-      note: 'The same, then Return: the page asks Claude Code with "helo" (chat.new), never opens the hovered browser tab.',
+      note: 'The same, then Return: the page asks Claude Code with "helo" (chat.new), never opens the hovered web search.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "helo");
-        await ctx.hover({ selector: '.nt-create button[data-create="browser"]' });
+        await ctx.hover({ selector: '.nt-row[data-type="search"]' });
         await ctx.press("Enter");
         // Ends on the unpatched base too (it opens the browser tab, and the state fails there).
         await ctx.waitFor(() =>
@@ -1432,27 +1442,25 @@ export default agentPaneEntry({
       },
     },
     "create-strip-narrow": {
-      note: "Create buttons wrap under the composer in a narrow pane. Suggestions contain only matches.",
+      note: "An address in the composer shows navigation matches without fixed creation buttons or unrelated creation commands.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "localhost:3000");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
-        const buttons = ctx.document.querySelectorAll(".nt-create [data-create]");
-        if (buttons.length !== 3) throw new Error("the create buttons are missing");
+        noFixedCreateButtons(ctx);
         if (ctx.document.querySelector('.nt-popover [data-type="create"]'))
-          throw new Error("create actions appear in suggestions");
+          throw new Error("an unrelated creation command appears for an address");
       },
     },
     "suggestions-ff": {
-      note: "Suggestions use the composer's surface. Ask comes first, web search last, and create actions stay under the composer.",
+      note: "Suggestions use the composer's surface. Ask comes first, web search last, and unrelated creation commands stay hidden.",
       ready: newTab({ omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typedSuggestions(ctx, "ff", ffProblem);
         checkSuggestionSurface(ctx);
-        if (ctx.document.querySelectorAll(".nt-create [data-create]").length !== 3)
-          throw new Error("the create buttons are missing");
+        noFixedCreateButtons(ctx);
       },
     },
     "suggestions-spacing": {
