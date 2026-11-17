@@ -77,6 +77,16 @@ extension SettingsController {
 
     static let noteKinds: Set<SettingsDiagnostic.Kind> = [.setByThemeFile, .overThemeFile, .plainBackgrounds]
 
+    /// ``pageNotes`` as the Settings page reads them (`notes` of its snapshot): path, kind and the
+    /// theme file the note names.
+    public var pageNotesWire: JSONValue {
+        .array(pageNotes.map { note in
+            var entry: [String: JSONValue] = ["path": .string(note.path), "kind": .string(note.kind.rawValue)]
+            if let file = note.file { entry["file"] = .string(file) }
+            return .object(entry)
+        })
+    }
+
     /// A palette row's values: for `appearance.themeFile` None and every file in the themes folder
     /// (as the last load read it, so hovering one previews it with no disk read); for any other
     /// setting its kind's values (`SettingDescriptor.paletteOptions`).
