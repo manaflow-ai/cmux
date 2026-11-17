@@ -101,6 +101,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// read): its `initialize` names `agent_login` before the first send made a session, so the
     /// first failed turn already offers Sign in. A wire with a session asks its client instead.
     private let servesLogin: Bool
+    /// False for a chat on a Cloud machine: it reaches models through the machine's edge and holds no
+    /// provider login, so its page never offers the on-machine sign-in, whatever its daemon serves.
+    private let machineSignIn: Bool
     /// A new chat's sign-in on its machine while it has no session (a start refused because its
     /// agent is not signed in there): its `initialize` names `agent_login_machine`, and a login step
     /// that names no session goes here. Nil for a machine whose daemon cannot.
@@ -118,9 +121,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
         start = nil
         servesLogin = false
+        self.machineSignIn = machineSignIn
         machineLogin = nil
         servesSide = false
         self.host = host
@@ -136,10 +140,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
-                machineLogin: MachineLogin? = nil) {
+                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil) {
         self.start = start
-        self.servesLogin = servesLogin
-        self.machineLogin = machineLogin
+        self.servesLogin = servesLogin && machineSignIn
+        self.machineSignIn = machineSignIn
+        // A Cloud machine holds no provider login, so it never offers the on-machine sign-in.
+        self.machineLogin = machineSignIn ? machineLogin : nil
         self.servesSide = servesSide
         self.host = host
         self.linksAlias = linksAlias
@@ -179,11 +185,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // `agent_login_machine`: a chat with no session yet signs its agent in on its machine.
             let sessionless = client == nil && machineLogin != nil
             // task-owner: one owner-answer and sign-in read per initialize; its reply ends it
-            Task { [weak self, ownerCloud, servesLogin, servesSide] in
+            Task { [weak self, ownerCloud, servesLogin, servesSide, machineSignIn] in
                 let owned = await ownerCloud?() ?? false
                 // `agent_login`: the daemon relays the chat's own sign-in (the card's offer).
                 var login = servesLogin
-                if let client { login = await client.servesLogin() }
+                if let client, machineSignIn { login = await client.servesLogin() }
                 // `side_chat`: that machine opens the chat's side chats (New side chat, `/side`).
                 var side = servesSide
                 if let client { side = await client.servesSide() }
@@ -249,18 +255,35 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
                   let content = try? JSONSerialization.data(withJSONObject: blocks) else { return refuse(id, method) }
             let text = Self.text(blocks)
-            let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
-                ?? UUID().uuidString.lowercased()
+            let meta = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let prompt = meta?["promptId"] as? String ?? UUID().uuidString.lowercased()
+            // The page's steer into the running turn: the owner's or a Cloud team member's (the
+            // machine's daemon holds a link guest's for the owner whatever this says).
+            let steer = meta?["steer"] as? Bool == true
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
-                let accepted = if let text { try await client.prompt(id: prompt, text: text) }
-                    else { try await client.prompt(id: prompt, content: content) }
+                let accepted = if let text { try await client.prompt(id: prompt, text: text, steer: steer) }
+                    else { try await client.prompt(id: prompt, content: content, steer: steer) }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
-                self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
-                                                         "queued": object["queued"] ?? false])
+                var notice: [String: Any] = ["sessionId": session, "promptId": prompt, "turnId": turn, "queued": object["queued"] ?? false]
+                if let state = object["state"] as? String { notice["state"] = state }
+                if object["awaiting_owner"] as? Bool == true { notice["awaitingOwner"] = true }
+                self?.notify("_acpmux/prompt_accepted", notice)
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
+        case "_acpmux/queue_approve", "_acpmux/queue_decline":
+            // The owner's decision on a prompt held for them (a link guest's) in a chat on that
+            // machine; the machine's daemon refuses it from anyone but the owner.
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let promptID = params["promptId"] as? String, !promptID.isEmpty else { return refuse(id, method) }
+            if method == "_acpmux/queue_decline" {
+                return run(id) { client in try await client.queueDecline(promptID: promptID) }
+            }
+            guard let turnID = params["turnId"] as? String, let revision = (params["revision"] as? NSNumber)?.uint64Value else {
+                return refuse(id, method)
+            }
+            run(id) { client in try await client.queueApprove(promptID: promptID, turnID: turnID, revision: revision) }
         case "image.load":
             guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
                 return refuse(id, method)

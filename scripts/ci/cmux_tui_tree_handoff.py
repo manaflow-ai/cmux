@@ -43,13 +43,21 @@ The --published re-run is best-effort, and a rate limit does not fail it
 (2026-11-17: feat-cmux-next run 44024006431 went red on "API rate limit
 exceeded" with both tokens spent, and merge gates read that red as a base
 failure). A call refused for the rate limit, on the spare token too, is retried
-within TREE_HANDOFF_RATE_LIMIT_WAIT_S seconds (default 90): up to the core
-quota's reset when /rate_limit names one inside the budget, else a doubling
-backoff from 2s. Past the budget the step warns, naming the runs it did not
+within TREE_HANDOFF_RATE_LIMIT_WAIT_S seconds (default 90): up to the limit's
+reset when one is known and inside the budget, else a doubling backoff from 2s.
+The reset comes from the refused call's x-ratelimit-reset, then glaeda-gh's
+budget.json restCounters; a separate `gh api rate_limit` read is never made,
+since it can describe a different REST window. Past the budget the step warns
+with the [quota-only] text and its retry boundary, naming the runs it did not
 re-run, keeps their markers and passes: the next push's sweep
 (cmux_tui_manifest_sweep.py) re-runs a commit whose manifest is still missing.
 Any other refusal, or a malformed answer, still fails the step. The build
-hand-off (no --published) keeps failing its job: no other run builds the tree.
+hand-off (no --published) keeps failing its job with the quota error: no other
+run builds the tree.
+
+The published path spends one artifact-list call, one page of this workflow's run list, and two calls per candidate
+(rerun plus marker deletion): 2+2N when candidates are on that page. A candidate missing from the page gets one
+bounded run-by-id read, so the fallback is still fixed per candidate and never walks the repository's run history.
 
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
@@ -58,8 +66,10 @@ GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate li
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -79,6 +89,7 @@ PUBLISHED_MAX_ATTEMPT = MAX_ATTEMPT + 2
 ATTEST_STEP = re.compile(r"^(?:Attest raw binary subjects(?: \((?:try \d+|last try)\))?|Retry the attestation\b.*)$")
 RATE_LIMIT_TEXT = re.compile(
     r"rate limit exceeded|secondary rate limit|too many requests|\bHTTP 429\b|status(?: code)?:? 429", re.IGNORECASE)
+RATE_LIMIT_RESET = re.compile(r"(?:x[- ]?ratelimit[- ]?reset|reset(?:s)?(?: at)?)\s*[:=]?\s*(\d{10})", re.IGNORECASE)
 # gh's answer for an artifact that no longer exists.
 MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
 # Jobs that only follow a failure: they never make an owner's failure their own.
@@ -86,14 +97,98 @@ REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
 # Seconds a call refused for the rate limit may wait, in all, for the limit to lift (0: no wait).
 RATE_LIMIT_WAIT_S = float(os.environ.get("TREE_HANDOFF_RATE_LIMIT_WAIT_S") or 90)
 FIRST_BACKOFF_S = 2.0
+GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
-class RateLimited(RuntimeError):
-    """GitHub refused a call for the rate limit, on every token, past the wait budget."""
+class QuotaRefused(RuntimeError):
+    """The repo installation's API limit refused a hand-off call."""
+
+    def __init__(self, retry_before: str, detail: str = ""):
+        self.retry_before = retry_before
+        self.detail = detail
+        super().__init__(detail or retry_before)
+
+
+def _ceil_minute(value: datetime) -> datetime:
+    """Round a UTC time up to the next minute boundary."""
+    value = value.astimezone(timezone.utc)
+    if value.second or value.microsecond:
+        value += timedelta(minutes=1)
+    return value.replace(second=0, microsecond=0)
+
+
+def _reset_time(text: str) -> datetime | None:
+    """Read a Unix reset timestamp from a GitHub response or rate_limit answer."""
+    match = RATE_LIMIT_RESET.search(text)
+    raw = match.group(1) if match else (text.strip() if text.strip().isdigit() else None)
+    if raw is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(raw), timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def quota_retry_before(text: str, now: datetime | None = None) -> str:
+    """Return a safe UTC HH:MMZ boundary from a response or a one-hour fallback."""
+    reset = _reset_time(text)
+    if reset is not None:
+        return _ceil_minute(reset).strftime("%H:%MZ")
+    current = now or datetime.now(timezone.utc)
+    boundary = _ceil_minute(current + timedelta(hours=1))
+    return boundary.strftime("%H:%MZ")
+
+
+def _budget_reset(now: datetime) -> datetime | None:
+    """Return the earliest future reset of a spent REST counter recorded by glaeda-gh."""
+    try:
+        document = json.loads(GLAEDA_BUDGET.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    counters = document.get("restCounters") if isinstance(document.get("restCounters"), list) else []
+    resets = []
+    for counter in [*counters, document.get("rest")]:
+        try:
+            remaining = float(counter["remaining"])
+            limit = float(counter["limit"])
+            reset = float(counter["reset"])
+        except (TypeError, KeyError, ValueError):
+            continue
+        if limit > 0 and remaining / limit < 0.01 and reset > now.timestamp():
+            resets.append(datetime.fromtimestamp(reset, timezone.utc))
+    return min(resets) if resets else None
+
+
+def _quota_reset(refused: str, now: datetime) -> datetime | None:
+    """The refused call's reset, then glaeda's poorest REST counter; None when neither names one."""
+    # Separate `gh api rate_limit` answers can describe a different REST window from the call that failed.
+    reset = _reset_time(refused)
+    return reset if reset is not None else _budget_reset(now)
+
+
+def _rate_limit_retry_before(refused: str) -> str:
+    """Use the refused call's reset, then glaeda's poorest REST counter, then a bounded fallback."""
+    if (reset := _quota_reset(refused, datetime.now(timezone.utc))) is not None:
+        return _ceil_minute(reset).strftime("%H:%MZ")
+    # Without the refusal header or a current budget reading, do not guess :00: give the installation a full hour
+    # from this refusal instead.
+    return quota_retry_before("", datetime.now(timezone.utc))
+
+
+def _refusal_text(result: subprocess.CompletedProcess[str]) -> str:
+    return f"{result.stderr or ''}\n{result.stdout or ''}"
 
 
 def rate_limited(result: subprocess.CompletedProcess[str]) -> bool:
-    return result.returncode != 0 and bool(RATE_LIMIT_TEXT.search(result.stderr or ""))
+    return result.returncode != 0 and bool(RATE_LIMIT_TEXT.search(_refusal_text(result)))
+
+
+def quota_only_text(run_id: int, retry_before: str) -> str:
+    """The published hand-off's quota line; scripts/ci/base_red_excuse.py (TREE_HANDOFF_QUOTA) parses it."""
+    return (f"[quota-only] deferred runs not re-run for the published tree; run {run_id}; no attempt before "
+            f"{retry_before}; the repo installation's API limit refused its API call.")
 
 
 def failed_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -115,15 +210,15 @@ def quota_only_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapp
     return bool(failed) and all(job_quota_only(job, log_of(job)) for job in failed)
 
 
-def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str]]:
-    """(artifact id, run id, branch) of unexpired deferred markers left by other runs, feat-cmux-next
+def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str, Mapping[str, Any]]]:
+    """(artifact id, run id, branch, embedded run record) of unexpired deferred markers left by other runs, feat-cmux-next
     pushes first, newest run first within each branch class."""
     rows = []
     for artifact in artifacts:
         run = artifact.get("workflow_run") or {}
         if artifact.get("expired") or not run.get("id") or int(run["id"]) == self_run:
             continue
-        rows.append((int(artifact["id"]), int(run["id"]), str(run.get("head_branch") or "")))
+        rows.append((int(artifact["id"]), int(run["id"]), str(run.get("head_branch") or ""), run))
     return sorted(rows, key=lambda row: (row[2] != "feat-cmux-next", -row[1]))
 
 
@@ -137,23 +232,12 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
-def _core_reset_in() -> float | None:
-    """Seconds until the token's core quota resets, when /rate_limit (which costs no quota) says it is spent."""
-    result = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
-    try:
-        core = json.loads(result.stdout)["resources"]["core"]
-        if result.returncode == 0 and int(core["remaining"]) == 0:
-            return max(0.0, float(core["reset"]) - time.time())
-    except (ValueError, KeyError, TypeError):
-        pass
-    return None
-
-
-def _wait_out(started: float, backoff: float) -> float | None:
+def _wait_out(started: float, backoff: float, refused: str) -> float | None:
     """Sleep before the next try of a rate-limited call; None when the wait would pass the budget."""
     left = RATE_LIMIT_WAIT_S - (time.monotonic() - started)
-    reset_in = _core_reset_in()
-    wait = reset_in + 1 if reset_in is not None else backoff
+    now = time.time()
+    reset = _quota_reset(refused, datetime.fromtimestamp(now, timezone.utc))
+    wait = max(0.0, reset.timestamp() - now) + 1 if reset is not None else backoff
     if wait > left:
         return None
     print(f"GitHub rate limit: trying again in {wait:.0f}s ({left:.0f}s of the wait budget left)")
@@ -165,6 +249,8 @@ _wait_started: float | None = None
 
 
 def _gh(*args: str) -> subprocess.CompletedProcess[str]:
+    """One gh call. A rate limit moves to GH_TOKEN_SPARE once, then waits within RATE_LIMIT_WAIT_S; a refusal
+    that outlasts both raises QuotaRefused with the reset boundary."""
     global _wait_started
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
@@ -178,11 +264,13 @@ def _gh(*args: str) -> subprocess.CompletedProcess[str]:
     backoff = FIRST_BACKOFF_S
     while rate_limited(result) and RATE_LIMIT_WAIT_S > 0:
         _wait_started = time.monotonic() if _wait_started is None else _wait_started
-        waited = _wait_out(_wait_started, backoff)
-        if waited is None:
+        if _wait_out(_wait_started, backoff, _refusal_text(result)) is None:
             break
         backoff *= 2
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if rate_limited(result):
+        raise QuotaRefused(_rate_limit_retry_before(_refusal_text(result)),
+                           f"gh {' '.join(args[:3])} was refused: {result.stderr.strip()}")
     return result
 
 
@@ -191,8 +279,6 @@ def _list(path: str, key: str) -> list[dict]:
     (scripts/ci/gh_pages.py; the gh quota wrapper refuses an unbounded paginating call)."""
     def fetch(url: str) -> Any:
         result = _gh("api", url)
-        if rate_limited(result):
-            raise RateLimited(f"gh api {url} failed: {result.stderr.strip()}")
         if result.returncode != 0:
             raise RuntimeError(f"gh api {url} failed: {result.stderr.strip()}")
         return {key: json.loads(result.stdout)[key]}
@@ -205,11 +291,36 @@ def _list(path: str, key: str) -> list[dict]:
 def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
     # Right after the re-run the delete can answer 404: the marker is gone already
     # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
-    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+    try:
+        deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+    except QuotaRefused as error:  # the run was re-run; its spent marker is only capped by its attempt count
+        print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {error}")
+        return
     if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
         print(f"Deferred marker {artifact} of run {deferred} was already gone.")
     elif deleted.returncode != 0:
         print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
+
+
+def deferred_runs(repo: str, candidates: Sequence[tuple[int, int, str, Mapping[str, Any]]]) -> dict[int, Mapping[str, Any]]:
+    """Read candidate run records from one workflow page, then one bounded id read for each page miss."""
+    embedded = {deferred: run for _, deferred, _, run in candidates
+                if run.get("status") is not None or run.get("run_attempt") is not None}
+    missing = [row for row in candidates if row[1] not in embedded]
+    if not missing:
+        return embedded
+    # Artifact workflow_run objects do not include status/run_attempt/created_at. Read one page scoped to this
+    # workflow, never the repository-wide run list (which is far past gh_pages.MAX_PAGES on this repository).
+    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1")
+    if page.returncode == 0:
+        runs = json.loads(page.stdout).get("workflow_runs", [])
+        embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
+    still_missing = [row for row in missing if row[1] not in embedded]
+    for _, deferred, _, _ in still_missing:
+        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
+        if result.returncode == 0 and result.stdout.strip():
+            embedded[deferred] = json.loads(result.stdout)
+    return embedded
 
 
 def rerun_published(repo: str, run_id: int, key: str) -> None:
@@ -219,26 +330,33 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to it.")
         return
+
+    def left(index: int) -> str:
+        return ", ".join(f"{run} ({where})" for _, run, where, _ in candidates[index:])
+
+    try:
+        records = deferred_runs(repo, candidates)
+    except QuotaRefused as error:  # nothing re-run yet: every candidate keeps its marker
+        raise QuotaRefused(error.retry_before, f"runs {left(0)} were not re-run: {error.detail}") from None
     failed = []
-    for index, (artifact, deferred, branch) in enumerate(candidates):
-        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
-        if not rate_limited(result) and (result.returncode != 0 or not result.stdout.strip()):
-            failed.append(f"could not read run {deferred} ({branch}): {result.stderr.strip()}")
+    for index, (artifact, deferred, branch, _) in enumerate(candidates):
+        run = records.get(deferred)
+        if run is None:
+            failed.append(f"could not read run {deferred} ({branch}) from the batched run list")
             continue
-        if not rate_limited(result):
-            allowed, why = may_rerun(json.loads(result.stdout), PUBLISHED_MAX_ATTEMPT)
-            if not allowed:
-                print(f"Not re-running run {deferred} ({branch}): {why}.")
-                continue
-            result = _gh("run", "rerun", str(deferred), "--repo", repo)
-        if rate_limited(result):
+        allowed, why = may_rerun(run, PUBLISHED_MAX_ATTEMPT)
+        if not allowed:
+            print(f"Not re-running run {deferred} ({branch}): {why}.")
+            continue
+        try:
+            rerun = _gh("run", "rerun", str(deferred), "--repo", repo)
+        except QuotaRefused as error:
             # Stop spending the quota: this run and every one after it keep their markers for a later run.
-            left = ", ".join(f"{run} ({where})" for _, run, where in candidates[index:])
             if failed:  # a real failure before the limit is still the step's red
-                raise RuntimeError("; ".join([*failed, f"rate limited before re-running {left}"]))
-            raise RateLimited(f"runs {left} were not re-run: {result.stderr.strip()}")
-        if result.returncode != 0:
-            failed.append(f"could not re-run run {deferred} ({branch}): {result.stderr.strip()}")
+                raise RuntimeError("; ".join([*failed, f"rate limited before re-running {left(index)}"])) from None
+            raise QuotaRefused(error.retry_before, f"runs {left(index)} were not re-run: {error.detail}") from None
+        if rerun.returncode != 0:
+            failed.append(f"could not re-run run {deferred} ({branch}): {rerun.stderr.strip()}")
             continue
         print(f"Re-ran run {deferred} ({branch}, {why}): tree {key} is published, and that run writes its commit manifest from it.")
         _delete_marker(repo, artifact, deferred)
@@ -265,7 +383,7 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to this one.")
         return
-    for artifact, deferred, branch in candidates:
+    for artifact, deferred, branch, _ in candidates:
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
         if result.returncode != 0 or not result.stdout.strip():
             print(f"::warning::could not read run {deferred} ({branch}): {result.stderr.strip()}")
@@ -301,10 +419,14 @@ def main(argv: list[str]) -> int:
     if args.published:
         try:
             rerun_published(args.repo, args.run_id, args.key)
-        except RateLimited as error:  # best-effort: a later run, or the next push's sweep, re-runs them
-            print(f"::warning title=deferred runs not re-run (rate limit)::tree {args.key} is published, but GitHub's "
-                  f"rate limit outlasted the {RATE_LIMIT_WAIT_S:.0f}s wait and runs were not re-run: {error}. Their "
-                  "markers are kept; the next push's manifest sweep re-runs a commit whose manifest is missing.")
+        except QuotaRefused as error:  # best-effort: a later run, or the next push's sweep, re-runs them
+            print(f"::warning title=deferred runs left for the sweep::tree {args.key} is published, but its deferred "
+                  f"runs were not re-run: GitHub's rate limit outlasted the {RATE_LIMIT_WAIT_S:.0f}s wait: "
+                  f"{error.detail or error}. The next push's "
+                  "manifest sweep re-runs a commit whose manifest is missing.")
+            # The exact line base_red_excuse.TREE_HANDOFF_QUOTA reads (it matches the whole line), as a warning.
+            print(f"::warning title=deferred runs not re-run (rate limit)::{quota_only_text(args.run_id, error.retry_before)}"
+                  " Deferred markers remain for the next run.")
             return 0
         except Exception as error:  # the step fails its job: a deferred commit is left without its manifest
             print(f"::error title=deferred runs not re-run::tree {args.key} is published, but {error}. Those "
@@ -313,6 +435,11 @@ def main(argv: list[str]) -> int:
         return 0
     try:
         handoff(args.repo, args.run_id, args.key)
+    except QuotaRefused as error:
+        print(f"::error title=tree not handed off::tree {args.key} was not handed off: the repo installation's "
+              f"API limit refused its API call; no attempt before {error.retry_before}. Dispatch "
+              "cmux-tui-tree-request.yml after that window.")
+        return 1
     except Exception as error:  # the step fails its job: say why nothing was handed off, and the way out
         print(f"::error title=tree not handed off::tree {args.key} was not handed off: {error}. "
               "No run may build it now: dispatch cmux-tui-tree-request.yml with a commit of the tree.")

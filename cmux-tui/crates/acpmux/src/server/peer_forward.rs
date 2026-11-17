@@ -113,6 +113,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
+    crate::agent_credentials::UPDATE_METHOD,
     // The machine's own journal takes records only from its owner's link or its own socket
     // (`hub/journal_restore.rs`): never one this daemon passes on for a client, whose origin the
     // peer would read as this daemon's.
@@ -1205,6 +1207,8 @@ pub(super) fn strip_new_meta(p: &mut Value) {
         m.remove("promptFileText");
         // Only this daemon decides the VM boundary, never its caller.
         m.remove(crate::hub::vm_boundary::FIELD);
+        // A launch credential never leaves this daemon (`agent_credentials.rs`).
+        m.remove(crate::agent_credentials::FIELD);
     }
 }
 

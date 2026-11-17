@@ -105,6 +105,18 @@ def sweep(
     return rerun_commits, problems
 
 
+def _call(what: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """handoff._gh, with a rate-limit refusal raised as handoff.QuotaRefused that names what was refused."""
+    try:
+        result = handoff._gh(*args)
+    except handoff.QuotaRefused as error:
+        raise handoff.QuotaRefused(error.retry_before, f"{what}: {error.detail or error}") from None
+    if handoff.rate_limited(result):  # a stand-in _gh may answer the refusal instead of raising it
+        raise handoff.QuotaRefused(handoff._rate_limit_retry_before(handoff._refusal_text(result)),
+                                   f"{what}: {result.stderr.strip()}")
+    return result
+
+
 def make_find_run(repo: str, tip_branch: str) -> Callable[[str], Mapping[str, Any] | None]:
     """find_run for sweep(): the newest push run of a commit on tip_branch. The first commit asked for reads
     the branch's newest 100 push runs in one call, and it answers every commit in it; a commit past those
@@ -113,9 +125,7 @@ def make_find_run(repo: str, tip_branch: str) -> Callable[[str], Mapping[str, An
     listed: dict[str, Mapping[str, Any]] | None = None
 
     def runs_of(query: str, what: str) -> list[Mapping[str, Any]]:
-        result = handoff._gh("api", f"{base}&{query}")
-        if handoff.rate_limited(result):
-            raise handoff.RateLimited(f"could not list the runs of {what}: {result.stderr.strip()}")
+        result = _call(f"could not list the runs of {what}", "api", f"{base}&{query}")
         if result.returncode != 0:
             raise RuntimeError(f"could not list the runs of {what}: {result.stderr.strip()}")
         try:
@@ -175,9 +185,7 @@ def main(argv: list[str]) -> int:
     refused: list[int] = []
 
     def rerun(run_id: int) -> bool:
-        result = handoff._gh("run", "rerun", str(run_id), "--repo", args.repo)
-        if handoff.rate_limited(result):
-            raise handoff.RateLimited(f"could not re-run run {run_id}: {result.stderr.strip()}")
+        result = _call(f"could not re-run run {run_id}", "run", "rerun", str(run_id), "--repo", args.repo)
         if result.returncode != 0:
             print(f"::warning::could not re-run run {run_id}: {result.stderr.strip()}")
             refused.append(run_id)
@@ -192,7 +200,7 @@ def main(argv: list[str]) -> int:
 
     try:
         rerun_commits, problems = sweep(revs, adopts=adopts, status=cdn_status, find_run=find_run_judged, rerun=rerun)
-    except handoff.RateLimited as error:
+    except handoff.QuotaRefused as error:
         # The commit asked for last was not judged; with every commit after it, the next push's sweep looks again.
         left = revs[revs.index(judged[-1]):] if judged else revs
         if refused:  # a real refusal before the limit is still the step's red

@@ -34,11 +34,14 @@ import Testing
 
     /// The app over a session with one open workspace. The band has a built-in item, a page item with a stored name,
     /// and three pinned workspaces: an open one, a closed one with no stored name and a closed one with a stored name.
-    static func app() throws -> AppServices {
+    /// `hidesTheBandsWorkspaces` makes the layout service with its local layout switch on (the test's own value, no
+    /// daemon): the list's projection is then the layout's, which takes each workspace of the band out of the list,
+    /// as the app does with the daemon's layout. Without it the list keeps those rows (the older projection).
+    static func app(hidesTheBandsWorkspaces: Bool = false) throws -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The band's layout, set before anything reads the service: no daemon and no document store write it later.
-        let layout = SidebarLayoutService()
+        let layout = hidesTheBandsWorkspaces ? SidebarLayoutService(prototypeEnabled: { true }) : SidebarLayoutService()
         layout.docLayout = document
         services.sidebarLayout = layout
         let store = services.machines.local.store
