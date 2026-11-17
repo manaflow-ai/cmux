@@ -312,7 +312,7 @@ pub(super) fn is_live(status: SessionStatus, hosted: bool) -> bool {
 
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
-fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
+pub(super) fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
     live.len()
         + open.iter().filter(|m| m.made.get().is_none_or(|id| !live.contains(id.as_str()))).count()
 }

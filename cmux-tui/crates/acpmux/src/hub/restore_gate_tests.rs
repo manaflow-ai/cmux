@@ -53,7 +53,13 @@ async fn run_for(d: Duration) {
 }
 
 fn reading(live: usize, cap: Option<u64>, over: &[&str]) -> Reading {
-    Reading { live, cap, over: over.iter().map(|s| (*s).to_owned()).collect(), cores: 16 }
+    Reading {
+        live,
+        cap,
+        over: over.iter().map(|s| (*s).to_owned()).collect(),
+        cores: 16,
+        hosted: Default::default(),
+    }
 }
 
 #[test]
@@ -155,4 +161,71 @@ async fn nothing_restored_is_drained_at_once() {
         .await
         .expect("drained");
     assert_eq!(hub.restore_gate.status()["drained"], true);
+}
+
+/// A new prompt to a parked chat lets its restored prompt go at once: a person never waits on
+/// the stage (review of cmux#44915).
+#[tokio::test(start_paused = true)]
+async fn a_prompt_to_a_parked_chat_lets_its_restored_prompt_go() {
+    let (hub, sessions) = hub_with(20);
+    fake(&hub, |through| reading(through.min(12), Some(12), &[]));
+    let through = restore_all(&hub, &sessions);
+    run_for(Duration::from_secs(120)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 12);
+    let parked = &sessions[19];
+    hub.expedite_restored(&parked.id);
+    run_for(Duration::from_secs(1)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 13, "the person's chat goes past the cap");
+    let status = hub.restore_gate.status();
+    let still: Vec<&str> = status["parked"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["sessionId"].as_str())
+        .collect();
+    assert!(!still.contains(&parked.id.as_str()), "{status}");
+    // A restored prompt of that chat still on its way to the gate skips it too.
+    hub.restore_gate.count_restored();
+    tokio::time::timeout(Duration::from_secs(1), hub.admit_restored(parked)).await.expect("skips");
+}
+
+/// A daemon-only restart: chats whose agent host still runs reattach at once, even at the cap.
+#[tokio::test(start_paused = true)]
+async fn chats_whose_agent_still_runs_reattach_outside_the_stages() {
+    let (hub, sessions) = hub_with(10);
+    let hosted: std::collections::HashSet<String> =
+        sessions[..6].iter().map(|s| s.id.clone()).collect();
+    fake(&hub, move |_| Reading { hosted: hosted.clone(), ..reading(45, Some(12), &[]) });
+    let through = restore_all(&hub, &sessions);
+    run_for(Duration::from_secs(30)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 6, "the six hosted ones, none of the rest");
+    assert_eq!(hub.restore_gate.status()["parked"].as_array().unwrap().len(), 4);
+}
+
+/// Spares wait for the restore, not for chats parked past the cap.
+#[tokio::test(start_paused = true)]
+async fn spares_do_not_wait_for_parked_chats() {
+    let (hub, sessions) = hub_with(5);
+    fake(&hub, |through| reading(through + 12, Some(12), &[]));
+    let _through = restore_all(&hub, &sessions);
+    let wait = tokio::spawn({
+        let hub = hub.clone();
+        async move { hub.restore_gate.wait_drained().await }
+    });
+    run_for(Duration::from_secs(30)).await;
+    assert!(wait.is_finished(), "all five are parked, so spares may start");
+}
+
+/// A driver that ends early (its scope cancelled) never strands its waiters.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_driver_lets_its_waiters_go() {
+    let (hub, sessions) = hub_with(6);
+    fake(&hub, |through| reading(through + 12, Some(12), &[]));
+    let through = restore_all(&hub, &sessions);
+    run_for(Duration::from_secs(30)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 0, "all parked");
+    hub.scope.token().cancel();
+    run_for(Duration::from_secs(30)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 6, "unstaged, never stuck");
+    assert_eq!(hub.restore_gate.status()["waiting"], 0);
 }

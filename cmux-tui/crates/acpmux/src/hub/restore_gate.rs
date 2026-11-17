@@ -72,6 +72,8 @@ struct State {
     parked: Vec<Parked>,
     /// Chats a stage let start, and when: live until their agent reports in (`STARTING`).
     recent: Vec<(String, Instant)>,
+    /// Chats a new prompt came to (`Hub::expedite_restored`): their restored prompts skip the gate.
+    expedited: std::collections::HashSet<String>,
     /// Why the driver holds now (readiness, pressure), shown in `_acpmux/status`.
     holding: Option<String>,
     ready_check: Option<String>,
@@ -106,6 +108,8 @@ pub(crate) struct Reading {
     pub over: Vec<String>,
     /// The cores the budget measures load against.
     pub cores: u32,
+    /// Sessions whose agent host outlived the daemon: they reattach outside any stage.
+    pub hosted: std::collections::HashSet<String>,
 }
 
 /// What the driver does next.
@@ -212,14 +216,37 @@ impl RestoreGate {
 
     /// Waits until no restored prompt waits for its stage, so work that can wait (warm spares)
     /// starts after the chats people were using.
+    /// A chat parked past the cap does not hold them up: every prompt still waiting is parked.
     pub(super) async fn wait_drained(&self) {
         loop {
             let notified = self.drained.notified();
-            if self.pending.load(Ordering::SeqCst) == 0 {
+            let pending = self.pending.load(Ordering::SeqCst);
+            if pending == 0 || pending <= self.lock().parked.len() {
                 return;
             }
             notified.await;
         }
+    }
+}
+
+/// Ends a driver however it ends: one that did not finish (its scope cancelled, a panic) drops
+/// its waiters' senders, so each prompt goes on unstaged rather than waiting for ever, and the
+/// next restored prompt starts a new driver.
+struct Driving<'a> {
+    gate: &'a RestoreGate,
+    finished: bool,
+}
+
+impl Drop for Driving<'_> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let mut s = self.gate.lock();
+        s.driving = false;
+        s.queue.clear();
+        s.parked.clear();
+        s.holding = None;
     }
 }
 
@@ -231,6 +258,25 @@ impl Hub {
         self.restore_gate.release_one();
     }
 
+    /// A new prompt came to `session_id` (`queue_slot`): its restored prompts waiting for a
+    /// stage go now, and any still on their way to the gate skip it.
+    pub(super) fn expedite_restored(&self, session_id: &str) {
+        let mut s = self.restore_gate.lock();
+        if s.started_at.is_none() {
+            return;
+        }
+        s.expedited.insert(session_id.to_owned());
+        let (go, stay): (VecDeque<Waiter>, VecDeque<Waiter>) =
+            std::mem::take(&mut s.queue).into_iter().partition(|w| w.session.id == session_id);
+        s.queue = stay;
+        s.parked.retain(|p| p.session_id != session_id);
+        for w in go {
+            if w.go.send(()).is_ok() {
+                s.admitted += 1;
+            }
+        }
+    }
+
     async fn wait_staged(self: &Arc<Self>, session: &Arc<Session>) {
         if !staged() {
             return;
@@ -238,6 +284,9 @@ impl Hub {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let start = {
             let mut s = self.restore_gate.lock();
+            if s.expedited.contains(&session.id) {
+                return;
+            }
             s.queue.push_back(Waiter { session: session.clone(), go: tx });
             s.started_at.get_or_insert_with(Instant::now);
             s.drained_at = None;
@@ -254,6 +303,7 @@ impl Hub {
 
     /// The one driver: readiness first, then stages until the queue is empty.
     async fn drive_restore(self: Arc<Self>) {
+        let mut driving = Driving { gate: &self.restore_gate, finished: false };
         self.wait_restore_ready().await;
         let mut last_start = Instant::now();
         loop {
@@ -264,12 +314,18 @@ impl Hub {
                     s.driving = false;
                     s.holding = None;
                     s.drained_at = Some(Instant::now());
+                    driving.finished = true;
                     tracing::info!(admitted = s.admitted, stages = s.stages, "staged restore done");
                     return;
                 }
                 s.queue.len()
             };
             let reading = self.restore_reading().await;
+            // A chat whose agent host outlived the daemon (a daemon-only restart) reattaches
+            // at no cost: it goes at once, outside any stage.
+            if self.release_hosted(&reading.hosted) {
+                continue;
+            }
             match decide(&reading, waiting) {
                 Step::Admit(n) => {
                     self.release_restored(n.max(1), None);
@@ -329,6 +385,31 @@ impl Hub {
         );
     }
 
+    /// Lets every waiting chat in `hosted` go; whether any went.
+    fn release_hosted(&self, hosted: &std::collections::HashSet<String>) -> bool {
+        if hosted.is_empty() {
+            return false;
+        }
+        let mut s = self.restore_gate.lock();
+        let (go, stay): (VecDeque<Waiter>, VecDeque<Waiter>) =
+            std::mem::take(&mut s.queue).into_iter().partition(|w| hosted.contains(&w.session.id));
+        s.queue = stay;
+        let any = !go.is_empty();
+        for w in go {
+            s.parked.retain(|p| p.session_id != w.session.id);
+            if w.go.send(()).is_ok() {
+                s.admitted += 1;
+            }
+        }
+        if any {
+            tracing::info!(
+                waiting = s.queue.len(),
+                "restore: chats whose agent still runs reattach"
+            );
+        }
+        any
+    }
+
     /// Marks every waiting chat parked with `reason`, logging it in each chat once.
     fn park_waiting(self: &Arc<Self>, reason: &str) {
         let newly: Vec<Arc<Session>> = {
@@ -353,6 +434,8 @@ impl Hub {
         };
         if !newly.is_empty() {
             tracing::warn!(parked = newly.len(), "{reason}");
+            // Spares wait for the restore, not for chats parked past the cap.
+            self.restore_gate.drained.notify_waiters();
         }
         for session in newly {
             self.append(&session, "mux", "restore_parked", json!({"reason": reason}));
@@ -394,11 +477,12 @@ impl Hub {
             },
             |v| (v.over, v.cores),
         );
-        Reading { live, cap, over, cores }
+        Reading { live, cap, over, cores, hosted }
     }
 
-    /// Sessions whose agent runs (`admission.rs`'s rule), plus the ones a recent stage let
-    /// start whose agent has not reported in yet, so a stage's starts count at once.
+    /// Sessions whose agent runs and creates still starting (`admission.rs`'s count), plus the
+    /// ones a recent stage let start whose agent has not reported in yet, so a stage's starts
+    /// count at once.
     fn live_restore_count(&self, hosted: &std::collections::HashSet<String>) -> usize {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
@@ -407,14 +491,22 @@ impl Hub {
             .filter(|s| admission::is_live(s.status(), hosted.contains(&s.id)))
             .map(|s| s.id.as_str())
             .collect();
+        let counted = {
+            let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
+            admission::counted(&live, &admitting)
+        };
         let mut gate = self.restore_gate.lock();
         gate.recent.retain(|(_, at)| at.elapsed() < STARTING);
         let starting = gate.recent.iter().filter(|(id, _)| !live.contains(id.as_str())).count();
-        live.len() + starting
+        counted + starting
     }
 
-    /// `ACPMUX_RESTORE_READY_CMD` until it exits 0, or its wait passes (module docs).
+    /// `ACPMUX_RESTORE_READY_CMD` until it exits 0, or its wait passes (module docs). Once per
+    /// daemon: a later driver (a chat whose log loads later) does not wait again.
     async fn wait_restore_ready(&self) {
+        if self.restore_gate.lock().ready_check.is_some() {
+            return;
+        }
         let Some(cmd) =
             std::env::var("ACPMUX_RESTORE_READY_CMD").ok().filter(|c| !c.trim().is_empty())
         else {
