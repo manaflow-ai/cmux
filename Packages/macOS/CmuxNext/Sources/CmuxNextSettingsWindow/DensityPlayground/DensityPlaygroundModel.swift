@@ -1,5 +1,5 @@
 public import CmuxNextDesign
-public import CmuxNextSettings
+import CmuxNextSettings
 import CmuxNextActions
 import CmuxNextWakeups
 import Foundation
@@ -175,7 +175,7 @@ public final class DensityPlaygroundModel {
             + (draft.fontSize.map { ", fontSize \(Self.format($0))" } ?? "")]
         lines.append("[")
         for key in draft.tokens.keys.sorted() {
-            lines.append("    \"\(key)\": \(Self.format(draft.tokens[key] ?? 0)),")
+            lines.append("    \"\(key)\": \(Self.format(draft.tokens[key] ?? 0, digits: 3)),")
         }
         lines.append("]")
         return lines.joined(separator: "\n")
@@ -263,8 +263,10 @@ public final class DensityPlaygroundModel {
         return "\(name) \(index)"
     }
 
-    static func format(_ value: Double) -> String {
-        let rounded = (value * 1000).rounded() / 1000
+    /// `value` with at most `digits` decimals and no trailing zeros (the fields show 2; Copy as Swift keeps 3).
+    static func format(_ value: Double, digits: Int = 2) -> String {
+        let scale = pow(10, Double(digits))
+        let rounded = (value * scale).rounded() / scale
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%g", rounded)
     }
 }

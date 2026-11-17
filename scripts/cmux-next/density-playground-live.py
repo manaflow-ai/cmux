@@ -81,7 +81,8 @@ def keys(*strokes, gap=30):
         steps += [{"key_code": m, "down": True, "after_ms": gap} for m in held]
         steps += [{"key_code": code, "down": True, "after_ms": gap}, {"key_code": code, "down": False, "after_ms": gap}]
         steps += [{"key_code": m, "down": False, "after_ms": gap} for m in reversed(held)]
-    reply = rpc("debug.key", {"sequence": steps})
+    # The panel is made key for the keys without activating the app (`key_window`: its identifier).
+    reply = rpc("debug.key", {"sequence": steps, "key_window": "cmux.densityPlayground"})
     time.sleep(len(steps) * gap / 1000 + 0.6)  # capture harness: the sequence plays, then the change draws
     return reply
 
@@ -142,13 +143,13 @@ with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
 def launch(log):
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
-    # Activates on purpose: the playground panel takes the keys a person types, which needs a key window.
+    # Placed with no activation (the frame knob needs it); the panel is made key for its keys (`keys`).
     process = subprocess.Popen([BINARY], env={
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
         "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"),
-        "CMUX_NEXT_TEST_WINDOW_FRAME": "60,80,1000,640", "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"},
+        "CMUX_NEXT_TEST_WINDOW_FRAME": "16,24,860,680", "CMUX_NEXT_TEST_WINDOW_SCREEN": "0", "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"},
         stdout=open(os.path.join(opts.out, log), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     if not wait(lambda: os.path.exists(SOCKET) and not (rpc("debug.window_frame") or {}).get("error"), 180):
         sys.exit("the tagged app did not come up")

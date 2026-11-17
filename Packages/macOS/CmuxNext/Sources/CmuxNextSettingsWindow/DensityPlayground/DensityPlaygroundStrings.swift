@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+import CmuxNextDesign
 import Foundation
 
 /// Chrome text of the Density Playground (Localizable.xcstrings in this module). Value labels and help are English

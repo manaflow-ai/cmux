@@ -257,7 +257,8 @@ private struct DensityPlaygroundRow: View {
             text = DensityPlaygroundModel.format(model.value(entry) ?? entry.range.lowerBound)
             return
         }
-        if let current = model.value(entry), abs(current - number) < 0.0001 { return }
+        // Leaving a field as shown writes nothing (it shows a rounded value).
+        if let current = model.value(entry), typed == DensityPlaygroundModel.format(current) || abs(current - number) < 0.0001 { return }
         model.set(entry, to: number)
         text = DensityPlaygroundModel.format(model.value(entry) ?? number)
     }

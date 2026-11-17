@@ -53,10 +53,12 @@ import SwiftUI
         panel.install(kind: .debugSettings, content: NSHostingView(rootView: DensityPlaygroundView(model: model)),
                       scope: scope, activeLook: activeLook)
         if !panel.setFrameUsingName("cmux.densityPlayground") {
-            // Beside the app's window, so the chrome being tuned stays in view.
+            // Beside the app's window, so the chrome being tuned stays in view: right of it, else left, else over
+            // its trailing edge (the content, not the sidebar or the tab strip's leading tabs).
             if let main = NSApp.mainWindow ?? NSApp.keyWindow, let screen = main.screen ?? NSScreen.main {
-                let visible = screen.visibleFrame
-                let x = min(main.frame.maxX + 8, visible.maxX - panel.frame.width)
+                let visible = screen.visibleFrame, width = panel.frame.width
+                let x = main.frame.maxX + 8 + width <= visible.maxX ? main.frame.maxX + 8
+                    : main.frame.minX - 8 - width >= visible.minX ? main.frame.minX - 8 - width : visible.maxX - width
                 panel.setFrameTopLeftPoint(NSPoint(x: max(visible.minX, x), y: main.frame.maxY))
             } else {
                 panel.center()
