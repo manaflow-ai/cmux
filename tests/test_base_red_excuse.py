@@ -13633,9 +13633,10 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
                                   step_names=names, base=side == "base")
 
     def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
-        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
-        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
-        for side, sections in (("head", self.CHECKS_FAILED),
+        # Each side keeps its failed rollup and the one check that rollup names red (rollup_vouched), never the
+        # warn-only scrollbar guard's ERRORED section (the head alike since FailingChecksOwnErrorLines).
+        for side, sections in (("head", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"}),
                                ("base", {name: status for name, status in self.CHECKS_FAILED.items()
                                          if name != "Scrollbars thin, one style"})):
             with self.subTest(side=side):
@@ -13827,7 +13828,9 @@ class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
         view = self.view(self.CHECKS, "head", base=False)
         self.assertIsNot(view, excuse.UNPLACED)
         statuses = {str(view.steps[k]["name"]): status for k, status, _ in view.sections}
-        self.assertEqual(statuses.get("Package conventions lint"), "errored")
+        # The warn-only lint's ERRORED section is not this red's: its rollup names only the FFI pin check red
+        # (FailingChecksOwnErrorLines), so the head's view leaves it out, as a base's does.
+        self.assertNotIn("Package conventions lint", statuses)
         self.assertEqual(statuses.get("Fail on any red check"), "failed")
         with self.assertRaises(excuse.Refused) as said:
             excuse.guard_tests(view)
