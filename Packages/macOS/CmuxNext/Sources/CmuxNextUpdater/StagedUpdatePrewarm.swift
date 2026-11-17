@@ -171,6 +171,8 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         public var reason: String
         /// The marker is this build's: the launch removes it.
         public var consume: Bool
+        /// What `launch-times.jsonl` records: `prewarmed` and `prewarm_reason`.
+        public var record: (preWarmed: Bool, reason: String) { (preWarmed, reason) }
 
         public init(preWarmed: Bool, reason: String, consume: Bool) {
             self.preWarmed = preWarmed

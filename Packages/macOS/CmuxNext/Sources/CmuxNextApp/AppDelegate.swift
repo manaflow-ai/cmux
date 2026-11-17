@@ -190,10 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markReveal(services.launchReveal)
         // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): once the first frame and Home have shown.
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
-            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) {
-                let verdict = StagedUpdatePrewarm.consumeLaunchVerdict(build: $0, bundleIdentifier: bundleID)
-                return (verdict.preWarmed, verdict.reason)
-            }
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) { StagedUpdatePrewarm.consumeLaunchVerdict(build: $0, bundleIdentifier: bundleID).record }
             firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
