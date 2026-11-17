@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44144506755",
+  "recorded_at": "2026-11-17T18:41:55Z",
+  "reason": "cmux-tui 4a03708b603d changes the image's cmux-tui (pinned 72ab42308ad4)",
+  "dry_run": false,
+  "cmux_tui": "4a03708b603d61ea30356920d3c51e821f506fa1",
+  "fixes": [
+    {
+      "sha": "26f7c613ffa3bbc20da5b8415021ee179b6a89bd",
+      "mergedAt": "2026-11-17T17:26:16Z",
+      "subject": "feat(book): row 12c native Codex transcript translator (#44422)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T18:41:55Z",
+    "snapshot_id": "sh-d2f3133fcb7e4ec0a8b22bc276a7ca3e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44144506755): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "75c815865f22da1e56714c1121e8757c5f46fc6d",
+    "image": "cloud-native-auto-4a03708b-44144506755-1",
+    "revision": "ci-44144506755-1",
+    "at": "2026-11-17T18:41:55Z"
+  },
+  "rolled_back": false
+}
