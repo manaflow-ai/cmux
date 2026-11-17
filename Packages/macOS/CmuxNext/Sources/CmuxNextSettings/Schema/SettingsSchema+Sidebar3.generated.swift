@@ -326,6 +326,19 @@ extension SidebarSettingsSchema {
                 default: .array(WorkspaceRowSetting.secondLineOrderDefault.map { .string($0) }),
                 keywords: ["sidebar", "workspace", "row", "order", "subtitle"]
             ),
+            SettingDescriptor(
+                WorkspaceRowSetting.statusPlacementPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceRow.statusPlacement", "Status Position"),
+                help: SettingsText.keyed("settings.workspaceRow.statusPlacement.help", "Where the row's status mark draws: at the row's end, or before the name in the icon's place."),
+                kind: .choice([
+                    SettingChoice(WorkspaceRowStatusPlacement.trailing.rawValue, SettingsText.keyed("settings.workspaceRow.statusPlacement.trailing", "At the End")),
+                    SettingChoice(WorkspaceRowStatusPlacement.leading.rawValue, SettingsText.keyed("settings.workspaceRow.statusPlacement.leading", "Before the Name")),
+                ]),
+                default: .string(WorkspaceRowSetting.statusPlacementDefault.rawValue),
+                keywords: ["sidebar", "workspace", "row", "status", "spinner", "leading", "left", "position"]
+            ),
         ]
     }
 }

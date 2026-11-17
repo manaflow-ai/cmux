@@ -216,6 +216,9 @@ extension WorkspaceRowSetting {
     public nonisolated static let secondLineOrderPath = ["sidebar", "workspaceRow", "secondLineOrder"]
     public nonisolated static let secondLineOrderDefault: [String] = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
     public nonisolated static let secondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
+    /// `sidebar.workspaceRow.statusPlacement`.
+    public nonisolated static let statusPlacementPath = ["sidebar", "workspaceRow", "statusPlacement"]
+    public nonisolated static let statusPlacementDefault: WorkspaceRowStatusPlacement = .trailing
 }
 
 extension WorkspaceRowSetting {

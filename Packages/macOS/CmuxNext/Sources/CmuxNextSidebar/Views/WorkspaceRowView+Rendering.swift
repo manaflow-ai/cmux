@@ -144,6 +144,12 @@ extension WorkspaceRowView {
         // grid's, one gap after the box.
         icon.leadsWithInk = SidebarStyle.leadingColumnLook != .centered
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
+        // `statusPlacement` `leading`: the status mark takes the icon's slot while it shows (read here, since a
+        // static-look change shows or hides the status glyph with no configure). Set on every pass: the icon view's
+        // configure skips an unchanged icon, so it would not show the icon again when the placement goes back to trailing.
+        let leadingMark = leadingStatusMark
+        icon.isHidden = !SidebarIconView.showsIcon(iconKind) || leadingMark != nil
+        if let leadingMark { layoutLeadingStatus(leadingMark, leading: leading, slot: columns.iconBox, centerY: cy) }
         layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
 
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the tab
@@ -233,10 +239,10 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        if markReplacesStatus, columnMark?.view !== agentMark {
+        if !statusLeads, markReplacesStatus, columnMark?.view !== agentMark {
             agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: agentMark.frame)
-        } else if activity.showsGlyph, columnMark?.view !== activity {
+        } else if !statusLeads, activity.showsGlyph, columnMark?.view !== activity {
             activity.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: activity.frame)
         }
@@ -273,7 +279,8 @@ extension WorkspaceRowView {
 
         // Without an icon the title starts on lead; with one (or a left rail's kept dot slot), on the text column
         // (`workspaceTitleX`).
-        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth)
+        // A leading status keeps the icon slot idle or not, so the title's x never moves as work starts or stops.
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesIconSlot: statusLeads)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
@@ -287,7 +294,9 @@ extension WorkspaceRowView {
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
-        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : columns.lead)
+        let fadeStart = side > 0 ? icon.frame.maxX : columns.lead
+        // A leading status mark owns its slot: the marquee fades out after it, never across it.
+        title.leadingPadding = textX + inset - (statusLeads ? max(fadeStart, leading + columns.iconBox) : fadeStart)
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
@@ -311,7 +320,8 @@ extension WorkspaceRowView {
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
-            let status = mark === activity || (mark === agentMark && markReplacesStatus)
+            // A leading status mark sits before the title, clear of the hover controls: it never gives way.
+            let status = !statusLeads && (mark === activity || (mark === agentMark && markReplacesStatus))
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
                 : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)

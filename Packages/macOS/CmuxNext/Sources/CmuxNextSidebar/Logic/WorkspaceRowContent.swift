@@ -39,6 +39,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
