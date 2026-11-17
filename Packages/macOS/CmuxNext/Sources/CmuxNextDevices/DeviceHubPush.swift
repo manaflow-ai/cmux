@@ -52,11 +52,22 @@ public struct SessionTicket: Codable, Sendable, Equatable {
     public var peer: Peer
     public var role: Role
     public var scope: SessionScope
+    /// Who serves a host ticket on this Mac, as the acpmux daemon's share host relays it
+    /// (``servedByDaemon`` or `"app"`); nil from the hub itself or an older relay (the app serves).
+    /// A string, so a value this build does not know never drops the ticket.
+    public var servedBy: String?
 
-    public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope) {
+    /// `servedBy` of a ticket the acpmux daemon serves: the app neither serves nor ends it.
+    public static let servedByDaemon = "daemon"
+
+    public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope,
+                servedBy: String? = nil) {
         self.sessionId = sessionId; self.ticket = ticket; self.signalURL = signalURL; self.ice = ice
-        self.peer = peer; self.role = role; self.scope = scope
+        self.peer = peer; self.role = role; self.scope = scope; self.servedBy = servedBy
     }
+
+    /// The acpmux daemon serves this ticket (the daemon decides who serves, once per ticket).
+    public var isServedByDaemon: Bool { servedBy == Self.servedByDaemon }
 
     /// `signalURL` with `?ticket=<jws>`, the URL the device opens.
     public var signalSocketURL: URL {

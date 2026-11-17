@@ -8,9 +8,9 @@
 //! Only the hub knows that; `run` exits with `EXIT_NEEDS_SETUP` when it hears it.
 
 use super::consent::LocalConsent;
-use super::identity::{self, Account, Device};
 use crate::capture::Readback;
 use crate::capture_backend::{x_display, CaptureBackend};
+use cmux_hub_host::identity::{self, Account, Device};
 use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "cmux.screen-share.status/1";
@@ -50,13 +50,22 @@ pub fn gather(now_ms: u64) -> Facts {
 fn probe_capture(backend: CaptureBackend) -> Capture {
     match backend {
         CaptureBackend::X11 => {
-            let display = x_display(None, None, std::env::var("DISPLAY").ok().as_deref());
+            let env = std::env::var("DISPLAY").ok().filter(|v| !v.is_empty());
+            // Without a DISPLAY (a command over ssh), the virtual display this machine's host
+            // shares, if it has one.
+            let virtual_display = env.is_none().then(super::setup::virtual_display).flatten();
+            let env = env.or_else(|| virtual_display.map(|n| format!(":{n}")));
+            let display = x_display(None, None, env.as_deref());
             // Only a local display is probed: a `host:N` display is a TCP connection.
             let local = display.starts_with(':') || display.starts_with("unix:");
             let probe = local.then(|| x11_probe(&display)).flatten();
+            // A stopped virtual display is no reason to say unsupported: the host starts it
+            // when a share needs it.
+            let stopped_virtual = virtual_display
+                .is_some_and(|n| !std::path::Path::new(&format!("/tmp/.X11-unix/X{n}")).exists());
             Capture {
                 backend,
-                usable: !local || probe.is_some(),
+                usable: !local || probe.is_some() || stopped_virtual,
                 size: probe.map(|(size, _)| size),
                 portal_granted: false,
                 portal_control: false,

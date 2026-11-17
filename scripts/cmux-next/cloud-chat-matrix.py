@@ -22,7 +22,9 @@ repository itself, under the limits (`parent-repos`, copied whole) and past them
 ~/Projects' shape). A folder past the limits is never refused: the chat starts in it at once from a first pass of
 its files (link/sync_cli/size_cap.rs) and its reply must read the folder's word, within FIRST_PASS_REPLY_WITHIN_S;
 its tree is not compared, the rest staying on the Mac (Leo, 2026-11-10: "then there's this limit", "did you guys
-not test these"; 2026-11-15: "why are you guys still blocking on these?"), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+not test these"; 2026-11-15: "why are you guys still blocking on these?"). Every cell's start must carry the copy's
+estimate, made before any machine (`estimate`: whole, first pass or seed); a first-pass cell's says first pass, and a
+cell whose link made it a first pass by time is judged as one. The last cells: a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -772,6 +774,10 @@ class Matrix:
                                         or err or out, 800)
         reply = answer.get("reply") if isinstance(answer.get("reply"), str) else ""
         # The start's own stage times (CloudStartSession: stages_ms, stages_detail_ms) and the copy's counts.
+        # The copy's estimate, made before any machine (link/sync_cli/estimate.rs): the verdict checks it.
+        if isinstance(answer.get("estimate"), dict):
+            cell["estimate"] = {key: answer["estimate"].get(key) for key in
+                                ("mode", "copy_mode", "files", "bytes", "seconds", "left_bytes", "why", "complete")}
         for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts"):
             if isinstance(answer.get(key), (dict, list, int, str)):
                 cell.setdefault("answer_timing", {})[key] = json.loads(clean(json.dumps(answer[key]), 4000)) \
@@ -860,7 +866,18 @@ def verdict(cell: dict, canary: str) -> str:
         problems.append("word not read")
     if reply.get("canary_in_reply") or cell.get("canary_on_machine"):
         problems.append("SECRET LEAKED")
-    first_pass = cell.get("workspace") in FIRST_PASS_CELLS
+    # Every start says what its copy sends before any machine is made (Leo, 2026-11-10: a 20 GB copy began after a
+    # machine was leased). A first-pass cell's must say first pass; any cell on a slow link may too, and is then
+    # judged as one (its tree is partial by design).
+    estimate = cell.get("estimate")
+    copy_mode = None
+    if not isinstance(estimate, dict):
+        problems.append("no copy estimate before the lease")
+    else:
+        copy_mode = estimate.get("copy_mode") if estimate.get("mode") == "seed" else estimate.get("mode")
+        if cell.get("workspace") in FIRST_PASS_CELLS and copy_mode != "first_pass":
+            problems.append(f"estimate said {copy_mode}")
+    first_pass = cell.get("workspace") in FIRST_PASS_CELLS or copy_mode == "first_pass"
     if cell.get("hash_match") is False and not first_pass:
         problems.append("tree differs")
     if first_pass and (cell.get("create_to_reply_s") or 0) > FIRST_PASS_REPLY_WITHIN_S:
