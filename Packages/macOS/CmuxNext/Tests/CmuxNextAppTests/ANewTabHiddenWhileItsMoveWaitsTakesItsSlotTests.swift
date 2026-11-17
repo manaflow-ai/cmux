@@ -23,7 +23,8 @@ import Testing
 /// moves before the New Tab action (`NewTabSlot.reserve`, as an earlier new tab does at its press) and keeps it. The
 /// new tab's move task then waits for that turn after its list wait found the tab. The row hides the tab and lets its
 /// turn go. The move task reads the tab again and finds it hidden: the pane's line of moves counts that read
-/// (`WorkLine.targetsHiddenAtTheirTurn`), and the row waits for the count (a set-up wait, not a verdict). Then the
+/// (`WorkLine.targetsHiddenAtTheirTurn`), and the row waits for the count (a set-up wait by the line's own
+/// observation with a bound, no poll; not a verdict). Then the
 /// row ends the close in its own way and takes the pane's next turn: that turn starts when the move task ended, and
 /// the row reads its verdict then. No verdict has a clock, and no verdict reads the strip: the app shows a new tab at
 /// its slot for some time before its move, so a strip that is right says nothing of the move. The strip's samples
@@ -158,9 +159,9 @@ struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
         // The test's turn goes: the new tab's move task goes on and reads the tab again. The tab is hidden.
         kept.held.pass()
         let line = pane.placements
-        try await PasswordManagerRouteTests.until({ line.targetsHiddenAtTheirTurn == 1 }, report: {
-            "setup: the new tab's move task did not read the tab while it was hidden (count \(line.targetsHiddenAtTheirTurn)): it had not found the tab before the hide, so the test did not make the step"
-        })
+        let counted: @MainActor @Sendable () -> Bool = { line.targetsHiddenAtTheirTurn == 1 }
+        if !counted() { await ObservationDeadline(owner: "ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests.counted").until(counted, limit: .seconds(4)) }
+        try #require(counted(), "setup: the new tab's move task did not read the tab while it was hidden (count \(line.targetsHiddenAtTheirTurn), after 4 s): it had not found the tab before the hide, so the test did not make the step")
         kept.frames.sample(pane)
         return (kept, close)
     }

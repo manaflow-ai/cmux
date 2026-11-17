@@ -72,9 +72,11 @@ struct DaemonMoveIndexTests {
         #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id))
         let rejected = try #require(store.intendClose([Self.surfaces[1]]))
         #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id), "pending: it can still come back")
+        #expect(store.closePending(Self.surfaces[1]) && store.closePending(tab.id), "pending: a close of the tab is in the log")
         store.rejectIntent(rejected)
         #expect(store.tab(surface: Self.surfaces[1]) != nil, "the rejected close shows the tab again")
         #expect(!store.closedLately(Self.surfaces[1]) && !store.closedLately(tab.id), "a rejected close leaves the tab open")
+        #expect(!store.closePending(Self.surfaces[1]) && !store.closePending(tab.id), "a rejected close is no longer in the log")
 
         let close = try #require(store.intendClose([Self.surfaces[1]]))
         store.noteSettledAtNextSnapshot(close)
@@ -85,7 +87,9 @@ struct DaemonMoveIndexTests {
         store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [workspace]))
         #expect(store.pendingIntents.isEmpty, "the snapshot settled the close")
         #expect(store.closedLately(Self.surfaces[1]) && store.closedLately(tab.id))
+        #expect(!store.closePending(Self.surfaces[1]) && !store.closePending(tab.id), "a settled close is no longer in the log")
         #expect(!store.closedLately(Self.surfaces[2]), "only the closed tab")
+        #expect(!store.closePending(Self.surfaces[2]), "no close names another tab")
     }
 
     /// Review of #38105: the daemon's records drop the tab before the close's reply settles it (the overlay already hid it,
@@ -129,5 +133,6 @@ struct DaemonMoveIndexTests {
         #expect(store.pendingIntents.isEmpty, "the refusal ended the close")
         #expect(told.told, "the refusal told the reader")
         #expect(store.tab(surface: Self.surfaces[1]) == nil && !store.closedLately(Self.surfaces[1]), "the tab is gone, and it is not a tab that the person closed")
+        #expect(!store.closePending(Self.surfaces[1]), "no close of the tab is in the log")
     }
 }

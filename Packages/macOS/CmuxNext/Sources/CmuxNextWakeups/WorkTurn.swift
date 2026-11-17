@@ -1,3 +1,4 @@
+public import Observation
 import os
 
 private let workTurnLog = Logger(subsystem: "com.cmuxterm.app.next", category: "wakeups")
@@ -44,11 +45,12 @@ public final class WorkTurn<Result: Sendable>: Sendable {
 }
 
 /// A line of ``WorkTurn``s: each ``next(limit:owner:passing:)`` takes the place after the last one taken.
-@MainActor
+@MainActor @Observable
 public final class WorkLine<Result: Sendable> {
-    private var last: Task<Result, Never>?
+    @ObservationIgnored private var last: Task<Result, Never>?
     /// How many works of this line found, at their turn, the thing they act on hidden with no end of what hid it (a new
-    /// tab's move whose tab a close hid, and the close has not settled). A test reads it; no code of the app does.
+    /// tab's move whose tab a close hid, and the close has not settled). A test reads it; no code of the app does. It
+    /// is observed, so that a test waits for it with no poll.
     public private(set) var targetsHiddenAtTheirTurn = 0
 
     public init() {}
@@ -65,17 +67,22 @@ public final class WorkLine<Result: Sendable> {
     /// `limit` (a timer of `owner`), then for `earlier`, the place before the work's (``WorkTurn/earlier``). The wait for
     /// the earlier place gives time, so the thing can be hidden when the turn comes. While it is, and `mayReturn` holds
     /// (what hid it has not ended, so it can come back), the work is counted (``targetsHiddenAtTheirTurn``) and waits for
-    /// the thing again, inside the same limit. A work that did not wait would act on nothing, and the thing would stay
-    /// off its place when it came back. True when the thing was listed inside the limit; the caller reads it again, as
-    /// it can be gone for good.
-    public func waitForTarget(after earlier: Task<Result, Never>?, listed: @escaping @MainActor @Sendable () -> Bool, mayReturn: @MainActor () -> Bool, limit: Duration, owner: String) async -> Bool {
+    /// the thing again, inside the same limit. That wait also ends when `mayReturn` no longer holds (decision of
+    /// 2026-11-17): the thing is then gone for good, and the works behind this one must not wait for the limit. So
+    /// `mayReturn` reads observed values, as `listed` does. A work that did not wait would act on nothing, and the
+    /// thing would stay off its place when it came back. True when the thing was listed inside the limit; the caller
+    /// reads it again, as it can be gone for good.
+    ///
+    /// A cancel of the caller's task ends no wait here: the wait, its Observation and its timer stay until `listed`,
+    /// the end of `mayReturn`, or the limit.
+    public func waitForTarget(after earlier: Task<Result, Never>?, listed: @escaping @MainActor @Sendable () -> Bool, mayReturn: @escaping @MainActor @Sendable () -> Bool, limit: Duration, owner: String) async -> Bool {
         let end = ContinuousClock.now + limit
         if !listed() { await ObservationDeadline(owner: owner).until(listed, limit: limit) }
         let found = listed()
         _ = await earlier?.value // its own wait, then its work
         while found, !listed(), mayReturn(), ContinuousClock.now < end {
             targetsHiddenAtTheirTurn += 1
-            await ObservationDeadline(owner: owner).until(listed, limit: end - .now)
+            await ObservationDeadline(owner: owner).until({ listed() || !mayReturn() }, limit: end - .now)
         }
         return found
     }

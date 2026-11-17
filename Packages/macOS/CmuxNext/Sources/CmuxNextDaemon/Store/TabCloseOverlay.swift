@@ -64,6 +64,12 @@ extension DaemonStore {
     public func closedLately(_ tab: String) -> Bool { intentLog.closedTabs.last { $0.id == tab }.map { closeSettled($0.surface) } ?? false }
     public func closedLately(_ surface: SurfaceID) -> Bool { intentLog.closedTabs.contains { $0.surface == surface } && closeSettled(surface) }
 
+    /// Whether a close of the daemon tab with this id or surface is in the log (held back from the daemon, or not
+    /// answered): the tab is hidden and can still come back. False after the close settled, and after the daemon
+    /// refused it. Observes the tab lists (`tabListRevision`), which change as a close leaves the log.
+    public func closePending(_ tab: String) -> Bool { intentLog.closedTabs.last { $0.id == tab }.map { !closeSettled($0.surface) } ?? false }
+    public func closePending(_ surface: SurfaceID) -> Bool { !closeSettled(surface) }
+
     private func closeSettled(_ surface: SurfaceID) -> Bool {
         _ = tabListRevision
         return !intentLog.entries.contains { if case .closeTabs(let surfaces) = $0.kind { surfaces.contains(surface) } else { false } }
