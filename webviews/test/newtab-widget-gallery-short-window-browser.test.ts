@@ -11,7 +11,9 @@
 // In real Chromium on the gallery frame, at window heights from 500 to 858 px, with ui.css (the
 // gallery and other hosts) and without it (the shipped pane): the gallery's own scroller holds the
 // rows, its last preview scrolls into view and is the element under its centre (so a click reaches
-// it), and the title and Done stay inside the window. CI fails the file when Chromium cannot launch
+// it), and the title and Done stay inside the window. The sheet has its own surface there too (the
+// sheet role's glass: a fill and a blur): on the DEV build the New Tab composer, its suggestions and
+// the edit bar read through the bare sheet. CI fails the file when Chromium cannot launch
 // (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -101,7 +103,27 @@ await requireBrowserLane("newtab-widget-gallery-short-window-browser.test.ts", a
                 title: visible(".nt-widget-gallery-title"),
                 done: visible(".nt-widget-gallery-done"),
                 sheetBottom: Math.floor(sheet.getBoundingClientRect().bottom),
+                ...surface(),
               };
+              // The sheet's own surface: a fill and the glass's blur, so what lies under it (the New Tab
+              // composer, its suggestions and the edit bar on the DEV build) does not read through. The
+              // point between the title and Done is the sheet's, not anything under it.
+              function surface() {
+                const style = getComputedStyle(sheet);
+                const alpha = (() => {
+                  const parts = style.backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+                  if (style.backgroundColor === "transparent" || parts.length < 3) return 0;
+                  return parts.length > 3 ? parts[3]! : 1;
+                })();
+                const head = sheet.querySelector<HTMLElement>(".nt-widget-gallery-head")!.getBoundingClientRect();
+                const title = sheet.querySelector<HTMLElement>(".nt-widget-gallery-title")!.getBoundingClientRect();
+                const under = document.elementFromPoint(title.right + 8, head.top + head.height / 2);
+                return {
+                  fillAlpha: alpha,
+                  backdrop: style.backdropFilter,
+                  underHeadIsSheet: !!under && sheet.contains(under),
+                };
+              }
             });
 
             expect(layout.previews).toBeGreaterThan(3);
@@ -122,6 +144,13 @@ await requireBrowserLane("newtab-widget-gallery-short-window-browser.test.ts", a
               done: true,
               sheetInWindow: true,
             });
+            // Its surface (frame 54 of the DEV tour: the composer, its suggestions and the edit bar read
+            // through the bare sheet in the shipped pane): a fill and the glass's blur under it.
+            expect({
+              fill: layout.fillAlpha >= 0.4,
+              blur: /blur\(/.test(layout.backdrop),
+              underHeadIsSheet: layout.underHeadIsSheet,
+            }).toEqual({ fill: true, blur: true, underHeadIsSheet: true });
             expect(errors).toEqual([]);
           } finally {
             await page.close();
