@@ -23,7 +23,8 @@
 // numbers are a baseline each step lowers, never a gate that goes red on today's list.
 //
 // Run from webviews: CMUX_BROWSER_TESTS=1 bun scripts/agent-pane/transcript-shifts.bench.ts
-// Env: ROWS (default 50000), CMUX_REPLAY_CAPTURE_DIR (a video and the per-frame shift log).
+// Env: ROWS (default 50000), CMUX_REPLAY_CAPTURE_DIR (a video and the per-frame shift log),
+// REPLAY_HASH (added to the pane URL's hash: `anchoredList=1` draws the anchored list, step 4).
 // l10n-allow-file: synthetic transcript and measurement diagnostics.
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -303,8 +304,9 @@ async function openChat(rows: number, record: boolean) {
   await page.addInitScript(installFirstPaint);
   await installPaintedFrames(page);
   const { port } = vite.httpServer!.address() as { port: number };
+  const extra = process.env.REPLAY_HASH ? `&${process.env.REPLAY_HASH}` : "";
   await page.goto(
-    `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.server.port}/`)}&token=t&session=${sessionId}`,
+    `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.server.port}/`)}&token=t&session=${sessionId}${extra}`,
   );
   await page.waitForFunction(
     () => typeof (window as unknown as Record<string, unknown>).replayFirstPaint === "number",
