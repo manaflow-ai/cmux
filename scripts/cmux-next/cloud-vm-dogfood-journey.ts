@@ -230,6 +230,7 @@ function cleanup(): Promise<void> {
 async function runCleanup(): Promise<void> {
   // The lifecycle leg's own resources first: snapshots, then agent keys (whose revoke deletes their VMs), then VMs.
   let leftover = false;
+  for (const child of liveCli) child.kill("SIGKILL");
   const sweep = async (path: string, label: string) => {
     try {
       const deleted = await call("DELETE", path);
@@ -339,9 +340,11 @@ function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; st
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    liveCli.add(child);
     const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
     const done = (code: number) => {
       clearTimeout(timer);
+      liveCli.delete(child);
       const ms = Math.round(performance.now() - startedAt);
       console.error(`cli cmux vm ${args.join(" ")} -> ${code} in ${ms}ms`);
       resolve({ code, stdout, stderr: stderr.replaceAll(bearer, "<key>"), ms });
@@ -353,6 +356,9 @@ function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; st
     child.on("close", (code) => done(code ?? -1));
   });
 }
+
+/** CLI runs still going; cleanup stops them first, so none makes a VM after the sweep looked. */
+const liveCli = new Set<ReturnType<typeof spawn>>();
 
 /** The CLI cannot set autoDeleteSeconds, so a CLI VM whose answer was lost is found again by its idempotency key. */
 const cliCreationKeys = new Set<string>();
@@ -528,15 +534,9 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
   proofs["autoDeleteOnPause"] = await timed("acGoneAfterPause", () => waitGone(ephemeral, 10 * 60_000));
 
   // 2 and 3 need an agent key: the session's own credential.
-  // A VM's network is private by default; the self-deleting VM needs public egress to reach the API, which needs
-  // vm:network on the key that creates it.
-  const keyRequest = { name: `lifecycle ${runId}`.slice(0, 200), ttlSeconds: 1800, maxVms: 2, maxUsdPerHour: 2 };
-  let keyReply = await call("POST", "/v1/agent-keys", { ...keyRequest, scopes: ["vm:write", "vm:exec", "vm:network"] });
-  let egress = keyReply.status === 201;
-  if (!egress && keyReply.status === 403) {
-    note(`an agent key with vm:network was refused (${keyReply.text.slice(0, 160)}); the self-delete leg runs without egress`);
-    keyReply = await call("POST", "/v1/agent-keys", keyRequest);
-  }
+  // An agent key takes only vm:read, vm:write and vm:exec (the defaults), so the journey's own key opens the
+  // self-deleting VM's public egress (PUT .../public-egress, vm:network): a VM's network is private by default.
+  const keyReply = await call("POST", "/v1/agent-keys", { name: `lifecycle ${runId}`.slice(0, 200), ttlSeconds: 1800, maxVms: 2, maxUsdPerHour: 2 });
   if (keyReply.status === 403) {
     note(`agent keys refused this credential (${keyReply.text.slice(0, 160)}); the self-delete and revoke legs were skipped`);
     proofs["selfDelete"] = proofs["revokeDeletes"] = "skipped: 403";
@@ -549,8 +549,11 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
     lifecycleAgentKeys.add(keyId);
 
     // 2. The VM deletes itself from inside, with the agent key it was given.
-    const self = await timed("sdCreate", () => lifecycleCreate("self-delete", egress ? { initialNetwork: { publicEgress: true } } : {}, agentKey));
+    const self = await timed("sdCreate", () => lifecycleCreate("self-delete", {}, agentKey));
     await timed("sdRunning", () => waitForState(self, "running", 5 * 60_000));
+    const egressReply = await call("PUT", `${vmPath(self)}/public-egress`);
+    const egress = egressReply.status >= 200 && egressReply.status < 300;
+    if (!egress) note(`opening the self-deleting VM's egress answered ${egressReply.status} (${egressReply.text.slice(0, 160)})`);
     const keyFile = "/tmp/cmux-lifecycle-agent-key";
     // The key is short-lived (30 min) and revoked below; it goes in as an exec body, never printed.
     if (!/^[A-Za-z0-9_.-]+$/.test(agentKey)) throw new Error("agent key has unexpected characters");
