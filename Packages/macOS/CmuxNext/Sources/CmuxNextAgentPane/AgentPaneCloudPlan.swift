@@ -16,11 +16,11 @@ extension AgentPaneCloudStart {
     }
 
     /// This start with the size its GitHub repository needs, from the size the repos list gave it (`size_kb`,
-    /// ``AgentPaneGitHubRepoSizes``); `sm` when the list named none. A repository past the largest chat size is
-    /// `cloud_folder_too_big`. A start that names no repository is unchanged.
-    @MainActor public func sizedForRepository() throws -> Self {
+    /// `sizes`, the App's ``AgentPaneGitHub/sizes``); `sm` when the list named none (or there is no list). A repository
+    /// past the largest chat size is `cloud_folder_too_big`. A start that names no repository is unchanged.
+    @MainActor public func sizedForRepository(_ sizes: AgentPaneGitHubRepoSizes?) throws -> Self {
         guard let repository else { return self }
-        let sizeKb = AgentPaneGitHubRepoSizes.sizeKb(of: repository)
+        let sizeKb = sizes?.sizeKb(of: repository)
         var sized = self
         sized.folderBytes = sizeKb.flatMap { kb in
             let bytes = Int64(max(kb, 0)).multipliedReportingOverflow(by: 1024)
@@ -36,18 +36,21 @@ extension AgentPaneCloudStart {
 }
 
 /// The sizes the GitHub repos list gave (`github.repos.list`'s rows, `size_kb`), by `owner/name`: a start in a picked
-/// repository reads its size here. Bounded: a list past ``limit`` names starts over.
-@MainActor public enum AgentPaneGitHubRepoSizes {
+/// repository reads its size here. Bounded: a list past ``limit`` names starts over. The App's ``AgentPaneGitHub`` owns
+/// one (``AgentPaneGitHub/sizes``), shared by every pane's copy; a test makes its own.
+@MainActor public final class AgentPaneGitHubRepoSizes {
     static let limit = 5_000
-    private static var sizes: [String: Int] = [:]
+    private var sizes: [String: Int] = [:]
 
-    static func note(_ repos: [CloudGitHubRepos.Repo]) {
+    public init() {}
+
+    func note(_ repos: [CloudGitHubRepos.Repo]) {
         if sizes.count + repos.count > limit { sizes.removeAll() }
         for repo in repos { sizes[repo.fullName.lowercased()] = repo.sizeKb }
     }
 
     /// The size the list gave `repository` (`owner/name`), in GitHub's KB; nil when it gave none.
-    public static func sizeKb(of repository: String) -> Int? { sizes[repository.lowercased()] }
+    public func sizeKb(of repository: String) -> Int? { sizes[repository.lowercased()] }
 }
 
 extension AgentPaneCloudMachines {
@@ -78,27 +81,29 @@ extension AgentPaneCloudMachines {
                       maxSize: state == .active ? reply?["max_size"]?.stringValue.flatMap(CloudChatSize.init(rawValue:)) : nil)
         }
 
-        /// The plan of `account` (its user and team), from `get` (`cloud.plan.get`) at most once per `age`: an
-        /// open picker reads the list every few seconds. A failed read is `unknown` and is not kept.
-        public static func read(account: [String?]?, age: Duration = .seconds(60), now: ContinuousClock.Instant = .now,
-                                _ get: () async throws -> JSONValue) async -> Plan {
-            guard let account else { return .unknown }
-            if let kept = PlanReads.kept, kept.account == account, now - kept.at < age { return kept.plan }
-            guard let reply = try? await get() else { return .unknown }
-            let plan = Plan(planGet: reply)
-            PlanReads.kept = (account, plan, now)
-            return plan
-        }
-
         var reply: [String: Any] {
             ["state": state.rawValue, "id": id.map { $0 as Any } ?? NSNull(), "max_size": maxSize.map { $0.rawValue as Any } ?? NSNull()]
         }
     }
 }
 
-/// The last plan read (``AgentPaneCloudMachines/Plan/read(account:age:now:_:)``), for one account at a time.
-private enum PlanReads {
-    static var kept: (account: [String?], plan: AgentPaneCloudMachines.Plan, at: ContinuousClock.Instant)?
+/// The last plan read, for one account at a time: kept by the App-wide ``AgentPaneCloudMachines``.
+@MainActor public final class AgentPaneCloudPlanReads {
+    private var kept: (account: [String?], plan: AgentPaneCloudMachines.Plan, at: ContinuousClock.Instant)?
+
+    public init() {}
+
+    /// The plan of `account` (its user and team), from `get` (`cloud.plan.get`) at most once per `age`: an
+    /// open picker reads the list every few seconds. A failed read is `unknown` and is not kept.
+    public func read(account: [String?]?, age: Duration = .seconds(60), now: ContinuousClock.Instant = .now,
+                     _ get: () async throws -> JSONValue) async -> AgentPaneCloudMachines.Plan {
+        guard let account else { return .unknown }
+        if let kept, kept.account == account, now - kept.at < age { return kept.plan }
+        guard let reply = try? await get() else { return .unknown }
+        let plan = AgentPaneCloudMachines.Plan(planGet: reply)
+        kept = (account, plan, now)
+        return plan
+    }
 }
 
 /// The start card's plan refusals (webviews CloudStartView.tsx).

@@ -62,7 +62,7 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .repos(let query):
             switch await gitHub.repos(query) {
             case .success(let listed):
-                AgentPaneGitHubRepoSizes.note(listed.repos)
+                gitHub.sizes.note(listed.repos)
                 let repos: [[String: Any]] = listed.repos.map { repo in
                     ["full_name": repo.fullName, "private": repo.isPrivate, "default_branch": repo.defaultBranch.map { $0 as Any } ?? NSNull(),
                      "size_kb": repo.sizeKb.map { $0 as Any } ?? NSNull()]
@@ -84,11 +84,14 @@ public struct AgentPaneGitHub {
     public var status: @MainActor () async -> (state: String, reposScope: String?)
     public var connect: @MainActor () async -> AgentPaneGitHubConnect
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
+    /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
+    public let sizes: AgentPaneGitHubRepoSizes
 
     public init(status: @escaping @MainActor () async -> (state: String, reposScope: String?),
                 connect: @escaping @MainActor () async -> AgentPaneGitHubConnect,
-                repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>) {
-        (self.status, self.connect, self.repos) = (status, connect, repos)
+                repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes()) {
+        (self.status, self.connect, self.repos, self.sizes) = (status, connect, repos, sizes)
     }
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, and `open`

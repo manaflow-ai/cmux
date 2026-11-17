@@ -262,7 +262,7 @@ struct CloudStartChat {
     /// A chat with no project: nothing is read or copied; the account is checked again as above.
     private func runHome(_ start: AgentPaneCloudStart, from origin: Origin, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
         let tab = origin.tab
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), account = origin.account, start = try start.sizedForRepository() // its size from the repos list
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), account = origin.account, start = try start.sizedForRepository(services.agentTabs.pageChats.gitHub?.sizes) // its size from the repos list
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)

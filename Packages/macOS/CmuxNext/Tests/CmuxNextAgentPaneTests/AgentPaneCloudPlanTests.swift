@@ -27,13 +27,13 @@ struct AgentPaneCloudPlanTests {
         // Read at most once per age for one account; a failed read is unknown and not kept; another account reads again.
         var reads = 0
         let get = { () async throws -> JSONValue in reads += 1; return .object(["plan_state": .string("active"), "plan_id": .string("pro"), "max_size": .string("lg")]) }
-        let start = ContinuousClock.now, me: [String?] = ["u-plan-\(UUID().uuidString)", nil]
-        #expect(await Plan.read(account: nil, now: start, get) == .unknown && reads == 0)
-        #expect(await Plan.read(account: me, now: start) { throw CancellationError() } == .unknown)
-        #expect(await Plan.read(account: me, now: start, get) == pro && reads == 1)
-        #expect(await Plan.read(account: me, now: start + .seconds(30), get) == pro && reads == 1)
-        #expect(await Plan.read(account: me, now: start + .seconds(61), get) == pro && reads == 2)
-        #expect(await Plan.read(account: ["someone-else", nil], now: start + .seconds(62), get) == pro && reads == 3)
+        let start = ContinuousClock.now, me: [String?] = ["u-plan", nil], planReads = AgentPaneCloudPlanReads()
+        #expect(await planReads.read(account: nil, now: start, get) == .unknown && reads == 0)
+        #expect(await planReads.read(account: me, now: start) { throw CancellationError() } == .unknown)
+        #expect(await planReads.read(account: me, now: start, get) == pro && reads == 1)
+        #expect(await planReads.read(account: me, now: start + .seconds(30), get) == pro && reads == 1)
+        #expect(await planReads.read(account: me, now: start + .seconds(61), get) == pro && reads == 2)
+        #expect(await planReads.read(account: ["someone-else", nil], now: start + .seconds(62), get) == pro && reads == 3)
 
         let machines = AgentPaneCloudMachines()
         machines.list = { .init(signedIn: true, loaded: true, machines: [], plan: pro) }
@@ -80,15 +80,16 @@ struct AgentPaneCloudPlanTests {
     }
 
     @Test func aRepositoryStartIsSizedFromTheReposList() throws {
-        AgentPaneGitHubRepoSizes.note([.init(fullName: "acme/Big", isPrivate: true, defaultBranch: nil, sizeKb: 10 * 1_048_576),
-                                       .init(fullName: "acme/small", isPrivate: true, defaultBranch: nil)])
+        let sizes = AgentPaneGitHubRepoSizes()
+        sizes.note([.init(fullName: "acme/Big", isPrivate: true, defaultBranch: nil, sizeKb: 10 * 1_048_576),
+                    .init(fullName: "acme/small", isPrivate: true, defaultBranch: nil)])
         var start = AgentPaneCloudStart(task: "t", cwd: nil, key: UUID().uuidString)
         start.repository = "acme/big"
-        let big = try start.sizedForRepository()
+        let big = try start.sizedForRepository(sizes)
         #expect(big.size == .md && big.folderBytes == 10 * 1_073_741_824)
         start.repository = "acme/small"
-        #expect(try start.sizedForRepository().size == .sm)
+        #expect(try start.sizedForRepository(sizes).size == .sm)
         start.repository = nil
-        #expect(try start.sizedForRepository() == start)
+        #expect(try start.sizedForRepository(sizes) == start)
     }
 }

@@ -246,6 +246,8 @@ public final class AgentPaneCloudMachines {
     public var prewarm: (@MainActor (String) async -> Bool)?
     /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
     public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+    /// The account's last Cloud plan read (``Plan``), reused for a minute: the list's `plan`.
+    public let planReads = AgentPaneCloudPlanReads()
 
     /// How old the account's team list may be when a picker reads the machines. The App read it only
     /// at sign-in and restore, so a team the account was removed from elsewhere stayed on the Cloud
