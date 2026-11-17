@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44005822759",
+  "recorded_at": "2026-11-17T02:52:36Z",
+  "reason": "cmux-tui 18cea5d15ae6 changes the image's cmux-tui (pinned d5be932e7dc1)",
+  "dry_run": false,
+  "cmux_tui": "18cea5d15ae6a59b90481f000d20cf32fdba362f",
+  "fixes": [
+    {
+      "sha": "28891655535c8b8534d3bee1ee9ac56d28d295da",
+      "mergedAt": "2026-11-16T18:38:52-08:00",
+      "subject": "perf(launch): launch-times records prior_chat_painted_ms and prior_chat_live_ms (CMUX-119) (#44892)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-17T02:52:36Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
