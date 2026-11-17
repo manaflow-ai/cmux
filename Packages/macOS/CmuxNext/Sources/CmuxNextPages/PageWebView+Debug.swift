@@ -372,6 +372,18 @@ extension PageWebView {
         return await send("mouseReleased", to, buttons: 0)
     }
 
+    /// The point (CSS pixels) a `press` or `drag` names: the numbers under `xKey` and `yKey`, else the
+    /// center of the first element matching the selector under `selectorKey`, scrolled into view and
+    /// hovered (``debugHover(_:)``). A capture step can then press or drag an element by selector, with
+    /// no coordinates read off an earlier run. Empty when neither gives a point. DEBUG verb only.
+    public func debugPoint(_ params: [String: JSONValue], x xKey: String, y yKey: String, selector selectorKey: String) async -> [Double] {
+        let numbers = [xKey, yKey].compactMap { params[$0]?.doubleValue }
+        if numbers.count == 2 { return numbers }
+        guard let selector = params[selectorKey]?.stringValue, case .object(let hover) = await debugHover(selector),
+              case .number(let x)? = hover["x"], case .number(let y)? = hover["y"] else { return [] }
+        return [x, y]
+    }
+
     /// An HTML5 drag and drop from `from` to `to` (CSS pixels) on a Chromium page, run the way a
     /// person's drag runs: a trusted press, then `steps` moves with the button held, so the page's own
     /// `dragstart` fills the drag data. DevTools takes over the drag before macOS starts a drag

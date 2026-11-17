@@ -24,7 +24,7 @@ import Foundation
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector
-//   (`click`, `drag` (`html5: true`: an HTML5 drag and drop), `press`: an error when the input did not happen);
+//   (`click`, `drag` (`html5: true`: HTML5 drag and drop; `from`/`to` selectors), `press` (or `selector`): an error when the input did not happen);
 // - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
 //   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
 //   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
@@ -95,13 +95,13 @@ enum DebugPages {
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true, contextMenu: params["context_menu"]?.boolValue == true) ? ["clicked": .bool(true)] : ["error": .string("no element matches \(selector)")]
         case "drag":
-            let n = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }, steps = params["steps"]?.intValue ?? 16
-            guard n.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
+            let n = await page.debugPoint(params, x: "x1", y: "y1", selector: "from") + page.debugPoint(params, x: "x2", y: "y2", selector: "to"), steps = params["steps"]?.intValue ?? 16
+            guard n.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) or from, to (selectors) are required"] }
             if params["html5"]?.boolValue == true { return await page.debugDragAndDrop(from: CGPoint(x: n[0], y: n[1]), to: CGPoint(x: n[2], y: n[3]), steps: steps) }
             return await page.debugDrag(from: CGPoint(x: n[0], y: n[1]), to: CGPoint(x: n[2], y: n[3]), steps: steps) ? ["dragged": .bool(true)] : ["error": "the drag did not reach the page: it shows in WebKit, or DevTools refused an event"]
         case "press":
-            let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
-            guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
+            let numbers = await page.debugPoint(params, x: "x", y: "y", selector: "selector")
+            guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) or a selector are required"] }
             return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
         case "paste": return await page.debugPaste()
         case "hover":
