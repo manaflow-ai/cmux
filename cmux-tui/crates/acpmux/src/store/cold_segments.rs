@@ -133,6 +133,23 @@ pub(crate) fn read_index(session: &Path, index: u32) -> Result<Index> {
         path.display(),
         doc.schema
     );
+    // Its chunks cover the segment from 0 to its raw length, in order, with no gap or overlap:
+    // a gap would read as the segment's end, history gone with no error (#43562 review F4).
+    let mut next = 0u64;
+    for chunk in &doc.chunks {
+        anyhow::ensure!(
+            chunk[0] == next && chunk[1] > 0,
+            "the index of cold segment {} does not cover byte {next}",
+            path.display()
+        );
+        next = chunk[0].saturating_add(chunk[1]);
+    }
+    anyhow::ensure!(
+        next == doc.raw_len,
+        "the index of cold segment {} covers {next} of {} bytes",
+        path.display(),
+        doc.raw_len
+    );
     Ok(doc)
 }
 
@@ -329,7 +346,10 @@ fn decode_chunk(file: &mut File, chunk: &[u64; 5]) -> std::io::Result<Vec<u8>> {
     let mut comp = vec![0u8; comp_len as usize];
     file.seek(SeekFrom::Start(comp_off))?;
     file.read_exact(&mut comp)?;
-    let raw = zstd::stream::decode_all(comp.as_slice())?;
+    // Decoded no further than the index's length and one byte, so a frame that expands past it
+    // is an error, never a buffer of its size (#43562 review F5).
+    let mut raw = Vec::with_capacity(raw_len as usize);
+    zstd::stream::Decoder::new(comp.as_slice())?.take(raw_len + 1).read_to_end(&mut raw)?;
     if raw.len() as u64 != raw_len {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,

@@ -214,6 +214,11 @@ impl LocalStore {
             CompactMode::Write { archive } => (true, archive, None),
             CompactMode::Truncate { after } => (true, None, Some(after)),
         };
+        let cold: Vec<u32> = segments
+            .iter()
+            .filter(|(_, path)| super::cold_segments::is_cold(path))
+            .map(|(index, _)| *index)
+            .collect();
         let segments = hot_segments(segments, cut)?;
         if segments.is_empty() {
             return Ok(None);
@@ -221,10 +226,18 @@ impl LocalStore {
         let archive = match archive {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
-                let meta = self.dir(id).join("session.json");
+                let session = self.dir(id);
+                let meta = session.join("session.json");
                 if crate::home_fs::try_exists_nofollow(&meta)? {
                     // A copy: the chat's own file may be written again in place.
                     kept.keep(&meta, false, true)?;
+                }
+                // A cold segment is not rewritten, but the archive the person asked for holds the
+                // chat's whole history: each cold segment's archive and index as the chat holds
+                // them (`store/cold_segments.rs`), lossless (#43562 review P1-F1).
+                for index in cold {
+                    kept.keep(&super::cold_segments::zst_path(&session, index), true, false)?;
+                    kept.keep(&super::cold_segments::idx_path(&session, index), true, true)?;
                 }
                 Some(kept)
             }

@@ -331,6 +331,58 @@ fn a_page_back_while_segments_go_cold_reads_every_record() {
 
 /// Retention leaves a cold segment as it is (every byte, the same file), and a cut that would
 /// leave out a record of one is refused with the log unchanged.
+/// A retention pass asked to keep an archive keeps the chat's cold segments in it too, each
+/// archive and index byte for byte: the archive holds the whole history (#43562 review P1-F1).
+#[test]
+fn a_retention_archive_keeps_the_cold_segments() {
+    let (home, sessions, store) = chat(1500);
+    move_all(&store);
+    let session = sessions.join(ID);
+    let cold: Vec<u32> = names(&session.join(COLD_DIR))
+        .iter()
+        .filter_map(|n| n.strip_suffix(".zst")?.parse().ok())
+        .collect();
+    assert!(!cold.is_empty());
+    let root = home.path().join("kept");
+    let staged = store
+        .stage_compaction(ID, CompactMode::Write { archive: Some(&root) })
+        .unwrap()
+        .expect("a log");
+    assert!(store.commit_compaction(ID, staged).unwrap());
+    let pass = std::fs::read_dir(root.join(ID)).unwrap().next().unwrap().unwrap().path();
+    for index in cold {
+        for from in [zst_path(&session, index), idx_path(&session, index)] {
+            let kept = pass.join("events").join(from.file_name().unwrap());
+            assert_eq!(
+                std::fs::read(&kept).unwrap(),
+                std::fs::read(&from).unwrap(),
+                "{}",
+                kept.display()
+            );
+        }
+    }
+    assert_eq!(all(&store), expected(1500));
+}
+
+/// An index whose chunks leave a gap is damage read as an error, never history that ends early
+/// (#43562 review F4).
+#[test]
+fn an_index_with_a_gap_is_a_clear_error() {
+    let (_home, sessions, store) = chat(1200);
+    move_all(&store);
+    let idx = idx_path(&sessions.join(ID), 2);
+    let saved = std::fs::read(&idx).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    // Its one chunk now ends 4 KiB short of the segment: the rest is a gap.
+    let raw_len = doc["rawLen"].as_u64().unwrap();
+    doc["rawLen"] = serde_json::json!(raw_len + 4096);
+    std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
+    let error = store.scan(ID, 0, &mut |_| true).expect_err("a gapped index fails the read");
+    assert!(format!("{error:#}").contains("cover"), "{error:#}");
+    std::fs::write(&idx, &saved).unwrap();
+    assert_eq!(all(&store), expected(1200));
+}
+
 #[test]
 fn retention_leaves_cold_segments_and_a_cut_into_one_is_refused() {
     let (_home, sessions, store) = chat(1500);
