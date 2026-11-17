@@ -489,4 +489,19 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
         rx.try_iter().all(|e| e["event"] != "apps-provider-request"),
         "a cached read never reaches the Mac app"
     );
+
+    // EventKit says a calendar changed: the cache is dropped, so the next read reaches the Mac.
+    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "system_calendar").unwrap(), json!({}));
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, events.clone());
+    assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
 }
