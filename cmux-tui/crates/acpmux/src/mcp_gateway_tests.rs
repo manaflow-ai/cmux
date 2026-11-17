@@ -285,6 +285,7 @@ fn tools_launch(dir: &Path, specs: &[Value]) -> Launch {
 /// A daemon on `socket` that answers each connection's `initialize` with the caller it proved
 /// (the session its caller token names, as the daemon checks it) and any other request with
 /// `{"rules": [], "caller": ..., "token": ...}`: the session and token that connection said.
+#[cfg(unix)]
 fn fake_daemon(socket: &Path, scope: Arc<cmux_scope::Scope>) {
     let listener = tokio::net::UnixListener::bind(socket).expect("binds the fake daemon");
     let tasks = scope.clone();
@@ -400,6 +401,7 @@ async fn each_of_acpmux_s_own_servers_answers_at_the_tool_endpoint_as_its_own_pr
     assert!(names("chat-u").await > 2, "another chat's server is not narrowed by it");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_refused() {
     let home = tempfile::tempdir().unwrap();
