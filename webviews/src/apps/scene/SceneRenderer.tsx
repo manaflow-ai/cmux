@@ -14,7 +14,7 @@ import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { sceneColor, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -363,8 +363,10 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
   }
   if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
     style.width = style.height = Math.max(0, sceneNumber(props.size) ?? 16);
-    style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
+    style.backgroundImage = sceneGradient(props.fill);
+    style.backgroundColor = style.backgroundImage
+      ? undefined
+      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
     if (sceneColor(props.stroke)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
