@@ -139,6 +139,30 @@ import Testing
                 "AppKit reads the start of a sequence as \(read) s; the host's time since boot was \(hostSeconds) s")
     }
 
+    /// The entry that `debug.key` calls (``DebugKeySequence/Stamp/start(probe:read:)``), with this host's mach clock
+    /// and an injected read. With no probe the start is the host's nanoseconds since boot, between 2 reads of the same
+    /// clock. With a probe whose read takes 24,000,000 event ticks for a second, the start has that rate.
+    @Test func theStartFromAProbeIsTheHostsClockInTheUnitOfTheRead() throws {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let nanoseconds = { (ticks: UInt64) -> UInt64 in
+            UInt64(truncatingIfNeeded: timebase.denom)
+                .dividingFullWidth(ticks.multipliedFullWidth(by: UInt64(truncatingIfNeeded: timebase.numer))).quotient
+        }
+        let before = nanoseconds(mach_absolute_time())
+        let none = try #require(DebugKeySequence.Stamp.start(probe: nil) { _ in nil })
+        let after = nanoseconds(mach_absolute_time())
+        #expect(none.ticksPerSecond == 1e9)
+        #expect(before <= none.base && none.base <= after,
+                "the start with no probe has base \(none.base), want the host's nanoseconds between \(before) and \(after)")
+
+        let probe = try #require(CGEvent(keyboardEventSource: CGEventSource(stateID: .privateState), virtualKey: 0, keyDown: true))
+        let machTicks = try #require(DebugKeySequence.Stamp.start(probe: probe) { Double($0.timestamp) / 24_000_000 })
+        #expect(abs(machTicks.ticksPerSecond / 24_000_000 - 1) < 1e-6,
+                "the start has \(machTicks.ticksPerSecond) ticks in a second for a read that takes 24,000,000")
+        #expect(machTicks.base > 0)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func playerPostsEveryStepInOrderAtItsOffset() async throws {
         let sequence = try #require(DebugKeySequence(steps))
