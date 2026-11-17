@@ -85,7 +85,7 @@ fn the_app_environment_is_the_asked_allowlist_plus_home_and_port_only() {
     ];
     let env = spawn_env(&asked, Path::new("/var/lib/cmux-apps/1000/web/v1"), 41000);
     let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
-    assert_eq!(keys, ["HOME", "MODE", "PORT", "PATH", "TZ"]);
+    assert_eq!(keys, ["HOME", "MODE", "PATH", "PORT", "TZ"]);
     // Nothing of the agent's own environment comes along.
     let bare = spawn_env(&[], Path::new("/h"), 41000);
     assert_eq!(

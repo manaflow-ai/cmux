@@ -282,8 +282,8 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
     };
     version.pid = Some(started.pid);
     version.start_time = Some(started.start_time);
-    version.run_dir = Some(started.run_dir.clone());
-    version.run_as = Some(started.user.clone());
+    version.run_dir = Some(started.run_dir);
+    version.run_as = Some(started.user);
     record(&mut app, &version)?;
 
     // 5. Probe; a setup's time counts toward it.
