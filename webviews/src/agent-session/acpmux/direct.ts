@@ -10069,6 +10069,15 @@ export class AcpmuxDirectClient {
         // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
         // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
         if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
+        // What the agent writes once it read the steer answers it, below the steer: a reply held
+        // open past it (`holdAssistantSegment`) ends here, even when its chunks carry no message id
+        // or the same one, which would run the answer on in the row above the steer (Leo,
+        // 2026-11-17: "and the message you sent after my steer... shot up. instead of landing after
+        // my steer prompt"). The words before the read stay in their row above.
+        if (this.assistantCut) {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+        }
       } else if (event.kind === "steer_withdrawn") {
         // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
         // text went back to the composer that took it.
@@ -14880,6 +14889,13 @@ export class AcpmuxDirectClient {
         models: models.get(profile.id) ?? profile.models,
       })),
     ];
+  }
+  /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
+  /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer
+  /// checks the agent a new chat there will start with (machineHarnesses.ts); a refusal or a timeout
+  /// rejects, which holds nothing.
+  peerHarnesses(peer: string): Promise<unknown> {
+    return this.request("_acpmux/harnesses", { _meta: { acpmux: { peer } } });
   }
   /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
   /// machine that connected or dropped since shows as it is now. Local/app peer events keep the
