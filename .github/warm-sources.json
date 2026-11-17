@@ -41,6 +41,7 @@
     "ci-web.yml:react-apps-base-early": {"class": "webview", "warm": ["actions-cache"]},
     "cmux-next-web.yml:web-bisect": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:react-apps-check-shard": {"class": "webview", "warm": ["actions-cache"]},
+    "ci-web.yml:web-bundles": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-db-migrations": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-instant-navigation": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-typecheck": {"class": "webview", "warm": ["actions-cache"]},

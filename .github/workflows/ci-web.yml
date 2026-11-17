@@ -351,12 +351,103 @@ jobs:
           CMUX_INSTANT_SKIP_TYPECHECK: "1"
         run: bun run test:instant
 
+  # The head's web bundles, built once per run and handed to every react-apps-check shard. Each of the 12 shards
+  # built them itself before: "Build the web bundles" p50 49 s and "Verify webviews source checks" about 15 s a
+  # shard, 127 shard builds a day on pull requests alone (controller records 2026-11-16/17), the same bytes 12 times.
+  # This job runs both steps once, records each outcome, and uploads every file they wrote outside node_modules
+  # (the bundles, the strings tables gen-strings.mjs writes, the stamp) as a same-run artifact. A shard copies it
+  # in, runs bun install, and its two steps of the same names report this job's outcomes, so a red source check or
+  # bundle build still fails every shard that runs, as before. A shard that gets no handoff (this job failed,
+  # was skipped, or its upload or the download failed) builds the bundles itself, as before.
+  # Same-run handoff on an Actions artifact (retention-days: 1): this workflow has no fleet identity for the R2
+  # capture stage. The shards' runner order: the owned runner, then 16 vCPU (never 32: a build, not the suite).
+  web-bundles:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || (github.event_name == 'push' || github.event_name == 'pull_request') && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    timeout-minutes: 15
+    outputs:
+      source_build: ${{ steps.source-build.outcome }}
+      bundles: ${{ steps.bundles.outcome }}
+      # 'true' when the shards can take the handoff; anything else and each shard builds the bundles itself.
+      handoff: ${{ steps.handoff-upload.outcome == 'success' && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # The two steps each shard ran (react-apps-check-shard reports their outcomes). Both keep going on a red,
+      # so the second runs after a red first and the shards get both verdicts.
+      - name: Verify webviews source checks
+        id: source-build
+        continue-on-error: true
+        run: ./scripts/build-webviews-app.sh --check --skip-typecheck
+
+      - name: Build the web bundles
+        id: bundles
+        continue-on-error: true
+        run: ./scripts/cmux-next/build-web-bundles.sh --force
+
+      # Every untracked or ignored path the steps above wrote (a fresh checkout has none), node_modules aside:
+      # the shard installs its own from the lockfile. --directory names a wholly new directory once. The commit
+      # rides along, and a shard of another commit (it cannot happen in one run) builds its own.
+      - name: Collect the web bundles
+        id: handoff-collect
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          stage="$RUNNER_TEMP/web-bundles-handoff"
+          rm -rf "$stage"
+          mkdir -p "$stage/files"
+          git ls-files -z --others --directory --no-empty-directory | grep -zEv '(^|/)node_modules(/|$)' > "$RUNNER_TEMP/web-bundles-handoff.list"
+          tr '\0' '\n' < "$RUNNER_TEMP/web-bundles-handoff.list"
+          [ -s "$RUNNER_TEMP/web-bundles-handoff.list" ] || { echo "the build wrote nothing"; exit 1; }
+          tar --null -T "$RUNNER_TEMP/web-bundles-handoff.list" -cf - | tar -xf - -C "$stage/files"
+          git rev-parse HEAD > "$stage/commit"
+          echo "handing $(find "$stage/files" -type f | wc -l) files ($(du -sh "$stage/files" | cut -f1)) to the shards"
+
+      - name: Upload the web bundles
+        id: handoff-upload
+        if: ${{ !cancelled() && steps.handoff-collect.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-bundles-handoff
+          # A re-run of this job uploads it again; the run's attempts share artifact names.
+          overwrite: true
+          path: ${{ runner.temp }}/web-bundles-handoff/
+          # The stamp (.web-bundles.key) is a dot file.
+          include-hidden-files: true
+          if-no-files-found: error
+          # A same-run handoff to the shards.
+          retention-days: 1
+
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
 
   react-apps-check-shard:
-    needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    needs: [web-subarea-scope, web-bundles]
+    # !cancelled(): a failed or skipped web-bundles leaves each shard building the bundles itself, as before.
+    if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.result == 'success' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -473,24 +564,67 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # The web bundles are build output (cx-vn5): this builds them into the
-      # gitignored resource paths that the budget, React Compiler and webviews
-      # tests below read. Typecheck runs once in the dedicated step below.
+      # The web bundles are build output (cx-vn5): web-bundles builds them once for the run into the
+      # gitignored resource paths that the budget, React Compiler and webviews tests below read, and this shard
+      # copies them in. Typecheck runs once in the dedicated step below.
       # Every step from here to the tests records its outcome and keeps going;
       # the last step fails the job on any of them. One red never hides another:
       # #23763 (2026-10-21) merged its own TS2339 because a base red in the bundle
       # build skipped the type check and the tests after it.
+      - name: Download the web bundles
+        id: handoff-download
+        if: ${{ env.SHARD_IDLE != 'true' && needs.web-bundles.outputs.handoff == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: web-bundles-handoff
+          path: ${{ runner.temp }}/web-bundles-handoff
+
+      # The handoff's files over the checkout, then the dependencies the build installed there (the lockfile's,
+      # from the package cache). A handoff of another commit, or one that does not install, is not used.
+      - name: Install the web bundles
+        id: handoff
+        if: ${{ env.SHARD_IDLE != 'true' && steps.handoff-download.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          stage="$RUNNER_TEMP/web-bundles-handoff"
+          [ "$(cat "$stage/commit")" = "$(git rev-parse HEAD)" ] || { echo "the handoff is of $(cat "$stage/commit"), not $(git rev-parse HEAD)"; exit 1; }
+          cp -R "$stage/files/." .
+          echo "installed $(find "$stage/files" -type f | wc -l) files from web-bundles"
+          cd webviews && bun install --frozen-lockfile
+
+      # With the handoff installed, each of these two steps reports web-bundles' outcome of the same step;
+      # without it (no handoff, or it did not install), the shard runs the step itself, as before.
       - name: Verify webviews source checks
         if: ${{ env.SHARD_IDLE != 'true' }}
         id: source-build
         continue-on-error: true
-        run: ./scripts/build-webviews-app.sh --check --skip-typecheck
+        env:
+          HANDOFF: ${{ steps.handoff.outcome }}
+          BUILT: ${{ needs.web-bundles.outputs.source_build }}
+        run: |
+          if [ "$HANDOFF" = success ]; then
+            echo "web-bundles ran this step once for the run: $BUILT (its log has the output)"
+            [ "$BUILT" = success ]
+          else
+            ./scripts/build-webviews-app.sh --check --skip-typecheck
+          fi
 
       - name: Build the web bundles
         if: ${{ env.SHARD_IDLE != 'true' }}
         id: bundles
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        env:
+          HANDOFF: ${{ steps.handoff.outcome }}
+          BUILT: ${{ needs.web-bundles.outputs.bundles }}
+        run: |
+          if [ "$HANDOFF" = success ]; then
+            echo "web-bundles built the bundles once for the run: $BUILT (its log has the output)"
+            [ "$BUILT" = success ]
+          else
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -714,6 +848,9 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          # Warn-only: without the handoff the shard built the bundles itself.
+          HANDOFF_DOWNLOAD: ${{ steps.handoff-download.outcome }}
+          HANDOFF: ${{ steps.handoff.outcome }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
@@ -723,6 +860,9 @@ jobs:
           STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
+          if [ "$HANDOFF_DOWNLOAD" = failure ] || [ "$HANDOFF" = failure ]; then
+            echo "::warning::The web-bundles handoff did not install; this shard built the web bundles itself."
+          fi
           if [ "$DURATIONS_UPLOAD" = failure ]; then
             echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
           fi

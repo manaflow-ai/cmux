@@ -1125,6 +1125,97 @@ class ShardHelper(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_web_bundles_build_once_and_every_shard_reports_their_outcomes(self):
+        """web-bundles runs the source check and the bundle build once per run; each shard installs the handoff
+        and its two steps of the same names report web-bundles' outcomes, so a red still fails every shard. With
+        no handoff a shard builds them itself, as before."""
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        build = jobs["web-bundles"]
+        steps = {s["name"]: s for s in build["steps"]}
+        self.assertEqual(build["needs"], "web-subarea-scope")
+        self.assertNotIn("32vcpu", build["runs-on"])
+        self.assertNotIn("linux_32", build["runs-on"])
+        self.assertEqual(steps["Verify webviews source checks"]["run"], "./scripts/build-webviews-app.sh --check --skip-typecheck")
+        self.assertEqual(steps["Build the web bundles"]["run"], "./scripts/cmux-next/build-web-bundles.sh --force")
+        for name in ("Verify webviews source checks", "Build the web bundles"):
+            self.assertIs(steps[name]["continue-on-error"], True)  # the second runs after a red first
+        self.assertEqual(build["outputs"]["source_build"], "${{ steps.source-build.outcome }}")
+        self.assertEqual(build["outputs"]["bundles"], "${{ steps.bundles.outcome }}")
+        upload = steps["Upload the web bundles"]["with"]
+        self.assertEqual((upload["name"], upload["retention-days"], upload["include-hidden-files"]),
+                         ("web-bundles-handoff", 1, True))
+
+        shard = jobs["react-apps-check-shard"]
+        self.assertEqual(shard["needs"], ["web-subarea-scope", "web-bundles"])
+        self.assertTrue(shard["if"].startswith("${{ !cancelled() && "), shard["if"])
+        self.assertIn("needs.web-subarea-scope.result == 'success'", shard["if"])
+        names = [s["name"] for s in shard["steps"]]
+        self.assertLess(names.index("Download the web bundles"), names.index("Install the web bundles"))
+        self.assertLess(names.index("Install the web bundles"), names.index("Verify webviews source checks"))
+        by = {s["name"]: s for s in shard["steps"]}
+        self.assertEqual(by["Download the web bundles"]["with"]["name"], "web-bundles-handoff")
+        for name, output, own in (("Verify webviews source checks", "source_build",
+                                   "./scripts/build-webviews-app.sh --check --skip-typecheck"),
+                                  ("Build the web bundles", "bundles", "./scripts/cmux-next/build-web-bundles.sh --force")):
+            step = by[name]
+            self.assertEqual(step["env"]["BUILT"], f"${{{{ needs.web-bundles.outputs.{output} }}}}")
+            self.assertIn(own, step["run"])
+            for handoff, built, code in (("success", "success", 0), ("success", "failure", 1)):
+                with self.subTest(step=name, handoff=handoff, built=built):
+                    run = subprocess.run(["bash", "-c", step["run"]], env={**os.environ, "HANDOFF": handoff, "BUILT": built},
+                                         capture_output=True, text=True)
+                    self.assertEqual(run.returncode, code, run.stdout + run.stderr)
+
+    def test_the_web_bundles_handoff_carries_what_the_build_wrote_but_node_modules(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        collect = {s["name"]: s for s in jobs["web-bundles"]["steps"]}["Collect the web bundles"]["run"]
+        install = {s["name"]: s for s in jobs["react-apps-check-shard"]["steps"]}["Install the web bundles"]["run"]
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        repo = temp / "repo"
+        (repo / "webviews").mkdir(parents=True)
+        (repo / ".gitignore").write_text("node_modules/\n/.web-bundles.key\n/out/*\n!/out/GENERATED.md\n")
+        (repo / "out").mkdir()
+        (repo / "out/GENERATED.md").write_text("tracked\n")
+        (repo / "webviews/app.ts").write_text("tracked\n")
+        git = lambda *a, cwd=repo: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True)
+        git("init", "-q")
+        git("add", ".")
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        clone = temp / "clone"
+        git("clone", "-q", str(repo), str(clone), cwd=temp)
+        # What the build writes: bundles, a stamp, a generated table, and the installed dependencies.
+        (repo / "out/pages").mkdir()
+        (repo / "out/pages/main.js").write_text("bundle\n")
+        (repo / ".web-bundles.key").write_text("key\n")
+        (repo / "webviews/strings.gen.ts").write_text("table\n")
+        (repo / "webviews/node_modules/pkg").mkdir(parents=True)
+        (repo / "webviews/node_modules/pkg/index.js").write_text("dep\n")
+        runner_temp = temp / "runner"
+        runner_temp.mkdir()
+        env = {**os.environ, "RUNNER_TEMP": str(runner_temp)}
+        run = subprocess.run(["bash", "-e", "-c", collect], cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        stage = runner_temp / "web-bundles-handoff"
+        handed = sorted(str(p.relative_to(stage / "files")) for p in (stage / "files").rglob("*") if p.is_file())
+        self.assertEqual(handed, [".web-bundles.key", "out/pages/main.js", "webviews/strings.gen.ts"])
+        # The shard: the files over its checkout, then its own install (bun stubbed).
+        bin_dir = temp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "bun").write_text("#!/bin/sh\necho \"bun $*\" > installed\n")
+        (bin_dir / "bun").chmod(0o755)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+        run = subprocess.run(["bash", "-e", "-c", install], cwd=clone, env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual((clone / "out/pages/main.js").read_text(), "bundle\n")
+        self.assertEqual((clone / "out/GENERATED.md").read_text(), "tracked\n")
+        self.assertEqual((clone / "webviews/installed").read_text(), "bun install --frozen-lockfile\n")
+        # A handoff of another commit is not used.
+        (stage / "commit").write_text("0" * 40 + "\n")
+        run = subprocess.run(["bash", "-e", "-c", install], cwd=clone, env=env, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+
     def test_a_shard_past_the_picks_count_runs_no_step_and_passes(self):
         """web-subarea-scope picks the files once and sizes the shards; the rest skip every step on a hosted
         runner, so they pass without paying a 16 vCPU setup for no file."""
