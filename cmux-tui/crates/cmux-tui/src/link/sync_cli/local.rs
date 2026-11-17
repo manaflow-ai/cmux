@@ -218,6 +218,20 @@ pub(super) fn collect(
     rules: Rules,
     cap: Option<super::size_cap::Cap>,
 ) -> anyhow::Result<LocalSet> {
+    let (mut set, stopped) = listed(folder, rules, cap)?;
+    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past) {
+        first_pass(&mut set, stopped);
+    }
+    Ok(set)
+}
+
+/// [`collect`]'s listing alone, counted against `cap`, with no first pass taken from it, and
+/// whether it stopped at the cap's file limit or time bound ([`super::estimate`] reads both).
+pub(super) fn listed(
+    folder: &Path,
+    rules: Rules,
+    cap: Option<super::size_cap::Cap>,
+) -> anyhow::Result<(LocalSet, bool)> {
     let mut set = LocalSet::new(Skips::new(folder));
     set.cap = cap;
     let stopped = match list_into(&mut set, folder, rules) {
@@ -225,10 +239,7 @@ pub(super) fn collect(
         Err(error) if error.is::<super::size_cap::FileLimit>() => true,
         Err(error) => return Err(error),
     };
-    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past) {
-        first_pass(&mut set, stopped);
-    }
-    Ok(set)
+    Ok((set, stopped))
 }
 
 /// Whether `relative` is a repository's own state (`.git` or inside one, at any depth).

@@ -68,16 +68,17 @@ import Testing
             root.syncWithModel()
         }
 
-        /// Steps frames until the motion lands. Returns the catcher panel window changes (moves, parks, new panels)
-        /// made in each frame.
+        /// Steps frames until one asks for no more (`frame` runs after each). Returns the catcher panel window changes
+        /// (moves, parks, new panels) made in each frame.
         @discardableResult
-        func land() -> [Int] {
+        func land(each frame: () -> Void = {}) -> [Int] {
             var changes: [Int] = []
             var moving = true
             while moving, changes.count < 600 {
                 let before = catchers.panelUpdates + catchers.panelsMade
                 moving = root.advanceFrame(1.0 / 120)
                 changes.append(catchers.panelUpdates + catchers.panelsMade - before)
+                frame()
             }
             return changes
         }
@@ -88,8 +89,9 @@ import Testing
         CGRect(x: parent.minX - 100_000, y: parent.minY - 100_000, width: parent.width, height: parent.height)
     }
 
-    /// A zoom and an unzoom each show in one frame, and neither changes a catcher panel window, in its own turn or in
-    /// the frame that shows it.
+    /// A zoom and an unzoom each show in one frame, and neither changes a catcher panel window: not in its own turn, not
+    /// in the frame that shows it, and not in the frames of the dim around it (the dim comes over the other panes before
+    /// a zoom shows, and goes after an unzoom showed).
     @Test func aZoomAndAnUnzoomMoveNoCatcherPanelForAParkedPage() throws {
         let layout = Layout(pageFrame: Self.parked)
         defer { layout.close() }
@@ -98,18 +100,30 @@ import Testing
         try #require(layout.window.overlayLayer.catcherAreas.count >= 3, "the dividers have catcher areas: \(layout.window.overlayLayer.catcherAreas)")
         #expect(layout.catchers.framesInWindow.isEmpty,
                 "no page is over the window's content, yet dividers have catcher panels: \(layout.catchers.framesInWindow)")
+        let screen = try #require(layout.root.screenViews["s"])
+        // The four panes and their dividers at rest: what each frame shows is read against it.
+        let grid = PaneLayoutCommitTests.shown(screen)
 
-        // Each change is counted from before its own turn to the end of the frame that shows it.
+        // Each change is counted from before its own turn to the end of its last frame.
         var count = layout.catchers.panelUpdates + layout.catchers.panelsMade
         layout.show(.leaf("p1"), zoomed: true)
-        let zoomFrames = layout.land()
+        var zoomShown: [PaneLayoutCommitTests.Frame] = []
+        let zoomFrames = layout.land { zoomShown.append(PaneLayoutCommitTests.shown(screen)) }
         let zoom = layout.catchers.panelUpdates + layout.catchers.panelsMade - count
         count += zoom
         layout.show(Self.four, zoomed: false)
-        let unzoomFrames = layout.land()
+        var unzoomShown: [PaneLayoutCommitTests.Frame] = []
+        let unzoomFrames = layout.land { unzoomShown.append(PaneLayoutCommitTests.shown(screen)) }
         let unzoom = layout.catchers.panelUpdates + layout.catchers.panelsMade - count
-        #expect(zoomFrames.count == 1 && unzoomFrames.count == 1,
-                "a zoom or an unzoom did not show in one frame: \(zoomFrames.count), \(unzoomFrames.count) frames")
+        // The zoom shows in one frame, its last: each frame before it (the dim comes) keeps every pane and divider where
+        // it was. The unzoom shows in its first frame, and no pane moves in the frames its dim takes to go. Each is over
+        // in 40 frames.
+        #expect(zoomFrames.count <= 40 && zoomShown.dropLast().allSatisfy { PaneLayoutCommitTests.same($0, grid) },
+                "a zoom did not show in one frame: it took \(zoomFrames.count) frames, or a frame before its last one moved a pane or a divider")
+        #expect(zoomShown.last?.panes.count == 1 && zoomShown.last?.dividers.isEmpty == true,
+                "the last frame of the zoom does not show the zoomed pane alone: \(zoomShown.last?.panes ?? [:])")
+        #expect(unzoomFrames.count <= 40 && unzoomShown.allSatisfy { PaneLayoutCommitTests.same($0, grid) },
+                "an unzoom did not show in its first frame, or a pane moved after it: \(unzoomFrames.count) frames")
         #expect(zoom == 0, "the zoom changed \(zoom) catcher panel windows (in its frames: \(zoomFrames))")
         #expect(unzoom == 0, "the unzoom changed \(unzoom) catcher panel windows (in its frames: \(unzoomFrames))")
     }
