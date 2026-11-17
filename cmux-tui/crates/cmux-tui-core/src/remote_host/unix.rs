@@ -389,9 +389,29 @@ impl Inner {
             .stop_intent()
             .clear()
             .map_err(|error| format!("cannot clear cmux Remote's stop intent: {error}"))?;
-        let mut unavailable = lock(&this.unavailable);
-        if unavailable.as_deref() == Some(QUIT_REASON) {
-            *unavailable = None;
+        {
+            let mut unavailable = lock(&this.unavailable);
+            if unavailable.as_deref() == Some(QUIT_REASON) {
+                *unavailable = None;
+            }
+        }
+        // The host the person quit may still be ending its workers. It no longer counts as quit
+        // (so its exit restarts it if this start gives up), and this start waits for it to exit
+        // instead of answering from the host that is leaving.
+        let leaving = match &*lock(&this.state) {
+            State::Running(connection)
+                if connection.quit.load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                Some(Arc::clone(connection))
+            }
+            _ => None,
+        };
+        if let Some(connection) = leaving {
+            connection.quit.store(false, std::sync::atomic::Ordering::Relaxed);
+            if !connection.wait_closed(READY_TIMEOUT) {
+                return Err("cmux Remote is still quitting; it starts again once it exits".into());
+            }
+            Self::retire(this, &connection);
         }
         Ok(())
     }
@@ -675,17 +695,16 @@ impl Inner {
         }
     }
 
-    /// The host's connection ended (it exited, crashed or drained): forget it,
-    /// and start a new one after the backoff delay while one is wanted. A host
-    /// the person quit stays stopped until the next request or daemon start.
-    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+    /// Forgets the ended `connection` if it is still the installed one (its reader's `host_gone`,
+    /// or an explicit start that waited for it to exit); whether this call did.
+    fn retire(this: &Arc<Self>, connection: &Arc<Connection>) -> bool {
         // Fence the identity clear with the exact connection pointer. The
         // state and UUID transition are linearized together, so a replacement
         // host cannot be cleared by an old reader finishing late.
         {
             let mut state = lock(&this.state);
             if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
-                return;
+                return false;
             }
             *state = State::Idle;
             let mut current = lock(&this.screen_device_id);
@@ -699,13 +718,23 @@ impl Inner {
                 }
             }
         }
-        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
             && capture::may_remove_record(this, &connection.record)
         {
             let _ = std::fs::remove_file(paths.record());
         }
+        true
+    }
+
+    /// The host's connection ended (it exited, crashed or drained): forget it,
+    /// and start a new one after the backoff delay while one is wanted. A host
+    /// the person quit stays stopped until the next request or daemon start.
+    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+        if !Self::retire(this, connection) {
+            return;
+        }
+        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
         if connection.quit.load(std::sync::atomic::Ordering::Relaxed)
             || Self::quit_standing(this, connection.record.epoch())
         {
