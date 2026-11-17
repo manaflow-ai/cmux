@@ -430,7 +430,7 @@ struct AgentPaneMediaNoAutoActionTests {
 
         let clicked = await Self.ask(pane, "file.open", ["path": page.path, "where": "tab"], click: true)
         #expect(Self.errorCode(clicked) == nil, "\(clicked)")
-        #expect(pane.effects.seen == ["file \(page.resolvingSymlinksInPath().path)"])
+        #expect(pane.effects.seen == ["file \(AcpmuxPathPolicy.canonical(page.path) ?? page.path)"])
 
         for other in [drawing, feed] {
             let refused = await Self.ask(pane, "file.open", ["path": other.path, "where": "tab"], click: true)
