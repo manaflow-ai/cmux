@@ -102,10 +102,6 @@ const NEAR_GROWTH_PER_S: f64 = 1.15;
 const MAX_STEP_US: u64 = 200_000;
 /// Shortest time between two cuts.
 const MIN_DECREASE_INTERVAL_US: u64 = 200_000;
-/// Loss covered by Ultra's minimum parity before it becomes congestion evidence.
-const LOSS_CUT_THRESHOLD: f64 = 0.05;
-/// Loss must persist before it can cut a held rate.
-const LOSS_CUT_AFTER_US: u64 = 1_000_000;
 
 /// One send group: packets sent within [`GROUP_SPAN_US`].
 #[derive(Debug, Clone, Copy)]
@@ -325,7 +321,6 @@ pub struct CongestionController {
     last_feedback_us: Option<u64>,
     outage_active: bool,
     outage_resume: bool,
-    loss_over_since_us: Option<u64>,
     response_window_us: u64,
     next_decrease_us: u64,
     usage: Usage,
@@ -356,7 +351,6 @@ impl CongestionController {
             last_feedback_us: None,
             outage_active: false,
             outage_resume: false,
-            loss_over_since_us: None,
             response_window_us: MIN_DECREASE_INTERVAL_US,
             next_decrease_us: 0,
             usage: Usage::Normal,
@@ -414,25 +408,6 @@ impl CongestionController {
         }
         self.clamp();
         true
-    }
-
-    /// Applies a probe only when its delivered goodput was measured below the
-    /// loss threshold. A train with more loss is not a capacity measurement:
-    /// retry it later instead of treating a lossy burst as path capacity.
-    pub fn on_probe_goodput(
-        &mut self,
-        generation: u64,
-        capacity_bps: u64,
-        received_packets: usize,
-        sent_packets: usize,
-    ) -> bool {
-        if sent_packets == 0
-            || (sent_packets.saturating_sub(received_packets) as u128) * 100
-                > (sent_packets as u128) * 2
-        {
-            return false;
-        }
-        self.on_probe_capacity(generation, capacity_bps)
     }
 
     /// Total departure budget, including FEC, repairs and probes. Standard
@@ -577,7 +552,6 @@ impl CongestionController {
         self.last_feedback_us = None;
         self.outage_active = false;
         self.outage_resume = false;
-        self.loss_over_since_us = None;
         self.response_window_us = MIN_DECREASE_INTERVAL_US;
         self.next_decrease_us = 0;
         self.usage = Usage::Normal;
@@ -664,15 +638,6 @@ impl CongestionController {
         let feedback_gap =
             self.profile == EncodeProfile::Ultra && feedback_gap_us > self.outage_threshold_us();
         self.last_feedback_us = Some(now_us);
-        let sustained_loss = if loss.is_finite() && loss > LOSS_CUT_THRESHOLD {
-            let since = *self.loss_over_since_us.get_or_insert(now_us);
-            now_us.saturating_sub(since) >= LOSS_CUT_AFTER_US
-        } else if loss.is_finite() {
-            self.loss_over_since_us = None;
-            false
-        } else {
-            false
-        };
         if feedback_gap {
             self.outage_active = true;
         }
@@ -718,7 +683,6 @@ impl CongestionController {
         if receiver_burst {
             self.outage_active = false;
             self.outage_resume = true;
-            self.loss_over_since_us = None;
             self.groups = InterArrival::default();
             self.trend = Trendline::default();
             self.usage = Usage::Normal;
@@ -731,7 +695,6 @@ impl CongestionController {
             if !arrivals.is_empty() {
                 self.outage_active = false;
                 self.outage_resume = true;
-                self.loss_over_since_us = None;
                 self.groups = InterArrival::default();
                 self.trend = Trendline::default();
                 self.usage = Usage::Normal;
@@ -773,14 +736,14 @@ impl CongestionController {
             if loss.is_finite() {
                 self.ultra.loss = loss.clamp(0.0, 1.0);
             }
-            if has_samples || sustained_loss {
-                self.update_ultra(now_us, sustained_loss);
+            if has_samples {
+                self.update_ultra(now_us);
             }
             self.clamp();
             return;
         }
         let overuse = evidence && self.usage == Usage::Overuse;
-        if overuse || loss > 0.10 || sustained_loss {
+        if overuse || loss > 0.10 {
             self.decrease(now_us, overuse, loss);
         } else if evidence {
             match self.usage {
@@ -818,7 +781,7 @@ impl CongestionController {
                 }
             }
         }
-        if loss > LOSS_CUT_THRESHOLD {
+        if loss > 0.10 {
             // Combine both candidates against the original target, never apply a
             // second multiplicative cut to the delay reduction in the same report.
             target = target.min(before * (1.0 - 0.5 * loss.min(1.0)));
@@ -834,21 +797,18 @@ impl CongestionController {
         }
     }
 
-    fn update_ultra(&mut self, now_us: u64, sustained_loss: bool) {
-        if sustained_loss || self.ultra.standing_queue {
+    fn update_ultra(&mut self, now_us: u64) {
+        if self.ultra.standing_queue {
             self.usage = Usage::Overuse;
             if self.last_decrease_us.is_none() || now_us >= self.next_decrease_us {
                 let before = self.ultra.wire_bps;
-                // Sustained loss above the parity budget is congestion evidence.
-                // Prefer delivered goodput, and never let a low-rate encoder
-                // turn its own underfill into a capacity estimate.
+                // Queue evidence, never loss alone, permits this cut. A low-rate
+                // encoder does not turn its throughput into a capacity estimate.
                 let mut next = (before as f64 * BETA) as u64;
-                if let Some(acked) = self.acked_bps() {
-                    if sustained_loss {
-                        next = next.min((acked * BETA) as u64);
-                    } else if self.sent_bps(now_us).is_some_and(|sent| sent > 1.2 * acked) {
-                        next = next.min((acked * BETA) as u64);
-                    }
+                if let Some(acked) = self.acked_bps()
+                    && self.sent_bps(now_us).is_some_and(|sent| sent > 1.2 * acked)
+                {
+                    next = next.min((acked * BETA) as u64);
                 }
                 self.ultra.wire_bps = next.max(1);
                 self.last_decrease_us = Some(now_us);
@@ -945,35 +905,5 @@ mod tests {
         assert_eq!(cc.wire_budget_bps(), held, "outage burst must not cut the held rate");
         assert!(cc.take_outage_resume());
         assert!(!cc.take_outage_resume(), "resume notification is one-shot");
-    }
-
-    #[test]
-    fn sustained_loss_cuts_ultra_to_delivered_goodput_after_one_second() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.set_profile(EncodeProfile::Ultra);
-        assert!(cc.on_probe_capacity(cc.probe_generation(), 100_000_000));
-        let before = cc.wire_budget_bps();
-        for i in 0..=12u16 {
-            let sent_us = u64::from(i) * 100_000;
-            cc.on_sent_bytes(i, sent_us, 1_200);
-            cc.on_feedback(
-                &[Arrival { transport_seq: i, arrival_us: (sent_us + 10_000) as u32 }],
-                0.30,
-                sent_us + 10_000,
-            );
-        }
-        assert!(cc.wire_budget_bps() < before, "sustained loss must cut Ultra");
-        assert!(cc.wire_budget_bps() <= before * 85 / 100);
-    }
-
-    #[test]
-    fn lossy_probe_does_not_replace_the_held_goodput_measurement() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.set_profile(EncodeProfile::Ultra);
-        let generation = cc.probe_generation();
-        assert!(!cc.on_probe_goodput(generation, 100_000_000, 15, 16));
-        assert_eq!(cc.wire_budget_bps(), CcConfig::default().start_bps);
-        assert!(cc.on_probe_goodput(generation, 100_000_000, 16, 16));
-        assert_eq!(cc.wire_budget_bps(), 80_000_000);
     }
 }

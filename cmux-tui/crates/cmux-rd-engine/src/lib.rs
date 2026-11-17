@@ -797,12 +797,7 @@ impl MediaEngine {
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         if let Some(estimate) = self.probe_planner.on_feedback(now_us, &fb.arrivals)
             && self.probe_generation.is_some_and(|generation| {
-                self.cc.on_probe_goodput(
-                    generation,
-                    estimate.capacity_bps,
-                    estimate.received_packets,
-                    estimate.sent_packets,
-                )
+                self.cc.on_probe_capacity(generation, estimate.capacity_bps)
             })
         {
             self.last_probe_start_us = Some(now_us);

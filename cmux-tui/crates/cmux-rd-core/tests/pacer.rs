@@ -86,12 +86,11 @@ fn strict_zero_and_tiny_rates_are_bounded() {
 }
 
 #[test]
-fn strict_control_queue_is_bounded_and_uses_the_wire_budget() {
-    let mut pacer = Pacer::strict(StrictWireBudget::with_limits(480_000, 1_000, 2_000, 100));
+fn strict_control_queue_is_bounded_and_bypasses_media_budget() {
+    let mut pacer = Pacer::strict(StrictWireBudget::with_limits(0, 1_000, 2_000, 100));
     assert!(pacer.enqueue_control(vec![7; 60], 50, 0));
     assert!(!pacer.enqueue_control(vec![8; 60], 51, 0));
-    assert!(pacer.due_with_metadata(0).is_empty(), "the pin has no initial credit");
-    let controls = pacer.due_with_metadata(1_000);
+    let controls = pacer.due_with_metadata(0);
     assert_eq!(controls.len(), 1);
     assert_eq!(controls[0].class, DatagramClass::Control);
     assert_eq!(controls[0].departure_id, 50);

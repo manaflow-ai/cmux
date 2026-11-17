@@ -283,8 +283,7 @@ impl Pacer {
     }
 
     /// Queues a handshake, input, or acknowledgement datagram. Strict mode
-    /// keeps these in a separate bounded queue and prioritizes them while
-    /// charging their bytes to the same total-wire budget.
+    /// keeps these in a separate bounded queue and releases them before media.
     pub fn enqueue_control(
         &mut self,
         datagram: Vec<u8>,
@@ -304,13 +303,8 @@ impl Pacer {
                 departure_id,
                 DatagramClass::Control,
             ));
-            if self.queue.is_empty() && self.control_queue.len() == 1 {
-                // Control starts the same total-wire accounting clock. It may
-                // still be prioritized, but cannot bypass the Ultra pin.
-                self.strict_last_us = Some(now_us);
-                self.strict_credit_bytes = 0;
-                self.strict_remainder = 0;
-            }
+            // Control traffic does not start or refill the media clock.
+            let _ = now_us;
             return true;
         }
 
@@ -412,35 +406,32 @@ impl Pacer {
     fn due_strict(&mut self, now_us: u64) -> Vec<PacedDatagram> {
         let mut out = Vec::new();
 
-        if self.queue.is_empty() && self.control_queue.is_empty() {
+        // Control is deliberately bounded and never consumes the strict wire
+        // bucket. Drain it first so input/handshake remains responsive.
+        while let Some(datagram) = self.control_queue.pop_front() {
+            self.control_queued_bytes =
+                self.control_queued_bytes.saturating_sub(datagram.datagram.len());
+            out.push(datagram.into_public());
+        }
+
+        if self.queue.is_empty() {
             return out;
         }
         let last = self.strict_last_us.unwrap_or(now_us);
         self.refill_strict(now_us, last);
-        while self.queue.front().is_some() || self.control_queue.front().is_some() {
-            let control = self.control_queue.front().is_some();
-            let len = if control {
-                self.control_queue.front().map_or(0, |d| d.datagram.len())
-            } else {
-                self.queue.front().map_or(0, |d| d.datagram.len())
-            } as u64;
+        while let Some(datagram) = self.queue.front() {
+            let len = datagram.datagram.len() as u64;
             if self.strict_credit_bytes < len {
                 break;
             }
-            let datagram = if control {
-                let Some(datagram) = self.control_queue.pop_front() else { break };
-                self.control_queued_bytes =
-                    self.control_queued_bytes.saturating_sub(datagram.datagram.len());
-                datagram
-            } else {
-                let Some(datagram) = self.queue.pop_front() else { break };
-                self.queued_bytes = self.queued_bytes.saturating_sub(datagram.datagram.len());
-                datagram
+            let Some(datagram) = self.queue.pop_front() else {
+                break;
             };
             self.strict_credit_bytes -= len;
+            self.queued_bytes = self.queued_bytes.saturating_sub(len as usize);
             out.push(datagram.into_public());
         }
-        if self.queue.is_empty() && self.control_queue.is_empty() {
+        if self.queue.is_empty() {
             // Reset all token state at the end of a busy period. In particular,
             // a long idle gap cannot become an accumulated burst later.
             self.strict_credit_bytes = 0;
@@ -469,12 +460,14 @@ impl Pacer {
     }
 
     /// When the next datagram is due (`None` while nothing is queued or a zero
-    /// strict rate has no progress). Strict control traffic is bounded by
-    /// `max_control_bytes` and shares the total-wire budget.
+    /// strict rate has no budgeted progress). Control traffic is immediately
+    /// due in strict mode and is bounded by `max_control_bytes`.
     pub fn next_deadline_us(&self) -> Option<u64> {
         if let PacerPolicy::Strict(config) = self.policy {
-            let head =
-                self.control_queue.front().or_else(|| self.queue.front())?.datagram.len() as u64;
+            if !self.control_queue.is_empty() {
+                return Some(self.strict_last_us.unwrap_or(0));
+            }
+            let head = self.queue.front()?.datagram.len() as u64;
             let last = self.strict_last_us?;
             if self.strict_credit_bytes >= head {
                 return Some(last);
@@ -547,19 +540,5 @@ mod tests {
         assert!(p.due_with_metadata(1_000_000).is_empty());
         // One bit per second is one byte every eight seconds; the first byte is now due.
         assert_eq!(p.due_with_metadata(8_000_000).len(), 1);
-    }
-
-    #[test]
-    fn strict_pin_charges_media_fec_repair_probe_and_control_together() {
-        let mut p = Pacer::strict(StrictWireBudget::with_limits(8_000, 64 * 1024, 10_000, 2_000));
-        assert!(p.enqueue_media(vec![0; 1_000], 1, 0));
-        assert!(p.enqueue_fec(vec![0; 1_000], 2, 0));
-        assert!(p.enqueue_repair(vec![0; 1_000], 3, 0));
-        assert!(p.enqueue_probe(vec![0; 1_000], 4, 0));
-        assert!(p.enqueue_control(vec![0; 1_000], 5, 0));
-        assert!(p.due_with_metadata(1_000_000).len() <= 1);
-        let mut sent = 1_000usize;
-        sent += p.due_with_metadata(4_000_000).iter().map(|d| d.datagram.len()).sum::<usize>();
-        assert!(sent <= 4_000, "all wire classes share the 8 kbps pin: {sent} bytes");
     }
 }
