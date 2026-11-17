@@ -3032,6 +3032,8 @@ fn resource_change_is_stored<'t>(
             let stored = statement
                 .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))?
                 .collect::<Result<Vec<_>, _>>()?;
+            #[cfg(test)]
+            crate::walk_counters::registry_rows_visited(stored.len());
             stored_order_matches(&stored, workspace_ids.iter().map(WorkspacePublicId::as_str))
         }
         ResourceChange::SetScreenOrder { workspace_id, screen_ids } => {
@@ -3393,6 +3395,8 @@ fn prepare_resource_order_slots(
                         })?
                         .collect::<Result<Vec<_>, _>>()?
                 };
+                #[cfg(test)]
+                crate::walk_counters::registry_rows_visited(current.len());
                 for (public_id, workspace_key, position) in current {
                     let unchanged = desired
                         .get(public_id.as_str())
@@ -4154,6 +4158,8 @@ fn set_resource_workspace_order(
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<HashSet<_>, _>>()?
     };
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(live.len());
     require_exact_order_set(
         "workspace",
         &live,

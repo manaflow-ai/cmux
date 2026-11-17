@@ -76,19 +76,38 @@ impl Mux {
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
             let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             let changed = new_idx != old_idx;
-            let mut desired = self.registry_projection(&state);
-            let desired_workspace = desired.remove(old_idx);
-            desired.insert(new_idx, desired_workspace);
             let desired_active_workspace =
                 state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
-            let commit = registry.commit_with_active_workspace(
+            // The rows between the two positions move; every other row stays where it is.
+            let len = state.workspaces.len();
+            let (low, high) = (old_idx.min(new_idx), old_idx.max(new_idx));
+            let source = |position: usize| match position {
+                position if position == new_idx => old_idx,
+                position if old_idx < new_idx && (low..high).contains(&position) => position + 1,
+                position if old_idx > new_idx && (low + 1..=high).contains(&position) => {
+                    position - 1
+                }
+                position => position,
+            };
+            let active_at = (low..=high)
+                .find(|position| source(*position) == state.active_workspace)
+                .unwrap_or(state.active_workspace);
+            let rows = crate::workspace_registry::ChangedWorkspaces::of_positions(
+                len,
+                len,
+                (low..=high).chain(std::iter::once(active_at)),
+                |position| {
+                    state.workspaces.get(source(position)).map(|w| self.registry_workspace(w))
+                },
+            );
+            let commit = registry.commit_workspace_change(
                 mutation,
                 &fingerprint,
                 expected_generation,
                 expected_revision,
                 "workspace-moved",
                 &key,
-                &desired,
+                rows,
                 desired_active_workspace,
                 &serde_json::json!({
                     "workspace": workspace_id,
@@ -96,14 +115,20 @@ impl Mux {
                     "index": new_idx,
                     "changed": changed,
                 }),
+                || {
+                    let mut desired = self.registry_projection(&state);
+                    let desired_workspace = desired.remove(old_idx);
+                    desired.insert(new_idx, desired_workspace);
+                    desired
+                },
             )?;
             let resource_revision = registry.resource_revision()?;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
-            state.move_workspace(old_idx, new_idx);
+            state.move_workspace_within(old_idx, new_idx);
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            Self::rebuild_split_screen_index(&mut state);
+            Self::reindex_moved_workspaces(&mut state, low..=high);
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;

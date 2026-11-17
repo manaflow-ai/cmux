@@ -126,10 +126,13 @@ pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
 mod workspace_rows_commit;
 use workspace_rows_commit::{
-    commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+    commit_changed_workspace_rows_in_transaction, commit_workspace_registry_in_transaction,
+    commit_workspace_rows_in_transaction, rows_a_whole_commit_writes,
 };
 pub(crate) mod workspace_name_store;
-pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
+pub(crate) use workspace_commit_intent::{
+    ChangedWorkspaces, WorkspaceCommitIntent, WorkspaceCommitReceipt,
+};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;

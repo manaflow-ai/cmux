@@ -93,6 +93,9 @@ struct Cost {
     decoration_walk: u64,
     /// Workspaces visited by an index rebuild.
     index_rebuild: u64,
+    /// Workspace rows the workspace registry commits copied, read or compared, on this
+    /// thread or on the journal writer (`walk_counters::registry_rows`).
+    registry_rows: u64,
 }
 
 impl Cost {
@@ -108,6 +111,7 @@ impl Cost {
             "workspace_upserts": self.workspace_upserts,
             "decoration_walk": self.decoration_walk,
             "index_rebuild": self.index_rebuild,
+            "registry_rows": self.registry_rows,
         })
     }
 }
@@ -212,6 +216,7 @@ fn counted(mux: &Arc<Mux>, operation: impl FnOnce()) -> Cost {
     let mut cost = std::mem::take(&mut *log.lock().unwrap());
     cost.decoration_walk = walked.decoration_walk - walks.decoration_walk;
     cost.index_rebuild = walked.index_rebuild - walks.index_rebuild;
+    cost.registry_rows = walked.registry_rows - walks.registry_rows;
     for batch in mux.resource_events_after(revision).unwrap().batches {
         cost.journal_bytes += batch.changes.to_string().len() as u64;
         for change in batch.changes.as_array().into_iter().flatten() {
@@ -302,10 +307,15 @@ fn single_change_costs(n: usize) -> BTreeMap<&'static str, Cost> {
         } else {
             without_crosscheck(create);
         }
-        without_crosscheck(|| {
+        let close = || {
             mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation("close"))
                 .unwrap();
-        });
+        };
+        if round == 1 {
+            costs.insert("close_last", counted(mux, close));
+        } else {
+            without_crosscheck(close);
+        }
     }
     for (operation, cost) in &costs {
         eprintln!("registry stress {operation} at {n}: {cost:?}");
@@ -338,6 +348,54 @@ fn a_single_workspace_change_costs_the_same_in_a_bigger_session() {
     assert!(
         failures.is_empty(),
         "one workspace change grows with the session:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// The session of [`a_single_workspace_commit_touches_only_the_rows_it_changes`]: the size the
+/// timing sweep's target names (rename at 2,000 within 2x of rename at 1).
+const HUGE: usize = 2000;
+
+/// Workspace rows one single-workspace commit may copy, read or compare more in a session of
+/// [`HUGE`] than in one of [`SMALL`]: a fixed few (the rows next to a one-step move), never a
+/// share of the session.
+const REGISTRY_ROW_SLACK: u64 = 8;
+
+/// A rename, a select, a one-step move and an empty create
+/// copy, read and compare the workspace rows they change, not every workspace of the session:
+/// at [`SMALL`] and at [`HUGE`] workspaces, the registry rows (`walk_counters::registry_rows`:
+/// the desired registry a caller builds, the copy the commit keeps, the journal fold values it
+/// copies, the stored rows it reads and the public upserts it builds) and the workspaces an
+/// index rebuild visits differ by at most [`REGISTRY_ROW_SLACK`]. Before, each workspace commit
+/// was given and copied the whole registry and read every stored row (about 8n rows), and a
+/// move rebuilt two indexes over every workspace.
+#[cfg(unix)]
+#[test]
+fn a_single_workspace_commit_touches_only_the_rows_it_changes() {
+    let small = single_change_costs(SMALL);
+    let huge = single_change_costs(HUGE);
+    let mut failures = Vec::new();
+    for (operation, at_small) in &small {
+        // A close commits through the batch close (a projected copy of the session state and
+        // the ledger's whole remaining registry), not the workspace commit: printed, not held.
+        if *operation == "close_last" {
+            continue;
+        }
+        let at_huge = &huge[operation];
+        for (what, small, huge) in [
+            ("registry rows", at_small.registry_rows, at_huge.registry_rows),
+            ("index rebuild", at_small.index_rebuild, at_huge.index_rebuild),
+        ] {
+            if huge > small + REGISTRY_ROW_SLACK {
+                failures.push(format!(
+                    "{operation}: {what} {small} at {SMALL} workspaces, {huge} at {HUGE}"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "one workspace commit touches rows it does not change:\n{}",
         failures.join("\n")
     );
 }

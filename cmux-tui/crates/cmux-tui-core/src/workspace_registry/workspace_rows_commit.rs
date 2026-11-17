@@ -114,6 +114,176 @@ pub(super) fn commit_workspace_rows_in_transaction(
     Ok((revision, terminal_batch, written))
 }
 
+/// [`commit_workspace_rows_in_transaction`] for a commit that changes only `changed`: each of
+/// them at its desired position, every other live row as stored. It reads the stored row of
+/// each changed workspace, not every row, and writes the same rows: the changed ones whose
+/// stored value differs, a moved one first parked at a unique negative slot. Afterwards the
+/// live rows must be `changed.len` rows at positions `0..len`; a change that claims otherwise
+/// fails here and rolls back.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn commit_changed_workspace_rows_in_transaction(
+    transaction: &Transaction<'_>,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+    expected_revision: Option<u64>,
+    event_kind: &str,
+    workspace_key: &str,
+    changed: &ChangedWorkspaces,
+    result_json: &str,
+) -> anyhow::Result<(u64, HashSet<String>)> {
+    validate_identifier("mutation id", &mutation.id)?;
+    validate_identifier("mutation origin", &mutation.origin)?;
+    validate_workspace_key(workspace_key)?;
+    changed.validate()?;
+    let current = transaction_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != current
+    {
+        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
+    }
+    let revision =
+        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
+
+    let mut stored = HashMap::<String, StoredRow>::with_capacity(changed.rows.len());
+    {
+        let mut statement = transaction.prepare_cached(
+            "SELECT numeric_id, name, group_key, position, name_source, name_revision
+             FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
+        )?;
+        for (_, workspace) in &changed.rows {
+            let row = statement
+                .query_row([&workspace.key], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        (row.get::<_, String>(4)?, row.get::<_, i64>(5)?),
+                    ))
+                })
+                .optional()?;
+            if let Some(row) = row {
+                stored.insert(workspace.key.clone(), row);
+            }
+        }
+    }
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(stored.len());
+    for (_, workspace) in changed.rows.iter().filter(|(_, w)| !stored.contains_key(&w.key)) {
+        let was_tombstoned = transaction
+            .query_row(
+                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
+                [&workspace.key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        anyhow::ensure!(
+            was_tombstoned != Some(1),
+            "tombstoned workspace key cannot be reused: {}",
+            workspace.key
+        );
+        // The whole-registry commit refuses a desired registry that names one public id
+        // twice; here the other workspace is a stored live row.
+        let other = transaction
+            .query_row(
+                "SELECT 1 FROM resource_workspaces rw
+                 JOIN workspaces w ON w.workspace_key = rw.workspace_key
+                 WHERE rw.public_id = ?1 AND rw.deleted_revision IS NULL
+                   AND w.tombstoned = 0 AND w.workspace_key != ?2",
+                params![workspace.public_id.as_str(), workspace.key],
+                |_| Ok(()),
+            )
+            .optional()?;
+        anyhow::ensure!(
+            other.is_none(),
+            "workspace public id already exists: {}",
+            workspace.public_id
+        );
+    }
+    let desired = changed
+        .rows
+        .iter()
+        .map(|(position, workspace)| (workspace.key.as_str(), (*position, workspace)))
+        .collect::<DesiredRows<'_>>();
+    let rows = changed.rows.iter().map(|(position, workspace)| (*position, workspace));
+    let written = write_rows(transaction, &stored, &desired, rows, sqlite_revision)?;
+    let (live, first, last) = transaction.query_row(
+        "SELECT COUNT(*), MIN(position), MAX(position) FROM workspaces WHERE tombstoned = 0",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+            ))
+        },
+    )?;
+    let len = i64::try_from(changed.len).context("workspace count exceeds SQLite range")?;
+    anyhow::ensure!(
+        live == len && first == Some(0) && last == Some(len - 1),
+        "workspace positions are not contiguous after the commit: {live} live rows at \
+         {first:?}..={last:?}, {len} desired"
+    );
+    transaction
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
+    let ledger = mutation_ledger::KeyedLedger::Workspace;
+    let row = (fingerprint, result_json, sqlite_revision);
+    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
+    transaction.execute(
+        "INSERT INTO workspace_events(
+           revision, kind, workspace_key, origin, mutation_id, result_json
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            sqlite_revision,
+            event_kind,
+            workspace_key,
+            mutation.origin,
+            mutation.id,
+            result_json
+        ],
+    )?;
+    Ok((revision, written))
+}
+
+/// What [`commit_workspace_rows_in_transaction`] of `workspaces` would write, read before it
+/// (the projection cross-check of a [`ChangedWorkspaces`] commit): the keys of the desired rows
+/// that differ from their stored row, and the keys of the live rows it would tombstone.
+pub(super) fn rows_a_whole_commit_writes(
+    transaction: &Transaction<'_>,
+    workspaces: &[RegistryWorkspace],
+) -> anyhow::Result<(HashSet<String>, Vec<String>)> {
+    let stored = live_rows(transaction)?;
+    let desired = desired_rows(workspaces);
+    let tombstoned = stored
+        .keys()
+        .filter(|key| !desired.contains_key(key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut written = HashSet::new();
+    for (position, workspace) in workspaces.iter().enumerate() {
+        let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
+            workspace.name_source,
+            workspace.name_revision,
+        )?;
+        let unchanged = stored.get(&workspace.key).is_some_and(
+            |(numeric_id, name, group_key, stored_position, (source, revision))| {
+                i64::try_from(workspace.id).ok() == Some(*numeric_id)
+                    && name == &workspace.name
+                    && group_key == &workspace.group_key
+                    && *stored_position == i64::try_from(position).ok()
+                    && source == name_source
+                    && *revision == name_revision
+            },
+        );
+        if !unchanged {
+            written.insert(workspace.key.clone());
+        }
+    }
+    Ok((written, tombstoned))
+}
+
 /// A live `workspaces` row as stored: numeric id, name, group key, position, name provenance
 /// (source, revision).
 type StoredRow = (i64, String, String, Option<i64>, (String, i64));
@@ -150,6 +320,8 @@ fn live_rows(transaction: &Transaction<'_>) -> anyhow::Result<HashMap<String, St
             ))
         })?
         .collect::<Result<HashMap<String, StoredRow>, _>>()?;
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(rows.len());
     Ok(rows)
 }
 
@@ -283,21 +455,38 @@ fn write_changed_rows(
     workspaces: &[RegistryWorkspace],
     sqlite_revision: i64,
 ) -> anyhow::Result<HashSet<String>> {
+    for workspace_key in stored.keys() {
+        if !desired.contains_key(workspace_key.as_str()) {
+            tombstone_row(transaction, workspace_key, sqlite_revision)?;
+        }
+    }
+    write_rows(transaction, stored, desired, workspaces.iter().enumerate(), sqlite_revision)
+}
+
+/// The writes of [`write_changed_rows`] after its tombstones: each desired row of `rows` (a
+/// position and the workspace there) that `stored` holds at another position parks at a
+/// unique negative slot, then each row whose stored value differs is written. Returns the
+/// keys of the rows it wrote.
+fn write_rows<'a>(
+    transaction: &Transaction<'_>,
+    stored: &HashMap<String, StoredRow>,
+    desired: &DesiredRows<'_>,
+    rows: impl IntoIterator<Item = (usize, &'a RegistryWorkspace)>,
+    sqlite_revision: i64,
+) -> anyhow::Result<HashSet<String>> {
     for (workspace_key, (_, _, _, stored_position, _)) in stored {
-        match desired.get(workspace_key.as_str()) {
-            None => tombstone_row(transaction, workspace_key, sqlite_revision)?,
-            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
-                transaction.execute(
-                    "UPDATE workspaces SET position = -rowid
-                     WHERE workspace_key = ?1 AND tombstoned = 0",
-                    [workspace_key],
-                )?;
-            }
-            Some(_) => {}
+        if let Some((position, _)) = desired.get(workspace_key.as_str())
+            && *stored_position != i64::try_from(*position).ok()
+        {
+            transaction.execute(
+                "UPDATE workspaces SET position = -rowid
+                 WHERE workspace_key = ?1 AND tombstoned = 0",
+                [workspace_key],
+            )?;
         }
     }
     let mut written = HashSet::new();
-    for (position, workspace) in workspaces.iter().enumerate() {
+    for (position, workspace) in rows {
         // Only a rename of the same workspace is fenced by its stored name:
         // another workspace at this key is refused by the identity checks.
         if let Some((numeric_id, name, _, _, (source, revision))) = stored.get(&workspace.key)

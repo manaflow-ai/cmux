@@ -168,8 +168,7 @@ impl Mux {
                 .as_ref()
                 .map_or(&workspace_public_id, |(_, public_id)| public_id)
                 .clone();
-            let mut desired = self.registry_projection(&state);
-            desired.push(RegistryWorkspace {
+            let created = RegistryWorkspace {
                 id: ws_id,
                 public_id: workspace_public_id.clone(),
                 key: key.clone(),
@@ -177,7 +176,12 @@ impl Mux {
                 name_source,
                 name_revision: 0,
                 group_key: self.session.clone(),
-            });
+            };
+            let desired = || {
+                let mut desired = self.registry_projection(&state);
+                desired.push(created.clone());
+                desired
+            };
             let result = serde_json::json!({
                 "workspace": ws_id,
                 "workspace_id": workspace_public_id.as_str(),
@@ -185,16 +189,30 @@ impl Mux {
                 "index": index,
             });
             let commit = if project_resource {
-                registry.commit_with_active_workspace(
+                // The new row and the workspace focused before it: the rest stays as stored.
+                let rows = crate::workspace_registry::ChangedWorkspaces::of_positions(
+                    index,
+                    index + 1,
+                    [index, state.active_workspace],
+                    |position| {
+                        if position == index {
+                            Some(created.clone())
+                        } else {
+                            state.workspaces.get(position).map(|w| self.registry_workspace(w))
+                        }
+                    },
+                );
+                registry.commit_workspace_change(
                     mutation,
                     &fingerprint,
                     expected_generation,
                     expected_revision,
                     "workspace-added",
                     &key,
-                    &desired,
+                    rows,
                     Some(&active_public_id),
                     &result,
+                    desired,
                 )?
             } else {
                 let marked = workspace_public_id.as_str().to_string();
@@ -209,7 +227,7 @@ impl Mux {
                     expected_revision,
                     "workspace-added",
                     &key,
-                    &desired,
+                    &desired(),
                     Some(&active_public_id),
                     &result,
                     writes.then_some(

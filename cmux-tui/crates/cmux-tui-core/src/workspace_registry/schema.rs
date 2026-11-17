@@ -837,34 +837,47 @@ pub(super) fn upsert_workspace_resource(
     Ok(())
 }
 
+/// The public upsert of one workspace of a workspace commit, at `index` in the order.
+pub(super) fn workspace_upsert_delta(
+    sequence: usize,
+    session_id: &SessionPublicId,
+    index: usize,
+    workspace: &RegistryWorkspace,
+    active_workspace: Option<&str>,
+) -> anyhow::Result<Value> {
+    Ok(serde_json::json!({
+        "kind":"upsert",
+        "sequence":sequence,
+        "resource":"workspace",
+        "id":workspace.public_id,
+        "value":{
+            "id":workspace.public_id,
+            "session_id":session_id,
+            "name":workspace.name,
+            "index":u32::try_from(index)
+                .context("workspace index exceeds public uint32 range")?,
+            "focused":active_workspace == Some(workspace.public_id.as_str()),
+            "extra":crate::resource_name::workspace_name_extra(
+                workspace.name_source,
+                workspace.name_revision,
+            ),
+        },
+    }))
+}
+
 pub(super) fn normalized_workspace_resource_deltas(
     session_id: &SessionPublicId,
     workspaces: &[RegistryWorkspace],
     active_workspace: Option<&str>,
     before: &ResourceTopologySnapshot,
 ) -> anyhow::Result<Value> {
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(workspaces.len());
     let mut deltas = workspaces
         .iter()
         .enumerate()
         .map(|(index, workspace)| {
-            Ok(serde_json::json!({
-                "kind":"upsert",
-                "sequence":index,
-                "resource":"workspace",
-                "id":workspace.public_id,
-                "value":{
-                    "id":workspace.public_id,
-                    "session_id":session_id,
-                    "name":workspace.name,
-                    "index":u32::try_from(index)
-                        .context("workspace index exceeds public uint32 range")?,
-                    "focused":active_workspace == Some(workspace.public_id.as_str()),
-                    "extra":crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                },
-            }))
+            workspace_upsert_delta(index, session_id, index, workspace, active_workspace)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let live_workspaces =

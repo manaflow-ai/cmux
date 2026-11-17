@@ -229,21 +229,57 @@ impl Mux {
         }
     }
 
-    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
-        fn index_node(
-            node: &Node,
-            workspace_index: usize,
-            screen_index: usize,
-            screen: ScreenId,
-            index: &mut HashMap<SplitId, (usize, usize, ScreenId)>,
-        ) {
-            if let Node::Split { id, a, b, .. } = node {
-                index.insert(*id, (workspace_index, screen_index, screen));
-                index_node(a, workspace_index, screen_index, screen, index);
-                index_node(b, workspace_index, screen_index, screen, index);
+    /// What [`Self::rebuild_split_screen_index`] changes after a workspace moved within
+    /// `moved` (the positions between its old and new one, `State::move_workspace_within`):
+    /// the split entries of those workspaces take their new workspace index, and a content
+    /// shown in more than one tab, one of them in those workspaces, lists its tabs in
+    /// workspace order again, as the rebuild lists them. Nothing else in the two indexes names
+    /// a workspace's position, so the rest of the session is not visited.
+    pub(crate) fn reindex_moved_workspaces(
+        state: &mut State,
+        moved: std::ops::RangeInclusive<usize>,
+    ) {
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(moved.clone().count());
+        let mut shared = HashSet::new();
+        for workspace_index in moved {
+            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                index_split_node(
+                    &screen.root,
+                    workspace_index,
+                    screen_index,
+                    screen.id,
+                    &mut state.split_screens,
+                );
+                for pane_id in screen.root.pane_ids_vec() {
+                    let Some(pane) = state.panes.get(&pane_id) else { continue };
+                    for slot in &pane.tabs {
+                        if let Some(content) = state.resource_indexes.content_ids.get(slot)
+                            && state
+                                .resource_indexes
+                                .content_placements
+                                .get(content)
+                                .is_some_and(|placements| placements.len() > 1)
+                        {
+                            shared.insert(content.clone());
+                        }
+                    }
+                }
             }
         }
+        for content in shared {
+            let Some(mut placements) = state.resource_indexes.content_placements.remove(&content)
+            else {
+                continue;
+            };
+            // The rebuild's order: workspace, screen, pane and tab order; a tab in no pane last.
+            placements.sort_by_cached_key(|slot| placement_order(state, *slot).ok_or(()));
+            state.resource_indexes.content_placements.insert(content, placements);
+        }
+    }
 
+    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
         #[cfg(test)]
         crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
@@ -254,7 +290,13 @@ impl Mux {
                     "screen {} has a stale layout column projection",
                     screen.id
                 );
-                index_node(&screen.root, workspace_index, screen_index, screen.id, &mut index);
+                index_split_node(
+                    &screen.root,
+                    workspace_index,
+                    screen_index,
+                    screen.id,
+                    &mut index,
+                );
             }
         }
         state.split_screens = index;
@@ -272,4 +314,41 @@ impl Mux {
             terminal_revision,
         });
     }
+}
+
+/// Index `node`'s splits (the whole subtree) as splits of `screen`, the screen at
+/// `screen_index` of the workspace at `workspace_index`.
+fn index_split_node(
+    node: &Node,
+    workspace_index: usize,
+    screen_index: usize,
+    screen: ScreenId,
+    index: &mut HashMap<SplitId, (usize, usize, ScreenId)>,
+) {
+    if let Node::Split { id, a, b, .. } = node {
+        index.insert(*id, (workspace_index, screen_index, screen));
+        index_split_node(a, workspace_index, screen_index, screen, index);
+        index_split_node(b, workspace_index, screen_index, screen, index);
+    }
+}
+
+/// Where `State::rebuild_resource_indexes` reaches tab `slot`: its workspace's index, its
+/// screen's index there, its pane's place in that screen and its own in the pane. `None` for a
+/// tab in no screen (the rebuild lists it after the others).
+fn placement_order(state: &State, slot: SurfaceId) -> Option<(usize, usize, usize, usize)> {
+    let indexes = &state.resource_indexes;
+    let pane_id = *indexes.tab_pane.get(&slot)?;
+    let screen_id = *indexes.pane_screen.get(&pane_id)?;
+    let workspace_index = state.workspace_index(*indexes.screen_workspace.get(&screen_id)?)?;
+    let workspace = state.workspaces.get(workspace_index)?;
+    let screen_index = workspace.screens.iter().position(|screen| screen.id == screen_id)?;
+    let pane_index = workspace
+        .screens
+        .get(screen_index)?
+        .root
+        .pane_ids_vec()
+        .iter()
+        .position(|pane| *pane == pane_id)?;
+    let tab_index = state.panes.get(&pane_id)?.tabs.iter().position(|tab| *tab == slot)?;
+    Some((workspace_index, screen_index, pane_index, tab_index))
 }

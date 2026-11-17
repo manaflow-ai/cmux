@@ -749,6 +749,18 @@ impl State {
         self.rebuild_workspace_indexes();
     }
 
+    /// [`Self::move_workspace`] that indexes again only the workspaces between the two
+    /// positions, the ones whose index changes.
+    pub(crate) fn move_workspace_within(&mut self, old_index: usize, new_index: usize) {
+        let workspace = self.workspaces.remove(old_index);
+        self.workspaces.insert(new_index, workspace);
+        for index in old_index.min(new_index)..=old_index.max(new_index) {
+            if let Some(workspace) = self.workspaces.get(index) {
+                self.workspace_index_by_id.insert(workspace.id, index);
+            }
+        }
+    }
+
     pub(crate) fn rebuild_workspace_indexes(&mut self) {
         self.workspace_index_by_id.clear();
         self.workspace_id_by_key.clear();

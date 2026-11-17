@@ -421,6 +421,10 @@ pub(super) fn validate_contiguous_positions(
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?
     };
+    #[cfg(test)]
+    if kind == "workspace" {
+        crate::walk_counters::registry_rows_visited(rows.len());
+    }
     let mut next_by_parent = HashMap::<String, i64>::new();
     for (parent, position) in rows {
         let expected = next_by_parent.entry(parent.clone()).or_default();
