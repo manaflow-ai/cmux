@@ -587,7 +587,7 @@ final class AppServices {
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
-        (self.agentPaneStateFiles, self.newTabPlaces) = (agentPaneStateFiles, NewTabPlacesKept(source: newTabPlaceSource))
+        (self.agentPaneStateFiles, self.newTabPlaces) = (agentPaneStateFiles, NewTabPlacesKept(home: NSHomeDirectory(), source: newTabPlaceSource))
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before

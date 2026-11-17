@@ -500,15 +500,15 @@ struct NewTabKeySessionWalkTests {
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 910_001), title: "build", cwd: "/Users/you/src/project"))
         let page = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 910_002), kind: .browser, title: "Docs", url: "https://example.com/docs"))
         let rows = [places.rows(NewTabPlaces.Source(id: "held-1", name: "held 1", tabs: [tab, page]))]
-        let kept = NewTabPlacesKept()
+        let kept = NewTabPlacesKept(home: "/Users/you")
         var walks = 0
         var asked: [String] = []
-        let before = kept.places(current: nil, excluding: nil, limit: 40, icon: { _ in nil }) {
+        let before = kept.places(current: nil, excluding: nil, limit: 40, icon: { _, _ in nil }) {
             walks += 1
             return rows
         }
         kept.keep(rows)
-        let after = kept.places(current: nil, excluding: nil, limit: 40, icon: { id in
+        let after = kept.places(current: nil, excluding: nil, limit: 40, icon: { _, id in
             asked.append(id)
             return "icon of \(id)"
         }) {
@@ -534,5 +534,23 @@ struct NewTabKeySessionWalkTests {
         }
         #expect(made == 2, "the holder made \(made) texts for 2 icon objects, want 2")
         #expect(texts == ["text 1", "text 1", "text 2", "text 1"], "the texts by icon are \(texts)")
+    }
+
+    /// A tab id that 2 machines have gets, in the row of each machine, the icon of that machine's tab (decision of
+    /// 2026-11-17: a kept row carries its machine, and the icon of a listed row is looked up there). With no app:
+    /// 2 workspaces of 2 machines, each with a browser tab of the same surface, so of the same id.
+    ///
+    /// This row has no red first: the form of the read is new with the decision.
+    @Test func aTabIdOnTwoMachinesGetsTheIconOfItsOwnMachineInEachRow() throws {
+        let places = NewTabPlaces(home: "/Users/you")
+        let snapshot = TabSnapshot(surface: SurfaceID(rawValue: 910_003), kind: .browser, title: "Docs", url: "https://example.com/docs")
+        let here = TabModel(snapshot), there = TabModel(snapshot)
+        try #require(here.id == there.id, "setup: the 2 tabs do not have one id")
+        let kept = NewTabPlacesKept(home: "/Users/you")
+        kept.keep([places.rows(NewTabPlaces.Source(id: "held-2", name: "held 2", tabs: [here]), machine: "local"),
+                   places.rows(NewTabPlaces.Source(id: "held-3", name: "held 3", tabs: [there]), machine: "other")])
+        let lists = kept.places(current: nil, excluding: nil, limit: 40, icon: { machine, id in "\(machine ?? "none") \(id)" }) { [] }
+        let icons = lists.tabs.map(\.icon)
+        #expect(icons == ["local \(here.id)", "other \(here.id)"], "the icons of the 2 rows of one tab id are \(icons)")
     }
 }

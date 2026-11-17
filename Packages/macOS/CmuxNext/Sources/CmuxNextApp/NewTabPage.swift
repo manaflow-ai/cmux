@@ -95,14 +95,11 @@ enum NewTabPage {
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let current = current ?? services.windows.active?.state.workspaceID
         let limit = services.settings?.snapshot.nativeNewTabPage == true ? nil : AgentPaneOmnibar.maximumEntries
-        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { id in
-            services.locateTab(id).flatMap { services.tabFavicon($0.0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
-        }, walk: { services.machines.allWorkspaces.map { workspace, _ in rows(services, workspace) } })
-    }
-
-    /// One workspace's rows for the bar, with no icon (``NewTabPlacesFeed`` keeps them): the map reads its workspace's own records only.
-    static func rows(_ services: AppServices, _ workspace: WorkspaceModel) -> NewTabPlaces.Rows {
-        NewTabPlaces(home: NSHomeDirectory()).rows(services.newTabPlaces.source(workspace))
+        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { machine, id in
+            // The row's own machine, also while its feature is off: the walk gave each listed row its own tab's icon.
+            let tab = machine.flatMap { services.machines.anyDaemon(machine: $0) }?.store.tab(idOrResource: id)
+            return tab.flatMap { services.tabFavicon($0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
+        }, walk: { services.machines.allWorkspaces.map { workspace, daemon in services.newTabPlaces.mapped(workspace, machine: daemon.machineID) } })
     }
 
     /// The command line a terminal choice types: nil for an empty field,

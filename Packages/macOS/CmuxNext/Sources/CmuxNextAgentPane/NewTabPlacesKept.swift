@@ -9,9 +9,9 @@ public import CmuxNextDaemon
 /// for the listed rows only. The app makes one holder, starts it once, and reads a page's lists from it:
 ///
 /// ```swift
-/// let kept = NewTabPlacesKept()
+/// let kept = NewTabPlacesKept(home: NSHomeDirectory())
 /// kept.follow(list: { workspaces }, rows: { rows(of: $0) }, changed: { refreshOpenPages() })
-/// let lists = kept.places(current: workspaceID, excluding: pageID, limit: 40, icon: { icon(ofTab: $0) }) { walk() }
+/// let lists = kept.places(current: workspaceID, excluding: pageID, limit: 40, icon: { icon(onMachine: $0, tab: $1) }) { walk() }
 /// ```
 @MainActor
 public final class NewTabPlacesKept {
@@ -32,10 +32,24 @@ public final class NewTabPlacesKept {
 
     /// One workspace as the bar reads it, for the rows that the app keeps; a test gives one that counts its calls.
     public let source: @MainActor (WorkspaceModel) -> NewTabPlaces.Source
+    /// This Mac's home folder: `~` in the kept rows, and never a project.
+    public let home: String
 
     /// Creates an empty holder.
-    /// - Parameter source: One workspace as the bar reads it.
-    public init(source: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) { self.source = source }
+    /// - Parameters:
+    ///   - home: This Mac's home folder.
+    ///   - source: One workspace as the bar reads it.
+    public init(home: String, source: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) {
+        (self.home, self.source) = (home, source)
+    }
+
+    /// One workspace's rows for the bar, with no icon and with its machine: the map reads its workspace's own records only.
+    /// - Parameters:
+    ///   - workspace: One workspace of the store.
+    ///   - machine: The machine that holds it; the icon of a listed row is looked up there.
+    public func mapped(_ workspace: WorkspaceModel, machine: String?) -> NewTabPlaces.Rows {
+        NewTabPlaces(home: home).rows(source(workspace), machine: machine)
+    }
 
     /// Starts following the workspaces (once), for the app's life: their rows are kept from the first ones on.
     /// - Parameters:
@@ -91,16 +105,13 @@ public final class NewTabPlacesKept {
     ///   - current: The workspace the page's window shows; it is not suggested.
     ///   - selectedID: The page's own tab, never suggested.
     ///   - limit: The most tab rows and the most workspace rows; nil for every row.
-    ///   - icon: The favicon of the browser tab with this id, as a `data:` URL.
+    ///   - icon: `(machine, tab id)`: the favicon of that machine's browser tab, as a `data:` URL.
     ///   - walk: Every workspace's rows, made now.
-    public func places(current: String?, excluding selectedID: String?, limit: Int?, icon: (String) -> String?,
+    public func places(current: String?, excluding selectedID: String?, limit: Int?, icon: (String?, String) -> String?,
                        walk: () -> [NewTabPlaces.Rows])
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let walked = rows == nil ? walk() : nil
-        var listed = NewTabPlaces.listed(walked ?? rows ?? [], current: current, excluding: selectedID, limit: limit)
-        for index in listed.tabs.indices where listed.tabs[index].kind == .browser {
-            listed.tabs[index].icon = icon(listed.tabs[index].id)
-        }
+        let listed = NewTabPlaces.listed(walked ?? rows ?? [], current: current, excluding: selectedID, limit: limit, icon: icon)
         return (listed.tabs, listed.workspaces, walked.map { NewTabPlaces.folders($0) } ?? folders)
     }
 }

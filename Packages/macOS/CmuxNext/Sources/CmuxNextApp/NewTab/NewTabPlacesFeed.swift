@@ -17,7 +17,7 @@ enum NewTabPlacesFeed {
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
         services.newTabPlaces.follow(
             list: { [weak services] in services?.machines.allWorkspaces.map(\.0) },
-            rows: { [weak services] workspace in services.map { NewTabPage.rows($0, workspace) } },
+            rows: { [weak services] workspace in services.map { $0.newTabPlaces.mapped(workspace, machine: $0.machines.daemon(holding: workspace)?.machineID) } },
             changed: { [weak tabs, weak services] in
                 if let tabs, let services { push(tabs, services: services) }
             })

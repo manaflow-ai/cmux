@@ -101,13 +101,18 @@ public struct NewTabPlaces {
         public var detail: String?
         /// Its tabs' folders that are not the home folder, each once, in order.
         public var folders: [String]
+        /// The machine that holds the workspace (decision of 2026-11-17): the icon of a row is looked up there, so a
+        /// tab id that 2 machines have gets the icon of its own tab. Nil where the maker names no machine.
+        public var machine: String?
     }
 
     /// `workspace`'s rows: what ``places(_:current:excluding:icon:)`` makes of it before it leaves out the page's
     /// own tab and the shown workspace, with no icon. A kept row has no icon (decision of 2026-11-17): a map that
     /// reads an icon is mapped again for each icon that arrives, so the icon of a row is read when a page lists it.
-    /// - Parameter workspace: One workspace.
-    public func rows(_ workspace: Source) -> Rows {
+    /// - Parameters:
+    ///   - workspace: One workspace.
+    ///   - machine: The machine that holds it.
+    public func rows(_ workspace: Source, machine: String? = nil) -> Rows {
         var folders: [String] = []
         for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
         let tabs = workspace.tabs.compactMap { tab in
@@ -116,18 +121,20 @@ public struct NewTabPlaces {
             }
         }
         let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map(abbreviated)
-        return Rows(id: workspace.id, name: workspace.name, tabs: tabs, detail: detail, folders: folders)
+        return Rows(id: workspace.id, name: workspace.name, tabs: tabs, detail: detail, folders: folders, machine: machine)
     }
 
     /// The bar's tab rows and workspace rows from kept rows: the lists of ``places(_:current:excluding:icon:)``
-    /// for the same workspaces with no icon, or the first `limit` rows of each. It makes no row. With a limit it stops at the
-    /// workspace that fills both lists, so its work does not grow with the session where the lists fill.
+    /// for the same workspaces, or the first `limit` rows of each, with the icon of each listed browser row from `icon`.
+    /// With a limit it stops at the workspace that fills both lists, so its work does not grow with the session where the lists fill.
     /// - Parameters:
     ///   - kept: Every workspace's rows, in the sidebar's order.
     ///   - current: The workspace the page's window shows; it is not suggested.
     ///   - selectedID: The page's own tab, never suggested.
     ///   - limit: The most rows of each list; nil for every row.
-    public static func listed(_ kept: [Rows], current: String?, excluding selectedID: String?, limit: Int? = nil)
+    ///   - icon: `(machine, tab id)`: the favicon of that machine's browser tab, as a `data:` URL.
+    public static func listed(_ kept: [Rows], current: String?, excluding selectedID: String?, limit: Int? = nil,
+                              icon: (String?, String) -> String? = { _, _ in nil })
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace]) {
         var tabs: [AgentPaneOmnibar.Tab] = []
         var others: [AgentPaneOmnibar.Workspace] = []
@@ -135,7 +142,10 @@ public struct NewTabPlaces {
         for workspace in kept {
             if tabs.count >= limit, others.count >= limit { break }
             let rows = workspace.tabs.filter { $0.id != selectedID }
-            tabs += rows.prefix(limit - tabs.count)
+            for var row in rows.prefix(limit - tabs.count) {
+                if row.kind == .browser { row.icon = icon(workspace.machine, row.id) }
+                tabs.append(row)
+            }
             // Another workspace's only place is that tab's row (Switch to tab lands on it), not the workspace's.
             guard workspace.id != current, rows.count != 1, others.count < limit else { continue }
             others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: workspace.detail))
