@@ -5,7 +5,10 @@ import AppKit
 /// went up before the start script ran, or in another window). A scroll whose key is not down
 /// (the palette, a tap already over) runs as one step.
 public final class BrowserPageScrollKeys {
-    /// Held key codes: their letters (lowercased, modifiers ignored) and last key-down or repeat.
+    /// Held key codes: their letters (lowercased, modifiers ignored) and when their last key-down
+    /// or repeat arrived, on the process's uptime clock. Not `NSEvent.timestamp`: that clock
+    /// counts time asleep, so on a Mac that slept it was hours ahead of `systemUptime` and every
+    /// held key looked stale (cmux-lawrence-2, 2026-11-17).
     private var down: [UInt16: (letter: String, at: TimeInterval)] = [:]
     /// A key-up another app took leaves its key here; a key with no key-down or repeat for
     /// longer than the slowest initial key-repeat delay (1.8 s) is not held.
@@ -30,10 +33,10 @@ public final class BrowserPageScrollKeys {
         init(_ tab: any BrowserTab) { self.tab = tab }
     }
 
-    func observe(_ event: NSEvent) {
+    func observe(_ event: NSEvent, at now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         if event.type == .keyDown {
             guard let letter = event.charactersIgnoringModifiers?.lowercased(), !letter.isEmpty else { return }
-            down[event.keyCode] = (letter, event.timestamp)
+            down[event.keyCode] = (letter, now)
         } else if event.type == .keyUp, let key = down.removeValue(forKey: event.keyCode),
                   let running, running.scroll.letter == key.letter {
             self.running = nil

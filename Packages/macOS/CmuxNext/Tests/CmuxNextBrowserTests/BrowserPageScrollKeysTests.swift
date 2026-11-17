@@ -9,8 +9,9 @@ import Testing
 struct BrowserPageScrollKeysTests {
     private static let j: UInt16 = 38
 
-    private static func key(_ type: NSEvent.EventType, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> NSEvent {
-        NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: time, windowNumber: 0, context: nil,
+    /// A key event stamped `stamp` (event clock): far from the uptime clock, as on a Mac that slept.
+    private static func key(_ type: NSEvent.EventType, stamp: TimeInterval = 12_000) -> NSEvent {
+        NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: stamp, windowNumber: 0, context: nil,
                          characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: j)!
     }
 
@@ -47,7 +48,7 @@ struct BrowserPageScrollKeysTests {
     @Test func aStaleKeyDownIsNotHeld() async {
         let keys = BrowserPageScrollKeys(watching: false)
         let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
-        keys.observe(Self.key(.keyDown, at: ProcessInfo.processInfo.systemUptime - 5))
+        keys.observe(Self.key(.keyDown), at: ProcessInfo.processInfo.systemUptime - 5)
         keys.run(.down, on: tab)
         #expect(await Self.evaluations(of: tab, count: 2).last == BrowserPageScroll.release("j"))
     }
