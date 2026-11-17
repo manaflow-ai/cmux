@@ -121,7 +121,7 @@ struct MacScreenDeviceRecordTests {
         await hub.refreshDevices()
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         #expect(pages.record(forDevice: deviceID.uppercased()) == MacScreenRecord(deviceID: deviceID))
         pages.hub = hub
         #expect(pages.record(forDevice: deviceID) == MacScreenRecord(deviceID: deviceID))
@@ -146,7 +146,7 @@ struct MacScreenDeviceRecordTests {
     @MainActor
     @Test func explicitDeviceRecordNormalizesUUIDAndCarriesRequestedScope() throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-record-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let record = pages.record(forDevice: hostID.uppercased(), requesting: .view)
 
         #expect(record == MacScreenRecord(deviceID: hostID))
@@ -577,7 +577,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file))
     }
 
     /// A viewer's session starting marks that this Mac has viewed another; a ticket for no tab marks nothing.
@@ -774,7 +774,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -807,7 +807,7 @@ struct MacScreenDeviceActionTests {
         await hub.refreshDevices()
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         pages.hub = hub
         let settings = MacScreenDevicesSettings(pages: pages)
         var opened: String?
@@ -850,7 +850,7 @@ struct MacScreenDeviceActionTests {
         await hub.refreshDevices()
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         pages.hubConfigured = true
         pages.hub = hub
         let settings = MacScreenDevicesSettings(pages: pages)
@@ -894,7 +894,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -907,7 +907,7 @@ struct MacScreenHubHostOrderTests {
     /// on and an acpmux without `machine-consent-v1`, a ticket is ended unserved and the one-time sheet shows.
     @Test func aDaemonWithoutConsentSupportRefusesMacScreenAndShowsTheSheet() async {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -951,7 +951,7 @@ struct MacScreenHubHostOrderTests {
     /// never the other way around.
     @Test func anOlderTicketWhoseReadAnswersLaterNeverReplacesANewerOne() async {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -980,7 +980,7 @@ struct MacScreenHubHostOrderTests {
     @Test(arguments: [true, false])
     func twoDeliveriesOfOneSessionAreDecidedByTheNewer(newerFirst: Bool) async {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -1148,7 +1148,7 @@ struct MacScreenRdHostRoutingTests {
         let host = MacScreenRdHost(session: session) { signaling in
             for try await signal in signaling.messages() { received.append(signal) }
         }
-        // No bundled cmux in the test runner: the rd host fails to start instead.
+        // No capture worker in this test: the rd host fails to start (the app never serves itself).
         let failures = Received()
         host.onEvent = { event in if case .sourceFailed = event { failures.append(.bye) } }
         try await host.serve(FedSignaling([.offer(document.text), .bye]))

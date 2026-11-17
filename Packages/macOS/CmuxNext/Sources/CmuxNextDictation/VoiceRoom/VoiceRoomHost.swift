@@ -6,7 +6,7 @@ import Observation
 /// Labs switch turns off.
 ///
 /// ```swift
-/// let host = VoiceRoomHost(frames: framesFolder)
+/// let host = VoiceRoomHost(frames: framesFolder, screen: helper)
 /// host.open(address) { settings.snapshot.voiceRoom }
 /// ```
 @MainActor
@@ -19,13 +19,16 @@ public final class VoiceRoomHost {
 
     /// - Parameters:
     ///   - frames: Where screen keyframes stay on this Mac; nil keeps none.
+    ///   - screen: The process that reads the screen (the cmux Computer Use helper); nil reads no
+    ///     screen. This app never captures the screen itself.
     ///   - claims: The app's microphone owners.
-    ///   - makeSession: Makes the session for an address; tests pass fakes.
-    public init(frames: URL?, claims: DictationMicrophoneClaims = .shared,
-                makeSession: @escaping @MainActor (VoiceRoomAddress, URL?) -> VoiceRoomSession = { VoiceRoomHost.systemSession($0, frames: $1) }) {
+    ///   - makeSession: Makes the session for an address; nil makes ``systemSession(_:frames:screen:)``;
+    ///     tests pass fakes.
+    public init(frames: URL?, screen: (any ChiefScreenCaptureHost)?, claims: DictationMicrophoneClaims = .shared,
+                makeSession: (@MainActor (VoiceRoomAddress, URL?) -> VoiceRoomSession)? = nil) {
         self.frames = frames
         self.claims = claims
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { VoiceRoomHost.systemSession($0, frames: $1, screen: screen) }
     }
 
     /// True while a room listens or is paused by its people.
@@ -65,8 +68,10 @@ public final class VoiceRoomHost {
     }
 
     /// The real session: on-device speech (a recorded clip in Debug when
-    /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one), HTTP lines, the room's socket and the screen.
-    public static func systemSession(_ address: VoiceRoomAddress, frames: URL?) -> VoiceRoomSession {
+    /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one), HTTP lines, the room's socket and the screen read
+    /// by `screen` (nil: no screen reading, the mic only).
+    public static func systemSession(_ address: VoiceRoomAddress, frames: URL?,
+                                     screen: (any ChiefScreenCaptureHost)?) -> VoiceRoomSession {
         VoiceRoomSession(
             dictation: {
                 #if DEBUG
@@ -76,7 +81,7 @@ public final class VoiceRoomHost {
             },
             poster: VoiceRoomHTTPPoster(address: address),
             events: VoiceRoomWebSocketEvents(address: address),
-            screen: VoiceRoomScreenReader(frames: frames)
+            screen: screen.map { VoiceRoomScreenReader(host: $0, frames: frames) }
         )
     }
 }

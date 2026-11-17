@@ -118,18 +118,18 @@ public final class MacScreenPages {
 
     /// - Parameters:
     ///   - store: the saved Mac Screen records.
-    ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
-    public init(store: MacScreenStore, work: BackgroundWork) {
+    public init(store: MacScreenStore) {
         self.store = store
-        host = MacScreenShareHost(work: work)
+        host = MacScreenShareHost()
         hubHost = MacScreenHubHost(share: host)
-        systemShortcuts = MacScreenSystemShortcuts(host: host)
+        systemShortcuts = MacScreenSystemShortcuts()
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
-        // Quitting ends every session now, so the other Mac stops showing a viewer at once.
+        // Quitting ends every viewer session now, so the other Mac stops showing a viewer at once;
+        // this Mac's own shared session ends too unless it serves on in cmux Computer Use (headless).
         termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 for tab in self?.tabs.values.map({ $0 }) ?? [] { tab.pane?.close() }
-                self?.hubHost.stopSession(immediately: true)
+                self?.hubHost.appWillTerminate()
             }
         }
         hubHost.hub = { [weak self] in self?.hub }

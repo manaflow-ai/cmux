@@ -38,7 +38,7 @@ import Testing
 
     @Test func signedOutListsNoDevices() {
         let file = FileManager.default.temporaryDirectory.appending(path: "screen-palette-\(UUID().uuidString)/store.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
         #expect(pages.viewableDevices.isEmpty)
     }
     // The catalog's keywords, tier and categories are pinned in Rust (cmux-action-catalog

@@ -2,45 +2,78 @@
 import Foundation
 import Testing
 
-/// Permission snapshots use a fresh child; failed reads must not leave a prior grant visible.
-@MainActor @Suite
+/// Mac Screen's grants are cmux Computer Use's, read and requested through its host; failed
+/// reads must not leave a prior grant visible, and nothing is ever asked for the app itself.
+@MainActor @Suite(.timeLimit(.minutes(1)))
 struct MacScreenShareHostTests {
+    private static func helper(_ read: @escaping @Sendable () async throws -> (screen: Bool, control: Bool, holder: String?),
+                               requests: AsyncStream<Bool>.Continuation? = nil) -> MacScreenHelperPermissions {
+        MacScreenHelperPermissions(read: read, request: { requests?.yield($0) })
+    }
+
     @Test func aFreshReadReplacesCachedDenial() async {
         let host = MacScreenShareHost()
-        host.readPermissions = { (false, false) }
+        host.helper = Self.helper { (false, false, "cmux Computer Use") }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
 
-        host.readPermissions = { (true, true) }
+        host.helper = Self.helper { (true, true, "cmux Computer Use") }
         await host.refreshPermissions()
         #expect(host.screenRecordingGranted)
         #expect(host.accessibilityGranted)
+        #expect(host.grantHolderName == "cmux Computer Use")
     }
 
-    @Test func aFailedProbeClearsAnEarlierGrant() async {
+    @Test func aFailedReadClearsAnEarlierGrant() async {
         let host = MacScreenShareHost()
-        host.readPermissions = { (true, true) }
+        host.helper = Self.helper { (true, true, "cmux Computer Use") }
         await host.refreshPermissions()
-        host.readPermissions = { throw CocoaError(.fileNoSuchFile) }
+        host.helper = Self.helper { throw CocoaError(.fileNoSuchFile) }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
         #expect(!host.accessibilityGranted)
+        #expect(host.grantHolderName == nil)
+    }
+
+    /// Without the helper host nothing is granted and nothing is asked (no in-app fallback).
+    @Test func withoutTheHelperNothingIsGrantedOrRequested() async {
+        let host = MacScreenShareHost()
+        await host.refreshPermissions()
+        #expect(!host.screenRecordingGranted)
+        #expect(!host.accessibilityGranted)
+        #expect(host.grantHolderName == nil)
+        host.requestScreenRecording()
+        host.requestAccessibility()
+    }
+
+    @Test func requestsGoToTheHelperHost() async throws {
+        let host = MacScreenShareHost()
+        let (asked, requests) = AsyncStream.makeStream(of: Bool.self)
+        host.helper = Self.helper({ (false, false, "cmux Computer Use") }, requests: requests)
+        host.requestScreenRecording()
+        host.requestAccessibility()
+        var seen: Set<Bool> = []
+        for await screenRecording in asked {
+            seen.insert(screenRecording)
+            if seen.count == 2 { break }
+        }
+        #expect(seen == [true, false])
     }
 
     @Test func aLaterReadWinsOverAnOlderOneThatEndsAfterIt() async {
         let host = MacScreenShareHost()
         let (entered, enter) = AsyncStream.makeStream(of: Void.self)
         let (released, release) = AsyncStream.makeStream(of: Void.self)
-        host.readPermissions = {
+        host.helper = Self.helper {
             enter.yield()
             var waiting = released.makeAsyncIterator()
             _ = await waiting.next()
-            return (true, true)
+            return (true, true, nil)
         }
         let older = Task { await host.refreshPermissions() }
         var waiting = entered.makeAsyncIterator()
         _ = await waiting.next()
-        host.readPermissions = { (false, true) }
+        host.helper = Self.helper { (false, true, nil) }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
         release.yield()
@@ -48,44 +81,5 @@ struct MacScreenShareHostTests {
         await older.value
         #expect(!host.screenRecordingGranted)
         #expect(host.accessibilityGranted)
-    }
-
-    /// A build without the Screen Sharing helper reads this app's own grants, and names no holder.
-    @Test func aBuildWithoutTheHelperReadsTheAppsOwnGrants() async {
-        let host = MacScreenShareHost()
-        host.helper = { nil }
-        host.readPermissions = { (true, false) }
-
-        await host.refreshPermissions()
-
-        #expect(host.screenRecordingGranted)
-        #expect(!host.accessibilityGranted)
-        #expect(host.grantHolderName == nil)
-    }
-
-    /// The helper is the one `* Screen Sharing.app` in Contents/Library with its executable;
-    /// a bundle without one has no helper.
-    @Test func theHelperIsFoundInTheAppsLibrary() throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: "mac-screen-helper-\(UUID().uuidString)", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let app = root.appending(path: "cmux TEST.app", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: app.appending(path: "Contents/Library/Other.app"), withIntermediateDirectories: true)
-        let bundle = try #require(Bundle(url: app))
-        #expect(MacScreenHelper.bundled(bundle) == nil)
-
-        let helper = app.appending(path: "Contents/Library/cmux TEST Screen Sharing.app", directoryHint: .isDirectory)
-        let executable = helper.appending(path: "Contents/MacOS/\(MacScreenHelper.executableName)")
-        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755]))
-        let found = try #require(MacScreenHelper.bundled(bundle))
-        #expect(found.name == "cmux TEST Screen Sharing")
-        #expect(found.app.standardizedFileURL == helper.standardizedFileURL)
-    }
-
-    /// The helper's one JSON line (cmux-rd-host src/permissions.rs).
-    @Test func theHelpersAnswerDecodes() throws {
-        let answer = try JSONDecoder().decode(MacScreenHelper.Permissions.self,
-                                              from: Data(#"{"screen_recording":true,"accessibility":false}"#.utf8))
-        #expect(answer == MacScreenHelper.Permissions(screenRecording: true, accessibility: false))
     }
 }

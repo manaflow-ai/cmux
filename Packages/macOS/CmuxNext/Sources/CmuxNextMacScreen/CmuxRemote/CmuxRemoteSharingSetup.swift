@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 
 /// A window-scoped permission guide for the process that actually captures the screen: the
-/// helper holding the grants (``MacScreenShareHost/grantHolderName``), or this app without one.
+/// helper holding the grants (``MacScreenShareHost/grantHolderName``, cmux Computer Use), never this app.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
 @MainActor
 struct CmuxRemoteSharingSetup {

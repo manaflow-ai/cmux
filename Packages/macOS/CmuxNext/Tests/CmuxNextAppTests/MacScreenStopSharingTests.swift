@@ -11,7 +11,7 @@ import Testing
 struct MacScreenStopSharingTests {
     private func actions(worker: MacScreenWorkerSession) -> (MacScreenActions, MacScreenPages) {
         let file = FileManager.default.temporaryDirectory.appending(path: "stop-sharing-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let actions = MacScreenActions(pages: pages, selectedTab: { nil }, providerKey: { id, _ in id },
                                        open: { _, _, _ in }, refusal: { _ in }, worker: worker)
         return (actions, pages)

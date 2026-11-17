@@ -9,10 +9,11 @@ import os
 /// This Mac as a device hub host: "Allow Mac Screen on this Mac" (the hub's
 /// `mac_screen_shared`), and the sessions the hub approves. Each
 /// `session.ticket` for the host role is served by its own
-/// `MacScreenRdHost` (cmux.rd/1; View Only sessions apply no input) over the
-/// ticket's signaling; a revocation or end closes it at once. One session at a time:
+/// `MacScreenRdHost` (cmux.rd/1 or WebRTC; View Only sessions apply no input) over the
+/// ticket's signaling, captured in cmux Computer Use's Screen Sharing worker
+/// (``captureWorker``); a revocation or end closes it at once. One session at a time:
 /// a newer one replaces the older. Permissions (Screen Recording,
-/// Accessibility) are checked by `MacScreenShareHost`.
+/// Accessibility) are the helper's, read and requested by `MacScreenShareHost`.
 @MainActor @Observable
 public final class MacScreenHubHost {
     /// The session this Mac serves now.
@@ -37,8 +38,14 @@ public final class MacScreenHubHost {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
-    /// Makes the host for one session; tests replace it.
-    @ObservationIgnored var makeHost: (MacScreenRdHost.Session) -> MacScreenRdHost = { MacScreenRdHost(session: $0) }
+    /// Where sessions are captured: cmux Computer Use's Screen Sharing worker (the app wires it,
+    /// ``CmuxRemoteService``). Nil: no session can be served, and this app never captures itself.
+    @ObservationIgnored public var captureWorker: MacScreenCaptureWorker?
+    /// Whether a connected session serves on with this app quit (`remote.endSharingOnQuit` off):
+    /// the worker keeps it, so quitting does not end it. The app wires it.
+    @ObservationIgnored public var sessionsSurviveQuit: @MainActor () -> Bool = { false }
+    /// Makes the host for one session; nil is a ``MacScreenRdHost`` on ``captureWorker``; tests replace it.
+    @ObservationIgnored var makeHost: ((MacScreenRdHost.Session) -> MacScreenRdHost)?
     /// The hub calls the host's controls make; tests replace them.
     @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
         try? await hub.endSession(id, reason: reason)
@@ -151,8 +158,11 @@ public final class MacScreenHubHost {
             end(ticket.sessionId, reason: .failed, hub: hub)
             return
         }
-        let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
-                                                    servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))))
+        let ice = hub.iceServers(for: ticket).map(\.config)
+        let described = MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id,
+                                                viewerName: ticket.peer.name, viewOnly: ticket.scope == .view,
+                                                servers: MacScreenRdServers(ice), iceServers: ice)
+        let host = makeHost?(described) ?? MacScreenRdHost(session: described, worker: captureWorker)
         let (events, sink) = AsyncStream.makeStream(of: MacScreenRdHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { event in sink.yield(event) }
         self.host = host
@@ -247,6 +257,14 @@ public final class MacScreenHubHost {
         awaitingConsent.removeAll()
         guard let hub = hub() else { return }
         for id in waiting { end(id, reason: reason, hub: hub) }
+    }
+
+    /// This app is quitting: a connected session serves on in the worker when sharing outlives
+    /// the app (headless; this process ending closes its channel, and the worker owns the
+    /// session from then on), else every session ends now so the viewer stops at once.
+    public func appWillTerminate() {
+        if session?.connected == true, captureWorker != nil, sessionsSurviveQuit() { return }
+        stopSession(immediately: true)
     }
 
     /// Signed out, or the hub went away: end the session here (the caller told the hub first, when it could).

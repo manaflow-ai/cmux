@@ -81,7 +81,7 @@ struct MacScreenConnectTimingsTests {
 struct MacScreenStateControlTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file))
     }
 
     private func rows(_ pages: MacScreenPages, tab: String? = nil) throws -> [[String: CmuxNextSettings.JSONValue]] {

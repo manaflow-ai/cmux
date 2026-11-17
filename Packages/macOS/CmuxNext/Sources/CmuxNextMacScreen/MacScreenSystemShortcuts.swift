@@ -1,5 +1,4 @@
 public import AppKit
-import ApplicationServices
 import CmuxNextRemoteView
 public import Observation
 
@@ -35,17 +34,15 @@ public final class MacScreenSystemShortcuts {
     /// Writes the setting (the toolbar's menu item); the app fills it in.
     @ObservationIgnored public var setEnabled: (Bool) -> Void = { _ in }
     /// Permission and app state checks; tests replace them.
-    @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
+    @ObservationIgnored public var checkAccessibility: () -> Bool = { RemoteSystemShortcutTap.isTrusted }
     @ObservationIgnored public var isAppActive: () -> Bool = { NSApp.isActive }
     /// The panes that may hold the keyboard.
     @ObservationIgnored var panes: () -> [MacScreenPane] = { [] }
     @ObservationIgnored private let tap = RemoteSystemShortcutTap()
     @ObservationIgnored private let policy = RemoteSystemShortcuts()
-    @ObservationIgnored private let host: MacScreenShareHost
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
 
-    init(host: MacScreenShareHost) {
-        self.host = host
+    init() {
         tap.stillHolds = { [weak self] in self?.target() != nil }
         tap.onRemoved = { [weak self] in self?.tapInstalled = false }
     }
@@ -74,8 +71,8 @@ public final class MacScreenSystemShortcuts {
     /// Asks macOS for Accessibility; when it does not show its prompt, opens
     /// System Settings > Privacy & Security > Accessibility in the background.
     public func requestAccessibility() {
-        // The tap runs in this app (not in the Screen Sharing helper), so the grant is the app's own.
-        host.requestAppAccessibility()
+        // The viewer's tap runs in this app (``RemoteSystemShortcutTap/requestAccessibility()``).
+        RemoteSystemShortcutTap.requestAccessibility()
         refreshAccessibility()
     }
 

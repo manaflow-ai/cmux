@@ -1,4 +1,5 @@
 public import AppKit
+import ApplicationServices
 import CoreGraphics
 
 /// A session keyboard event tap that takes system chords (Cmd-Tab,
@@ -34,6 +35,23 @@ public final class RemoteSystemShortcutTap {
     public init() {}
 
     public var isInstalled: Bool { port != nil }
+
+    /// Whether this app may install the tap (Accessibility), read without a prompt.
+    public static var isTrusted: Bool { AXIsProcessTrusted() }
+
+    /// macOS's Accessibility prompt for this app, else (macOS no longer prompts) the Accessibility
+    /// pane in the background. The one Accessibility request the cmux app makes itself, for this
+    /// viewer feature only: the tap must decide on every key synchronously, inside the event
+    /// callback, whether macOS acts on it, from the capture view's own state, so it runs in the
+    /// app, not in cmux Computer Use (sharing this Mac's screen asks for the helper instead).
+    public static func requestAccessibility() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        guard !AXIsProcessTrustedWithOptions(options),
+              let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.open(url, configuration: configuration) { _, _ in }
+    }
 
     /// Installs the tap for `surface` (or points it there). False when macOS
     /// refused it (no Accessibility).

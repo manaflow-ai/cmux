@@ -259,7 +259,7 @@ struct MacScreenRightClickTests {
 @Suite(.closesItsWindows)
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
-        MacScreenPages(store: makeStore().0, work: BackgroundWork())
+        MacScreenPages(store: makeStore().0)
     }
 
     /// Makes `key`'s view and waits until its screen (or home page) is in.
@@ -370,7 +370,7 @@ struct MacScreenThemeTests {
         let root = try #require(window.contentView)
         scope.root(root)
 
-        let pages = MacScreenPages(store: makeStore().0, work: BackgroundWork())
+        let pages = MacScreenPages(store: makeStore().0)
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)

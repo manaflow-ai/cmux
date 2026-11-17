@@ -54,7 +54,7 @@ struct MacScreenAppKitViewTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
     }
 
     @Test func noSurfaceBuildsAHostingView() throws {

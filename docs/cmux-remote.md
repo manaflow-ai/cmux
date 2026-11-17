@@ -1,25 +1,29 @@
 # cmux Remote: one host for Computer Use and Screen Sharing
 
-cmux Remote supervises the workers that need macOS grants, while the NEXT app
-serves an attached Mac Screen session. Computer Use always runs in the cmux
-Remote worker. When the app is attached, its `MacScreenHubHost` serves the
-current `cmux.rd/1` and WebRTC sessions and macOS checks the app's own
-Accessibility and Screen Recording grants. When no app channel is attached,
-the Screen Sharing worker may serve its standalone legacy stream and macOS
-checks the worker's grants. A person may therefore see a grant for cmux Remote
-for worker use and a grant for cmux for the app's active capture.
+cmux Remote supervises the workers that need macOS grants, and every capture
+runs in them. Computer Use always runs in the cmux Remote worker. Every Mac
+Screen session is captured by the Screen Sharing worker: when the app is
+attached, its `MacScreenHubHost` keeps the ticket, consent, approvals and the
+session's signaling and hands the capture to the worker (`cmux.rd/1` through
+`cmux-screen-sharing serve`, the worker's own child; WebRTC through the
+worker's `ScreenStreamHost`); when no app is attached, the worker serves the
+ticket alone. macOS checks only the helper's Accessibility and Screen
+Recording grants, so System Settings lists one app and the cmux app never asks
+for either.
 
 ## Process tree
 
 ```
-cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
-          using the app's own TCC grants)
+cmux.app (the person's app; Mac Screen tickets, consent, approvals and
+          signaling; holds no TCC grant for Mac Screen)
   └─ cmux-tui daemon          (started by the app, outlives it; setsid)
        └─ cmux Remote host    (posix_spawn with responsibility disclaimed:
           │                    macOS checks worker grants against cmux Remote)
           ├─ Computer Use worker   (`cmux-remote worker computer-use`)
           └─ Screen Sharing worker (`cmux-remote worker screen-sharing`;
-                                     identity/push relay, or standalone stream)
+             │                      identity/push relay; captures every session)
+             └─ cmux.rd/1 host     (`cmux-screen-sharing serve`, one per
+                                     cmux.rd/1 session, from the same helper)
 ```
 
 - **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
@@ -43,15 +47,15 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
 - **Responsibility.** The daemon starts the Remote host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their
-  Accessibility and Screen Recording checks to the host. The app's attached
-  `MacScreenHubHost` is separate and uses the app's own TCC identity; shells
-  and agents never inherit either grant.
+  Accessibility and Screen Recording checks to the host, and so are the
+  workers' own children (the cmux.rd/1 host). The app's `MacScreenHubHost`
+  captures nothing and asks for nothing; shells and agents never inherit
+  either grant.
 - **Outside the app bundle.** macOS 26 checks Screen Recording for a process
   that runs from inside an app bundle as the outermost app. The daemon runs a
   verified Remote copy at `~/Library/Application Support/cmux/remote/<scope>/`
   (one per app build, replaced atomically when the embedded copy changes; never
-  followed through a symlink). This rule applies to the worker grants; the
-  attached app capture is evaluated under the cmux app's own TCC identity.
+  followed through a symlink).
 - **Two workers.** A crash, a hang or a grant restart of one feature never
   stops the other. Each worker is the same executable in another mode, so it
   carries the same code identity.
@@ -81,8 +85,8 @@ satisfies cmux Remote's requirement.
 | Who | Path | What |
 | --- | --- | --- |
 | daemon ↔ host | supervisor socket (`remote-host/s.sock`), JSON lines | hello, status, permission requests, worker control, drain |
-| app ↔ host | app socket (`remote-host/a.sock`), JSON lines plus channels | credentials from `remote-host-app` (verified app only, as `browser-host-provider`): the Computer Use control channel, device signing, the device hub push relay |
-| app screen host | in-process `MacScreenHubHost` → `MacScreenRdHost` | attached `cmux.rd/1` and WebRTC capture, signaling and input; uses the app's TCC grants |
+| app ↔ host | app socket (`remote-host/a.sock`), JSON lines plus channels | credentials from `remote-host-app` (verified app only, as `browser-host-provider`): the Computer Use control channel, device signing, the device hub push relay, one Screen Sharing channel per served Mac Screen session |
+| app screen host | `MacScreenHubHost` → `MacScreenRdHost` → a Screen Sharing channel (`session.rd` or `session.webrtc`) | the app keeps the ticket's signaling; the worker captures and injects input (`cmux.rd/1`: its `cmux-screen-sharing serve` child's JSON lines relayed both ways; WebRTC: `{"signal":…}` lines, `{"signals_done":true}`, `session` events). `{"stop":true}` is Stop; the channel ending without it is the app leaving |
 | CLI, MCP | daemon commands `remote-host-status`, `remote-host-call` | status, requests, restart, sharing switch, viewer permission |
 | agents (Computer Use) | the Computer Use worker's sockets (unchanged: `endpoint.json`, acpmux admission, app consent) | tools |
 
@@ -93,36 +97,45 @@ or logs.
 
 ## Permissions
 
-- **Status** for worker grants comes from a fresh `cmux-remote probe` process,
-  which reads `AXIsProcessTrusted()` and `CGPreflightScreenCaptureAccess()`
-  and exits. The attached app host reports its own TCC reads from
-  `MacScreenShareHost`; the two identities are shown separately.
+- **Status** comes from a fresh `cmux-remote probe` process, which reads
+  `AXIsProcessTrusted()` and `CGPreflightScreenCaptureAccess()` and exits.
+  The app's `MacScreenShareHost` shows it (`remote-host-call refresh`) and
+  names the holder from the host's status, so there is one identity to show.
 - **Refresh** is event driven: the app becoming active (after System
   Settings), macOS's Accessibility change notification
   (`com.apple.accessibility.api`), a Quit & Reopen, an explicit refresh
   (palette, CLI, MCP), and each feature start. Nothing polls.
 - **Grant reaches the feature.** When a worker refresh shows a grant it started
   without, the Remote host restarts that worker (an idle standalone Screen
-  Sharing worker at once, a busy one after its session). The app host refreshes
-  and requests its own grants for attached capture; it is not repaired by
-  restarting the worker.
+  Sharing worker at once, a busy one after its session: an app-attached
+  session makes the worker busy too, so a grant never cuts it).
 - **Requests** (`accessibility`, `screenRecording`) made through
   `cmux remote-host request …` run in the Remote host, so macOS names cmux
-  Remote. The app's Share action and `remote.confirm` guided sheet use the
-  app's own `MacScreenShareHost` permission flow and app hub session. Each
-  opens the matching System Settings pane when macOS will not prompt again. A
-  permission is requested at most once per 30 s.
+  Remote. The app's Share action and `remote.confirm` guided sheet request
+  through the same host call (`MacScreenShareHost`). The host opens the
+  matching System Settings pane when macOS will not prompt again. A
+  permission is requested at most once per 30 s. The cmux app never calls
+  `CGRequestScreenCaptureAccess`, `AXIsProcessTrustedWithOptions` or
+  ScreenCaptureKit for Mac Screen (`MacScreenNoAppGrantTests` fails if it
+  does). The one app-side Accessibility request left is the viewer's
+  opt-in Send System Shortcuts tap (`RemoteSystemShortcutTap`), which must
+  answer each key inside its own event callback from the capture view's
+  state.
 
 ## Screen Sharing worker
 
 The Screen Sharing worker is this Mac's device on the device hub
 (`docs/device-hub/PROTOCOL.md`): it owns the Secure Enclave device keys, the
 one User DO socket of this device, the approval banner (top right, never
-activating), and the menu bar indicator. When the cmux app has an app channel
-open, the app owns the current `cmux.rd/1` host ticket and approval flow; the
-worker becomes identity and push relay only and never serves or ends that
-ticket. If no app channel is open, the worker may host its legacy
-`ScreenStreamHost` session so sharing can continue with the app quit:
+activating), the menu bar indicator, and every capture. When the cmux app has
+an app channel open, the app owns host tickets and approvals and hands each
+session it serves to the worker on its own channel (`AttachedScreenSession`);
+the worker never takes a ticket itself then. When that app quits with
+`remote.endSharingOnQuit` off (headless), a connected session keeps serving in
+the worker, which owns it from then on (hub revocations, its menu bar item,
+`cmux remote-host stop`); with the setting on, the session ends with the app.
+If no app channel is open, the worker hosts tickets itself with
+`ScreenStreamHost`:
 
 - Its hub session comes from the app's sign-in while the app runs, and from
   **device-key renewal** when it does not: `POST /v1/auth/device`, signed by
@@ -137,13 +150,12 @@ ticket. If no app channel is open, the worker may host its legacy
 - The iOS and Mac viewers are unchanged: the same hub session flow, ticket
   signaling and ScreenStream wire (including the input `caps` message).
 
-The NEXT app keeps its app-owned `MacScreenHubHost` active for the current
-`cmux.rd/1` host protocol while attached. `MacScreenRdHost` also accepts a
-WebRTC offer and serves it in-process. The pinned worker supplies device
-identity, signing and push relay, and switches to relay-only while an app
-channel is open. This compatibility bridge is deliberate: switching
-`remoteHosted` to the worker's older `ScreenStreamHost` path would make a
-Release viewer connect to a host speaking a different protocol.
+The NEXT app keeps its `MacScreenHubHost` for tickets, consent and approvals
+while attached, and its `MacScreenRdHost` reads the viewer's offer to pick the
+protocol (`cmux.rd/1` or WebRTC), so a viewer of either kind connects to the
+same host. The capture of both runs in the worker. Without the worker (cmux
+Computer Use not running) a session fails with a message; the app never
+captures in-process.
 
 ## Settings and controls
 
