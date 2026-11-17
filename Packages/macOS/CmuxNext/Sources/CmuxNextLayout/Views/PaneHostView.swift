@@ -82,6 +82,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// each moving display frame and cleared after the frame it lands at, so content resized on the
     /// landing frame still sees the motion, then hears it end once (`PaneMotionSettling`): a
     /// terminal reports its grid there, one PTY resize per zoom instead of one per frame.
+    /// On its spring or held until the landing's commit: `releaseHeldContent` tells the content (``RestingPlacement``).
+    var awaitsOwnLanding: Bool { isOnLayoutSpring || holdsUntilAfterLanding }
+
     var isOnLayoutSpring = false {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
