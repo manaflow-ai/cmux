@@ -277,6 +277,10 @@ lane = "macos-cli-no-socket"
 serial = true
 
 [[test]]
+path = "tests/test_agent_wrapper_version_manager_shim_fallback.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
 lane = "macos-cli-no-socket"
 

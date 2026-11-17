@@ -1,4 +1,5 @@
 {
+  "tests/test_agent_wrapper_version_manager_shim_fallback.py": 30.0,
   "tests/test_browser_input_files_cli.py": 0.8,
   "tests/test_browser_profile_cli.py": 1.0,
   "tests/test_browser_repl_cli_io.py": 1.1,
