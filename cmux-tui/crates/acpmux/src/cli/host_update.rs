@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[path = "host_self_update.rs"]
 mod host_self_update;
-pub(crate) use host_self_update::self_update;
+pub(crate) use host_self_update::{Channel, channel_url, self_update};
 
 /// Restart the launchd daemon of a macOS host ([`launchd_reload`]: bootout,
 /// then bootstrap, never `kickstart -k`; nothing stopped when launchd refuses

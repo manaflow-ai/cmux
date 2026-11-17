@@ -4848,268 +4848,6 @@
         }
       }
     },
-    "rd.tab.confirm.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح نص برمجي أو وكيل أو استعادة علامة التبويب هذه. لن يتم الاتصال حتى تختار اتصال."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ovu karticu je otvorila skripta, agent ili vraćanje. Ništa se ne povezuje dok ne odaberete Poveži."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Et script, en agent eller en gendannelse åbnede denne fane. Intet forbindes, før du vælger Opret forbindelse."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Skript, ein Agent oder eine Wiederherstellung hat diesen Tab geöffnet. Nichts verbindet sich, bis du Verbinden wählst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect opens this desktop in the tab so you can see what is running. Nothing connects until you choose Connect."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un script, un agente o una restauración abrió esta pestaña. Nada se conecta hasta que elijas Conectar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un script, un agent ou une restauration a ouvert cet onglet. Rien ne se connecte avant que vous choisissiez Se connecter."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uno script, un agente o un ripristino ha aperto questa scheda. Nulla si connette finché non scegli Connetti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このタブはスクリプト、エージェント、または復元によって開かれました。「接続」を選ぶまで何も接続しません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្គ្រីប ភ្នាក់ងារ ឬការស្ដារ បានបើកផ្ទាំងនេះ។ គ្មានអ្វីភ្ជាប់ទេ រហូតដល់អ្នកជ្រើស ភ្ជាប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스크립트, 에이전트 또는 복원이 이 탭을 열었습니다. 연결을 선택하기 전까지는 아무것도 연결되지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Et skript, en agent eller en gjenoppretting åpnet denne fanen. Ingenting kobles til før du velger Koble til."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tę kartę otworzył skrypt, agent lub przywracanie. Nic się nie połączy, dopóki nie wybierzesz Połącz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um script, um agente ou uma restauração abriu esta aba. Nada se conecta até você escolher Conectar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Эту вкладку открыл скрипт, агент или восстановление. Ничего не подключится, пока вы не выберете «Подключиться»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สคริปต์ เอเจนต์ หรือการกู้คืนเปิดแท็บนี้ จะไม่มีการเชื่อมต่อจนกว่าคุณจะเลือกเชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sekmeyi bir betik, bir ajan veya geri yükleme açtı. Bağlan'ı seçene kadar hiçbir şey bağlanmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Цю вкладку відкрив скрипт, агент або відновлення. Нічого не під’єднається, доки ви не виберете «Під’єднатися»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một tập lệnh, một tác tử hoặc thao tác khôi phục đã mở thẻ này. Không có gì kết nối cho đến khi bạn chọn Kết nối."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此标签页由脚本、代理或恢复操作打开。在你选择“连接”之前不会连接任何内容。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此分頁由指令碼、代理程式或還原開啟。在你選擇「連線」之前不會連線。"
-          }
-        }
-      }
-    },
-    "rd.tab.confirm.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "هل تريد الاتصال بـ %@؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Povezati se s %@?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opret forbindelse til %@?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mit %@ verbinden?"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Conectarse a %@?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se connecter à %@ ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Connettersi a %@?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に接続しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្ជាប់ទៅ %@ ឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@에 연결할까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koble til %@?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Połączyć z %@?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectar a %@?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подключиться к %@?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เชื่อมต่อกับ %@ ไหม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ile bağlanılsın mı?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Під’єднатися до %@?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kết nối với %@?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "连接到 %@？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "連線到 %@？"
-          }
-        }
-      }
-    },
     "rd.tab.title.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -9040,395 +8778,264 @@
         }
       }
     },
-    "rd.gate.title": {
+    "rd.gate.approval": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open %@"
+            "value": "Another action opened this tab. Nothing connects until you choose Connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح %@"
+            "value": "فتح إجراء آخر علامة التبويب هذه. لن يتم الاتصال حتى تختار اتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvori %@"
+            "value": "Ovu karticu je otvorila druga radnja. Ništa se ne povezuje dok ne odaberete Poveži."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn %@"
+            "value": "En anden handling åbnede denne fane. Intet forbindes, før du vælger Opret forbindelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ öffnen"
+            "value": "Eine andere Aktion hat diesen Tab geöffnet. Nichts verbindet sich, bis du Verbinden wählst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir %@"
+            "value": "Otra acción abrió esta pestaña. Nada se conecta hasta que elijas Conectar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir %@"
+            "value": "Une autre action a ouvert cet onglet. Rien ne se connecte avant que vous choisissiez Se connecter."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri %@"
+            "value": "Un'altra azione ha aperto questa scheda. Nulla si connette finché non scegli Connetti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@を開く"
+            "value": "このタブは別の操作で開かれました。「接続」を選ぶまで何も接続しません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បើក %@"
+            "value": "សកម្មភាពផ្សេងបានបើកផ្ទាំងនេះ។ គ្មានអ្វីភ្ជាប់ទេ រហូតដល់អ្នកជ្រើស ភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 열기"
+            "value": "다른 작업이 이 탭을 열었습니다. 연결을 선택하기 전까지는 아무것도 연결되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne %@"
+            "value": "En annen handling åpnet denne fanen. Ingenting kobles til før du velger Koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz %@"
+            "value": "Tę kartę otworzyła inna czynność. Nic się nie połączy, dopóki nie wybierzesz Połącz."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir %@"
+            "value": "Outra ação abriu esta aba. Nada se conecta até você escolher Conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть %@"
+            "value": "Эту вкладку открыло другое действие. Ничего не подключится, пока вы не выберете «Подключиться»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิด %@"
+            "value": "การทำงานอื่นเปิดแท็บนี้ จะไม่มีการเชื่อมต่อจนกว่าคุณจะเลือกเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ aç"
+            "value": "Bu sekmeyi başka bir işlem açtı. Bağlan'ı seçene kadar hiçbir şey bağlanmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрити %@"
+            "value": "Цю вкладку відкрила інша дія. Нічого не під’єднається, доки ви не виберете «Під’єднатися»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mở %@"
+            "value": "Một tác vụ khác đã mở thẻ này. Không có gì kết nối cho đến khi bạn chọn Kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开%@"
+            "value": "此标签页由其他操作打开。在你选择“连接”之前不会连接任何内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟%@"
+            "value": "此分頁由其他操作開啟。在你選擇「連線」之前不會連線。"
           }
         }
       }
     },
-    "rd.gate.detail": {
+    "rd.gate.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect opens %@ in this tab so you can see what is running."
+            "value": "Connect to see what is running here."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يفتح الاتصال %@ في علامة التبويب هذه لتعرف ما الذي يعمل."
+            "value": "اتصل لترى ما يعمل هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veza otvara %@ u ovoj kartici da vidiš šta radi."
+            "value": "Povežite se da vidite šta se ovdje izvršava."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbindelsen åbner %@ i dette faneblad, så du kan se, hvad der kører."
+            "value": "Opret forbindelse for at se, hvad der kører her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Verbindung öffnet %@ in diesem Tab, damit du siehst, was läuft."
+            "value": "Verbinde dich, um zu sehen, was hier läuft."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La conexión abre %@ en esta pestaña para que veas lo que está ejecutándose."
+            "value": "Conéctate para ver lo que se está ejecutando aquí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connexion ouvre %@ dans cet onglet pour voir ce qui fonctionne."
+            "value": "Connectez-vous pour voir ce qui s'exécute ici."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connessione apre %@ in questa scheda per mostrarti cosa è in esecuzione."
+            "value": "Connettiti per vedere cosa è in esecuzione qui."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続すると、このタブで%@を開き、実行中の内容を確認できます。"
+            "value": "接続すると、ここで実行中の内容を確認できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការតភ្ជាប់នឹងបើក %@ ក្នុងផ្ទាំងនេះ ដើម្បីឲ្យអ្នកឃើញអ្វីកំពុងដំណើរការ។"
+            "value": "ភ្ជាប់ ដើម្បីមើលអ្វីដែលកំពុងដំណើរការនៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하면 이 탭에서 %@을(를) 열어 실행 중인 내용을 볼 수 있습니다."
+            "value": "연결하면 여기서 실행 중인 내용을 볼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilkoblingen åpner %@ i denne fanen, så du kan se hva som kjører."
+            "value": "Koble til for å se hva som kjører her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połączenie otworzy %@ w tej karcie, aby pokazać, co działa."
+            "value": "Połącz się, aby zobaczyć, co tu działa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A conexão abre %@ nesta aba para você ver o que está em execução."
+            "value": "Conecte-se para ver o que está em execução aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключение откроет %@ в этой вкладке, чтобы показать запущенные процессы."
+            "value": "Подключитесь, чтобы увидеть, что здесь запущено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การเชื่อมต่อจะเปิด %@ ในแท็บนี้เพื่อให้คุณเห็นสิ่งที่กำลังทำงานอยู่"
+            "value": "เชื่อมต่อเพื่อดูสิ่งที่กำลังทำงานอยู่ที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlantı, neyin çalıştığını görebilmen için %@ öğesini bu sekmede açar."
+            "value": "Burada neyin çalıştığını görmek için bağlan."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключення відкриє %@ у цій вкладці, щоб показати запущене."
+            "value": "Під’єднайтеся, щоб побачити, що тут працює."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối sẽ mở %@ trong thẻ này để bạn xem nội dung đang chạy."
+            "value": "Kết nối để xem những gì đang chạy ở đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接会在此标签页打开%@，让你查看正在运行的内容。"
+            "value": "连接后即可查看这里正在运行的内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線會在此分頁開啟%@，讓你查看正在執行的內容。"
-          }
-        }
-      }
-    },
-    "rd.gate.safety": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This tab was opened by another action. cmux waits for your approval before connecting."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فُتحت علامة التبويب هذه بإجراء آخر. ينتظر cmux موافقتك قبل الاتصال."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovu karticu je otvorila druga radnja. cmux čeka tvoje odobrenje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dette faneblad blev åbnet af en anden handling. cmux venter på din godkendelse."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Tab wurde von einer anderen Aktion geöffnet. cmux wartet auf deine Zustimmung."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta pestaña la abrió otra acción. cmux espera tu aprobación."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cet onglet a été ouvert par une autre action. cmux attend votre accord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa scheda è stata aperta da un'altra azione. cmux attende la tua approvazione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このタブは別の操作で開かれました。接続する前に確認をお願いします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទាំងនេះត្រូវបានបើកដោយសកម្មភាពផ្សេង។ cmux រង់ចាំការអនុម័តរបស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 탭은 다른 작업에서 열었습니다. 연결하려면 승인이 필요합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne fanen ble åpnet av en annen handling. cmux venter på godkjenning."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ta karta została otwarta przez inną czynność. cmux czeka na Twoją zgodę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta aba foi aberta por outra ação. O cmux aguarda sua aprovação."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эта вкладка открыта другим действием. cmux ждёт вашего подтверждения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แท็บนี้ถูกเปิดโดยการทำงานอื่น cmux จะรอการอนุมัติของคุณก่อนเชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sekme başka bir işlem tarafından açıldı. cmux bağlanmadan önce onayını bekler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цю вкладку відкрила інша дія. cmux очікує вашого схвалення."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thẻ này được mở bởi một tác vụ khác. cmux chờ bạn chấp thuận trước khi kết nối."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此标签页由其他操作打开。连接前需要你的确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此分頁由其他操作開啟。連線前需要你的確認。"
+            "value": "連線後即可查看這裡正在執行的內容。"
           }
         }
       }

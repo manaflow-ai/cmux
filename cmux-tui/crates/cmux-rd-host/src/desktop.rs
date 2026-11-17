@@ -62,7 +62,7 @@ pub trait Desktop {
 pub fn reports_cursor() -> bool {
     #[cfg(target_os = "macos")]
     {
-        crate::mac::cursor::available()
+        synthetic_size().is_none() && crate::mac::cursor::available()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -143,8 +143,33 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
             Err(reason) => Err(reason.into()),
         },
     };
+    #[cfg(all(target_os = "macos", feature = "bench"))]
+    if let Some(source) = crate::synthetic::selected() {
+        return crate::mac::synthetic::open(cfg, source);
+    }
     #[cfg(target_os = "macos")]
     return crate::mac::open(cfg, cursor_metadata);
+}
+
+/// The size of the generated picture `--source synthetic` picked instead of the display (macOS
+/// bench builds; src/synthetic.rs), else None.
+#[cfg(target_os = "macos")]
+fn synthetic_size() -> Option<(u32, u32)> {
+    #[cfg(feature = "bench")]
+    return crate::synthetic::selected().map(|source| source.size);
+    #[cfg(not(feature = "bench"))]
+    None
+}
+
+/// The displays a viewer may pick, and the current one (macOS). A synthetic source is one
+/// display of its own size, listed without asking ScreenCaptureKit (which needs the grant).
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+    match synthetic_size() {
+        Some(size) => Ok((vec![size], 0)),
+        None => crate::mac::capture::displays(),
+    }
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured
@@ -157,5 +182,8 @@ pub fn default_max_fps(display: &str) -> u32 {
         60
     }
     #[cfg(target_os = "macos")]
-    return crate::mac::capture::refresh_fps(display);
+    return match synthetic_size() {
+        Some(_) => crate::mac::capture::FALLBACK_FPS,
+        None => crate::mac::capture::refresh_fps(display),
+    };
 }

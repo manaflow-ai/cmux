@@ -5,3 +5,4 @@ acpmux-lib hold_attach_gate
 page page_store_apply
 page page_store_text
 page page_store_held
+# v2.pr06.host_chat_change has no line here: the pane host's Swift bench (AcpmuxChatRowsBench) measures it in the hosted macOS jobs.

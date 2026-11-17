@@ -172,6 +172,7 @@ package final class AgentRenderPanel: NSPanel {
         // Parked hidden in a pane until now: it shows here (a Chromium tab
         // presents on unhide).
         chrome.isHidden = false
+        // focus-route: an agent render window, never a person's window; BrowserHost sits below the route
         if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
     }

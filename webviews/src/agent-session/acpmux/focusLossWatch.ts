@@ -8,8 +8,13 @@
 // - `page`: the page itself lost the keyboard (the app moved it to another view or window).
 // - `moved`: focus went to another element of the page with none of the above.
 //
+// Each record names the focus route the move came through (`route`: its origin and reason, or
+// `unrouted` for a direct `focus()` / `blur()`).
+//
 // No text goes out: element kinds and short words only. The watch is one capture listener on
 // the document and a wrapper on `focus` and `blur` that stores the last call's target and time.
+
+import { lastFocusRoute } from "../../ui/focusRoute";
 
 export type FocusLossRecord = (fields: Record<string, string | number | boolean>) => void;
 
@@ -29,12 +34,18 @@ export function describeElement(element: Element | null | undefined): string {
 }
 
 /// Whether typing there writes text (where a lost focus is a lost keystroke).
+/// Duck-typed, not `instanceof`: an element of another realm (a frame, a test window) has other
+/// constructors.
 export function isTextInput(element: EventTarget | null): element is HTMLElement {
-  if (!(element instanceof HTMLElement)) return false;
-  if (element instanceof HTMLTextAreaElement) return true;
-  if (element instanceof HTMLInputElement)
-    return !["button", "checkbox", "radio", "submit", "reset", "range", "color", "file"].includes(element.type);
-  return element.isContentEditable;
+  const el = element as HTMLElement | null;
+  if (!el || el.nodeType !== 1) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === "textarea") return true;
+  if (tag === "input")
+    return !["button", "checkbox", "radio", "submit", "reset", "range", "color", "file"].includes(
+      (el as HTMLInputElement).type,
+    );
+  return el.isContentEditable === true;
 }
 
 /// The cause of a loss, from what the page saw (exported for tests).
@@ -65,12 +76,21 @@ export function watchFocusLoss(
   const proto = (win as Window & typeof globalThis).HTMLElement.prototype;
   const originalFocus = proto.focus;
   const originalBlur = proto.blur;
+  // A blur inside a focus call (the engine's own, or a focus handler's) is part of that move:
+  // the record names the outer call.
+  let inFocus = false;
   proto.focus = function (this: HTMLElement, options?: FocusOptions) {
     lastScript = { op: "focus", on: describeElement(this), at: now() };
-    return originalFocus.call(this, options);
+    const outer = inFocus;
+    inFocus = true;
+    try {
+      return originalFocus.call(this, options);
+    } finally {
+      inFocus = outer;
+    }
   };
   proto.blur = function (this: HTMLElement) {
-    lastScript = { op: "blur", on: describeElement(this), at: now() };
+    if (!inFocus) lastScript = { op: "blur", on: describeElement(this), at: now() };
     return originalBlur.call(this);
   };
   const onFocusOut = (event: FocusEvent) => {
@@ -92,6 +112,9 @@ export function watchFocusLoss(
         fields.op = script.op;
         fields.on = script.on;
       }
+      // The focus route's name for the move (ui/focusRoute.ts), or `unrouted` for a direct call.
+      const route = lastFocusRoute(50, at);
+      fields.route = route ? `${route.origin} ${route.reason}`.slice(0, 80) : "unrouted";
       record(fields);
     });
   };
