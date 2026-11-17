@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""cmux-rd's license gate (cmux-tui/crates/cmux-rd-host/scripts/release.py license-gate), which
-cmux-tui-artifacts.yml's build-cmux-rd runs before cmux-rd is published to the channel: it lists
-every crate not under permissive licenses only and stops on one that is GPL, LGPL or AGPL only
-and not this repository's own."""
+"""cmux-rd's license gate (cmux-tui/crates/cmux-rd-host/scripts/release.py license-gate): it lists
+every crate not under permissive licenses only and stops on one that is GPL, LGPL or AGPL only and
+not this repository's own. These are its unit tests on synthetic cargo-license output; the check of
+the real release crate tree is the Rust test cmux-rd-host/tests/release_features.rs, which feeds
+cargo-license's output for the release features to the same gate."""
 
 from __future__ import annotations
 

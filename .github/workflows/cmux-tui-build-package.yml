@@ -120,6 +120,13 @@ on:
         required: false
         default: false
         type: boolean
+      # cmux-tui-artifacts.yml's shipped build only (cmux-tui-build-profiles.json shipped): cmux-rd,
+      # the screen host a joined Linux machine's join line installs from the files.cmux.com channel.
+      build_cmux_rd:
+        description: "On the Linux musl legs, also build cmux-rd (glibc) and stage it as cmux-tui-rd-<gnu target> with cmux-tui-rd-notices-<gnu target>.md; optional: a failed cmux-rd build leaves them out"
+        required: false
+        default: false
+        type: boolean
       # MACOS-CROSS-COMPILE-ON-LINUX. `mac` builds the two macOS targets on
       # macOS runners. `linux` builds them on a Linux runner without an Apple
       # SDK (scripts/ci/macos-cross.sh: Zig's darwin headers and libSystem stub,
@@ -607,6 +614,7 @@ jobs:
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
           LTO: ${{ inputs.lto }}
+          BUILD_CMUX_RD: ${{ inputs.build_cmux_rd }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -659,13 +667,23 @@ jobs:
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
+          # With build_cmux_rd, cmux-rd (its own Cargo workspace) is one more group: a glibc
+          # binary for the leg's gnu triple (it loads Cisco's OpenH264 with dlopen) with the
+          # release features, and its notices (crates/cmux-rd-host/scripts/build-channel.sh).
+          # Optional: a failed cmux-rd build is a warning, and the leg stages no cmux-rd, so
+          # the tree and the channel carry none and every other binary still ships.
+          rd=()
+          if [[ "$BUILD_CMUX_RD" == true ]]; then
+            rd=("?cmux-rd ?cmux-rd-notices.md" "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-7 crates/cmux-rd-host/scripts/build-channel.sh $t || echo '::warning title=no cmux-rd::the cmux-rd build failed (its cargo group log above); this leg stages no cmux-rd'")
+          fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
             "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features" \
-            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
+            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
+            ${rd[@]+"${rd[@]}"}
           # acpmux-standalone is the acpmux program with its build id stamped in the binary
           # only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s
           # of a warm leg (run 43497362002). "Stage binary" reads it as acpmux.
@@ -869,6 +887,7 @@ jobs:
       - name: Stage binary
         env:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
+          BUILD_CMUX_RD: ${{ inputs.build_cmux_rd }}
           STAGE_TARGET: ${{ matrix.target }}
         shell: bash
         run: |
@@ -931,6 +950,13 @@ jobs:
           # the attested cmux-tui manifest pins it for the macOS app bundle.
           acpmux_binary="dist/cmux-tui-acpmux-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/acpmux${{ matrix.ext }}" "$acpmux_binary"
+          # cmux-rd (build_cmux_rd, Linux musl legs) is glibc, so it rides the cmux-tui artifact
+          # under the gnu name only, with its notices: cmux-tui-rd-<gnu target> and
+          # cmux-tui-rd-notices-<gnu target>.md. Its group is optional: none when it failed.
+          if [[ "$BUILD_CMUX_RD" == true && "$STAGE_TARGET" == *-unknown-linux-musl && -f "cmux-tui/target/$STAGE_TARGET/release/cmux-rd" ]]; then
+            cp "cmux-tui/target/$STAGE_TARGET/release/cmux-rd" "dist/cmux-tui-rd-${{ matrix.compatibility_target }}"
+            cp "cmux-tui/target/$STAGE_TARGET/release/cmux-rd-notices.md" "dist/cmux-tui-rd-notices-${{ matrix.compatibility_target }}.md"
+          fi
           if [[ "$BUILD_AGENT_PLUGIN" == "true" && "${{ runner.os }}" != "Windows" ]]; then
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection${{ matrix.ext }}" \
               "dist/cmux-agent-screen-detection-${{ matrix.target }}${{ matrix.ext }}"

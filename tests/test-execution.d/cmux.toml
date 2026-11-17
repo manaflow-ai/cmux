@@ -358,6 +358,11 @@ path = "tests/test_cmux_now_epoch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_rd_license_gate.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Unit tests of cmux-rd's license gate (cmux-tui/crates/cmux-rd-host/scripts/release.py license-gate) on synthetic cargo-license output; run python3 tests/test_cmux_rd_license_gate.py yourself after changing release.py (a second, stdlib only). The real release crate tree is checked by cmux-rd-host's tests/release_features.rs, which cmux-rd-release.yml's cargo test runs."
+
+[[test]]
 path = "tests/test_cmux_settings_jsonc.py"
 lane = "linux-guard"
 

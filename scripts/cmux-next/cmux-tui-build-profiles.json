@@ -8,7 +8,8 @@
   "shipped": {
     "target_set_main": "all",
     "target_set": "linux-macos-arm64",
-    "lto": "fat"
+    "lto": "fat",
+    "build_cmux_rd": true
   },
   "windows": {
     "target_set": "windows",

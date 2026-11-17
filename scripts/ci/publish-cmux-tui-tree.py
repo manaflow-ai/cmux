@@ -76,7 +76,7 @@ WINDOWS_OPTIONAL_NAMES = (
 # exists keeps that file's names (existing_completion_file), so a tree
 # published before acpmux writes the same immutable bytes and gets no acpmux.
 # cmux-rd, the screen host a joined Linux machine's join line installs from the
-# channel (build-cmux-rd; glibc, so the gnu targets), and its notices ride along
+# channel (the shipped build's Linux legs, build_cmux_rd; glibc, so the gnu targets), and its notices ride along
 # the same way: optional, carried when the commit manifest attests them.
 # The workflow reads this list with --list-acpmux-companions.
 ACPMUX_NAMES = (
