@@ -41,6 +41,9 @@ public struct NewTabPlaces {
     /// What one tab reads as in the bar: its kind, a title of its own and the line under it.
     public typealias Place = (kind: AgentPaneTabKind, title: String, detail: String?)
 
+    /// The bar's open tabs, other workspaces and folders, as one New Tab page lists them.
+    public typealias Lists = (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String])
+
     /// The address of a page with nothing on it, the title a New Tab page starts with.
     public static let blankPage = "about:blank"
 
@@ -92,7 +95,7 @@ public struct NewTabPlaces {
         public var id: String
         /// Its name as the sidebar shows it.
         public var name: String
-        /// A row for each of its tabs that is a place, in order; no tab is left out here.
+        /// A row for each of its tabs that is a place, in order, with no icon; no tab is left out here.
         public var tabs: [AgentPaneOmnibar.Tab]
         /// The line under the workspace's own row.
         public var detail: String?
@@ -101,17 +104,15 @@ public struct NewTabPlaces {
     }
 
     /// `workspace`'s rows: what ``places(_:current:excluding:icon:)`` makes of it before it leaves out the page's
-    /// own tab and the shown workspace.
-    /// - Parameters:
-    ///   - workspace: One workspace.
-    ///   - icon: A browser tab's favicon as a `data:` URL.
-    public func rows(_ workspace: Source, icon: (TabModel) -> String? = { _ in nil }) -> Rows {
+    /// own tab and the shown workspace, with no icon. A kept row has no icon (decision of 2026-11-17): a map that
+    /// reads an icon is mapped again for each icon that arrives, so the icon of a row is read when a page lists it.
+    /// - Parameter workspace: One workspace.
+    public func rows(_ workspace: Source) -> Rows {
         var folders: [String] = []
         for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
         let tabs = workspace.tabs.compactMap { tab in
             place(tab).map { place in
-                AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail,
-                                     workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
+                AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail, workspace: workspace.name)
             }
         }
         let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map(abbreviated)
@@ -119,7 +120,7 @@ public struct NewTabPlaces {
     }
 
     /// The bar's tab rows and workspace rows from kept rows: the lists of ``places(_:current:excluding:icon:)``
-    /// for the same workspaces, or the first `limit` rows of each. It makes no row. With a limit it stops at the
+    /// for the same workspaces with no icon, or the first `limit` rows of each. It makes no row. With a limit it stops at the
     /// workspace that fills both lists, so its work does not grow with the session where the lists fill.
     /// - Parameters:
     ///   - kept: Every workspace's rows, in the sidebar's order.

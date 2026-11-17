@@ -32,6 +32,10 @@ import Testing
 /// before a test's first key, and it needs the feed's first rows. One test here does not: it holds what a page gets
 /// when it opens before the feed gave anything.
 ///
+/// A New Tab tab gets its page view at the frame that shows it. A test that needs the view waits for that frame by an
+/// event (a probe in the queue of the app's presentation scheduler), not by turns of the main actor: a frame comes
+/// by the display's time, so a count of turns can end before it.
+///
 /// The prints are a report, not a condition: the time of the walk as it was at the decision's date, the bytes of the
 /// two lists as the places event carries them, the whole lists that 10 keys of one turn build, and three counters of
 /// the sidebar for one key. Limit of the walk's time: a browser tab of this fixture has no favicon, so the walk here
@@ -40,7 +44,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(5)))
 struct NewTabKeySessionWalkTests {
     /// Counts the workspaces that the services map for a New Tab page's bar. The suite passes `source` to their `init`.
-    @MainActor private final class Visits {
+    @MainActor final class Visits {
         /// The tabs of the key's pane: a tab of this set is not a tab of another pane.
         var own: Set<String> = []
         private var workspaces = 0
@@ -85,7 +89,7 @@ struct NewTabKeySessionWalkTests {
     }
 
     /// The creations of one test: each waits here, so the daemon's side answers none before `release()`.
-    @MainActor private final class HeldCreations {
+    @MainActor final class HeldCreations {
         private var waiting: [CheckedContinuation<Void, Never>] = []
         private var released = false
 
@@ -102,13 +106,13 @@ struct NewTabKeySessionWalkTests {
     }
 
     /// The two lists that a places event carries, for their size as JSON.
-    private nonisolated struct Lists: Codable, Sendable {
+    nonisolated struct Lists: Codable, Sendable {
         let tabs: [AgentPaneOmnibar.Tab]
         let workspaces: [AgentPaneOmnibar.Workspace]
     }
 
     /// The pane of a test, its services and the counter that they call.
-    private struct Start {
+    struct Start {
         let pane: PaneController
         let services: AppServices
         let visits: Visits
@@ -119,8 +123,8 @@ struct NewTabKeySessionWalkTests {
     /// Runs `body` on the focused pane of a whole window of the `real` session. The New Tab key makes a New Tab page
     /// there, and the daemon's side of its creation waits until `body` ends. With `feed`, the app's places feed runs
     /// before `body`, as it does after the app's first frame. With `native`, the native New Tab page setting is on.
-    private static func withPane(feed: Bool = true, native: Bool = false,
-                                 _ body: @MainActor (Start) async throws -> Void) async throws {
+    static func withPane(feed: Bool = true, native: Bool = false,
+                         _ body: @MainActor (Start) async throws -> Void) async throws {
         _ = NSApplication.shared
         let visits = Visits()
         // An inert address for each New Tab page: the pages load nothing.
@@ -185,8 +189,27 @@ struct NewTabKeySessionWalkTests {
         }
     }
 
+    /// Stands in the presentation scheduler's queue: its show is the event that a frame's drain ran. Its content is
+    /// alive, so it spends nothing of the frame's budget, and it has no focus, so the focused pane shows before it.
+    @MainActor private final class FrameProbe: PresentablePane {
+        var onShow: () -> Void = {}
+        var selectedContentIsAlive: Bool { true }
+        var isFocusedInWorkspace: Bool { false }
+        func showSelected() { onShow() }
+        func showWhileWaiting() {}
+    }
+
+    /// Returns when the scheduler's next frame showed what waited for it.
+    static func frame(_ services: AppServices) async {
+        let probe = FrameProbe()
+        await withCheckedContinuation { (shown: CheckedContinuation<Void, Never>) in
+            probe.onShow = { shown.resume() }
+            services.presentation.setNeedsShowSelected(probe)
+        }
+    }
+
     /// One New Tab key. `made`: the tabs that the strip lists more than before the key, read in the key's own call.
-    private static func newTab(_ start: Start) -> (ran: Bool, made: Int) {
+    static func newTab(_ start: Start) -> (ran: Bool, made: Int) {
         let before = Set(start.pane.orderedIDs.map(\.rawValue))
         let ran = start.services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user))
         return (ran, start.pane.orderedIDs.map(\.rawValue).filter { !before.contains($0) }.count)
@@ -194,7 +217,7 @@ struct NewTabKeySessionWalkTests {
 
     /// The walk of each New Tab key's call as it was at the decision's date (`NewTabPage.places`), with the app's own
     /// map of a workspace: it adds nothing to the count.
-    private static func walkAtTheDecision(_ services: AppServices)
+    static func walkAtTheDecision(_ services: AppServices)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let sources = services.machines.allWorkspaces.map { workspace, _ in NewTabPlaces.Source(workspace) }
         let current = services.windows.active?.state.workspaceID
@@ -203,7 +226,7 @@ struct NewTabKeySessionWalkTests {
         }
     }
 
-    private static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
         let elapsed = ContinuousClock.now - start
         return Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1e3
     }
@@ -280,6 +303,8 @@ struct NewTabKeySessionWalkTests {
                 let opened = Self.newTab(start)
                 try #require(opened.ran && opened.made == 1,
                              "setup: a New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
+                // The frame that shows the key's tab makes its page view.
+                await Self.frame(start.services)
                 await LargeSessionWindowFixture.drainMain()
             }
             let withViews = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }
@@ -344,11 +369,21 @@ struct NewTabKeySessionWalkTests {
             #expect(!bar.tabs.isEmpty, "a page that opened before the places feed has no open tabs in its bar")
             #expect(!bar.workspaces.isEmpty, "a page that opened before the places feed has no other workspaces in its bar")
             #expect(bar.folders == [folder], "a page that opened before the places feed has the folders \(bar.folders), want the one of the session")
+
+            // The app starts its feed, and in the same turn, before the feed's first rows, the page's view is made:
+            // that maps no workspace again (decision of 2026-11-17), and the page keeps the lists of its own walk.
+            NewTabPlacesFeed.wire(tabs, services: start.services)
+            try #require(start.services.newTabPlaces.rows == nil, "setup: the places feed has rows in the turn of its start")
+            _ = start.visits.take()
+            let view = try #require(tabs.view(for: opened[0].key.key, machine: opened[0].key.machine), "setup: the page of the key gets no view")
+            let atView = start.visits.take()
+            #expect(atView.workspaces == 0, "the making of a page's view before the places feed mapped \(atView.workspaces) workspaces, want 0")
+            #expect(view.model.newTab?.omnibar.tabs == bar.tabs, "the page's view does not list the tab rows of the page's own walk")
         }
     }
 
     /// One row of the bar as text, for a message.
-    private static func text(_ tabs: [AgentPaneOmnibar.Tab], _ workspaces: [AgentPaneOmnibar.Workspace]) -> String {
+    static func text(_ tabs: [AgentPaneOmnibar.Tab], _ workspaces: [AgentPaneOmnibar.Workspace]) -> String {
         "\(tabs.count) tab rows (first: \(tabs.first?.title ?? "none")), "
             + "\(workspaces.count) workspace rows (first: \(workspaces.first?.name ?? "none"))"
     }
@@ -457,27 +492,36 @@ struct NewTabKeySessionWalkTests {
 
     /// The holder of the kept rows, with no app (decision of 2026-11-16): before its first rows a page's lists come
     /// from one walk, and after them from no walk; the text of one icon is made one time for the same icon object.
+    /// A read asks for the icon of each listed browser row and of no other row (decision of 2026-11-17).
     ///
     /// This row has no red first: the holder is new with the change.
     @Test func theHolderWalksOnlyBeforeItsFirstRowsAndMakesOneTextForOneIcon() {
         let places = NewTabPlaces(home: "/Users/you")
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 910_001), title: "build", cwd: "/Users/you/src/project"))
-        let rows = [places.rows(NewTabPlaces.Source(id: "held-1", name: "held 1", tabs: [tab]))]
+        let page = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 910_002), kind: .browser, title: "Docs", url: "https://example.com/docs"))
+        let rows = [places.rows(NewTabPlaces.Source(id: "held-1", name: "held 1", tabs: [tab, page]))]
         let kept = NewTabPlacesKept()
         var walks = 0
-        let before = kept.places(current: nil, excluding: nil, limit: 40) {
+        var asked: [String] = []
+        let before = kept.places(current: nil, excluding: nil, limit: 40, icon: { _ in nil }) {
             walks += 1
             return rows
         }
         kept.keep(rows)
-        let after = kept.places(current: nil, excluding: nil, limit: 40) {
+        let after = kept.places(current: nil, excluding: nil, limit: 40, icon: { id in
+            asked.append(id)
+            return "icon of \(id)"
+        }) {
             walks += 1
             return []
         }
         #expect(walks == 1, "the holder walked \(walks) times for 2 reads, want 1: the read before its first rows only")
-        #expect(before.tabs == after.tabs && before.folders == after.folders && after.tabs.map(\.id) == [tab.id],
-                "the lists from the walk and from the kept rows differ, or do not have the one tab")
+        #expect(before.tabs.map(\.id) == after.tabs.map(\.id) && before.folders == after.folders && after.tabs.map(\.id) == [tab.id, page.id],
+                "the lists from the walk and from the kept rows differ, or do not have the 2 tabs")
         #expect(after.folders == ["/Users/you/src/project"], "the kept folders are \(after.folders)")
+        #expect(asked == [page.id], "the read asked for the icons of \(asked), want the one of the browser row only")
+        #expect(after.tabs.map(\.icon) == [nil, "icon of \(page.id)"], "the listed rows' icons are \(after.tabs.map(\.icon))")
+        #expect((kept.rows ?? []).flatMap(\.tabs).allSatisfy({ $0.icon == nil }), "a kept row has an icon")
 
         final class Icon {}
         let icon = Icon(), other = Icon()
@@ -490,357 +534,5 @@ struct NewTabKeySessionWalkTests {
         }
         #expect(made == 2, "the holder made \(made) texts for 2 icon objects, want 2")
         #expect(texts == ["text 1", "text 1", "text 2", "text 1"], "the texts by icon are \(texts)")
-    }
-
-    /// The scripts that a page view sends to its page. A test gives the view its `append` as the view's own
-    /// `evaluateScript` value, so each places event of that page is counted here.
-    @MainActor private final class Sent {
-        var scripts: [String] = []
-
-        /// The places events since the last call, then none: the events whose detail has the two lists and no other
-        /// part (the palette's actions go to a page in an event of the same name, with a third part).
-        func takePlacesEvents() -> Int {
-            let prefix = "window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: "
-            var count = 0
-            for script in scripts where script.hasPrefix(prefix) {
-                let json = script.dropFirst(prefix.count).dropLast("}))".count)
-                let detail = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
-                if let detail, Set(detail.keys) == ["tabs", "workspaces"] { count += 1 }
-            }
-            scripts = []
-            return count
-        }
-    }
-
-    /// A change of a tab outside the first rows of the bar sends no places event to an open New Tab page (decision
-    /// of 2026-11-16): the page lists the first 40 rows of each list, and they did not change. A change inside
-    /// them sends one event, which is also the sign that the count counts.
-    ///
-    /// The count is the page view's own `evaluateScript` value, which this test sets. The sign that the feed ran is
-    /// a condition of the setup: the kept rows have the changed title.
-    ///
-    /// This row has no red first by a run. Before the change the page got each row of the session, so each change
-    /// of a row sent an event.
-    @Test func aChangeOutsideTheFirstRowsSendsNoPlacesEventToAnOpenPage() async throws {
-        try await Self.withPane { start in
-            let tabs = start.services.agentTabs
-            let opened = Self.newTab(start)
-            try #require(opened.ran && opened.made == 1,
-                         "setup: the New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let views = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }
-            try #require(views.count == 1, "setup: \(views.count) New Tab pages have a view, want 1")
-            let page = views[0]
-            let cap = AgentPaneOmnibar.maximumEntries
-            let listed = page.model.newTab?.omnibar.tabs ?? []
-            try #require(listed.count == cap, "setup: the page lists \(listed.count) tab rows, want the limit of \(cap)")
-            let sent = Sent()
-            page.evaluateScript = { sent.scripts.append($0) }
-
-            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
-            let near = try #require(terminals.first, "setup: the session has no terminal")
-            let far = try #require(terminals.first(where: { $0.workspace > start.workspaces / 2 }),
-                                   "setup: the session has no terminal in its second half")
-            let store = start.services.machines.local.store
-
-            // Outside the first rows: a terminal of a workspace in the second half of the session.
-            let farSurface = LargeSessionWindowFixture.surface(workspace: far.workspace, index: far.index)
-            store.apply(LargeSessionWindowFixture.titleChanged(farSurface, raw: "far row", text: "far row", activity: nil))
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let keptFar = (start.services.newTabPlaces.rows ?? []).contains(where: { rows in rows.tabs.contains(where: { $0.title == "far row" }) })
-            let afterFar = page.model.newTab?.omnibar.tabs ?? []
-            let farEvents = sent.takePlacesEvents()
-            try #require(keptFar, "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
-            #expect(farEvents == 0, "a change outside the first \(cap) rows sent \(farEvents) places events to the open page, want 0")
-            #expect(afterFar == listed, "a change outside the first \(cap) rows changed the page's tab rows")
-
-            // Inside the first rows: the first terminal of the session.
-            let nearSurface = LargeSessionWindowFixture.surface(workspace: near.workspace, index: near.index)
-            store.apply(LargeSessionWindowFixture.titleChanged(nearSurface, raw: "near row", text: "near row", activity: nil))
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let afterNear = page.model.newTab?.omnibar.tabs ?? []
-            let nearEvents = sent.takePlacesEvents()
-            print("new tab key, \(start.workspaces) workspaces, 1 open New Tab page with \(listed.count) tab rows: a title change in "
-                + "workspace \(far.workspace) sent \(farEvents) places events; a title change in workspace \(near.workspace) sent "
-                + "\(nearEvents) places events")
-            #expect(nearEvents == 1, "a change inside the first \(cap) rows sent \(nearEvents) places events to the open page, want 1")
-            #expect(afterNear.contains(where: { $0.title == "near row" }), "the page's tab rows do not have the row that changed inside them")
-        }
-    }
-
-    /// With the native New Tab page setting, a page gets the whole lists of the walk, not the first rows (decision
-    /// of 2026-11-16): the native page ranks every row itself, so its input stays what it was before the decision.
-    /// For this setting the session's size stays in each page's lists.
-    ///
-    /// This row is a pin: the lists were the walk's whole lists before the change also.
-    @Test func withTheNativePageSettingAPageGetsTheWholeListsOfTheWalk() async throws {
-        try await Self.withPane(native: true) { start in
-            let cap = AgentPaneOmnibar.maximumEntries
-            let walk = Self.walkAtTheDecision(start.services)
-            try #require(walk.tabs.count > cap && walk.workspaces.count > cap,
-                         "setup: the walk's lists are \(Self.text(walk.tabs, walk.workspaces)): no list is over the limit of \(cap)")
-            let page = NewTabPage.places(start.services, excluding: nil)
-            print("new tab key, \(start.workspaces) workspaces, the native page setting: a page gets \(Self.text(page.tabs, page.workspaces)); "
-                + "the walk has \(Self.text(walk.tabs, walk.workspaces))")
-            #expect(page.tabs == walk.tabs && page.workspaces == walk.workspaces,
-                    "with the native page setting a page's lists are not the walk's whole lists")
-            #expect(page.folders == walk.folders, "with the native page setting a page's folders are not the walk's folders")
-        }
-    }
-
-    /// The loader of the icon row: each fetch waits until the test gives its address an image.
-    @MainActor private final class HeldIcons: BrowserFaviconLoading {
-        private var waiting: [URL: CheckedContinuation<Void, Never>] = [:]
-        private var images: [URL: NSImage] = [:]
-        /// The fetches that wait now.
-        var asked: Int { waiting.count }
-
-        func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage? {
-            await withCheckedContinuation { waiting[url] = $0 }
-            return images[url]
-        }
-
-        /// Ends the fetch of `url` with `image`; false when nothing asked for it.
-        func give(_ image: NSImage, at url: URL) -> Bool {
-            guard let one = waiting.removeValue(forKey: url) else { return false }
-            images[url] = image
-            one.resume()
-            return true
-        }
-
-        /// Ends each fetch that still waits, with no image.
-        func endAll() {
-            for one in waiting.values { one.resume() }
-            waiting = [:]
-        }
-    }
-
-    /// The maps of the icon row, by workspace, and the times the kept rows changed.
-    @MainActor private final class IconMaps {
-        var byWorkspace: [String: Int] = [:]
-        var changes = 0
-
-        /// The counts since the last call, then zero.
-        func take() -> (workspaces: Int, maps: Int, changes: Int) {
-            let counts = (byWorkspace.count, byWorkspace.values.reduce(0, +), changes)
-            byWorkspace = [:]
-            changes = 0
-            return counts
-        }
-    }
-
-    /// A report (decision of 2026-11-16): how many workspaces the kept rows map again when ONE icon arrives, in a
-    /// session of 20 workspaces that each have one page whose icon is not here yet. The count is printed and is no
-    /// condition.
-    ///
-    /// The store of icons and the holder of the rows are the app's types, made here with a loader of the test: the
-    /// app's own store takes its loader from no test. So this row says the rule of the store and of the feed, not
-    /// the app's wiring. The sign that the icon arrived is a condition: one kept tab row has an icon. The feed that
-    /// this row starts lives as long as the process, as the app's does.
-    @Test func oneIconThatArrivesReportsTheWorkspacesThatTheKeptRowsMapAgain() async throws {
-        let count = 20
-        let store = DaemonStore()
-        let snapshots = (1...count).map { number -> WorkspaceSnapshot in
-            let handle = UInt64(number)
-            var page = TabSnapshot(surface: SurfaceID(rawValue: handle), kind: .browser, title: "Page \(number)",
-                                   url: "https://example.com/\(number)")
-            page.faviconURL = "https://example.com/icon-\(number).png"
-            let pane = PaneSnapshot(id: PaneID(rawValue: handle), tabs: [page])
-            let screen = ScreenSnapshot(id: ScreenID(rawValue: handle), layout: .leaf(pane.id), panes: [pane])
-            return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: handle), key: WorkspaceKey(rawValue: "icon-ws-\(number)"),
-                                     name: "icons \(number)", screens: [screen])
-        }
-        store.apply(snapshot: DaemonTree(workspaces: snapshots))
-        try #require(store.workspaces.count == count, "setup: the store has \(store.workspaces.count) workspaces, want \(count)")
-
-        let loader = HeldIcons()
-        let icons = TabFaviconStore(loader: loader)
-        let maps = IconMaps()
-        let kept = NewTabPlacesKept()
-        kept.follow(list: { store.workspaces }, rows: { workspace in
-            maps.byWorkspace[workspace.id, default: 0] += 1
-            return NewTabPlaces(home: "/Users/you").rows(NewTabPlaces.Source(workspace), icon: { tab in
-                icons.image(for: tab.faviconURL, profile: BrowserProfileID.default).map { _ in "icon" }
-            })
-        }, changed: { maps.changes += 1 })
-        await LargeSessionWindowFixture.drainMain()
-        await LargeSessionWindowFixture.drainMain()
-        let first = maps.take()
-        try #require(kept.rows?.count == count, "setup: the kept rows have \(kept.rows?.count ?? -1) workspaces, want \(count)")
-        try #require(loader.asked == count, "setup: \(loader.asked) icons are asked for, want \(count): not each workspace's map read the store")
-
-        let address = try #require(URL(string: "https://example.com/icon-7.png"))
-        let context = try #require(CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
-                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(CGColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
-        let pixels = try #require(context.makeImage())
-        let gave = loader.give(NSImage(cgImage: pixels, size: NSSize(width: 16, height: 16)), at: address)
-        await LargeSessionWindowFixture.drainMain()
-        await LargeSessionWindowFixture.drainMain()
-        let after = maps.take()
-        let withIcon = (kept.rows ?? []).flatMap(\.tabs).filter { $0.icon != nil }.count
-        loader.endAll()
-        await LargeSessionWindowFixture.drainMain()
-        print("new tab places, \(count) workspaces that each wait for one icon: the first rows mapped \(first.workspaces) different "
-            + "workspaces in \(first.maps) maps; ONE icon that arrived mapped \(after.workspaces) different workspaces in \(after.maps) "
-            + "maps and changed the kept rows \(after.changes) times; \(withIcon) kept tab rows have an icon")
-        #expect(gave && withIcon == 1,
-                "the sign: the icon did not arrive in the kept rows (given: \(gave), rows with an icon: \(withIcon)), so the count says nothing")
-    }
-
-    /// True when one kept tab row has `title`.
-    private static func keeps(_ title: String, _ services: AppServices) -> Bool {
-        (services.newTabPlaces.rows ?? []).contains(where: { rows in rows.tabs.contains(where: { $0.title == title }) })
-    }
-
-    /// A New Tab page whose view is made after a change of a row shows the changed row (decision of 2026-11-17).
-    ///
-    /// A page's lists come from the kept rows, and the kept rows get a change some turns after it. A places event
-    /// goes only to a page that has a view. So a page that opens in the turn of a change, and whose view is made
-    /// after the kept rows got that change, must get the change another way: else it shows the row of before until
-    /// the next change of a listed row.
-    ///
-    /// The steps are the test's own, with no wait for a time. One turn of the main actor has a title change of a
-    /// tab in the first rows and 2 New Tab keys, with no prewarmed page. No frame comes between the keys, so the
-    /// first key's tab is never the shown one and gets no view. Then the kept rows get the change (a condition of
-    /// the setup, as is `the first key's tab has no view`). Then the test selects the first key's tab, so its view
-    /// is made. The second key's page is the shown one: its view is made at the frame after the keys, before or
-    /// after the kept rows got the change; it must show the changed row in both orders.
-    ///
-    /// Before the decision of 2026-11-16 a page's lists came from a walk of the session in the key's call, so the
-    /// page of a key after a change had the change (by a read; this file does not compile there).
-    @Test func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow() async throws {
-        try await Self.withPane { start in
-            let services = start.services
-            let tabs = services.agentTabs
-            // No prewarmed page: a tab gets its page view only at a frame that shows it.
-            let pool = services.newTabSpares
-            pool.dropAll()
-            pool.makeSpare = { _ in nil }
-            defer { pool.makeSpare = nil }
-            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
-            let place = try #require(terminals.first, "setup: the session has no terminal")
-            let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
-            let store = services.machines.local.store
-            let before = Set(tabs.newTabPages.keys.map(\.key))
-
-            // One turn of the main actor: the change, then 2 New Tab keys.
-            store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "late row", text: "late row", activity: nil))
-            let firstKey = Self.newTab(start)
-            let afterFirst = tabs.newTabPages.entries.filter { !before.contains($0.key.key) }
-            let secondKey = Self.newTab(start)
-            let keptInTurn = Self.keeps("late row", services)
-            try #require(firstKey.ran && firstKey.made == 1 && secondKey.ran && secondKey.made == 1 && afterFirst.count == 1,
-                         "setup: the 2 New Tab keys added \(firstKey.made) and \(secondKey.made) tabs; the first opened \(afterFirst.count) pages")
-            let first = afterFirst[0].key
-            let valueInTurn = (tabs.newTabPages[first]?.page.omnibar.tabs ?? []).contains(where: { $0.title == "late row" })
-
-            // The kept rows get the change, and the frame after the keys shows the second key's tab.
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            try #require(Self.keeps("late row", services),
-                         "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
-            try #require(tabs.views[first] == nil,
-                         "setup: the first key's tab has a page view before a frame showed it: its view is not made after the change")
-            let others = tabs.newTabPages.entries.filter { !before.contains($0.key.key) && $0.key.key != first.key }
-            let shownRows = others.compactMap { tabs.views[$0.key] }.first?.model.newTab?.omnibar.tabs
-            let shownHas = shownRows?.contains(where: { $0.title == "late row" })
-
-            // The test's own step: the first key's tab is selected, so its page view is made now.
-            let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
-                                  "setup: the strip does not list the first key's tab")
-            start.pane.select(id)
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let byFrame = tabs.views[first]
-            let made = byFrame ?? tabs.view(for: first.key)
-            let view = try #require(made, "setup: the first key's tab gets no page view after its select")
-            let rows = view.model.newTab?.omnibar.tabs ?? []
-            let has = rows.contains(where: { $0.title == "late row" })
-            let shownText = shownHas.map { "\($0)" } ?? "it has no view"
-            print("new tab key, \(start.workspaces) workspaces, a title change and 2 New Tab keys in one turn: the kept rows had the change "
-                + "in that turn: \(keptInTurn); the first key's page value had it in that turn: \(valueInTurn). After the kept rows got it: "
-                + "the second key's page (the shown one) lists it: \(shownText); the first key's page, "
-                + "whose view came after its select (by a frame: \(byFrame != nil)), lists \(rows.count) tab rows and the change: \(has)")
-            #expect(has, "the page whose view was made after the change lists the tab's title of before the change")
-            #expect(shownHas == true, "the shown page does not list the changed title after the kept rows got it (\(shownText))")
-        }
-    }
-
-    /// A small PNG, as a site's icon.
-    private static func png() throws -> Data {
-        let made = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
-                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-        let bitmap = try #require(made, "setup: no bitmap")
-        for x in 0..<8 {
-            for y in 0..<8 { bitmap.setColor(NSColor(srgbRed: 0.2, green: 0.6, blue: 0.7, alpha: 1), atX: x, y: y) }
-        }
-        return try #require(bitmap.representation(using: .png, properties: [:]), "setup: the bitmap gives no PNG")
-    }
-
-    /// The icons of the session's pages are no part of the kept rows (decision of 2026-11-17): the map of a workspace
-    /// reads no icon and no icon address. So an icon address that 20 tabs get maps no workspace, and an icon that
-    /// arrives in the app's icon store maps none.
-    ///
-    /// The count is the one of this suite: the maps of a workspace for the bar (`newTabPlaceSource`), on the app's
-    /// own services, its own places feed and its own icon store, with no New Tab page open. No fetch leaves the
-    /// Mac: the test gives the app's icon loader the image of 2 addresses before a tab has them, and the loader
-    /// answers from what it has. 20 browser tabs of 20 workspaces get the first address, as 20 pages of one site do.
-    /// Then the test asks the app's icon store for the second address, which no tab has, as a tab strip asks for
-    /// an icon; the sign that this icon arrived is a condition of the setup.
-    ///
-    /// A report and no condition: if the app's icon store has the first address's icon while no New Tab page is
-    /// open. The store does not say who asked for an icon, and the sidebar's rows ask the same store.
-    @Test func anIconAddressAndAnIconThatArrivesMapNoWorkspace() async throws {
-        try await Self.withPane { start in
-            let services = start.services
-            let open = services.agentTabs.newTabPages.entries.count
-            try #require(open == 0, "setup: \(open) New Tab pages are open")
-            let count = 20
-            let withAPage = services.machines.local.store.workspaces.compactMap { workspace in
-                workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.kind == .browser })
-            }
-            let pages = Array(withAPage.prefix(count))
-            try #require(pages.count == count, "setup: \(pages.count) workspaces have a browser tab, want \(count)")
-            let profile = services.browserProfiles.engineProfile(forTab: pages[0].id)
-            let image = try Self.png()
-            let listed = try #require(URL(string: "https://new-tab-key-walk.invalid/listed.png"))
-            let other = try #require(URL(string: "https://new-tab-key-walk.invalid/other.png"))
-            let loader = BrowserFaviconLoader.shared
-            let tookListed = loader.store(image, at: listed, profile: profile) != nil
-            let tookOther = loader.store(image, at: other, profile: profile) != nil
-            try #require(tookListed && tookOther, "setup: the app's icon loader did not take the test's image")
-
-            // 20 tabs of 20 workspaces get the address of one icon.
-            _ = start.visits.takeByWorkspace()
-            for tab in pages { tab.faviconURL = listed.absoluteString }
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let atAddress = start.visits.takeByWorkspace()
-            let addressMaps = atAddress.values.reduce(0, +)
-            let storeHasListed = services.favicons.cachedImage(for: listed.absoluteString, profile: profile) != nil
-
-            // ONE icon arrives in the app's icon store: an icon of no tab.
-            let hadOther = services.favicons.image(for: other.absoluteString, profile: profile) != nil
-            await LargeSessionWindowFixture.drainMain()
-            await LargeSessionWindowFixture.drainMain()
-            let atArrival = start.visits.takeByWorkspace()
-            let arrivalMaps = atArrival.values.reduce(0, +)
-            let arrived = services.favicons.cachedImage(for: other.absoluteString, profile: profile) != nil
-            print("new tab key, \(start.workspaces) workspaces, no New Tab page open: an icon address that \(count) tabs of \(count) "
-                + "workspaces got mapped \(atAddress.count) different workspaces in \(addressMaps) maps (the app's icon store has that "
-                + "icon then: \(storeHasListed)); ONE icon of no tab that arrived mapped \(atArrival.count) different workspaces in "
-                + "\(arrivalMaps) maps")
-            try #require(!hadOther && arrived,
-                         "setup: the icon of no tab did not arrive in the drain (in the store before: \(hadOther), after: \(arrived))")
-            #expect(atAddress.count == 0,
-                    "an icon address that \(count) tabs got mapped \(atAddress.count) workspaces in \(addressMaps) maps, want 0")
-            #expect(atArrival.count == 0,
-                    "ONE icon that arrived mapped \(atArrival.count) workspaces in \(arrivalMaps) maps, want 0")
-        }
     }
 }

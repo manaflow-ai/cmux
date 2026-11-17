@@ -4,13 +4,14 @@ public import CmuxNextDaemon
 /// The bar's rows of every workspace, kept for the app's life (decision of 2026-11-16): a New Tab page reads its
 /// open tabs, other workspaces and folders from here, so its open maps no workspace.
 ///
-/// Each workspace's rows, favicons included, are one item of a feed (``ObservedItemsFeed``): a change maps the
-/// workspace that changed and no other. The app makes one holder, starts it once, and reads a page's lists from it:
+/// Each workspace's rows are one item of a feed (``ObservedItemsFeed``): a change maps the workspace that changed
+/// and no other. A kept row has no icon (decision of 2026-11-17): the icon of a row is read when a page lists it,
+/// for the listed rows only. The app makes one holder, starts it once, and reads a page's lists from it:
 ///
 /// ```swift
 /// let kept = NewTabPlacesKept()
 /// kept.follow(list: { workspaces }, rows: { rows(of: $0) }, changed: { refreshOpenPages() })
-/// let lists = kept.places(current: workspaceID, excluding: pageID, limit: 40) { walk() }
+/// let lists = kept.places(current: workspaceID, excluding: pageID, limit: 40, icon: { icon(ofTab: $0) }) { walk() }
 /// ```
 @MainActor
 public final class NewTabPlacesKept {
@@ -20,17 +21,21 @@ public final class NewTabPlacesKept {
     /// folders differ, so a read of it does not grow with the session.
     public private(set) var folders: [String] = []
 
-    /// The text of each icon that a map made, by the icon's object: a workspace that is mapped again makes no
-    /// text again for an icon that did not change. It holds each object, so an id here is never of another object.
+    /// The text of each icon that a read made, by the icon's object: the next read makes no text again for an
+    /// icon that did not change. It holds each object, so an id here is never of another object.
     private var icons: [ObjectIdentifier: (object: AnyObject, text: String?)] = [:]
-    /// The most icon texts kept; at one more, all go and each next map makes its own again.
+    /// The most icon texts kept; at one more, all go and each next read makes its own again.
     public static let maximumIcons = 512
 
     private var feed: ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>?
     private var following: Task<Void, Never>?
 
+    /// One workspace as the bar reads it, for the rows that the app keeps; a test gives one that counts its calls.
+    public let source: @MainActor (WorkspaceModel) -> NewTabPlaces.Source
+
     /// Creates an empty holder.
-    public init() {}
+    /// - Parameter source: One workspace as the bar reads it.
+    public init(source: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) { self.source = source }
 
     /// Starts following the workspaces (once), for the app's life: their rows are kept from the first ones on.
     /// - Parameters:
@@ -80,16 +85,22 @@ public final class NewTabPlacesKept {
 
     /// A New Tab page's lists from the kept rows (``NewTabPlaces/listed(_:current:excluding:limit:)``, and the
     /// folders, which have no limit). Before the feed's first rows the lists come from `walk`, which maps every
-    /// workspace, as each page's open did before the decision.
+    /// workspace, as each page's open did before the decision. The icons are read here, for the listed browser
+    /// rows only.
     /// - Parameters:
     ///   - current: The workspace the page's window shows; it is not suggested.
     ///   - selectedID: The page's own tab, never suggested.
     ///   - limit: The most tab rows and the most workspace rows; nil for every row.
+    ///   - icon: The favicon of the browser tab with this id, as a `data:` URL.
     ///   - walk: Every workspace's rows, made now.
-    public func places(current: String?, excluding selectedID: String?, limit: Int?, walk: () -> [NewTabPlaces.Rows])
+    public func places(current: String?, excluding selectedID: String?, limit: Int?, icon: (String) -> String?,
+                       walk: () -> [NewTabPlaces.Rows])
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let walked = rows == nil ? walk() : nil
-        let listed = NewTabPlaces.listed(walked ?? rows ?? [], current: current, excluding: selectedID, limit: limit)
+        var listed = NewTabPlaces.listed(walked ?? rows ?? [], current: current, excluding: selectedID, limit: limit)
+        for index in listed.tabs.indices where listed.tabs[index].kind == .browser {
+            listed.tabs[index].icon = icon(listed.tabs[index].id)
+        }
         return (listed.tabs, listed.workspaces, walked.map { NewTabPlaces.folders($0) } ?? folders)
     }
 }

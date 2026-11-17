@@ -34,6 +34,8 @@ struct NewTabPageHandler {
     var listProjects: (String?) async -> [String] = { _ in [] }
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
+    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key (decision of 2026-11-17); nil keeps the page's own.
+    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -84,27 +86,23 @@ enum NewTabPage {
         BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
-    /// The bar's places from the rows that the places feed keeps (decision of 2026-11-16: a page's open maps no
-    /// workspace); before the feed's first rows, from one walk of every machine's workspaces. `current` is the
-    /// workspace the page's window shows (the active window's when nil). The web page lists the first rows of
-    /// each list only; the native page ranks every row itself, so it gets them all.
+    /// The bar's places from the rows that the places feed keeps (decision of 2026-11-16: a page's open maps no workspace), with
+    /// each listed row's icon read here, as the strip draws it (decision of 2026-11-17: a kept row has none); before the feed's
+    /// first rows, from one walk of every machine's workspaces. `current` is the workspace the page's window shows (the active
+    /// window's when nil). The web page lists the first rows of each list only; the native page ranks every row itself, so it
+    /// gets them all.
     static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let current = current ?? services.windows.active?.state.workspaceID
         let limit = services.settings?.snapshot.nativeNewTabPage == true ? nil : AgentPaneOmnibar.maximumEntries
-        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit) {
-            services.machines.allWorkspaces.map { workspace, _ in rows(services, workspace) }
-        }
+        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { id in
+            services.locateTabOnAnyMachine(id).flatMap { services.tabFavicon($0.0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
+        }, walk: { services.machines.allWorkspaces.map { workspace, _ in rows(services, workspace) } })
     }
 
-    /// One workspace's rows for the bar, favicons included (``NewTabPlacesFeed`` keeps them). Each read is this workspace's own,
-    /// as a sidebar row's: no lookup of a tab's key in the store's tab list, which each new tab moves for every reader.
+    /// One workspace's rows for the bar, with no icon (``NewTabPlacesFeed`` keeps them): the map reads its workspace's own records only.
     static func rows(_ services: AppServices, _ workspace: WorkspaceModel) -> NewTabPlaces.Rows {
-        NewTabPlaces(home: NSHomeDirectory()).rows(services.newTabPlaceSource(workspace)) { tab in
-            let incognito = services.windows.isIncognito(workspace: workspace)
-            let image = services.browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, known: (tab, incognito))
-            return image.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
-        }
+        NewTabPlaces(home: NSHomeDirectory()).rows(services.newTabPlaces.source(workspace))
     }
 
     /// The command line a terminal choice types: nil for an empty field,
@@ -190,6 +188,10 @@ enum NewTabPage {
             action: { [weak services] id in
                 // As the palette runs its row: an action that needs arguments asks for them there.
                 services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+            },
+            places: { [weak services] key in
+                guard let services, services.newTabPlaces.rows != nil else { return nil }
+                return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )
     }
