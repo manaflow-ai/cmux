@@ -232,8 +232,8 @@ SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST")
 if (( DELETE )); then
     WORK="$(mktemp -d "${TMPDIR:-/tmp}/push-from-host.XXXXXX")"
     trap 'rm -rf "$WORK"' EXIT
-    RDIR="$("${SSH[@]}" "mktemp -d /tmp/push-from-host-delete-$$-XXXXXX")" || RDIR=""
-    if [[ ! "$RDIR" =~ ^/tmp/push-from-host-delete-[0-9]+-[A-Za-z0-9]+$ ]]; then
+    RDIR="$("${SSH[@]}" "mktemp -d /tmp/push-from-host-delete-XXXXXX")" || RDIR=""
+    if [[ ! "$RDIR" =~ ^/tmp/push-from-host-delete-[A-Za-z0-9]+$ ]]; then
         echo "push-from-host: could not make a private folder on $HOST; nothing was deleted." >&2
         exit 2
     fi
