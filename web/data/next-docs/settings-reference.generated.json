@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -2624,6 +2624,18 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
           ]
         },
         {
@@ -6064,6 +6076,31 @@
       "id": "keyboard",
       "title": "Keyboard",
       "rows": [
+        {
+          "key": "app.keyStyle",
+          "title": "Key Style",
+          "help": "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+          "kind": "choice",
+          "default": "standard",
+          "group": "Key Style",
+          "values": [
+            "standard",
+            "vim",
+            "emacs"
+          ]
+        },
+        {
+          "key": "app.shortcutLayout",
+          "title": "Keyboard Layout",
+          "help": "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+          "kind": "choice",
+          "default": "followLayout",
+          "group": "Key Style",
+          "values": [
+            "followLayout",
+            "qwertyPositions"
+          ]
+        },
         {
           "key": "macScreen.systemShortcuts",
           "title": "Send System Shortcuts to the Remote Mac",
