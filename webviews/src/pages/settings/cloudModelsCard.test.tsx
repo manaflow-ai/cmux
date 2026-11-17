@@ -142,7 +142,7 @@ test("a focus opens the page on its row (the chat's Set up Cloud card)", async (
 });
 
 test("Models' This Mac only rows link to Settings > Cloud on the matching row", async () => {
-  const rendered = await render(mockModels.macLogins, "/settings/models");
+  const rendered = await render(mockModels.macOnly, "/settings/models");
   const link = rendered.container.querySelector<HTMLElement>(
     '[data-connection="claude-login"] [data-models-action="setUpForCloud"]',
   )!;
@@ -150,4 +150,11 @@ test("Models' This Mac only rows link to Settings > Cloud on the matching row", 
   await click(link);
   expect(rendered.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("cloud");
   expect(document.activeElement).toBe(row(rendered, "claude"));
+});
+
+test("a This Mac only login offers no Set Up for Cloud once a connection of its kind serves Cloud", async () => {
+  const rendered = await render(mockModels.macLogins, "/settings/models");
+  const login = rendered.container.querySelector<HTMLElement>('[data-connection="claude-login"]')!;
+  expect(login.querySelector("[data-connection-local]")?.textContent).toBe("This Mac only");
+  expect(login.querySelector('[data-models-action="setUpForCloud"]')).toBeNull();
 });

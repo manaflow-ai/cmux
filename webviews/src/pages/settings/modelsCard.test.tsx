@@ -143,11 +143,11 @@ test("a failed ChatGPT sign-in says why in plain words", async () => {
 });
 
 test("Mac logins that Cloud threads cannot use say This Mac only, with Set Up for Cloud", async () => {
-  const rendered = await render(mockModels.macLogins);
+  const rendered = await render(mockModels.macOnly);
   const local = [...card(rendered).querySelectorAll<HTMLElement>("[data-connection]")]
     .filter((row) => row.querySelector("[data-connection-local]"))
     .map((row) => row.dataset.connection);
-  expect(local).toEqual(["codex-login", "claude-login", "openrouter-key"]);
+  expect(local).toEqual(["codex-login", "claude-login"]);
   expect(card(rendered).querySelector('[data-connection="codex-login"] [data-connection-local]')?.textContent).toBe(
     "This Mac only · Set Up for Cloud",
   );

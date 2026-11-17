@@ -255,6 +255,7 @@ function PersonalSection({
             connection={connection}
             index={index}
             count={connections.length}
+            cloudCovered={cloudCovered(connections, connection)}
             busy={busy}
             run={run}
             dragging={dragging === connection.id}
@@ -290,10 +291,18 @@ function PersonalSection({
   );
 }
 
+/** Whether another connection already serves Cloud for `connection`'s row (Settings > Cloud's rule): a
+ * This Mac only login then needs no Set Up for Cloud link, since a Cloud chat already has what it uses. */
+export function cloudCovered(connections: ModelConnection[], connection: ModelConnection): boolean {
+  const row = cloudFocusOf(connection);
+  return connections.some((c) => c.servesCloud && c.enabled && c.signedIn && cloudFocusOf(c) === row);
+}
+
 function ConnectionRow({
   connection,
   index,
   count,
+  cloudCovered: covered,
   busy,
   run,
   dragging,
@@ -305,6 +314,7 @@ function ConnectionRow({
   connection: ModelConnection;
   index: number;
   count: number;
+  cloudCovered: boolean;
   busy: boolean;
   run: Run;
   dragging: boolean;
@@ -370,17 +380,21 @@ function ConnectionRow({
           {!connection.servesCloud && (
             <div className="row-help" data-connection-local="">
               {t("settingsWindow.models.thisMacOnly")}
-              {" · "}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="link-button"
-                data-models-action="setUpForCloud"
-                onClick={() => router.history.push(sectionHref("cloud", cloudFocusOf(connection)))}
-              >
-                {t("settingsWindow.models.setUpForCloud")}
-              </Button>
+              {!covered && (
+                <>
+                  {" · "}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="link-button"
+                    data-models-action="setUpForCloud"
+                    onClick={() => router.history.push(sectionHref("cloud", cloudFocusOf(connection)))}
+                  >
+                    {t("settingsWindow.models.setUpForCloud")}
+                  </Button>
+                </>
+              )}
             </div>
           )}
           {plan && (
