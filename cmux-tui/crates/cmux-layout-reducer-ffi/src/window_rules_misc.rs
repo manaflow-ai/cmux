@@ -1,8 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`): their tables and refusals.
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`): their tables
+//! and refusals.
 
-use cmux_window_rules::{appearance, browser, files, history, notifications, remote, screen_share};
+use cmux_window_rules::{
+    appearance, browser, files, history, launch, notifications, remote, screen_share,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -136,14 +139,23 @@ struct Keymap {
     changed: Vec<String>,
 }
 
+/// `window_launch_current_registry`: the home's `Library/Application Support` and the daemon session name.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentRegistry {
+    app_support: String,
+    session: String,
+}
+
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 6] = [
+const DOMAINS: [&[u8]; 7] = [
     b"window_notifications_",
     b"window_history_",
     b"window_remote_",
     b"window_browser_",
     b"window_files_",
     b"window_appearance_",
+    b"window_launch_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -253,6 +265,21 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_appearance_keymap_toast" => {
             let request: Keymap = read(request)?;
             value(appearance::keymap_toast(&request.preset, &request.changed))?
+        }
+        // Whether the launch snapshot drawn before the daemon answered is stale (cmuxterm-hq#12660).
+        b"window_launch_snapshot_verdict" => {
+            let facts: launch::SnapshotFacts = read(request)?;
+            json!({ "verdict": launch::verdict(&facts) })
+        }
+        // The registry id this home last saw live (`launch::current_registry_id`): one file read of at most
+        // 257 bytes, so the app asks off the main thread (the launch read's files lane).
+        b"window_launch_current_registry" => {
+            let request: CurrentRegistry = read(request)?;
+            let id = launch::current_registry_id(
+                std::path::Path::new(&request.app_support),
+                &request.session,
+            );
+            json!({ "registryId": id })
         }
         _ => return Err(ERR_INVALID),
     };

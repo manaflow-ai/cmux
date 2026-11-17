@@ -15,7 +15,10 @@ optchat-chief memory import-from SOURCE dry-run|write   merge another memory int
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] QUERY  full-text search: messages and summaries holding every word
                                                           (--json: an array of hits, messages with id, kind, date, snippet and full text)
 optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
-optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took";
+optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note lines
+                                                          name (failed: every \"no description\" note), rewrites each note
+                                                          and rebuilds the summaries above it (journaled, undoable)";
 
 /// Runs `memory <verb>`; returns what to print.
 pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
@@ -94,6 +97,24 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
                 counts.nodes
             ))
         }
+        Some("redescribe") => {
+            let notes = match words.as_slice() {
+                ["failed"] => failed_descriptions(&read_only(&paths)?)?,
+                [] => {
+                    return Err(format!(
+                        "memory redescribe needs failed or note ids\n{USAGE}"
+                    ));
+                }
+                ids => ids
+                    .iter()
+                    .map(|id| id.parse::<u64>().map_err(|e| format!("{id}: {e}")))
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            if notes.is_empty() {
+                return Ok("no image note has a failed description".to_owned());
+            }
+            crate::tools::ask_redescribe(&paths.tools_socket, &notes)
+        }
         Some("check") => {
             let started = std::time::Instant::now();
             let chat = crate::browse::open_offline(&paths.chat, &paths.memory_db)?;
@@ -136,6 +157,25 @@ pub fn search_json(db: &ReadOnly, hits: &[Hit]) -> Result<String, String> {
         });
     }
     Ok(serde_json::Value::Array(out).to_string())
+}
+
+/// The image note lines whose description failed (`... "<name>": no
+/// description (<why>)`), oldest first.
+pub fn failed_descriptions(db: &ReadOnly) -> Result<Vec<u64>, String> {
+    let counts = db.counts().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for id in 0..counts.messages {
+        let Some(row) = db
+            .message_row(id)
+            .map_err(|e| format!("reading message {id}: {e}"))?
+        else {
+            continue;
+        };
+        if row.kind == "note" && crate::brain::redescribe::is_failed_description(&row.text) {
+            out.push(id);
+        }
+    }
+    Ok(out)
 }
 
 fn read_only(paths: &Paths) -> Result<ReadOnly, String> {
