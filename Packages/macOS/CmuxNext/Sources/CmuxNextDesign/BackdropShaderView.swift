@@ -45,6 +45,12 @@ public final class BackdropShaderView: NSView {
     private let clicks = BackdropClickMonitor()
     /// The renderer's queue holds a frame; the next waits for it.
     private let inFlight = InFlightFrame()
+    /// A held frame was asked for (a resize, an appearance flip) while one was being encoded: it is
+    /// drawn when that one lands.
+    private var stillPending = false
+    /// The drawable's size in pixels: one per point. Main keeps it; the render queue sizes the
+    /// layer's drawables to it, so only that queue touches the layer's drawable state.
+    private(set) var pixelSize = CGSize(width: 1, height: 1)
     private var uniforms = BackdropShaderUniforms()
     private var lastFrame: CFTimeInterval?
     private var sinceDrawn: Double = .infinity
@@ -90,7 +96,7 @@ public final class BackdropShaderView: NSView {
     /// One drawable pixel per point of the view.
     private func syncDrawableSize() {
         let size = CGSize(width: max(bounds.width.rounded(), 1), height: max(bounds.height.rounded(), 1))
-        if metalLayer.drawableSize != size { metalLayer.drawableSize = size }
+        pixelSize = size
     }
 
     /// Shows `shader` in the light or `dark` colors (nil: none). The same shader keeps its clock.
@@ -172,7 +178,7 @@ public final class BackdropShaderView: NSView {
         uniforms.mouse += (target - uniforms.mouse) * ease
         let step = target - previous
         let speed = elapsed > 0 ? (step * step).sum().squareRoot() / Float(elapsed) : 0
-        let short = Float(max(min(metalLayer.drawableSize.width, metalLayer.drawableSize.height), 1))
+        let short = Float(max(min(pixelSize.width, pixelSize.height), 1))
         // About a screen's short side a second fills the energy; it falls by half in ~0.35 s.
         uniforms.energy = min(1, uniforms.energy * Float(exp(-elapsed * 2)) + speed / short * Float(elapsed) * 3)
     }
@@ -185,7 +191,7 @@ public final class BackdropShaderView: NSView {
 
     /// Drawable pixels per point on each axis.
     private var drawableScale: CGSize {
-        let drawable = metalLayer.drawableSize
+        let drawable = pixelSize
         return CGSize(width: bounds.width > 0 && drawable.width > 0 ? drawable.width / bounds.width : 1,
                       height: bounds.height > 0 && drawable.height > 0 ? drawable.height / bounds.height : 1)
     }
@@ -207,25 +213,33 @@ public final class BackdropShaderView: NSView {
             lastPointer = pointer
             uniforms.mouse = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
         }
-        draw()
+        if !draw() { stillPending = true }
     }
 
-    /// Hands one frame to the renderer's queue unless the last is still being encoded.
-    private func draw() {
-        guard let shader, let renderer, inFlight.begin() else { return }
-        var uniforms = self.uniforms
-        uniforms.resolution = SIMD2(Float(metalLayer.drawableSize.width), Float(metalLayer.drawableSize.height))
-        let layer = metalLayer, inFlight = self.inFlight
+    /// Hands one frame to the renderer's queue; false while the last is still being encoded.
+    @discardableResult
+    private func draw() -> Bool {
+        guard let shader, let renderer else { return true }
+        guard inFlight.begin() else { return false }
+        var next = uniforms
+        next.resolution = SIMD2(Float(pixelSize.width), Float(pixelSize.height))
+        let frame = next, target = BackdropShaderTarget(layer: metalLayer), inFlight = self.inFlight
         renderer.queue.async {
-            let drawn = renderer.draw(shader, uniforms: uniforms, into: layer)
+            let drawn = renderer.draw(shader, uniforms: frame, into: target)
             inFlight.end()
-            guard drawn else { return }
-            MainDelivery().run { [weak self] in self?.frameDrawn() }
+            MainDelivery().run { [weak self] in self?.frameEnded(drawn: drawn) }
         }
+        return true
     }
 
-    /// The first frame fades in over the poster (the motion policy's fade); later frames count.
-    private func frameDrawn() {
+    /// A frame left the render queue: count it, fade the first one in over the poster (the motion
+    /// policy's fade), and draw a held frame that was asked for meanwhile.
+    private func frameEnded(drawn: Bool) {
+        if stillPending, !moves {
+            stillPending = false
+            drawStill()
+        }
+        guard drawn else { return }
         framesDrawn += 1
         guard metalLayer.opacity == 0, window != nil, shader != nil else { return }
         Motion.panes.set(metalLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
@@ -279,6 +293,14 @@ final class BackdropClickMonitor {
         NSEvent.removeMonitor(monitor)
         self.monitor = nil
     }
+}
+
+/// The layer a frame is drawn into, carried to the renderer's queue. Only the renderer's serial
+/// queue draws into or sizes this layer, one frame at a time (InFlightFrame); main sets only its
+/// frame, opacity and place, under CATransaction.
+// crash-allow: the layer's drawable state is touched only on the renderer's serial queue (see above)
+nonisolated struct BackdropShaderTarget: @unchecked Sendable {
+    let layer: CAMetalLayer
 }
 
 /// Whether a frame is on the renderer's queue: claimed on main, cleared on the queue.

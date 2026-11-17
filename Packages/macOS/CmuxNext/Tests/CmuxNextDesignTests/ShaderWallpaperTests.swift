@@ -125,11 +125,11 @@ import Testing
         view.advance(by: 1 / 60)
         let moved = view.currentUniforms
         #expect(moved.energy > start.energy, "a fast pointer adds no energy")
-        #expect(moved.mouse.x > start.mouse.x && moved.mouse.x < 300 * Float(view.metalLayer.drawableSize.width / view.bounds.width),
+        #expect(moved.mouse.x > start.mouse.x && moved.mouse.x < 300 * Float(view.pixelSize.width / view.bounds.width),
                 "the shown pointer jumps instead of easing")
         for _ in 0..<120 { view.advance(by: 1 / 60) }
         #expect(view.currentUniforms.energy < moved.energy * 0.2, "the energy does not fade while the pointer rests")
-        #expect(abs(view.currentUniforms.mouse.x - 300 * Float(view.metalLayer.drawableSize.width / view.bounds.width)) < 1,
+        #expect(abs(view.currentUniforms.mouse.x - 300 * Float(view.pixelSize.width / view.bounds.width)) < 1,
                 "the shown pointer never reaches the real one")
     }
 
@@ -144,7 +144,7 @@ import Testing
         let rings = view.currentUniforms.ringList
         #expect(rings.allSatisfy { $0.w == 1 }, "a ring is not live")
         // The fifth click took the first click's slot.
-        #expect(rings[0].x == Float(80) * Float(view.metalLayer.drawableSize.width / view.bounds.width))
+        #expect(rings[0].x == Float(80) * Float(view.pixelSize.width / view.bounds.width))
         #expect(rings[0].z > rings[3].z, "the newest ring is not in the oldest slot")
     }
 

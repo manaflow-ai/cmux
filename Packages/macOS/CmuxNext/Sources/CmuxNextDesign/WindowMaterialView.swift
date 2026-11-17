@@ -74,7 +74,7 @@ public final class WindowMaterialView: NSView {
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
-    /// A living wallpaper draws over the art (pages lens its still, `glassSource`).
+    /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
     private(set) var showsShader = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()

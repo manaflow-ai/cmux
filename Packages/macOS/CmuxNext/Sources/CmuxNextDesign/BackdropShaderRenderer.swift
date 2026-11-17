@@ -32,8 +32,12 @@ public nonisolated final class BackdropShaderRenderer: Sendable {
     /// The pixel format of every target: the layer's and the posters'.
     static let pixelFormat = MTLPixelFormat.bgra8Unorm
 
-    /// Nil on a Mac without Metal: the backdrop then shows the theme's colors.
-    public init?(device: (any MTLDevice)? = MTLCreateSystemDefaultDevice()) {
+    /// The system's default GPU; nil on a Mac without Metal (the backdrop then shows the theme's colors).
+    public convenience init?() {
+        self.init(device: MTLCreateSystemDefaultDevice())
+    }
+
+    init?(device: (any MTLDevice)?) {
         guard let device, let commandQueue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.commandQueue = commandQueue
@@ -67,7 +71,16 @@ public nonisolated final class BackdropShaderRenderer: Sendable {
     /// Encodes one frame of `shader` into `layer`'s next drawable and presents it. On ``queue``.
     /// Returns false when no frame was drawn (no pipeline, no drawable within the layer's timeout).
     @discardableResult
-    func draw(_ shader: BackdropShader, uniforms: BackdropShaderUniforms, into layer: CAMetalLayer) -> Bool {
+    func draw(_ shader: BackdropShader, uniforms: BackdropShaderUniforms, into target: BackdropShaderTarget) -> Bool {
+        let layer = target.layer
+        let size = CGSize(width: CGFloat(uniforms.resolution.x), height: CGFloat(uniforms.resolution.y))
+        if layer.drawableSize != size {
+            // An explicit transaction: this queue has no run loop to commit an implicit one.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.drawableSize = size
+            CATransaction.commit()
+        }
         guard let pipeline = pipeline(shader), let drawable = layer.nextDrawable(),
               let commands = commandQueue.makeCommandBuffer() else { return false }
         encode(pipeline, uniforms: uniforms, target: drawable.texture, commands: commands)
