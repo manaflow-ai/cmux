@@ -128,7 +128,8 @@ class Symbols:
         self.starts, self.symbols = [], []
         if not self.atos:
             nm = os.environ.get("LLVM_NM") or shutil.which("llvm-nm") or "llvm-nm"
-            out = subprocess.run([nm, "-n", "--defined-only", str(path)], capture_output=True, text=True, check=True).stdout
+            out = subprocess.run([nm, "-n", "--defined-only", str(path)], capture_output=True, check=True).stdout
+            out = out.decode(errors="replace")  # a symbol table holds names that are not UTF-8
             for line in out.splitlines():
                 parts = line.split(" ", 2)
                 if len(parts) == 3 and parts[1] in ("t", "T"):
