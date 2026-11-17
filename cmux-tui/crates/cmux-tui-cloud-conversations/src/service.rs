@@ -835,7 +835,7 @@ impl CloudConversations {
             return Err(CloudError::BadRequest("limit must be 1-500".into()));
         }
         let params = json!({"after_revision": after_revision, "limit": limit});
-        let reply = self.post("/v1/read", &contract::read_body("appkv.list", params))?;
+        let reply = self.post("/v1/read", &read_body("appkv.list", params))?;
         // The head revision the page was read at comes beside the value.
         let (mut value, revision) = read_value(reply)?;
         if value.get("revision").is_none() {
