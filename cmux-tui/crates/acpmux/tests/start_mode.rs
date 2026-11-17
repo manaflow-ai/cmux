@@ -1334,7 +1334,10 @@ async fn a_prints_only_cli_agent_starts_under_ask() {
     let mut app = Client::app(&daemon).await;
     let r = app.new_chat_with_policy(&dir, "drill", "ask").await;
     assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
-    let (id, _) = app.chat_with_policy(&dir, "drill-prints", "ask").await;
+    // No `chat_with_policy`: a `cli-agent` offers no modes to read.
+    let r = app.new_chat_with_policy(&dir, "drill-prints", "ask").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(r["result"]["_meta"]["acpmux"]["policy"], "ask", "{r}");
     let claims = app.records(&id, "asks_before_tools_claim").await;
     assert_eq!(claims.len(), 1, "{claims:?}");
     assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
