@@ -3,7 +3,7 @@
 # Mac's console session, one copy of the NIGHTLY and one home:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-premain.sh --ref <sha> [--arg=dmg=nightly|URL] [--arg=reps=5] \
-#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f] --artifact .build/launch-premain/report.tgz --timeout 5400
+#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6] --artifact .build/launch-premain/report.tgz --timeout 5400
 # A launch reaches `main` in 30 to 80 ms when launches follow each other closely, and 600 to 1170 ms when about 60 s
 # have passed since a full run began. Each arm is one pair (A, then the measured launch B), interleaved per rep, each
 # pair started only while the Mac's 1-minute load is under 8. A and B are open (LaunchServices) launches, as the Dock
@@ -17,6 +17,9 @@
 #   d   A short, then `purge` (root) before B: slow means evicted pages alone reproduce it (no root: no B)
 #   k   A short, then `ln EXE x; rm x` before B: slow means a new link count and ctime alone make the system scan the
 #       executable again, as Chromium's code-sign clone links it on every full run (cmux#44204)
+#   t1, t3, t6  A kept 1, 3 or 6 s past its first window, quit as Cmd-Q does; B: at which point of a run the next
+#       launch turns slow (a 6 s run and quit already does, launch-ready back to back), and B's nlink and ctime_age_s
+#       say whether the executable was linked by then
 #   e   our executable exec'd to main (X), Calculator opened and kept 60 s, quit, 3 s, B exec'd to main
 #   e2  as e with 63 s of idle in place of Calculator (e's control)
 #   x   as a, B exec'd to main (no LaunchServices)
@@ -32,7 +35,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f" arg rc=0 rep arm
+  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" arg rc=0 rep arm
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -43,7 +46,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f)(,(h|a|b|c|g|d|k|e|e2|x|f))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f" >&2; exit 2; }
+  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6)(,(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" >&2; exit 2; }
   echo "LP host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LP root yes" || echo "LP root no (arms d and f need it: their rows say so)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -66,7 +69,11 @@ main() {
   APP="$out/copy/$(basename "$found")"
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
-  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB")"
+  # The app's code on a stub-executable build (cmux#44204): its link count and ctime are recorded beside the
+  # executable's, so a run shows whether a scan moved onto it.
+  FW="$APP/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
+  [[ -e "$FW" ]] || FW=""
+  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB") framework_bytes=$([[ -n "$FW" ]] && stat -L -f %z "$FW")"
   OUT="$out"
   # The copy's first exec pays its first-look cost (3.4 to 4.4 s, not this study's subject); the priming launch makes
   # the home's state, so every launch after it is a person's relaunch.
@@ -97,7 +104,8 @@ for arm in dict.fromkeys(r["arm"] for r in rows if r.get("role") == "B"):
     b = [r for r in rows if r["arm"] == arm and r.get("role") == "B" and r.get("main_start") is not None]
     table = {"arm": arm, "n": len(b)}
     for key in ("main_start", "pageins", "system_pageins", "user_ms", "system_ms", "disk_read_kb", "resident_before",
-                "resident_at_main", "pages_touched"):
+                "resident_at_main", "pages_touched", "fw_resident_before", "fw_resident_at_main", "fw_pages_touched",
+                "fw_nlink", "fw_ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
     for key in ("nlink", "ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
@@ -156,6 +164,7 @@ pair() {
     g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;
     d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;
     k) launch open A 0 term && ended && relink && measured open ;;
+    t1|t3|t6) launch open A "${ARM#t}" quit && ended && measured open ;;
     e) launch exec X && other_app 60 && sleep 3 && measured exec ;;
     e2) launch exec X && sleep 63 && measured exec ;;
     x) launch open A 60 quit && ended && measured exec ;;
@@ -176,6 +185,7 @@ measured() {
   local before after
   before="$(checker_cpu)"
   B_STATE="\"nlink\": $(stat -f %l "$EXE"), \"ctime_age_s\": $(($(date +%s) - $(stat -f %c "$EXE")))"
+  [[ -n "$FW" ]] && B_STATE="$B_STATE, \"fw_nlink\": $(stat -L -f %l "$FW"), \"fw_ctime_age_s\": $(($(date +%s) - $(stat -L -f %c "$FW")))"
   case "$1" in
     open) launch open B 0 term ;;
     exec) launch exec B ;;
