@@ -85,23 +85,27 @@ import Testing
     /// `layer` and its sublayers painted over `color` at `point` (layer coordinates): each background and
     /// shape fill that covers the point, in drawing order, at its opacity; `picture` (the backdrop's art layer)
     /// paints ``pictureStandIn``.
-    static func paint(_ layer: CALayer, at point: CGPoint, over color: inout ThemeRGB, opacity: Float = 1, picture: CALayer?) {
+    static func paint(_ layer: CALayer, at point: CGPoint, over color: inout ThemeRGB, opacity: Float = 1, picture: CALayer?,
+                      trace: ((CALayer, ThemeRGB) -> Void)? = nil) {
         let alpha = opacity * layer.opacity
         guard !layer.isHidden, alpha > 0.001 else { return }
         let inside = layer.bounds.contains(point)
         if inside, let background = layer.backgroundColor, let fill = rgb(background, opacity: alpha) {
             color = fill.composited(over: color)
+            trace?(layer, fill)
         }
         if inside, let picture, layer === picture, layer.contents != nil {
             color = pictureStandIn.withAlpha(Double(alpha)).composited(over: color)
+            trace?(layer, pictureStandIn.withAlpha(Double(alpha)))
         }
         if let shape = layer as? CAShapeLayer, let path = shape.path, let shapeFill = shape.fillColor,
            path.contains(point, using: shape.fillRule == .evenOdd ? .evenOdd : .winding), let fill = rgb(shapeFill, opacity: alpha) {
             color = fill.composited(over: color)
+            trace?(layer, fill)
         }
         if layer.masksToBounds, !inside { return }
         for sublayer in layer.sublayers ?? [] {
-            paint(sublayer, at: layer.convert(point, to: sublayer), over: &color, opacity: alpha, picture: picture)
+            paint(sublayer, at: layer.convert(point, to: sublayer), over: &color, opacity: alpha, picture: picture, trace: trace)
         }
     }
 
@@ -111,6 +115,21 @@ import Testing
         let art = root.backdropView.artView
         if let layer = root.layer { paint(layer, at: point, over: &color, picture: art.isHidden ? nil : art.layer) }
         return color
+    }
+
+    /// The layers that paint at `point`, in drawing order, each with its view (or layer name) and its fill: what a
+    /// failure names, so a changed colour points at the layer that changed it.
+    static func painters(at point: CGPoint, in root: WindowRootView) -> [String] {
+        var color = root.themeTokens.surfaceBackground.withAlpha(1)
+        var lines: [String] = []
+        let art = root.backdropView.artView
+        root.layer.map { top in
+            paint(top, at: point, over: &color, picture: art.isHidden ? nil : art.layer) { layer, fill in
+                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? layer.name ?? String(describing: type(of: layer))
+                lines.append("\(owner) \(ChromeLayerHex.hex(fill.withAlpha(1))) at \(Int((fill.alpha * 100).rounded())) %")
+            }
+        }
+        return lines
     }
 
     static func hex(_ color: ThemeRGB) -> String { ChromeLayerHex.hex(color) }
@@ -178,7 +197,14 @@ import Testing
                 if item.art != nil {
                     #expect(!root.backdropView.artView.isHidden, "\(item.name): the window never showed its picture")
                 }
-                return sample()
+                let row = sample()
+                if let recorded = try? Self.fileRows()[item.name], recorded != row {
+                    for region in Self.regions where recorded[region] != row[region] {
+                        print("ChromeLayerColorTests \(item.name) \(region): \(recorded[region] ?? "none") -> \(row[region] ?? "none"), painted by: "
+                              + Self.painters(at: spots[region]!, in: root).joined(separator: " | "))
+                    }
+                }
+                return row
             }
         }
     }
