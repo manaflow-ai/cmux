@@ -296,6 +296,11 @@
   max-height: min(640px, calc(88vh - var(--ds-space-6)));
   overflow: hidden;
 }
+/* Its surface is the sheet role's glass (AddWidgetGallery.tsx; popupSurface.css `.ui-dialog.ui-glass`, which the
+   shipped pane loads), its corner concentric with the body's padding. */
+.ui-dialog.ui-glass.nt-widget-gallery {
+  --ui-dialog-padding: var(--ds-space-4);
+}
 .nt-widget-gallery-body {
   --nt-widget-unit: 132px;
   --nt-widget-gap: 14px;
@@ -307,7 +312,7 @@
   flex: 1 1 auto;
   gap: var(--ds-space-4);
   min-height: 0;
-  padding: var(--ds-space-4);
+  padding: var(--ui-dialog-padding, var(--ds-space-4));
 }
 .nt-widget-gallery-head {
   flex: none;

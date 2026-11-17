@@ -71,12 +71,15 @@ export function AddWidgetGallery({
   onAdd(widget: WidgetInfo, size: WidgetSize): void;
 }) {
   const nt = useNt();
+  // The sheet role's glass (ui/popupSurface.css `.ui-dialog.ui-glass`: the sheet veil, its blur, radius and
+  // depth), as the paste sheet has: the shipped pane loads no ui.css, whose `.ui-sheet` fill never
+  // reaches it, and the New Tab composer read through the bare sheet.
   return (
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
       label={nt("widgets.add")}
-      className="nt-widget-gallery"
+      className="ui-glass ui-glass-floats nt-widget-gallery"
       side="bottom"
     >
       <div className="nt-widget-gallery-body" data-look={look}>
