@@ -273,6 +273,33 @@ struct UntouchedNewTabsShowOnePageTests {
         var input: NewTabInputCoordinator { services.keyRouter.newTabInputCoordinator }
     }
 
+    /// Each key that a hold of the app ran again, as the test's own replay (the one that the app's `init` takes) saw
+    /// it: the key's letter, and the router's hold or the page view that had the keyboard at that time.
+    @MainActor private final class Replays {
+        var lines: [String] = []
+        /// A row gives its tabs their names here, by the tab's key.
+        var names: [String: String] = [:]
+        /// Who has the window's keyboard: the fixture sets it when the app has its pane.
+        var owner: (NSWindow) -> String = { _ in "a view before the setup's end" }
+    }
+
+    /// Who has the window's keyboard now, by the tab that owns the page view: a row's name of the tab, or its key.
+    private static func keyboardOwner(_ window: NSWindow, _ pane: PaneController, _ services: AppServices, names: [String: String]) -> String {
+        guard let view = keyboardPage(window) else {
+            let has = String(describing: window.firstResponder)
+            return "no page view (\(has))"
+        }
+        let owners = pane.stripModel.tabs.map(\.id.rawValue).filter { services.agentTabs.existingView($0) === view }
+        if owners.isEmpty { return view === shownPage(pane) ? "a page view that no tab owns (the pane shows it)" : "a page view that no tab owns" }
+        let named: [String] = owners.map { key in names[key] ?? "the tab \(key)" }
+        return "the page view of " + named.joined(separator: " and ")
+    }
+
+    /// The New Tab tabs of the pane now.
+    private static func newTabTabs(_ keyed: Keyed) -> [String] {
+        keyed.pane.stripModel.tabs.map(\.id.rawValue).filter { keyed.services.agentTabs.isNewTabPage($0) }
+    }
+
     private static func keyDown(_ character: String, keyCode: UInt16, flags: NSEvent.ModifierFlags = [], isARepeat: Bool = false,
                                 in window: NSWindow) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
@@ -329,17 +356,27 @@ struct UntouchedNewTabsShowOnePageTests {
     /// nothing, so each report of a page here is the test's. No clock ends a hold of the New Tab field here: only a
     /// page's report, a chord or a close does. With `fieldReady` the page reported its field ready and has the
     /// window's keyboard; without it, the hold of the setup's key still waits for that report.
-    private static func withAPaneWhosePageTakesKeys(_ install: String, fieldReady: Bool = true,
+    private static func withAPaneWhosePageTakesKeys(_ install: String, fieldReady: Bool = true, replays: Replays? = nil,
                                                     _ body: (Keyed) async throws -> Void) async throws {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
+        // A key that a hold runs again: the router gets it first, as in the app; the recorder says where it went.
+        let record = replays ?? Replays()
         try await PasswordManagerRouteTests.withApp(agentPaneEnvironment: environment, heldKeyReplay: { event, window, router in
-            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+            let took = router.interceptKeyDown(event, in: window)
+            let letter = event.characters ?? ""
+            let place = took ? "the router took it again" : "to " + record.owner(window)
+            record.lines.append("`\(letter)`: \(place)")
+            if !took { window.sendEvent(event) }
         }) { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let (window, pane) = try await NewTabOpenFramesTests.focusedPane(services)
             let pool = services.newTabSpares
             let input = services.keyRouter.newTabInputCoordinator
+            record.owner = { [weak pane, weak services] window in
+                guard let pane, let services else { return "a view after the app's end" }
+                return Self.keyboardOwner(window, pane, services, names: record.names)
+            }
             pool.dropAll()
             pool.makeSpare = { _ in nil }
             input.holdLimit = .seconds(600)
@@ -458,34 +495,58 @@ struct UntouchedNewTabsShowOnePageTests {
         }
     }
 
-    /// New Tab, `a`, New Tab, `b` in one turn of the main actor. `a` is for the first tab: in its turn that tab owns
-    /// the page view that has the keyboard, as a touched page. `b` is for the second tab: its page view is another
-    /// one, which has the keyboard at the end. No key is dropped, and the page with `a` stays the first tab's.
+    /// New Tab, `a`, New Tab, `b` in one turn of the main actor. The second New Tab key opens its tab in its own
+    /// turn, as the first one does. `a` is for the first tab: in its turn that tab owns the page view that has the
+    /// keyboard, as a touched page. `b` is for the second tab: its page view is another one, which has the keyboard
+    /// at the end. No key is dropped, and the page with `a` stays the first tab's.
+    ///
+    /// The print says where each letter went, also when a condition fails: at each letter, the router's hold or the
+    /// view with the keyboard; then each key that a hold ran again, and what the New Tab field's hold logged.
     @Test func aLetterAfterEachOfTwoNewTabKeysGoesToThePageOfItsOwnTab() async throws {
-        try await Self.withAPaneWhosePageTakesKeys("cn-untouched-one-page-letters") { keyed in
+        let replays = Replays()
+        try await Self.withAPaneWhosePageTakesKeys("cn-untouched-one-page-letters", replays: replays) { keyed in
             let tabs = keyed.services.agentTabs
+            let router = keyed.services.keyRouter
             // One turn of the main actor: no wait between these 4 keys.
             let first = try Self.newTabKey(keyed)
+            replays.names[first] = "the first tab"
             let letterA = try Self.keyDown("a", keyCode: 0, in: keyed.window)
             let heldA = Self.send(letterA, keyed)
+            let atA = heldA ? "a hold of the router" : Self.keyboardOwner(keyed.window, keyed.pane, keyed.services, names: replays.names)
             let keyboardAtA = Self.keyboardPage(keyed.window)
             let firstOwn = tabs.existingView(first)
             let touchedAtA = keyed.page.model.userTouched
-            let second = try Self.newTabKey(keyed)
+            let beforeSecond = Self.newTabTabs(keyed)
+            let secondKey = try Self.keyDown("t", keyCode: 17, flags: .command, in: keyed.window)
+            let tookSecond = router.interceptKeyDown(secondKey, in: keyed.window)
+            let inTurn = Self.newTabTabs(keyed).filter { !beforeSecond.contains($0) }
+            for key in inTurn { replays.names[key] = "the second tab" }
             let letterB = try Self.keyDown("b", keyCode: 11, in: keyed.window)
             let heldB = Self.send(letterB, keyed)
-            let secondOwn = tabs.existingView(second)
-            // The turn ends. The second tab's page reports ready (a page that already did changes nothing).
+            let atB = heldB ? "a hold of the router" : Self.keyboardOwner(keyed.window, keyed.pane, keyed.services, names: replays.names)
+            let secondOwn = inTurn.first.flatMap { tabs.existingView($0) }
+            // The turn ends. The page on screen then reports ready (a page that already did changes nothing).
             await Self.frame(keyed.services)
+            let later = Self.newTabTabs(keyed).filter { !beforeSecond.contains($0) }
+            for key in later where replays.names[key] == nil { replays.names[key] = "the second tab (it came after its key's turn)" }
             if let shown = Self.shownPage(keyed.pane) { await Self.reportReady(shown) }
             await Self.frame(keyed.services)
             let shown = Self.shownPage(keyed.pane)
             let owners = keyed.pane.stripModel.tabs.map(\.id.rawValue).filter { tabs.existingView($0) === keyed.page }
             let selected = keyed.pane.stripModel.selectedID?.rawValue
-            let dropped = keyed.input.log.filter { $0.hasPrefix("dropped") }
-            print("untouched new tabs, New Tab, a, New Tab, b in one turn: the router took a: \(heldA), b: \(heldB); at `a` the first "
-                + "tab owns \(firstOwn === keyed.page ? "the pane's page view" : firstOwn == nil ? "no page view" : "another page view")"
-                + " (touched: \(touchedAtA)); \(owners.count) tabs own that page view at the end; dropped: \(dropped)")
+            let holdLog = keyed.input.log.filter { $0.hasPrefix("release") || $0.hasPrefix("dropped") || $0.hasPrefix("drained") }
+            let dropped = holdLog.filter { $0.hasPrefix("dropped") }
+            let atEnd = Self.keyboardOwner(keyed.window, keyed.pane, keyed.services, names: replays.names)
+            let holdsNewTab = keyed.input.isHolding(in: keyed.window)
+            let holdsCreation = router.creationInputCoordinator.isHolding(in: keyed.window)
+            var ownsAtA = "another page view"
+            if firstOwn === keyed.page { ownsAtA = "the pane's page view" } else if firstOwn == nil { ownsAtA = "no page view" }
+            print("untouched new tabs, New Tab, a, New Tab, b in one turn: the second New Tab key (the router took it: \(tookSecond)) "
+                + "opened \(inTurn.count) tabs in its own turn and \(later.count) by the end. `a` at its key: \(atA); `b` at its key: "
+                + "\(atB). Keys that a hold ran again: \(replays.lines). The New Tab field's hold: \(holdLog). The keyboard at the "
+                + "end: \(atEnd). A New Tab hold is open: \(holdsNewTab); a creation hold is open: \(holdsCreation). At `a` the first "
+                + "tab owns \(ownsAtA) (touched: \(touchedAtA)); \(owners.count) tabs own the pane's first page view at the end")
+            #expect(tookSecond && inTurn.count == 1, "the second New Tab key opened \(inTurn.count) tabs in its own turn, want 1")
             #expect(keyboardAtA === keyed.page, "`a`: the pane's page view does not have the keyboard at the letter")
             #expect(firstOwn === keyed.page && touchedAtA,
                     "`a`: in its turn the first tab does not own the page view with the keyboard as a touched page")
@@ -503,14 +564,19 @@ struct UntouchedNewTabsShowOnePageTests {
         }
     }
 
-    /// New Tab, 2 text keys, Close Tab in one turn of the main actor. The tab of the text closes; the pane's other
-    /// New Tab tab, which got no key, then shows a page view that no key touched. This row is green before the
-    /// change also (the hold drops the 2 keys at the chord): it holds what must stay when the page takes them at once.
+    /// New Tab, 2 text keys, Close Tab in one turn of the main actor. The Close Tab key closes the tab of the text in
+    /// its own turn: the pane then has one New Tab tab less. The pane's New Tab tabs that got no key then show a page
+    /// view that no key touched. This row is green before the change also (the hold drops the 2 keys at the chord): it
+    /// holds what must stay when the page takes them at once.
+    ///
+    /// Each count is read in the turn of its key, by the keys that the pane's tabs have then: a tab's key can change
+    /// when the daemon answers its creation, which is after the turn.
     @Test func textAfterANewTabKeyThenACloseKeyLeavesTheOtherTabAPageThatNoKeyTouched() async throws {
         try await Self.withAPaneWhosePageTakesKeys("cn-untouched-one-page-text-close") { keyed in
-            let tabs = keyed.services.agentTabs
             // One turn of the main actor: no wait between these 4 keys.
+            let atStart = Self.newTabTabs(keyed)
             let first = try Self.newTabKey(keyed)
+            let beforeClose = Self.newTabTabs(keyed)
             var held = 0
             for character in ["l", "s"] {
                 let key = try Self.keyDown(character, keyCode: 0, in: keyed.window)
@@ -521,24 +587,30 @@ struct UntouchedNewTabsShowOnePageTests {
             try #require(resolved == "closeTab",
                          "Cmd-W does not resolve to Close Tab here (\(String(describing: resolved))): this run proves nothing")
             let tookClose = Self.send(close, keyed)
+            let afterClose = Self.newTabTabs(keyed)
+            let closedInTurn = !keyed.pane.stripModel.tabs.map(\.id.rawValue).contains(first)
             // The turn ends.
             await Self.frame(keyed.services)
             await Self.frame(keyed.services)
-            let stillOpen = keyed.pane.stripModel.tabs.map(\.id.rawValue).contains(first)
-            let left = keyed.pane.stripModel.tabs.map(\.id).filter { tabs.isNewTabPage($0.rawValue) }
+            let left = Self.newTabTabs(keyed)
             if let other = left.first {
-                keyed.pane.select(other)
+                keyed.pane.select(StripTabID(other))
                 await Self.frame(keyed.services)
             }
             let shown = Self.shownPage(keyed.pane)
             let touched = Self.touched(keyed)
-            print("untouched new tabs, New Tab, 2 text keys, Close Tab in one turn: the router took \(held) of the 2 text keys and the "
-                + "close key: \(tookClose); the tab of the text is still in the strip: \(stillOpen); \(left.count) New Tab tabs are left; "
-                + "\(touched) touched page views are left")
-            #expect(!stillOpen, "the Close Tab key did not close the tab of the text")
-            #expect(left.count == 1, "\(left.count) New Tab tabs are left after the close, want 1: the tab that got no key")
-            #expect(shown != nil, "the pane's other New Tab tab shows no page at its frame after the close")
-            #expect(shown?.model.userTouched == false, "the pane's other New Tab tab shows a page view that the closed tab's text touched")
+            let dropped = keyed.input.log.filter { $0.hasPrefix("dropped") }
+            print("untouched new tabs, New Tab, 2 text keys, Close Tab in one turn: the pane has \(atStart.count) New Tab tabs at the "
+                + "start, \(beforeClose.count) after the New Tab key, \(afterClose.count) in the turn of the close key (the router took "
+                + "\(held) of the 2 text keys and the close key: \(tookClose); the tab of the text is closed in that turn: "
+                + "\(closedInTurn)), \(left.count) at the end; \(touched) touched page views are left; the hold: \(dropped)")
+            #expect(beforeClose.count == atStart.count + 1, "setup: the New Tab key did not add one New Tab tab to the pane")
+            #expect(closedInTurn && afterClose.count == beforeClose.count - 1,
+                    "the Close Tab key left \(afterClose.count) New Tab tabs in its turn, want one less than \(beforeClose.count)")
+            #expect(left.count == beforeClose.count - 1,
+                    "\(left.count) New Tab tabs are left at the end, want one less than \(beforeClose.count)")
+            #expect(shown != nil, "the pane shows no page of a New Tab tab at its frame after the close")
+            #expect(shown?.model.userTouched == false, "the pane shows a page view that the closed tab's text touched")
             #expect(touched == 0, "\(touched) touched page views are left after the close of the tab of the text, want 0")
         }
     }
