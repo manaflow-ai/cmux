@@ -58,6 +58,12 @@ Blacksmith macOS), never through a pool, and signing jobs move through the signi
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
+CI_BLACKSMITH_OFF (temporary; Leo, 2026-11-10: "just stop using blacksmith temporarily"): while that repository
+variable is '1', every pool points at its declared `off` label (the GCP fleet's cmux-fleet-linux-x64, the owned std
+Mac pool, or GitHub-hosted arm64 Linux or Windows), whatever the evidence says. Delete the variable and the next
+pass points each pool back at its first live member: parse_value() keeps an `off` label as a valid value, and
+reconcile() replaces it once the switch is unset.
+
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
 MIRRORS variables (each a member of its pool unless the overflow record changed it).
 """
@@ -90,6 +96,13 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# The switch that keeps every pool off Blacksmith while it is '1' (blacksmith_off()).
+OFF_VARIABLE = "CI_BLACKSMITH_OFF"
+OFF_KEY = "off"
+# What an `off` label may be: the GCP fleet's ephemeral Linux, an owned glaeda pool, or a GitHub-hosted image the
+# pool says why it needs (off_why).
+GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+OWNED_POOL_LABEL = re.compile(r"^glaeda-[a-z0-9-]+-xcode-[0-9.]+$")
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
@@ -136,6 +149,17 @@ def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
 
 
+def blacksmith_off(env: Mapping[str, str]) -> bool:
+    """Whether CI_BLACKSMITH_OFF is on: exactly '1' (unset or anything else is today's routing)."""
+    return (env.get(OFF_VARIABLE) or "").strip() == "1"
+
+
+def allowed(spec: Mapping[str, Any]) -> list[str]:
+    """What a pool may hold: a member, or its `off` label."""
+    off = spec.get(OFF_KEY)
+    return members(spec) + ([off] if isinstance(off, str) and off and off not in spec["members"] else [])
+
+
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """What is wrong with the declared pools (tests/test_ci_runner_pools.py)."""
     found = []
@@ -158,6 +182,16 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                              "through a picker, never a pool")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
+        off = spec.get(OFF_KEY)
+        if off is not None:
+            if not isinstance(off, str) or EPHEMERAL.match(off) or off.startswith("blacksmith-"):
+                found.append(f"{where}: off is a label that is not Blacksmith")
+            elif HOSTED.match(off):
+                if not str(spec.get("off_why", "")).strip():
+                    found.append(f"{where}: off names GitHub-hosted {off}; say why (off_why)")
+            elif off != GCP_FLEET_LINUX and not OWNED_POOL_LABEL.match(off):
+                found.append(f"{where}: off is {GCP_FLEET_LINUX}, an owned glaeda-<class>-xcode-<v> pool, or "
+                             "GitHub-hosted with off_why")
     return found
 
 
@@ -181,7 +215,7 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
     for name, spec in pools.items():
         if name not in value:
             continue
-        if isinstance(value[name], str) and value[name] in members(spec):
+        if isinstance(value[name], str) and value[name] in allowed(spec):
             clean[name] = value[name]
         else:
             dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
@@ -206,9 +240,9 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
         label = value.get(name)
         if not isinstance(label, str) or not label:
             found.append(f"{VARIABLE} has no {name}: every job reading fromJSON(vars.{VARIABLE}).{name} fails")
-        elif label not in members(spec):
+        elif label not in allowed(spec):
             found.append(f"{VARIABLE}.{name}={label!r} is not a member of pools.{name} "
-                         f"({', '.join(spec['members'])})")
+                         f"({', '.join(spec['members'])}) or its off label")
     return found
 
 
@@ -268,9 +302,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         if name in owned:
             continue
         current = (live.get(name) or "").strip()
-        allowed = members(pools[pool]) if pool in pools else []
-        if current not in allowed:
-            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+        allowed_labels = allowed(pools[pool]) if pool in pools else []
+        if current not in allowed_labels:
+            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} "
+                         f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
 
@@ -381,10 +416,11 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None, off: bool = False) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire.
+    `off` (CI_BLACKSMITH_OFF) points every pool with an `off` label at it; the dead marks are kept as they are."""
     lines: list[str] = []
     marks: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
@@ -411,6 +447,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
         chosen = next((label for label in candidates if label not in marks), candidates[0])
+        if off and isinstance(spec.get(OFF_KEY), str) and spec[OFF_KEY]:
+            chosen = spec[OFF_KEY]
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
@@ -504,8 +542,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
+    off = blacksmith_off(env)
+    if off:
+        print(f"{OFF_VARIABLE}=1: every pool points at its off label (delete the variable to go back)")
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now), off=off)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")
