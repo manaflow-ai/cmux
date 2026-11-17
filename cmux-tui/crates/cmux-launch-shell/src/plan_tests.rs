@@ -1,10 +1,44 @@
 use super::*;
+use crate::prior::Registry;
 use proptest::prelude::*;
 use std::fs;
 
-/// The plan with no earlier run's state beside the record (the cases below that have a record).
+/// The plan of a launch with a record: what an earlier run left is not read then.
 fn plan(windows: Option<&[SavedWindow]>, image_dir: &Path, now: &Now<'_>) -> Plan {
-    super::plan(windows, false, image_dir, now)
+    super::plan(windows, PriorState::UNKNOWN, image_dir, now)
+}
+
+/// A home with nothing of an earlier run: an empty state directory and no `launch-times.jsonl`.
+struct Home {
+    dir: tempdir::Dir,
+}
+
+const SESSION: &str = "cmux-app-a";
+
+impl Home {
+    fn new() -> Self {
+        let home = Self { dir: tempdir::Dir::new() };
+        fs::create_dir_all(home.state_dir()).unwrap();
+        home
+    }
+    fn state_dir(&self) -> PathBuf {
+        self.dir.path().join("sessions")
+    }
+    fn launch_times(&self) -> PathBuf {
+        self.dir.path().join("launch-times.jsonl")
+    }
+    fn prior(&self, snapshot_path_recorded: bool) -> PriorState {
+        PriorState::gather(
+            SESSION,
+            Some(&self.state_dir()),
+            snapshot_path_recorded,
+            &self.launch_times(),
+        )
+    }
+    fn reason(&self, snapshot_path_recorded: bool) -> Reason {
+        let now = now(Appearance::Light, &RETINA);
+        super::plan(None, self.prior(snapshot_path_recorded), self.dir.path(), &now).reason
+    }
 }
 
 const BUILD: &str = "4294.abc123";
@@ -169,13 +203,15 @@ fn light_and_dark() {
 
 #[test]
 fn no_record_is_bare_on_a_fresh_install_and_todays_launch_on_an_upgrade() {
-    let dir = tempdir::Dir::new();
-    let p = plan(None, dir.path(), &now(Appearance::Light, &RETINA));
+    let home = Home::new();
+    let p = super::plan(None, home.prior(false), home.dir.path(), &now(Appearance::Light, &RETINA));
     assert_eq!((p.reason, p.window, p.image), (Reason::FreshInstall, None, None));
     assert!(p.reason.shows_window() && p.reason.uses_default_frame());
-    let p = super::plan(None, true, dir.path(), &now(Appearance::Light, &RETINA));
-    assert_eq!(p.reason, Reason::Upgrade);
-    assert!(!p.reason.shows_window());
+    // An upgrade from a build without the writer left its launch times.
+    fs::write(home.launch_times(), "{}\n").unwrap();
+    assert_eq!(home.reason(false), Reason::Upgrade);
+    assert!(!Reason::Upgrade.shows_window());
+    let dir = tempdir::Dir::new();
     let p = plan(Some(&[]), dir.path(), &now(Appearance::Light, &RETINA));
     assert_eq!(p.reason, Reason::NoWindows);
     assert!(p.reason.shows_window() && p.reason.uses_default_frame());
@@ -185,6 +221,59 @@ fn no_record_is_bare_on_a_fresh_install_and_todays_launch_on_an_upgrade() {
         plan(Some(&[broken]), dir.path(), &now(Appearance::Light, &RETINA)).reason,
         Reason::NoWindows
     );
+}
+
+#[test]
+fn a_fresh_install_needs_every_sign_of_an_earlier_run_absent() {
+    // No state directory at all is as fresh as an empty one.
+    let home = Home::new();
+    fs::remove_dir(home.state_dir()).unwrap();
+    assert_eq!(home.reason(false), Reason::FreshInstall);
+
+    // A registry folder of the session: its daemon ran here.
+    let home = Home::new();
+    fs::create_dir(home.state_dir().join(format!("{SESSION}-1f2e"))).unwrap();
+    assert_eq!(home.prior(false).registry, Registry::Present);
+    assert_eq!(home.reason(false), Reason::Upgrade);
+
+    // Another session's folder (`<session>-a-b` has two id parts) is not this one's.
+    let home = Home::new();
+    fs::create_dir(home.state_dir().join(format!("{SESSION}-b-1f2e"))).unwrap();
+    fs::create_dir(home.state_dir().join("other-1f2e")).unwrap();
+    assert_eq!(home.prior(false).registry, Registry::Absent);
+    assert_eq!(home.reason(false), Reason::FreshInstall);
+
+    // A state directory that cannot be listed may hold one (a file there lists as no directory).
+    let home = Home::new();
+    fs::remove_dir(home.state_dir()).unwrap();
+    fs::write(home.state_dir(), "").unwrap();
+    assert_eq!(home.prior(false).registry, Registry::Unknown);
+    assert_eq!(home.reason(false), Reason::Upgrade);
+
+    // The app's launch times.
+    let home = Home::new();
+    fs::write(home.launch_times(), "").unwrap();
+    assert_eq!(home.reason(false), Reason::Upgrade);
+
+    // A recorded snapshot path (the app's defaults).
+    let home = Home::new();
+    assert_eq!(home.reason(true), Reason::Upgrade);
+
+    // Unknown is never fresh.
+    let dir = tempdir::Dir::new();
+    let p = super::plan(None, PriorState::UNKNOWN, dir.path(), &now(Appearance::Light, &RETINA));
+    assert_eq!(p.reason, Reason::Upgrade);
+}
+
+#[test]
+fn a_record_decides_whatever_the_home_says() {
+    let home = Home::new();
+    let fresh = home.prior(false);
+    assert!(fresh.is_fresh());
+    let now = now(Appearance::Light, &RETINA);
+    assert_eq!(super::plan(Some(&[]), fresh, home.dir.path(), &now).reason, Reason::NoWindows);
+    let w = [window("w1", "")];
+    assert_eq!(super::plan(Some(&w), fresh, home.dir.path(), &now).reason, Reason::ImageUnreadable);
 }
 
 #[test]
