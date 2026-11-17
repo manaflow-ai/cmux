@@ -2507,8 +2507,9 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     # cmux#43103.
     BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-26(?:['\"]|$)")
     # The repository variables that name a macOS 26 Blacksmith label. MACOS_RUNNER_15, _DISPLAY, _DUAL_XCODE and
-    # _BACKGROUND name the macOS 15 lane, and MACOS_RUNNER_PR is that lane's pull-request runner (read beside
-    # fromJSON(vars.RUNNER_POOLS).macos_15), which this switch leaves alone.
+    # _BACKGROUND name the macOS 15 lane, which this switch leaves alone. MACOS_RUNNER_PR holds a macOS 26 label too,
+    # but the macOS 15 lane's jobs read it beside fromJSON(vars.RUNNER_POOLS).macos_15 as their pull-request runner,
+    # so it is left out here; a macOS 26 job that reads only it would pass (a known gap).
     MACOS_26_RUNNER_VARIABLE = re.compile(r"\bvars\.MACOS_RUNNER_(?:26_LARGE|26|IOS|TESTS)\b")
     # Jobs no pull request runs, with why they still name Blacksmith macOS while the switch is off.
     NOT_A_PR_JOB = {
