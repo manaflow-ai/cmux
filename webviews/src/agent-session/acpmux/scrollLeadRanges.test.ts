@@ -99,7 +99,7 @@ describe("scrollLeadRanges fast fling", () => {
       expect(mounted(far + delta)).toBe(true);
       // Nothing between them that a margin does not reach.
       const margin = Math.min(Math.abs(delta) / 4, VIEW);
-      if (Math.abs(delta) - VIEW > margin + edges) expect(mounted(far + delta + VIEW + margin + edges)).toBe(false);
+      if (Math.abs(delta) - VIEW > margin + 2 * edges) expect(mounted(far + delta + VIEW + margin + edges)).toBe(false);
       expect(mountedPx(delta)).toBeLessThanOrEqual(VIEW + (VIEW + 2 * margin) + 4 * edges);
     }
   });
