@@ -213,9 +213,10 @@ final class CEFRuntime {
 
     private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
 
-    /// An idle runtime whose framework load is `libraryLoader` (tests).
-    init(libraryLoader: @escaping LibraryLoader) {
+    /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
+    init(libraryLoader: @escaping LibraryLoader, storage: CEFProfileStorage? = nil) {
         self.libraryLoader = libraryLoader
+        if let storage { self.storage = storage }
     }
 
     /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
