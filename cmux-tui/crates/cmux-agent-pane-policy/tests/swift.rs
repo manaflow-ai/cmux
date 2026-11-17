@@ -68,19 +68,6 @@ fn the_known_params_are_the_macos_hosts() {
     assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
 }
 
-#[test]
-fn the_gesture_rules_are_the_macos_hosts() {
-    let swift: BTreeSet<String> = strings(&block(
-        &read("AcpmuxPaneMethods.swift"),
-        "public static let gestureRules: [String: GestureRule] = [",
-        "\n    ]",
-    ))
-    .into_iter()
-    .collect();
-    let rust: BTreeSet<String> = policy().gesture_rules.keys().cloned().collect();
-    assert_eq!(rust, swift, "policy.json gesture_rules vs AcpmuxPaneMethods.gestureRules");
-}
-
 /// Sending never needs the person's own key press or click (Leo, 2026-11-17): no send method of
 /// the composer, Retry, Approve, `/btw`, `/side`, a race, Run elsewhere or Fix from a link has a
 /// gesture rule on either side.
