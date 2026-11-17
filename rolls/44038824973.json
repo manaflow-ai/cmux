@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44038824973",
+  "recorded_at": "2026-11-17T07:40:29Z",
+  "reason": "image inputs changed in 0d4d9033489b4684b91542bbf98be5343fc1d48c..de0da3a70ff35b7ec8a743802fac0aaee66029b5",
+  "dry_run": false,
+  "cmux_tui": "7a3a4ae0d1ed27fad99812b5fd5b2c717244f263",
+  "fixes": [
+    {
+      "sha": "de0da3a70ff35b7ec8a743802fac0aaee66029b5",
+      "mergedAt": "2026-11-16T23:27:07-08:00",
+      "subject": "Cloud multiplayer: shared chats, team sessions, no login on the machine, fast start (#40159)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-17T07:40:29Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
