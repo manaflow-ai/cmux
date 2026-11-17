@@ -305,7 +305,7 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
     // `create NAME --webhook --on cloud --from MACHINE …`: a GitHub webhook that starts an agent on
     // a fork (automation_webhook.rs). `--target cloud --webhook`, a Chief job, is unchanged.
     if automation_webhook::wants(args) {
-        return automation_webhook::create(&args[1..], global, out);
+        return automation_webhook::create(args.get(1..).unwrap_or_default(), global, out);
     }
     let (cloud, args) = take_target(args)?;
     if cloud {
