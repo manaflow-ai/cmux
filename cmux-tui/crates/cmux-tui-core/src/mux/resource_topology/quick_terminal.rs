@@ -81,11 +81,48 @@ fn settle_quick_pane(
     screen.settle_floating_panes();
 }
 
-/// The floating panes of `screen` after the creation of `pane` by `fields`.
-/// A creation that has [`QUICK_TERMINAL_FRAME_FIELD`] makes the new pane the
-/// quick terminal at that frame ([`settle_quick_pane`]).
-pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneId, fields: &Value) {
+/// The floating panes of `screen` after the creation of `pane` by the fields
+/// of `intent`. A creation that has [`QUICK_TERMINAL_FRAME_FIELD`] makes the
+/// new pane the quick terminal at that frame ([`settle_quick_pane`]).
+pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneId, intent: &Value) {
+    let fields = intent.get("fields").unwrap_or(&Value::Null);
     settle_quick_pane(screen, pane, previous, frame_field(fields));
+}
+
+/// The state changed between the plan of a request and its act: another
+/// request made the quick terminal of the workspace, or brought it to the
+/// screen. The request then plans once more and shows the quick terminal that
+/// exists ([`Mux::quick_terminal_as`]). No client sees this value.
+#[derive(Debug)]
+struct PlanLost;
+
+impl std::fmt::Display for PlanLost {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .write_str("the quick terminal changed between the plan of the request and its act")
+    }
+}
+
+impl std::error::Error for PlanLost {}
+
+/// Refuses the creation of a quick terminal ([`QUICK_TERMINAL_FRAME_FIELD`] in
+/// `fields`) as a split of `target`, when the workspace of `target` has a
+/// quick terminal. A request decides on a make before its creation has its
+/// turn, and the creations run one after the other: the check is in the turn
+/// of the creation, before anything is spawned, so 2 requests that decide on
+/// a make at the same time make one quick terminal.
+pub(super) fn refuse_second_make(
+    state: &State,
+    target: Option<PaneId>,
+    fields: &Map<String, Value>,
+) -> anyhow::Result<()> {
+    let holds_one = fields.contains_key(QUICK_TERMINAL_FRAME_FIELD)
+        && target
+            .and_then(|pane| state.screen_of(pane))
+            .and_then(|(workspace, _)| state.workspaces.get(workspace))
+            .is_some_and(|workspace| workspace.quick_terminal().is_some());
+    anyhow::ensure!(!holds_one, PlanLost);
+    Ok(())
 }
 
 /// The screen `screen` of `state`.
@@ -161,7 +198,31 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<SurfaceId>> {
-        match self.with_state(|state| planned_act(state, screen, mode))? {
+        let plan = self.with_state(|state| planned_act(state, screen, mode))?;
+        match self.act_on_plan(actor, screen, plan, frame, spawn.clone(), size) {
+            // Another request was first. Both wanted the quick terminal in
+            // `screen`: this one shows it, and does not toggle it away.
+            Err(error) if error.chain().any(|cause| cause.is::<PlanLost>()) => {
+                let plan = self.with_state(|state| planned_act(state, screen, QuickMode::Show))?;
+                self.act_on_plan(actor, screen, plan, frame, spawn, size)
+            }
+            result => result,
+        }
+    }
+
+    /// Does `plan`, the act that [`planned_act`] gave for `screen`. The state
+    /// can change after the plan: a make and a bring that are not true any
+    /// more fail with [`PlanLost`], and change nothing.
+    fn act_on_plan(
+        self: &Arc<Self>,
+        actor: &Actor,
+        screen: ScreenId,
+        plan: Plan,
+        frame: Option<FloatFrame>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Option<SurfaceId>> {
+        match plan {
             Plan::Make(target) => {
                 let frame = frame.unwrap_or(NEW_FRAME);
                 let fields = Map::from_iter([
@@ -220,7 +281,7 @@ impl Mux {
                         let entry = list.iter().find(|entry| entry.pane == quick)?;
                         (quick == pane && item.id != screen).then_some((item.id, entry.frame))
                     })
-                    .context("the quick terminal is not in another screen")?;
+                    .ok_or(PlanLost)?;
                 let target =
                     screen_of(state, screen).ok_or(FloatPaneError::ScreenNotFound { screen })?;
                 let screen_id = target.public_id.as_str().to_string();

@@ -103,6 +103,7 @@ impl Mux {
                     "bad request: around split {around} does not end at pane {target}"
                 );
             }
+            quick_terminal::refuse_second_make(state, resolved.pane, fields)?;
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -992,8 +993,7 @@ impl Mux {
             }
             screen.zoomed_pane = None;
             // `floating-panes-v1`, `quick-terminal-v1`: the list follows the new layout; a quick terminal floats.
-            let fields = intent.get("fields").unwrap_or(&Value::Null);
-            quick_terminal::settle_new_pane(screen, pane_id, before.active_pane, fields);
+            quick_terminal::settle_new_pane(screen, pane_id, before.active_pane, intent);
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
                 state.resource_indexes.splits.insert(public_id.clone(), split);
