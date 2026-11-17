@@ -1331,6 +1331,7 @@ export type TeamAiUsageLine = {
   readonly period_end: number
   readonly stop_applies: boolean
   readonly stopped: boolean
+  readonly overage_models_markup_pct?: number | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type TeamAuditEntry = {

@@ -80,7 +80,7 @@ let product = await api("GET", `/v1/products/${PRODUCT_ID}`)
 if (!product && !check) product = await api("POST", "/v1/products", { id: PRODUCT_ID, name: "cmux AI usage", description: "AI model usage above your plan's included amount, at cost." }, `product-${PRODUCT_ID}-v1`)
 
 // The pricing a price of this set names: pass-through, or the model overage markup in percent (v2: 110).
-const PRICING = { nickname: overageModelMarkup(SET) === 1 ? "pass-through" : `models above included at list x ${overageModelMarkup(SET)}`, version: usagePriceVersion(SET) }
+const PRICING = { nickname: overageModelMarkup(SET) === 1 ? "pass-through" : `models above included at list + ${Math.round((overageModelMarkup(SET) - 1) * 100)}%, machine time at list`, version: usagePriceVersion(SET) }
 const prices: Record<string, any> = {}
 for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) for (const mode of usageModesOf(plan)) {
   const meter = meters[mode]

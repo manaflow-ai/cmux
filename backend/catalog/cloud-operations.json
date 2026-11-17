@@ -7961,6 +7961,26 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "overage_models_markup_pct": {
+          "required": false,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
         }
       }
     },
@@ -74823,6 +74843,21 @@
               },
               "stopped": {
                 "type": "boolean"
+              },
+              "overage_models_markup_pct": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
               }
             },
             "required": [

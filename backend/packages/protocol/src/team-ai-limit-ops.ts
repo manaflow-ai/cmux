@@ -61,7 +61,8 @@ export const TeamAiLimitMember = Schema.Struct({
 
 /**
  * The team line (cx-y79zh S5): the team's AI usage this period against its plan's included amount.
- * Billed: usage above the included amount is billed at cost; the period is the billing period and the
+ * Billed: usage above the included amount is billed at cost, or with models at the provider's list price + 10% under
+ * usage price set v2 (Leo 2026-11-09, overage_models_markup_pct); the period is the billing period and the
  * amount is per team or per seat (x seats). Not billed: the UTC month; with the stop on, AI calls stop
  * at the included amount until the next month.
  */
@@ -75,7 +76,13 @@ export const TeamAiUsageLine = Schema.Struct({
   period_start: Schema.NullOr(Schema.Int),
   period_end: Schema.Int,
   stop_applies: Schema.Boolean,
-  stopped: Schema.Boolean
+  stopped: Schema.Boolean,
+  /**
+   * The markup on model usage above the included amount, in percent of the provider's list price: 0 (at cost) or 10
+   * (list + 10%, price set v2). Billed: the period's pinned markup; not billed: the deployment's price set.
+   * Machine time above the included amount is always at list. Absent from an older server: 0.
+   */
+  overage_models_markup_pct: Schema.optionalKey(Schema.Number)
 }).annotate({ identifier: "TeamAiUsageLine" })
 
 export const TeamAiLimitGet = def({

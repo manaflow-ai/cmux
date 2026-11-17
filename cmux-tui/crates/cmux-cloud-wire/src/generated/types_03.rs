@@ -714,6 +714,8 @@ pub struct TeamAiUsageLine {
     pub period_end: i64,
     pub stop_applies: bool,
     pub stopped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overage_models_markup_pct: Option<WireNumber>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -896,11 +898,4 @@ pub struct TeamPolicyValues {
     pub agents_allowed_classes: Option<TeamPolicyValuesAgentsAllowedClasses>,
     #[serde(rename = "device.settings", default, skip_serializing_if = "Option::is_none")]
     pub device_settings: Option<TeamPolicyValuesDeviceSettings>,
-}
-
-wire_enum! {
-    TeamPolicyValuesGithubRepoScopeValue {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
 }

@@ -10,7 +10,7 @@ const results = []
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"} ${name} ${detail}`) }
 for (const scheme of ["light", "dark"]) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1100 }, colorScheme: scheme })
-  for (const state of ["billed-team", "billed-over", "unbilled-near", "unbilled-open", "stopped", "no-line"]) {
+  for (const state of ["billed-team", "billed-over", "billed-team-v2", "billed-over-v2", "unbilled-near", "unbilled-open", "stopped", "no-line"]) {
     await page.goto(`${base}/preview/ai-usage?state=${state}`, { waitUntil: "networkidle" })
     await page.waitForSelector(".aiu")
     await page.screenshot({ path: `${out}/ai-usage-${state}-${scheme}.png`, fullPage: true })

@@ -164,7 +164,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * sends (billedLevelMicros with the period's pinned markup, usage-billing-store.ts periodMarkupBp), so its part
    * above the included amount is the billed overage. Never binds.
    */
-  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number; markup_bp: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
     if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: fallback, seats: 1 } }
     const sql = this.ctx.storage.sql
     const now = Date.now()
@@ -180,10 +180,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const seats = mark.seats ?? 1
     const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000, machineTime) : null
     const included_usd = mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd
-    const markup = mark.period_start !== undefined ? periodMarkupBp(sql, mark.period_start, PASS_THROUGH_BP) / 10_000 : 1
-    const billed = level && included_usd !== null ? billedLevelMicros(level.models_micros, level.machine_micros, Math.round(included_usd * 1_000_000), markup) : level?.micros
+    const markupBp = mark.period_start !== undefined ? periodMarkupBp(sql, mark.period_start, PASS_THROUGH_BP) : PASS_THROUGH_BP
+    const billed = level && included_usd !== null ? billedLevelMicros(level.models_micros, level.machine_micros, Math.round(included_usd * 1_000_000), markupBp / 10_000) : level?.micros
     return {
-      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd, spent_usd: billed !== undefined ? billed / 1_000_000 : month_spent_usd },
+      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd, spent_usd: billed !== undefined ? billed / 1_000_000 : month_spent_usd, markup_bp: markupBp },
       month_spent_usd,
       unbilled
     }

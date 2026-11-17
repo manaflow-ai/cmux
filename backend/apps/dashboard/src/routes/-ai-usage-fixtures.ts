@@ -28,6 +28,14 @@ export const AI_USAGE_STATES: Readonly<Record<string, { readonly note: string; r
     note: "Team per seat, 3 seats: 74.30 used against 60 included, 14.30 billed at cost.",
     data: { ...base, default_usd: 100, is_default: false, team_usage: { billed: true, included_usd: 60, per_seat: true, seats: 3, spent_usd: 74.3, period_start: now - 25 * DAY, period_end: now + 5 * DAY, stop_applies: false, stopped: false }, members: [member("u_1", "Ada Park", "owner", 41.2, 100, "team"), member("u_2", "Ben Ito", "admin", 33.1, 100, "team"), member("u_5", "Eli Novak", "billing", 0, 100, "team")] }
   },
+  "billed-over-v2": {
+    note: "Team per seat under price set v2, 3 seats: 76.73 billed against 60 included; models above it at list + 10%, machine time at list.",
+    data: { ...base, default_usd: 100, is_default: false, team_usage: { billed: true, included_usd: 60, per_seat: true, seats: 3, spent_usd: 76.73, period_start: now - 25 * DAY, period_end: now + 5 * DAY, stop_applies: false, stopped: false, overage_models_markup_pct: 10 }, members: [member("u_1", "Ada Park", "owner", 41.2, 100, "team"), member("u_2", "Ben Ito", "admin", 33.1, 100, "team"), member("u_5", "Eli Novak", "billing", 0, 100, "team")] }
+  },
+  "billed-team-v2": {
+    note: "Team per team under price set v2, under the included amount: the intro names list + 10% for models.",
+    data: { ...base, team_usage: { billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 12.17, period_start: now - 10 * DAY, period_end: now + 20 * DAY, stop_applies: false, stopped: false, overage_models_markup_pct: 10 } }
+  },
   "unbilled-near": {
     note: "Founders (no card): 17.40 of 20 included this month; the stop is near.",
     data: { ...base, team_usage: { billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 17.4, period_start: Date.UTC(2026, 9, 1), period_end: monthEnd, stop_applies: true, stopped: false } }
