@@ -67,36 +67,12 @@ const draw = (node: React.ReactNode) => {
 const worked = (id: string, at: number) =>
   ({ id, version: 1, at, kind: "worked", durationMs: 45_000, status: "completed" }) as unknown as AcpmuxRow;
 
-test("the ended turn's Worked for row draws its check over the chevron; an older turn's row stays as it was", () => {
-  const doc = draw(
-    <>
-      <WorkedFor row={worked("old", 100_000)} expanded={false} onToggle={() => undefined} />
-      <WorkedFor row={worked("new", 499_500)} expanded={false} onToggle={() => undefined} />
-    </>,
-  );
-  expect(doc.querySelectorAll("[data-finish]").length).toBe(0);
+test("a long turn's end draws no done flash on its Worked for row, as Codex draws none (Lucas, 2026-11-14)", () => {
+  const doc = draw(<WorkedFor row={worked("new", 499_500)} expanded={false} onToggle={() => undefined} />);
   act(() => void startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 500_000 }, true));
-  const rows = [...doc.querySelectorAll(".cv-worked")];
-  expect(rows.map((row) => row.getAttribute("data-finish"))).toEqual([null, "turn"]);
-  expect(rows[1]!.querySelector(".cv-finish-check")).not.toBeNull();
-  expect(rows[0]!.querySelector(".cv-finish-check")).toBeNull();
-  // The moment's end gives the row back exactly as it was.
-  act(() => endFinishMoment());
-  expect(doc.querySelectorAll("[data-finish], .cv-finish-check").length).toBe(0);
-});
-
-test("a stopped or failed turn's row gets no success check (review F2)", () => {
-  const row = (status: string) =>
-    ({ id: status, version: 1, at: 499_500, kind: "worked", durationMs: 45_000, status }) as unknown as AcpmuxRow;
-  const doc = draw(
-    <>
-      {["cancelled", "interrupted", "failed", "error"].map((status) => (
-        <WorkedFor key={status} row={row(status)} expanded={false} onToggle={() => undefined} />
-      ))}
-    </>,
-  );
-  act(() => void startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 500_000 }, true));
-  expect(doc.querySelectorAll("[data-finish], .cv-finish-check").length).toBe(0);
+  const row = doc.querySelector(".cv-worked")!;
+  expect(row.hasAttribute("data-finish")).toBe(false);
+  expect(row.querySelector("svg:not(.cv-worked__chevron)")).toBeNull();
 });
 
 const pullRequest: HeaderPullRequest = {
