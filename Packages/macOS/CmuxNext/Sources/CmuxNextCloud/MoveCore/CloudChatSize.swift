@@ -74,7 +74,11 @@ public nonisolated struct CloudSizeLocked: Error, Equatable, Sendable {
     /// (by suffix, as cmux-cloud-start-core `machine_create` reads a definitive refusal).
     public static func isCode(_ code: String) -> Bool { code.hasSuffix("size.locked") || code.hasSuffix("size_locked") }
 
-    /// The plan that lifts it (`pro`, `max`), nil when none does; ``upgradeNamed``: the server named one, or none.
+    /// The plans a refusal may name to lift it: cmux NEXT's own (`next_pro`, `next_max`) and the classic ones a server
+    /// may still send (`pro`, `max`).
+    public static let plans = ["next_pro", "next_max", "pro", "max"]
+
+    /// The plan that lifts it (one of ``plans``), nil when none does; ``upgradeNamed``: the server named one, or none.
     public var upgradePlan: String?
     public var upgradeNamed = false
     public var needed: CloudChatSize?
@@ -94,7 +98,7 @@ public nonisolated struct CloudSizeLocked: Error, Equatable, Sendable {
         let size = { (key: String) in details?[key]?.stringValue.flatMap(CloudChatSize.init(rawValue:)) }
         let memory = details?["memory_mb"]?.doubleValue.flatMap { $0.isFinite && $0 > 0 && $0 < 1e9 ? Int($0) : nil }
         let upgrade = details?["upgrade_plan"]
-        self.init(upgradePlan: upgrade?.stringValue.flatMap { ["pro", "max"].contains($0) ? $0 : nil },
+        self.init(upgradePlan: upgrade?.stringValue.flatMap { Self.plans.contains($0) ? $0 : nil },
                   upgradeNamed: upgrade.map { $0 == .null || $0.stringValue != nil } ?? false,
                   needed: size("needed") ?? memory.flatMap { asked in CloudChatSize.allCases.first { $0.memoryMb >= asked } },
                   allowed: size("allowed"))
@@ -114,12 +118,12 @@ public nonisolated struct CloudSizeLocked: Error, Equatable, Sendable {
     }
 
     /// The largest size the plan gives: the server's (``allowed``), else the plan's own (`planMax`), else below
-    /// ``needed``, as large as a Pro plan's when the upgrade is Max; nil when nothing says.
+    /// ``needed``, as large as a Pro plan's when the upgrade is Max (classic or cmux NEXT); nil when nothing says.
     public func allowed(planMax: CloudChatSize?) -> CloudChatSize? {
         if let allowed { return allowed }
         if let planMax { return planMax }
         guard let needed, let below = CloudChatSize.allCases.last(where: { $0 < needed }) else { return nil }
-        return upgrade == "max" ? min(below, .lg) : below
+        return upgrade == "max" || upgrade == "next_max" ? min(below, .lg) : below
     }
 
     /// `run`, its size refusal naming the start's `size` and folder `bytes` where the server's did not.

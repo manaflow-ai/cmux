@@ -90,6 +90,11 @@ import Testing
         #expect(CloudSizeLocked(details: .object(["upgrade_plan": .string("max"), "allowed": .string("lg")]))
             == CloudSizeLocked(upgradePlan: "max", upgradeNamed: true, allowed: .lg))
         #expect(CloudSizeLocked(details: nil) == CloudSizeLocked())
+        // cmux NEXT's own plans lift it as themselves: NEXT Max past NEXT Pro's largest (`lg`).
+        let next = CloudSizeLocked(details: .object(["needed": .string("xl"), "upgrade_plan": .string("next_max")]))
+        #expect(next.upgrade == "next_max" && next.allowed(planMax: nil) == .lg)
+        #expect(CloudSizeLocked(details: .object(["upgrade_plan": .string("next_pro")])).upgrade == "next_pro")
+        #expect(CloudSizeLocked(details: .object(["upgrade_plan": .string("ultra")])).upgrade == nil)
         // The start names its size and folder on a refusal that came without them.
         await #expect(throws: CloudSizeLocked(needed: .md, folderBytes: 9)) {
             try await CloudSizeLocked.naming(.md, bytes: 9) { () async throws -> Int in throw CloudSizeLocked() }

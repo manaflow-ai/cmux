@@ -121,8 +121,11 @@ extension AgentPaneCloudMachines {
 
 /// The start card's plan refusal (webviews CloudStartView.tsx).
 extension AgentPaneCloudMachines.Plan {
-    /// The plans the pricing card offers.
-    public nonisolated static let offered = ["pro", "max"]
+    /// The plans the pricing card offers a team with no plan: cmux NEXT's own.
+    public nonisolated static let offered = ["next_pro", "next_max"]
+    /// The plans the cards may name and Subscribe opens: ``offered``, and the classic ones a server may still name
+    /// (``CloudSizeLocked/plans``).
+    public nonisolated static let subscribable = CloudSizeLocked.plans
 
     /// `cloud_plan_required`'s details: the teams (``CloudAuth/planRefusalTeams``) and the plans to subscribe to.
     public nonisolated static func requiredDetails(_ teams: [String: Any]) -> [String: Any] {

@@ -140,6 +140,8 @@ struct CloudSeedRefusalTests {
         let message = try #require(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(needed: .xl)))
         #expect(message.contains("xl") && message.contains("16") && message.contains("32") && message.contains("Max"))
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked()) == nil)
+        let next = CloudSizeLocked(upgradePlan: "next_max", upgradeNamed: true, needed: .xl)
+        #expect(CloudStartSessionStrings.sizeLocked(next)?.contains("cmux NEXT Max") == true)
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(upgradeNamed: true, needed: .lg))?.contains("Pro") == false)
     }
 }
