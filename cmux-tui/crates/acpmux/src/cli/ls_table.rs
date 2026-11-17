@@ -174,8 +174,9 @@ fn pending(row: &Value) -> u64 {
     row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0)
 }
 
-/// The short reason a lane needs someone, or empty: a permission it waits on, the daemon's stuck
-/// reason (capacity, the harness down), a stalled, failed or lost turn, a question, or a harness
+/// The short reason a lane needs someone, or empty: a permission it waits on, the account's rate
+/// limit holding it ("rate-limited until 04:30Z"), the daemon's stuck reason (capacity, the
+/// harness down), a stalled, failed or lost turn, a question, or a harness
 /// whose sandbox refuses every command.
 fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if unreadable(row) {
@@ -188,6 +189,10 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         0 => {}
         1 => return "permission".into(),
         n => return format!("{n} permissions"),
+    }
+    // The account's rate limit holds every turn until its reset (`hub/rate_hold.rs`).
+    if let Some(until) = row.get("rateLimitedUntil").and_then(Value::as_u64) {
+        return crate::hub::rate_hold::until_line(until);
     }
     match row.get_str("stuckReason").unwrap_or("") {
         "" => {}

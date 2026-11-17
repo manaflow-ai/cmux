@@ -1007,6 +1007,14 @@ impl Hub {
             }
             m.turn_count += 1;
         }
+        // The first turn after a rate-limit reset carries the continuation it folded
+        // (`rate_hold.rs`). Appended, as above; never to a slash command, whose words it would
+        // become.
+        if !text.trim_start().starts_with('/')
+            && let Some(note) = Self::take_rate_note(session)
+        {
+            blocks.push(json!({"type": "text", "text": note}));
+        }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web

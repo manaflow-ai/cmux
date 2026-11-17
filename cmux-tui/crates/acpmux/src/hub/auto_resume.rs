@@ -173,6 +173,9 @@ fn continue_text(error: &str, reason: &str) -> String {
     let cause = match reason {
         "agent_exited" => "an agent process exit",
         "capacity" => "a capacity error upstream (the provider or the gateway was full)",
+        "rate_limit" => {
+            "the account's rate limit (HTTP 429); the chat held every turn until its reset"
+        }
         "transport" => "a connection error",
         "context" => "the chat's context filling up; it was compacted",
         _ => "an error",
@@ -576,6 +579,13 @@ impl Hub {
             self.retry_first_send(session, cut, wake);
             return;
         }
+        // The account's limit holds the whole chat from now on, a continuation or none: what comes
+        // in meanwhile queues for the reset (`rate_hold.rs`).
+        if let (Some(cut), Some(RetryReason::RateLimit), Some(true)) =
+            (cut.as_ref(), reason, ending)
+        {
+            self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
+        }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
                 pending.take();
@@ -663,11 +673,7 @@ impl Hub {
                 return;
             };
             if set {
-                // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
-                tokio::select! {
-                    () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                    () = wake.notified() => {}
-                }
+                hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
             }
             let cut = CutTurn {
                 from: from.as_deref(),
@@ -746,6 +752,8 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         self.stop_auto_resume_by(session, None);
+        // Stop, close or a move ends a rate-limit hold too: the person takes the chat back.
+        self.lift_rate_hold(session, "stopped");
     }
 
     /// Read durable exact-prompt tombstones once per restored session. Callers hold
@@ -1245,6 +1253,16 @@ impl Hub {
             return;
         }
         let held = self.held_by(session, root, cut_turn);
+        let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
+        // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying
+        // this continuation's words, instead of a turn of its own before it (`rate_hold.rs`).
+        if reason == "rate_limit"
+            && self.rate_hold_due(session, &held, continue_text(cut.error, reason))
+        {
+            self.clear_fired(session, cut_turn);
+            self.append_retry(session, "auto_resume_skipped", skipped("folded"));
+            return;
+        }
         let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         if let Some(from) = cut.from {
             provenance.set("from", json!(from));
@@ -1266,7 +1284,6 @@ impl Hub {
             after_turn: Some(cut_turn.to_owned()),
             ..PromptOptions::default()
         };
-        let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
         let mut text = continue_text(cut.error, reason);
         // A dead agent took the steers it had not read with it (`unread_steers.rs`). A live one
         // still holds them and runs them itself (`carried_turn.rs`).

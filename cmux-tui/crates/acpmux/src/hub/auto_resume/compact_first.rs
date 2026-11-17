@@ -92,10 +92,23 @@ impl Hub {
         cut: CutTurn<'_>,
         attempt: usize,
     ) {
-        if super::super::turn_errors::resume_cause(cut.error, cut.error) == Some("context") {
+        let cause = super::super::turn_errors::resume_cause(cut.error, cut.error);
+        let rate = (cause == Some("rate_limit")).then(|| cut.turn_id.to_owned());
+        // The first turn after a rate limit's reset does not send a context past the line again
+        // (`rate_hold.rs`): it compacts first, where the harness can.
+        if cause == Some("context")
+            || (rate.is_some()
+                && self.context_past_compact_line(session)
+                && self.can_compact(session).await)
+        {
             self.compact_first(session, cut, attempt).await;
         } else {
             self.auto_resume(session, cut, attempt).await;
+        }
+        // Whatever the attempt did, the hold it was due for is over (a fold or a continuation
+        // ended it already; a skip did not).
+        if let Some(cut_turn) = rate {
+            self.lift_rate_hold_of(session, &cut_turn, "reset");
         }
     }
 
