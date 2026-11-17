@@ -133,6 +133,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(rdnl.pct_over(times, 50), 50.0)
         self.assertIsNone(rdnl.pct_over(None, 50))
 
+    def test_first_seconds_max_counts_only_the_first_two_seconds(self):
+        times = [{'sent_ns': s * 1_000_000_000, 'decoded_ns': s * 1_000_000_000 + ms * 1_000_000}
+                 for s, ms in ((0.0, 20), (0.5, 230), (1.9, 30), (2.5, 400))]
+        self.assertEqual(rdnl.first_seconds_max(times), 230.0)
+        self.assertIsNone(rdnl.first_seconds_max([]))
+
     def test_seconds_to_level(self):
         self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)
         self.assertIsNone(rdnl.seconds_to([1, 2], 15))

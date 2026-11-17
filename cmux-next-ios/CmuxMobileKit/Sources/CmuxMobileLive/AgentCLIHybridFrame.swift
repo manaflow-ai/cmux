@@ -273,14 +273,17 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
             return bytes[position]
         }
 
+        /// An unsigned LEB128 value; nil when the bytes end first or it does not fit 64 bits.
+        /// The tenth byte holds bit 63 alone: anything more (a higher bit, or an eleventh byte)
+        /// is a value past 64 bits, which the shift would drop and read as a smaller one.
         mutating func varint() -> UInt64? {
             var value: UInt64 = 0
             var shift: UInt64 = 0
             while let byte = byte() {
+                if shift == 63, byte > 1 { return nil }
                 value |= UInt64(byte & 0x7F) << shift
                 if byte & 0x80 == 0 { return value }
                 shift += 7
-                if shift > 63 { return nil }
             }
             return nil
         }
