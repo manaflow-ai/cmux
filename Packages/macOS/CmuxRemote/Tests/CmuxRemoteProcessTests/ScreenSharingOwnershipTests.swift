@@ -195,7 +195,7 @@ import Testing
                           peer: .init(id: "viewer", name: "Viewer", signingKey: "key"), role: .host, scope: scope, ownerKind: ownerKind)
         }
         // A worker that has not heard the app's consent yet refuses everything (ScreenSharingState.permits).
-        let refuses: (SessionScope) -> Bool = { _ in ScreenSharingState().permits($0) }
+        let refuses: (SessionScope) -> Bool = { ScreenSharingState().permits($0) }
         let viewOnly: (SessionScope) -> Bool = { $0 == .view }
         for scope in [SessionScope.view, .full] {
             #expect(HostSessions.admits(try ticket("user", scope: scope), permits: refuses))
