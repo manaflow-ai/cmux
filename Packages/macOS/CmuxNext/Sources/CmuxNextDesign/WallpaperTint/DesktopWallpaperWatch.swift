@@ -96,6 +96,18 @@ public final class DesktopWallpaperWatch {
         }
     }
 
+    /// The light this watch's desktop field feeds (``BackdropImageStore/light``).
+    weak var light: WallpaperLight?
+    /// `appearance.wallpaperLighting`: pictures are sampled for their light field (``WallpaperLight``) even with
+    /// the tint off. Turning it on lights the UI with the picture shown now (sampled once if it was not yet).
+    public var lightingEnabled = false {
+        didSet {
+            guard lightingEnabled != oldValue else { return }
+            light?.desktopDidChange(lightingEnabled ? tint?.light : nil)
+            if lightingEnabled { sampleIfNeeded() }
+        }
+    }
+
     /// The Wallpaper or Pictorial group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even
     /// with `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
     /// groups repaint when the desktop picture changes. The window's own tint still follows only `tintEnabled`.
@@ -190,6 +202,7 @@ public final class DesktopWallpaperWatch {
     /// app's window owner calls it from its window delegate, for its own windows only: an
     /// app-wide window observer woke on every menu, tooltip and panel too (#25308).
     public func windowDidChange() {
+        light?.windowDidMove()
         guard !observers.isEmpty else { return }
         refresh()
     }
@@ -250,7 +263,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled || samplesForGroups, let reading = current, published != reading, !isHidden() else { return false }
+        guard tintEnabled || samplesForGroups || lightingEnabled, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -288,6 +301,7 @@ public final class DesktopWallpaperWatch {
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
         if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
+        light?.desktopDidChange(color?.light)
         refreshViews()
         if changed { for follower in followers.allObjects { (follower as? DesktopWallpaperColorFollower)?.desktopWallpaperColorDidChange() } }
     }
@@ -354,6 +368,7 @@ public final class DesktopWallpaperWatch {
                   let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark) else { return nil }
             var tint = WallpaperTint.average(of: image)
             tint?.bands = WallpaperTint.bands(of: image, count: Self.bandCount)
+            tint?.light = WallpaperLightField.read(image)
             return tint
         }.value
     }

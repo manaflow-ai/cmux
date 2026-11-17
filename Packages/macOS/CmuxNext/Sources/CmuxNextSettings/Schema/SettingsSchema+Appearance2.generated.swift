@@ -324,6 +324,16 @@ extension AppearanceSettingsSchema {
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
+            SettingDescriptor(
+                WallpaperLightingSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.wallpaperLighting", "Wallpaper Lighting"),
+                help: SettingsText.keyed("settings.appearance.wallpaperLighting.help", "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue."),
+                kind: .toggle,
+                default: .bool(WallpaperLightingSetting.fallback),
+                keywords: ["light", "lighting", "glow", "rim", "wallpaper", "glass"]
+            ),
         ]
     }
 }

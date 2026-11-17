@@ -30,7 +30,7 @@ from pathlib import Path
 from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/perf-10x-idle.sh"
-PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days",
+PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days", "settings",
                 "chat_renderer_crash", "vmmap")
 DEFAULTS = {"counts": "1,10", "measure": "60"}
 FIELD = re.compile(r"(\w+)=(\S+)")

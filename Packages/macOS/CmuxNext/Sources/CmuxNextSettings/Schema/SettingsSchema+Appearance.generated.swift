@@ -120,6 +120,12 @@ extension WallpaperTintSetting {
     public nonisolated static let fallback = true
 }
 
+extension WallpaperLightingSetting {
+    /// `appearance.wallpaperLighting`.
+    public nonisolated static let configPath = ["appearance", "wallpaperLighting"]
+    public nonisolated static let fallback = false
+}
+
 extension AppearanceTuningSetting {
     /// `appearance.glassTransparency`.
     public nonisolated static let glassTransparencyPath = ["appearance", "glassTransparency"]

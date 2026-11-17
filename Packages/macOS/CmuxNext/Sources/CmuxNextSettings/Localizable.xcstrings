@@ -11946,6 +11946,137 @@
         }
       }
     },
+    "settings.appearance.wallpaperLighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wallpaper Lighting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضاءة الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osvjetljenje pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundsbelysning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundbeleuchtung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iluminación del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éclairage par le fond d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illuminazione dello sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁紙ライティング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពន្លឺពីផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경화면 조명"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnsbelysning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oświetlenie tapetą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iluminação do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсветка обоями"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสงจากภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duvar kâğıdı aydınlatması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсвічування шпалерами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiếu sáng từ hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "墙纸光照"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景光照"
+          }
+        }
+      }
+    },
     "settings.appearance.wallpaperTint.help": {
       "extractionState": "manual",
       "localizations": {
@@ -12073,6 +12204,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "玻璃會採用桌面圖片的顏色，並在圖片或空間變更時隨之改變。"
+          }
+        }
+      }
+    },
+    "settings.appearance.wallpaperLighting.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعامل الخلفية كمصدر ضوء: تلتقط حواف الزجاج المواجهة لأسطع جزء فيها لونه، ويتوهج المحرر بلونها، ويميل الزجاج نحو درجتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadinu tretira kao izvor svjetla: ivice stakla okrenute njenom najsvjetlijem dijelu hvataju njegovu boju, polje za pisanje sija u njoj, a staklo naginje njenoj nijansi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behandler baggrunden som en lyskilde: glaskanter, der vender mod det lyseste sted, fanger dets farve, skrivefeltet gløder med den, og glasset læner sig mod dens nuance."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behandelt den Hintergrund als Lichtquelle: Glaskanten zur hellsten Stelle fangen ihre Farbe ein, das Eingabefeld leuchtet mit ihr, und das Glas neigt sich zu ihrem Farbton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trata el fondo como una fuente de luz: los bordes del cristal que miran a su parte más brillante captan su color, el compositor brilla con él y el cristal se inclina hacia su tono."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traite le fond d’écran comme une source de lumière : les bords du verre face à sa partie la plus claire en captent la couleur, la zone de saisie s’illumine avec elle et le verre tire vers sa teinte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tratta lo sfondo come una fonte di luce: i bordi del vetro rivolti verso la parte più luminosa ne catturano il colore, il compositore si illumina con esso e il vetro vira verso la sua tonalità."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壁紙を光源として扱います。最も明るい部分に面したガラスの縁がその色を帯び、コンポーザーが同じ色で光り、ガラスはその色相に寄ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាត់ទុកផ្ទាំងរូបភាពជាប្រភពពន្លឺ៖ គែមកញ្ចក់ដែលបែរទៅផ្នែកភ្លឺបំផុតចាប់យកពណ៌របស់វា ប្រអប់សរសេរភ្លឺតាមវា ហើយកញ្ចក់ទំនោរទៅរកពណ៌នោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경화면을 광원으로 취급합니다. 가장 밝은 부분을 향한 유리 가장자리가 그 색을 띠고, 입력창이 그 색으로 빛나며, 유리가 그 색조로 기웁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behandler bakgrunnen som en lyskilde: glasskanter som vender mot det lyseste stedet fanger fargen, skrivefeltet gløder med den, og glasset heller mot nyansen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traktuje tapetę jak źródło światła: krawędzie szkła zwrócone ku jej najjaśniejszej części łapią jej kolor, pole wiadomości świeci nim, a szkło przechyla się ku jej odcieniowi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trata o papel de parede como uma fonte de luz: as bordas do vidro voltadas para sua parte mais clara captam a cor dela, o campo de escrita brilha com ela e o vidro se inclina para seu tom."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рассматривает обои как источник света: края стекла, обращённые к самой яркой части, ловят её цвет, поле ввода светится им, а стекло смещается к её оттенку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถือว่าภาพพื้นหลังเป็นแหล่งกำเนิดแสง: ขอบกระจกที่หันไปทางส่วนที่สว่างที่สุดจะรับสีนั้น ช่องเขียนข้อความเรืองแสงตามสี และกระจกเอนไปทางโทนสีนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duvar kâğıdını bir ışık kaynağı sayar: camın en parlak bölüme bakan kenarları rengini yakalar, yazma alanı onunla parlar ve cam tonuna doğru kayar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розглядає шпалери як джерело світла: краї скла, повернені до найяскравішої частини, ловлять її колір, поле вводу світиться ним, а скло зсувається до її відтінку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coi hình nền là nguồn sáng: cạnh kính hướng về phần sáng nhất bắt lấy màu của nó, khung soạn thảo phát sáng theo màu đó, và kính ngả về sắc độ của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将壁纸视为光源：朝向其最亮部分的玻璃边缘会染上它的颜色，输入框随之发光，玻璃也偏向它的色调。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將背景視為光源：朝向其最亮部分的玻璃邊緣會染上它的顏色，輸入框隨之發光，玻璃也偏向它的色調。"
           }
         }
       }

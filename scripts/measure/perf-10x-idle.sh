@@ -29,6 +29,8 @@
 # days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# settings=JSON: cmux settings the app launches with (bench_memory.py --config), e.g.
+# settings={"appearance":{"wallpaperLighting":true}} for a before/after of one setting on the same build.
 # Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
 # .build/perf-idle.
 set -euo pipefail
@@ -36,7 +38,7 @@ counts="1,10,50"
 measure=60
 agents=""
 infinite="" days=3
-reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
+reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -51,6 +53,7 @@ for arg in "$@"; do
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
+    settings=*) settings=(--config "${arg#settings=}") ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -107,7 +110,7 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} ${settings[@]+"${settings[@]}"} \
   --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
 # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
@@ -125,7 +128,7 @@ if [[ -n "$agents" ]]; then
   env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
     --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
-    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    ${attribute[@]+"${attribute[@]}"} ${settings[@]+"${settings[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys

@@ -23,6 +23,8 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
+    /// The wallpaper's rim light along the edge (`appearance.wallpaperLighting`, ``WallpaperRimLayer``).
+    private lazy var wallpaperRim = WallpaperRimLayer(host: self)
     /// The accent band on the edge while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
 
@@ -69,6 +71,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
         wantsLayer = true
         line.opacity = 0
         layer?.addSublayer(line)
+        layer?.addSublayer(wallpaperRim)
         layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
@@ -154,6 +157,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
         CATransaction.commit()
         // The glow runs the whole edge, also where the line keeps to the titlebar band beside the card.
         glow.place(along: CGRect(x: line.frame.minX, y: 0, width: width, height: bounds.height), vertical: true)
+        wallpaperRim.place(CGRect(x: line.frame.minX, y: 0, width: max(1, width), height: bounds.height), cornerRadius: 0, lineWidth: max(1, width))
     }
 
     override func viewDidChangeEffectiveAppearance() {
