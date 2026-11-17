@@ -5,12 +5,12 @@
 // before any change, and its first window replaces it in one step. With the chat list still out, the
 // open asks the switch and draws from its attach alone (decision 289). The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows.
-import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { HOLD_KINDS } from "./rows/holdKinds";
-import { listenForChatRows, resetChatRowsReceiver } from "./rows/receiver";
+import { resetChatRowsReceiver, listenForChatRows } from "./rows/receiver";
 import type { Lanes } from "./schedule";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -176,6 +176,10 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
     expect(snapshots).toBe(before + 1);
     expect(rows.map((row) => row.id)).toEqual(Array.from({ length: 11 }, (_, n) => `row-${n + 1}`));
     expect(rows).not.toBe(kept);
+
+    // Left for no chat: its sub on the store is closed, not kept open behind the pane.
+    direct.leave();
+    await settle(() => asked.some((ask) => ask.method === "chat.rows.close" && ask.params.sid === sids.get(a)));
   } finally {
     client.close?.();
     resetChatRowsReceiver();
@@ -183,8 +187,9 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
 });
 
 /// A daemon with the hold whose chat list never answers, and a host that answers `chat.rows.open`
-/// with `open`: the open's chat comes from its early attach alone (decision 289).
-async function listOut(open: (params: any) => Promise<unknown>) {
+/// with `open`: the open's chat comes from its early attach alone (decision 289). With `list`, the
+/// list answers once it settles.
+async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<void>) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { mockSessions } = await import("./mockFixture");
@@ -204,7 +209,7 @@ async function listOut(open: (params: any) => Promise<unknown>) {
       const answer = hooks.answer.bind(this);
       hooks.answer = async (method, params) => {
         asked.push({ to: "daemon", method, params });
-        if (method === "_acpmux/watch") return new Promise(() => {});
+        if (method === "_acpmux/watch") return list ? list.then(() => answer(method, params)) : new Promise(() => {});
         if (method !== "_acpmux/attach" || params.hold !== true) return answer(method, params);
         const page = (await answer(method, { sessionId: params.sessionId })) as any;
         return { session: page.session, lastSeq: page.lastSeq, presence: {}, readThrough: null, hold: true };
@@ -222,8 +227,53 @@ async function listOut(open: (params: any) => Promise<unknown>) {
   ).then((client) => client as any);
   const hostPosts = () => asked.filter((ask) => ask.to === "host" && ask.method.startsWith("chat.rows."));
   const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
-  return { a, asked, connecting, rows: () => rows, hostPosts, attaches };
+  return { a, b: mockSessions[1]!.sessionId, asked, connecting, rows: () => rows, hostPosts, attaches };
 }
+
+test("an early attach the open dropped while its switch was out, for a chat no longer shown, is never sent", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  // The client as its open asks the attach with the list, before `connect` answers: the pick below
+  // lands while that open is still out, as a person's click can.
+  const proto = AcpmuxDirectClient.prototype as any;
+  const askEarly = proto.askEarly;
+  let opening: any;
+  const caught = (client: unknown) => (opening = client);
+  proto.askEarly = function (this: unknown) {
+    caught(this);
+    return askEarly.call(this);
+  };
+  let listed = () => {};
+  const list = new Promise<void>((resolve) => (listed = resolve));
+  let answerA = () => {};
+  const gateA = new Promise<void>((resolve) => (answerA = resolve));
+  // The first open (the early attach's switch, for the tab's chat) waits on `answerA`.
+  let first = true;
+  const run = await listOut(async (params) => {
+    if (first) {
+      first = false;
+      await gateA;
+    }
+    return { sid: params.sid };
+  }, list);
+  try {
+    await settle(() => run.hostPosts().some((post) => post.method === "chat.rows.open" && post.params.chat === run.a));
+    proto.askEarly = askEarly;
+    // Another chat is picked with the switch for the first still out (well within `OPEN_ANSWER_MS`);
+    // then the list answers, and the open drops the early attach of the chat no longer shown.
+    const picking = opening.select(run.b);
+    listed();
+    await settle(() => opening.selectedSessionId === run.b && !opening.earlyAttach);
+    answerA();
+    await picking;
+    await run.connecting;
+    for (let turn = 0; turn < 10; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(run.attaches()).toHaveLength(0);
+  } finally {
+    proto.askEarly = askEarly;
+    opening?.close?.();
+    resetChatRowsReceiver();
+  }
+});
 
 test("with the list still out, a host without chat.rows: the chat draws from its attach, one host post", async () => {
   const run = await listOut(() =>
