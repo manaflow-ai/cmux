@@ -25523,6 +25523,89 @@
    "since": 12,
    "stream": null
   },
+  "float-pane": {
+   "authority": "control",
+   "since": 12,
+   "capability": "floating-panes-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "x": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "y": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "w": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "h": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
+    "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
+    "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
+   ]
+  },
   "cloud-session-set": {
    "authority": "local-admin",
    "since": 12,

@@ -203,9 +203,8 @@ extension AppServices {
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
     /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
     func startCmuxRemote(_ settings: SettingsController) {
-        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         let auth = cloud.auth
-        guard let devices = cmuxRemote.start(bundleID: bundleID, loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
+        guard let devices = cmuxRemote.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
@@ -226,8 +225,9 @@ extension AppServices {
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
-        // cmux Remote first: the hub it serves is made with its device identity.
+        // cmux Remote (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
         startCmuxRemote(settings)
+        ShareHostDevice.prefer(in: deviceHub, build: environment.build, bundleID: environment.launch.bundleID, loginKeychain: loginKeychain) { [auth = cloud.auth] in try await auth.tokens().access }
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }

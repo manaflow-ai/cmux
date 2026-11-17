@@ -269,12 +269,19 @@ def budget_fails(switch, label):
 
 
 def scenario_row(name, load, switches, notes=None):
+    """A scenario x load row. A round recorded with another process's window over the app ("foreign_window", set by
+    tab_switch_foreign) is not judged: it moves to row["excluded"], so no stat, budget or table cell counts it."""
+    excluded = [s for s in switches if s.get("foreign_window")]
+    switches = [s for s in switches if not s.get("foreign_window")]
     fails = []
     for index, switch in enumerate(switches):
         fails += budget_fails(switch, f"{name}/{load} switch {index + 1}")
     if not switches:
-        fails.append(f"{name}/{load}: no switch measured" + (f" ({notes})" if notes else ""))
+        fails.append(f"{name}/{load}: no switch measured" + (f" ({notes})" if notes else "")
+                     + (f" ({len(excluded)} excluded: foreign window)" if excluded else ""))
     row = {"name": name, "load": load, "switches": switches, "budget_fail": fails}
+    if excluded:
+        row["excluded"] = [{k: s.get(k) for k in ("label", "foreign_window", "windows")} for s in excluded]
     if notes:
         row["notes"] = notes
     return row
