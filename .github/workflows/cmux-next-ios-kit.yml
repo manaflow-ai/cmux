@@ -48,6 +48,7 @@ on:
       - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
+      - "scripts/ci/ios_ffi_cache.py"
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
@@ -78,6 +79,7 @@ on:
       - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
+      - "scripts/ci/ios_ffi_cache.py"
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
@@ -236,10 +238,65 @@ jobs:
           workspaces: cmux-next-ios/rust
           key: cmux-next-ios-kit
 
+      # The FFI's inputs change a few times a day, so almost every run rebuilt what an earlier
+      # run had built: 3m05s of an 18 min job (run 44004570988, 2026-11-17). The fleet's
+      # source-keyed cache (scripts/ci/ios_ffi_cache.py, as cmux-next-ios-sim.sh uses it) keys
+      # the build by the trees cargo builds from and the toolchain; a hit installs the verified
+      # xcframework and its generated bindings, so the drift check below judges the same files.
+      # Only a feat-cmux-next push saves an entry, and the store keeps only builds of landed
+      # sources; a pull request reads. No key, a miss or any cache error builds as before.
+      - name: FFI cache key
+        id: ffi-key
+        env:
+          CMUX_CI_CACHE_DIR: ${{ runner.temp }}/ci-cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$CMUX_CI_CACHE_DIR"
+          rc=0
+          key="$(python3 -I scripts/ci/ios_ffi_cache.py key . "$RUNNER_TEMP/ffi-inputs.json")" || rc=$?
+          if [[ $rc -ne 0 || ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
+            [[ $rc -eq 3 ]] || echo "::warning::ios-ffi cache: no key (exit $rc); building the FFI"
+            key=""
+          fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the FFI build
+        id: ffi-cache
+        if: steps.ffi-key.outputs.key != ''
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-cache/ios-ffi/${{ steps.ffi-key.outputs.key }}
+          key: ios-ffi-${{ steps.ffi-key.outputs.key }}
+
       - name: Build CmuxMobileLinkFFI.xcframework
+        id: ffi
         env:
           JOBS: "8"
-        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+          CMUX_CI_CACHE_DIR: ${{ runner.temp }}/ci-cache
+          FFI_KEY: ${{ steps.ffi-key.outputs.key }}
+          FFI_PUBLISH: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$FFI_KEY" ]] && python3 -I scripts/ci/ios_ffi_cache.py restore . "$FFI_KEY"; then
+            exit 0
+          fi
+          bash cmux-next-ios/rust/scripts/build-xcframework.sh
+          if [[ -n "$FFI_KEY" && "$FFI_PUBLISH" == true ]]; then
+            if python3 -I scripts/ci/ios_ffi_cache.py probe "$RUNNER_TEMP/ffi-inputs.json" "$RUNNER_TEMP/ffi-tip.json" &&
+              python3 -I scripts/ci/ios_ffi_cache.py store . "$RUNNER_TEMP/ffi-inputs.json" "$RUNNER_TEMP/ffi-tip.json" &&
+              [[ -f "$CMUX_CI_CACHE_DIR/ios-ffi/$FFI_KEY/manifest.json" ]]; then
+              echo "stored=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::ios-ffi cache: this build was not stored"
+            fi
+          fi
+
+      - name: Save the FFI build
+        if: steps.ffi.outputs.stored == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-cache/ios-ffi/${{ steps.ffi-key.outputs.key }}
+          key: ios-ffi-${{ steps.ffi-key.outputs.key }}
 
       - name: Checked-in bindings match the generated ones
         run: |
