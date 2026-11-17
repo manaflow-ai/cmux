@@ -227,12 +227,15 @@ impl Mux {
         }
     }
 
-    /// Waits for the end of each creation and each close that runs now. Each
+    /// Waits for the end of the creations that run now: a group of creations
     /// holds the creation fence until its commit is done, or until a commit
-    /// that failed is settled. A request that lost its plan plans again after
-    /// this wait. With no wait, its second plan can read the pane of a
-    /// creation that has no commit yet and name that pane in its answer: a
-    /// commit that the store refuses 2 times closes that pane.
+    /// that failed is settled. A close that holds the fence is waited for
+    /// too. A request that lost its plan plans again after this wait. With no
+    /// wait, its second plan can read the pane of a creation that has no
+    /// commit yet and name that pane in its answer: a commit that the store
+    /// refuses 2 times closes that pane. A creation that starts after the
+    /// wait is not waited for, and a request that did not lose its plan does
+    /// not wait.
     fn wait_for_creations_and_closes(&self) {
         self.run_creation_before_fence_hook();
         drop(self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner));
