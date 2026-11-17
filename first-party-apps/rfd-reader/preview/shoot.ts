@@ -9,7 +9,23 @@ import { join, resolve } from "node:path"
 const out = resolve(process.argv[2] ?? process.env.FAST_CHECKS_OUT ?? "rfd-shots")
 mkdirSync(out, { recursive: true })
 const app = resolve(new URL("..", import.meta.url).pathname)
-const { chromium } = createRequire(join(process.cwd(), "package.json"))("playwright") as typeof import("playwright")
+// webviews/'s Playwright, loaded from the working directory: the app pins no browser tooling.
+type Page = {
+  goto(url: string): Promise<unknown>
+  click(sel: string): Promise<void>
+  hover(sel: string): Promise<void>
+  fill(sel: string, text: string): Promise<void>
+  waitForSelector(sel: string, opts?: { timeout?: number }): Promise<unknown>
+  waitForTimeout(ms: number): Promise<void>
+  textContent(sel: string, opts?: { timeout?: number }): Promise<string | null>
+  addStyleTag(opts: { content: string }): Promise<unknown>
+  screenshot(opts: { path: string }): Promise<unknown>
+  on(event: string, fn: (e: { type(): string; text(): string; message: string }) => void): void
+  close(): Promise<void>
+  keyboard: { press(key: string): Promise<void>; type(text: string): Promise<void> }
+}
+type Browser = { newPage(opts: object): Promise<Page>; close(): Promise<void> }
+const { chromium } = createRequire(join(process.cwd(), "package.json"))("playwright") as { chromium: { launch(): Promise<Browser> } }
 
 const server = Bun.serve({
   port: 0,
@@ -21,7 +37,7 @@ const server = Bun.serve({
 })
 const base = `http://127.0.0.1:${server.port}/preview/dist/index.html`
 
-type Shot = { name: string; variant: string; rfd?: number; act?: (p: import("playwright").Page) => Promise<void> }
+type Shot = { name: string; variant: string; rfd?: number; act?: (p: Page) => Promise<void> }
 const shots: Shot[] = [
   { name: "a-doc", variant: "directory", rfd: 2 },
   { name: "b-table", variant: "index" },

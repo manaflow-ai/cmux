@@ -5,6 +5,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { noticesText } from "./notices"
 
 const dir = new URL(".", import.meta.url).pathname
 const check = process.argv.includes("--check")
@@ -27,7 +28,7 @@ async function build(out: string) {
   mkdirSync(out, { recursive: true })
   await bundle(join(dir, "web-src/main.ts"), out)
   cpSync(join(dir, "web-src/index.html"), join(out, "index.html"))
-  cpSync(join(dir, "THIRD_PARTY_NOTICES"), join(out, "THIRD_PARTY_NOTICES.txt"))
+  writeFileSync(join(out, "THIRD_PARTY_NOTICES.txt"), noticesText())
 }
 
 async function buildPreview() {
@@ -41,7 +42,8 @@ async function buildPreview() {
   writeFileSync(join(out, "index.html"), html)
 }
 
-const files = (d: string) => readdirSync(d).filter((f) => statSync(join(d, f)).isFile()).sort()
+// The notices are build output (gitignored), so --check compares the committed bundle only.
+const files = (d: string) => readdirSync(d).filter((f) => f !== "THIRD_PARTY_NOTICES.txt" && statSync(join(d, f)).isFile()).sort()
 
 if (check) {
   const tmp = mkdtempSync(join(tmpdir(), "cmux-web-"))

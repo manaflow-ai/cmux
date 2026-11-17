@@ -21,7 +21,7 @@ Official cmux apps built on the app platform with only the public app API (the g
 
 Each app is `cmux-app.json` + `src/main.ts` (typed by `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`) + built `dist/main.js` + `test/` (bun) + `preview/` (fixtures for screenshots) + a README with its scopes, variants, proposed operations and gaps.
 
-Apps with a web pane (`codemirror/`) also have `web-src/` bundled by their own `build-web.ts` into `web/`, pinned npm dependencies in the app directory (`package.json`, `bun.lock`, no `node_modules` in git) and a generated `THIRD_PARTY_NOTICES`.
+Apps with a web pane (`codemirror/`) also have `web-src/` bundled by their own `build-web.ts` into `web/`, pinned npm dependencies in the app directory (`package.json`, `bun.lock`, no `node_modules` in git) and a generated `THIRD_PARTY_NOTICES` (committed for `codemirror/`; `rfd-reader/` writes it into `web/` at build time, gitignored).
 
 Build and validate all: `bun first-party-apps/build.ts` (`--check` verifies that the built files are current). Test one: `bun test first-party-apps/<name>/test`.
 
