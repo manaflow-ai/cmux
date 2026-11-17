@@ -294,7 +294,8 @@ public final class CloudAuth {
                                          fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
         return ImportingTokenStore(primary: own, sources: [{
             ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-        }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
+        }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
+           sourceReadFailures: { await earlier.tokenReadFailureCount() })
     }
 
     private static func stackClient(configuration: CloudConfiguration,
