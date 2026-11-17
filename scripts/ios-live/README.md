@@ -21,7 +21,7 @@ Run it from your cmux checkout. "Your change" is that checkout against its merge
 
 | Change | Command | Edit to visible |
 |---|---|---|
-| Inside existing functions, computed properties, SwiftUI `body`s | `ios-live swift` | ~2 s (p50 1.92 s) |
+| Inside existing functions, computed properties, SwiftUI `body`s | `ios-live swift` | ~5 s from your checkout (on the host: ~2 s) |
 | Anything else: stored properties, new files, `project.yml`, resources | `ios-live swap` | warm rebuild (p50 15.9 s on a fleet M4 Pro) |
 | The Rust FFI (`cmux-next-ios/rust`) | `ios-live swap` | FFI rebuild first (minutes); a laptop host takes it from `ios-live ffi-sync FLEET_HOST` |
 
@@ -29,6 +29,13 @@ Before this, a change reached a simulator only through a fleet step
 (`cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh`). That step waited 7.9 min
 in the queue at the median (26 min at p90), built for 287 s, and sent back one screenshot from a
 simulator it then deleted (the controller's last 88 iOS simulator steps, 2026-11-16/17).
+
+Measured 2026-11-17, a SwiftUI text edit run from a cosmic-gray checkout, timed to the app's redraw and
+checked in a screenshot:
+- `ios-live swift` to air-blue (iOS 27.2, Xcode 27.2): p50 4.9 s (4.0 to 5.5 s, 6 edits). The patch
+  compiles and links on the host in 1.7 to 2.7 s; the rest is the diff and one `reach` round trip.
+- The same edits to aws-m4pro-8: p50 4.1 s (3.9 to 9.9 s).
+- The first live code build of a new host: 262 s on air-blue, 198 s on aws-m4pro-8.
 
 `swift` is the live code of `docs/cmux-next/live-code.md` (`scripts/live-code/ios-sim.sh`). It
 refuses a change it can't apply, names the functions involved, and leaves the app running; use
