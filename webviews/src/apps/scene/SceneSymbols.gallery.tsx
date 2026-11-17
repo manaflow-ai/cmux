@@ -20,6 +20,8 @@ const SETS: Record<SymbolSet, string[]> = {
     "cloud.moon.fill",
     "cloud.drizzle",
     "cloud.rain",
+    "cloud.sun.rain.fill",
+    "cloud.moon.rain.fill",
     "cloud.heavyrain",
     "cloud.heavyrain.fill",
     "cloud.snow",

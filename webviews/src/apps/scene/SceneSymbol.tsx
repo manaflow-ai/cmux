@@ -70,6 +70,11 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "cloud.moon.fill": "weather.cloud.moon",
   "cloud.rain": "weather.cloud.rain",
   "cloud.rain.fill": "weather.cloud.rain",
+  // Rain with sun or moon: the rain glyph, the closest the pack draws.
+  "cloud.sun.rain": "weather.cloud.rain",
+  "cloud.sun.rain.fill": "weather.cloud.rain",
+  "cloud.moon.rain": "weather.cloud.rain",
+  "cloud.moon.rain.fill": "weather.cloud.rain",
   "cloud.heavyrain": "weather.cloud.heavyrain",
   "cloud.heavyrain.fill": "weather.cloud.heavyrain",
   "cloud.drizzle": "weather.cloud.drizzle",
