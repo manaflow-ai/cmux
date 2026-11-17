@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44136256649",
+  "recorded_at": "2026-11-17T17:57:17Z",
+  "reason": "cmux-tui 43544e52652f changes the image's cmux-tui (pinned c6fbdcac3c2f)",
+  "dry_run": false,
+  "cmux_tui": "43544e52652f3df291d762b2b46fd0e06f0e8146",
+  "fixes": [
+    {
+      "sha": "a57602bad720f73a29c3adaf4b967c35f3136798",
+      "mergedAt": "2026-11-17T08:57:17-08:00",
+      "subject": "fix(cmux-focus-core): a held Close Tab key's repeats act on the emptied pane while it keeps the focus (PL-burst minor)"
+    },
+    {
+      "sha": "0d642fcb3608073d21f06a9c76c5c0249c5068b9",
+      "mergedAt": "2026-11-17T08:57:17-08:00",
+      "subject": "test(cmux-focus-core): a held Close Tab key's repeats act on the emptied pane while it keeps the focus (red, PL-burst minor)"
+    },
+    {
+      "sha": "b3b2be7499338733479e251ac9a7ba4f63b00389",
+      "mergedAt": "2026-11-17T08:57:17-08:00",
+      "subject": "fix(cmux-tui): mark a PTY write after it, and only when the bytes reached the PTY (PL-trace minors)"
+    },
+    {
+      "sha": "41a2c5374714e8104d9fd23ed9ea4fdf25a1b173",
+      "mergedAt": "2026-11-17T08:57:16-08:00",
+      "subject": "test(cmux-tui): a PTY write mark only for bytes that reached the PTY (red, PL-trace minors)"
+    },
+    {
+      "sha": "b44d23c2ec21354a0985d5cbc63791258844d633",
+      "mergedAt": "2026-11-17T08:56:33-08:00",
+      "subject": "perf(launch): mark the bare launch: window_usable, first_shell_live, launch-ready state=bare (#44999)"
+    },
+    {
+      "sha": "23338adb4bf628122e9cb940290e812bb56ca63d",
+      "mergedAt": "2026-11-17T08:46:56-08:00",
+      "subject": "cmux-rd synthetic: text and noise scenes, per-second target vs encoder output, fps accounting (#44496)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T17:57:17Z",
+    "snapshot_id": "sh-5c942f874ad94b7fb43575109b04d755",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44136256649): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5594dfcf61721e18ee83b6b13b7c71d31fa5fc54",
+    "image": "cloud-native-auto-43544e52-44136256649-1",
+    "revision": "ci-44136256649-1",
+    "at": "2026-11-17T17:57:17Z"
+  },
+  "rolled_back": false
+}
