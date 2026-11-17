@@ -187,4 +187,50 @@ extension NewTabKeySessionWalkTests {
                     "the model: \(left) stand-in tabs left, \(more) tabs more for \(keys) keys, \(unnamed) answers named no tab")
         }
     }
+
+    /// The report of a hold of 30 New Tab keys in which each key's page has its view before the next key (decision
+    /// of 2026-11-17): the workspaces that the app maps for the bar, in the keys' calls and after them.
+    ///
+    /// A print with no bound: it is the count at the decision's date, not a rule. Each key's creation waits, so one
+    /// key is one change of the pane's workspace (its stand-in tab). The frame that shows a key's tab makes its page
+    /// view, so key N comes with N - 1 New Tab pages that have a view. Before the decision of 2026-11-16 each change
+    /// of a workspace started one walk of the session for each New Tab page with a view; from that decision on, a
+    /// change maps the workspace that changed.
+    ///
+    /// The print has the pages with a view after 4 of the keys: a page that the app let go in the hold has none. The
+    /// time is a report (a Debug build, no daemon, no page), and it has the 30 waits for a frame in it.
+    ///
+    /// The condition is of the model only: each key adds one tab.
+    @Test func aHoldOfThirtyNewTabKeysWithAViewForEachPageReportsTheWorkspacesMapped() async throws {
+        try await Self.withPane { start in
+            let tabs = start.services.agentTabs
+            let keys = 30
+            _ = start.visits.take()
+            var made = 0
+            var inCalls = 0
+            var afterEach: [Int] = []
+            var viewsAtEach: [Int] = []
+            let began = ContinuousClock.now
+            for _ in 0..<keys {
+                made += Self.newTab(start).made
+                inCalls += start.visits.take().workspaces
+                // The frame that shows the key's tab makes its page view; the drain lets the places feed run.
+                await Self.frame(start.services)
+                await LargeSessionWindowFixture.drainMain()
+                afterEach.append(start.visits.take().workspaces)
+                viewsAtEach.append(tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count)
+            }
+            let time = String(format: "%.2f", Self.milliseconds(since: began))
+            let (maps, views) = (afterEach, viewsAtEach)
+            let after = maps.reduce(0, +)
+            let marks = [0, 9, 19, keys - 1]
+            let afterText = marks.map { "key \($0 + 1): \(maps[$0])" }.joined(separator: ", ")
+            let viewsText = marks.map { "key \($0 + 1): \(views[$0])" }.joined(separator: ", ")
+            print("new tab hold, \(start.workspaces) workspaces, \(keys) keys, each with a frame for its page view: the app mapped "
+                + "\(inCalls + after) workspaces for the bar, \(inCalls) in the keys' calls and \(after) after them (after \(afterText)); "
+                + "New Tab pages with a view after \(viewsText); the hold took \(time) ms with its \(keys) waits for a frame "
+                + "(a Debug build, no daemon, no page)")
+            #expect(made == keys, "the model: \(keys) New Tab keys added \(made) tabs")
+        }
+    }
 }

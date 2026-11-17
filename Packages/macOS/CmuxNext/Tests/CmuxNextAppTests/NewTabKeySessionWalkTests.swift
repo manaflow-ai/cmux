@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextBrowserCore
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFavicons
@@ -123,7 +124,8 @@ struct NewTabKeySessionWalkTests {
     /// Runs `body` on the focused pane of a whole window of the `real` session. The New Tab key makes a New Tab page
     /// there, and the daemon's side of its creation waits until `body` ends. With `feed`, the app's places feed runs
     /// before `body`, as it does after the app's first frame. With `native`, the native New Tab page setting is on.
-    static func withPane(feed: Bool = true, native: Bool = false,
+    /// With `work`, the feed's tasks count the workspaces that they visit.
+    static func withPane(feed: Bool = true, native: Bool = false, work: ObservationWork? = nil,
                          _ body: @MainActor (Start) async throws -> Void) async throws {
         _ = NSApplication.shared
         let visits = Visits()
@@ -164,7 +166,7 @@ struct NewTabKeySessionWalkTests {
             _ = visits.takeSpan()
             if feed {
                 // The feed lives as long as the process (the app's rule): each test leaves one feed behind.
-                NewTabPlacesFeed.wire(tabs, services: services)
+                ObservationWork.$current.withValue(work) { NewTabPlacesFeed.wire(tabs, services: services) }
                 await LargeSessionWindowFixture.drainMain()
                 await LargeSessionWindowFixture.drainMain()
                 let first = visits.takeByWorkspace()
@@ -499,9 +501,11 @@ struct NewTabKeySessionWalkTests {
     ///
     /// The sign that the feed ran is a condition of the setup: the kept rows have the changed title.
     ///
-    /// This row has no red first: before the change the feed did not run while no New Tab page was open.
+    /// This row has no red first: before the change the feed did not run while no New Tab page was open. The print
+    /// has the workspaces that the feed's tasks visit for the change with no map (a pass over its list), with no bound.
     @Test func aTitleChangeWithNoNewTabPageOpenMapsTheTabsOwnWorkspaceOnly() async throws {
-        try await Self.withPane { start in
+        let work = ObservationWork()
+        try await Self.withPane(work: work) { start in
             let tabs = start.services.agentTabs
             let pagesBefore = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count
             try #require(pagesBefore == 0, "setup: \(pagesBefore) New Tab pages have a view before the change")
@@ -509,6 +513,7 @@ struct NewTabKeySessionWalkTests {
             let place = try #require(terminals.first, "setup: the session has no terminal")
             let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
             _ = start.visits.takeByWorkspace()
+            work.reset()
             let store = start.services.machines.local.store
             store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "kept row", text: "kept row", activity: nil))
             await LargeSessionWindowFixture.drainMain()
@@ -517,8 +522,10 @@ struct NewTabKeySessionWalkTests {
             let maps = mapped.values.reduce(0, +)
             let kept = start.services.newTabPlaces.rows ?? []
             let pagesAfter = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count
+            let (listed, feedMaps) = (work.byStep["ObservedItems.list"] ?? 0, work.byStep["ObservedItems.map"] ?? 0)
             print("new tab key, \(start.workspaces) workspaces, no New Tab page open: a title change of one tab mapped "
-                + "\(mapped.count) different workspaces in \(maps) maps; \(pagesAfter) New Tab pages have a view")
+                + "\(mapped.count) different workspaces in \(maps) maps; \(pagesAfter) New Tab pages have a view; the feed's tasks "
+                + "visited \(listed) workspaces in passes over the list and \(feedMaps) in maps")
             try #require(kept.contains(where: { rows in rows.tabs.contains(where: { $0.title == "kept row" }) }),
                          "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
             #expect(mapped.count == 1, "a title change of one tab mapped \(mapped.count) workspaces in \(maps) maps, want the tab's own only")

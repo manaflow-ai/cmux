@@ -202,6 +202,73 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
+    /// A New Tab page whose view is a prewarmed page, taken after a change of a row, shows the changed row (decision of
+    /// 2026-11-17).
+    ///
+    /// The steps are those of `aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow`, with one more. The keys get no
+    /// prewarmed page. After the kept rows got the change, the tab store has one prewarmed page to hand out: the
+    /// test's own, made by the store's maker, given to the first tab that asks. Then the test selects the first key's
+    /// tab, so its view is that prewarmed page, which takes the tab's page value of the key's turn. That the view is
+    /// the prewarmed page is a condition of the setup.
+    @Test func aPageWhoseViewIsAPrewarmedPageTakenAfterAChangeShowsTheChangedRow() async throws {
+        try await Self.withPane { start in
+            let services = start.services
+            let tabs = services.agentTabs
+            // No prewarmed page at the keys: a tab gets its page view only at a frame that shows it.
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.makeSpare = { _ in nil }
+            let poolTake = tabs.takeSpare
+            defer {
+                pool.makeSpare = nil
+                tabs.takeSpare = poolTake
+            }
+            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
+            let place = try #require(terminals.first, "setup: the session has no terminal")
+            let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
+            let store = services.machines.local.store
+            let before = Set(tabs.newTabPages.keys.map(\.key))
+
+            // One turn of the main actor: the change, then 2 New Tab keys.
+            store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "spare row", text: "spare row", activity: nil))
+            let firstKey = Self.newTab(start)
+            let afterFirst = tabs.newTabPages.entries.filter { !before.contains($0.key.key) }
+            let secondKey = Self.newTab(start)
+            try #require(firstKey.ran && firstKey.made == 1 && secondKey.ran && secondKey.made == 1 && afterFirst.count == 1,
+                         "setup: the 2 New Tab keys added \(firstKey.made) and \(secondKey.made) tabs; the first opened \(afterFirst.count) pages")
+            let first = afterFirst[0].key
+            let valueInTurn = (tabs.newTabPages[first]?.page.omnibar.tabs ?? []).contains(where: { $0.title == "spare row" })
+
+            // The kept rows get the change, and a frame after the keys shows the second key's tab.
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            try #require(Self.keeps("spare row", services),
+                         "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
+            await Self.frame(services)
+            await LargeSessionWindowFixture.drainMain()
+            try #require(tabs.views[first] == nil,
+                         "setup: the first key's tab has a page view before a frame showed it: its view is not made after the change")
+
+            // The test's own steps: one prewarmed page for the tab store to hand out, then the first key's tab is selected.
+            let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)), "setup: the tab store made no prewarmed page")
+            tabs.takeSpare = { _ in tabs.views.entries.contains(where: { $0.value === spare }) ? nil : spare }
+            let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
+                                  "setup: the strip does not list the first key's tab")
+            start.pane.select(id)
+            await Self.frame(services)
+            let byFrame = tabs.views[first]
+            let made = byFrame ?? tabs.view(for: first.key, machine: first.machine)
+            let view = try #require(made, "setup: the first key's tab gets no page view after its select")
+            try #require(view === spare, "setup: the view of the first key's tab is not the prewarmed page, so this row says nothing")
+            let rows = view.model.newTab?.omnibar.tabs ?? []
+            let has = rows.contains(where: { $0.title == "spare row" })
+            print("new tab key, \(start.workspaces) workspaces, a title change and 2 New Tab keys in one turn, then one prewarmed page: "
+                + "the first key's page value had the change in that turn: \(valueInTurn); its view is the prewarmed page "
+                + "(by a frame: \(byFrame != nil)), which lists \(rows.count) tab rows and the change: \(has)")
+            #expect(has, "the page whose view is a prewarmed page taken after the change lists the tab's title of before the change")
+        }
+    }
+
     /// A listed row has the icon that the walk at the decision's date gave it (decision of 2026-11-17: the icon is
     /// read when a page lists the row), and the read maps no workspace. 3 browser tabs of the first rows get the
     /// address of an icon that the app's icon loader has from the test; the first read of a page's lists asks the
