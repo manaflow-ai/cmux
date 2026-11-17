@@ -347,7 +347,7 @@ pub fn rewrite(text: &str, path: &str, entry: &str, art: &Art) -> Result<String,
         let inside = inside.trim_end_matches('/');
         let target = format!("wallpapers/{inside}");
         let listed = match prefix {
-            "file:" => art.images.iter().any(|image| *image == target),
+            "file:" => art.images.contains(&target),
             _ => art.images.iter().any(|image| image.starts_with(&format!("{target}/"))),
         };
         if !listed || inside.split('/').any(|p| p.is_empty() || p == "." || p == "..") {
