@@ -293,8 +293,20 @@ def tree(rows, roots):
     return seen
 
 
-def kind_of(argv: str) -> str:
+def split_exe(argv: str) -> list:
+    """`argv` as words, the executable first. `ps` joins argv with spaces, so an executable under a folder
+    with one (`~/Library/Application Support/...`) spans several words: the shortest run of leading words
+    that names a file is the executable. With none (a process gone, a bare name), the first word."""
     toks = argv.split()
+    for i in range(len(toks)):
+        exe = " ".join(toks[: i + 1])
+        if exe.startswith("/") and os.path.isfile(exe):
+            return [exe] + toks[i + 1:]
+    return toks
+
+
+def kind_of(argv: str) -> str:
+    toks = split_exe(argv)
     base = os.path.basename(toks[0]) if toks else "?"
     rest = toks[1:]
     if "__agent-host" in rest:

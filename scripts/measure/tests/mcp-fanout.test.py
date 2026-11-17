@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/measure/mcp-fanout.py: which kind each process counts as. No fleet, no app.
 Run: python3 -I scripts/measure/tests/mcp-fanout.test.py"""
-import importlib.util, os, unittest
+import importlib.util, os, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("mcp_fanout", os.path.join(HERE, "..", "mcp-fanout.py"))
@@ -16,6 +16,18 @@ class KindOf(unittest.TestCase):
         self.assertEqual(kind, "acpmux-tools-mcp")
         self.assertIn(kind, fanout.TOOL_KINDS)
         self.assertEqual(fanout.kind_of("acpmux forum-mcp --session s"), "acpmux-forum-mcp")
+
+    def test_an_executable_under_a_folder_with_a_space_keeps_its_kind(self):
+        # The app's binaries run from `~/Library/Application Support/...`: before, each read as other:Application.
+        with tempfile.TemporaryDirectory() as root:
+            bin_dir = os.path.join(root, "Application Support", "cmux", "bin")
+            os.makedirs(bin_dir)
+            for name in ("cmux", "acpmux"):
+                with open(os.path.join(bin_dir, name), "w"):
+                    pass
+            self.assertEqual(fanout.kind_of(f"{bin_dir}/cmux mcp serve --all-tools"), "cmux-mcp-serve")
+            self.assertEqual(fanout.kind_of(f"{bin_dir}/acpmux acp tools-mcp"), "acpmux-tools-mcp")
+            self.assertEqual(fanout.kind_of(f"{bin_dir}/acpmux daemon"), "acpmux-daemon")
 
     def test_other_acpmux_processes_keep_their_kind(self):
         self.assertEqual(fanout.kind_of("acpmux daemon"), "acpmux-daemon")
