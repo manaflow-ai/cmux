@@ -225,7 +225,8 @@ fn concurrent_publishes_of_one_window_never_share_a_path() {
     let dir = fresh_dir("race");
     let store = Store::new(&dir, Caps { keep_per_window: 64, ..Caps::default() });
     let images: Vec<_> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..8_u32)
+        // More than the 8 names a publish tries: publishes take turns, so none runs out.
+        let handles: Vec<_> = (0..24_u32)
             .map(|i| {
                 let store = &store;
                 scope.spawn(move || store.publish_at("win", &png(i + 1, 1, 40), 5).unwrap())
@@ -236,7 +237,7 @@ fn concurrent_publishes_of_one_window_never_share_a_path() {
     let mut paths: Vec<_> = images.iter().map(|i| i.path.clone()).collect();
     paths.sort();
     paths.dedup();
-    assert_eq!(paths.len(), 8, "every publish got its own path");
+    assert_eq!(paths.len(), 24, "every publish got its own path");
     for image in &images {
         let bytes = fs::read(&image.path).unwrap();
         assert_eq!(cmux_launch_image::png_pixel_size(&bytes), Some((image.pixel_width, 1)));
