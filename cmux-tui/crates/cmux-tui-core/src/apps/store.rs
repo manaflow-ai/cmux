@@ -523,7 +523,7 @@ impl Supervisor {
             Some(cursor) => cursor.parse::<usize>().map_err(|_| bad_request("bad cursor"))?,
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let rows: Vec<&Package> = inner
             .catalog
             .packages
@@ -560,7 +560,7 @@ impl Supervisor {
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let package = inner
             .catalog
             .packages
@@ -596,7 +596,7 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let apps = inner
             .mirror
             .apps
@@ -615,7 +615,7 @@ impl Supervisor {
     /// The app's state after a commit, as `set`, `install` and `uninstall`
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
@@ -651,7 +651,7 @@ impl Supervisor {
             return Err(ApiError::new("apps.origin", format!("{verb} an app needs a user action")));
         }
         let first_party = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             inner
                 .catalog
                 .packages

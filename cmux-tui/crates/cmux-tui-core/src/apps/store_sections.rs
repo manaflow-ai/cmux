@@ -207,7 +207,7 @@ impl Supervisor {
         let limit =
             p.limit.map_or(DEFAULT_SECTION_LIMIT, |l| l as usize).clamp(1, MAX_SECTION_LIMIT);
         let (packages, revision) = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let packages: Vec<Package> = inner
                 .catalog
                 .packages
