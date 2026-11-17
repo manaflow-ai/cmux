@@ -259,7 +259,6 @@ webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.failure.teamCap	29	
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.outside.title	12	6
 webviews/src/agent-session/acpmux/Localizable.xcstrings	turn.signIn.error.busy	13	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	waiting.commentNotCopied	15	12
-webviews/src/agent-session/acpmux/Localizable.xcstrings	waiting.older	18	12
 webviews/src/pages/chief-views/Localizable.xcstrings	chiefViews.empty	11	10
 webviews/src/pages/cloud-progress/Localizable.xcstrings	cloudProgress.next.paused	14	12
 webviews/src/pages/cloud-progress/Localizable.xcstrings	cloudProgress.next.pausedIdle	19	12
