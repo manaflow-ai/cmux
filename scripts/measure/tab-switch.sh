@@ -26,6 +26,8 @@
 #                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
 #                   open-while-close
 #    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
+#    away=S         seconds a return scenario stays on the other tab before it switches back (default 0.8); a
+#                   longer one lets what runs on a hidden page (its freeze, the hidden-page purge) run first
 #    rows=N         rows of the 100k-row chat (default 100000)
 #    turns=N        answered turns in the long chat (default 200); agents=N streaming chats (default 4)
 #    gate=0         exit 0 once the report is written, budgets or not (an artifact comes back only from a passing step)
@@ -185,7 +187,7 @@ app_under_test() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
-  local record="" rows=""
+  local record="" rows="" away=""
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -199,6 +201,7 @@ frames_main() {
       config=release|config=bench) config="${arg#config=}" ;;
       record=*) record="${arg#record=}" ;;
       rows=*) rows="${arg#rows=}" ;;
+      away=*) away="${arg#away=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -206,6 +209,7 @@ frames_main() {
   [[ "$turns" =~ ^[0-9]+$ && "$agents" =~ ^[0-9]+$ ]] || { echo "tab-switch: turns= and agents= take numbers" >&2; exit 2; }
   [[ -z "$record" || "$record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: record= takes seconds" >&2; exit 2; }
   [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
+  [[ -z "$away" || "$away" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: away= takes seconds" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
   [[ "$build" == nightly ]] || require_cef_read_credentials
@@ -238,6 +242,7 @@ frames_main() {
   [[ -n "$scenarios" ]] && scenario_args=(--scenarios "$scenarios")
   [[ -n "$record" ]] && scenario_args+=(--record "$record")
   [[ -n "$rows" ]] && scenario_args+=(--chat-rows "$rows")
+  [[ -n "$away" ]] && scenario_args+=(--away "$away")
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
