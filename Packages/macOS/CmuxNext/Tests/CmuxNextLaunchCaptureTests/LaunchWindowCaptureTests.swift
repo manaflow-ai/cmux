@@ -39,7 +39,7 @@ struct LaunchWindowCaptureTests {
     /// plain fill. Red is the stale page; the fill is the theme's dark gray.
     @Test func staleOrMissingPageImageIsPlainFill() throws {
         let stale = try Self.solid(4, red: 1, green: 0, blue: 0)
-        let fill = try #require(LaunchWindowCapture.fillImage(red: 0.1, green: 0.1, blue: 0.1, alpha: 1))
+        let fill = try #require(LaunchWindowCapture.fillImage(CGColor(srgbRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)))
         let cases = [Self.region(taken: 1_000, version: 1, page: 2, composite: 2_000),
                      Self.region(taken: 1_000, version: nil, page: 2, composite: 2_000),
                      Self.region(taken: 1_000, version: 2, page: 2, composite: 1_000 + 120_001),
@@ -55,7 +55,7 @@ struct LaunchWindowCaptureTests {
     /// A page image of the page's version, taken shortly before the composite, is painted.
     @Test func currentPageImageIsPainted() throws {
         let page = try Self.solid(4, red: 0, green: 0, blue: 1)
-        let fill = try #require(LaunchWindowCapture.fillImage(red: 0.1, green: 0.1, blue: 0.1, alpha: 1))
+        let fill = try #require(LaunchWindowCapture.fillImage(CGColor(srgbRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)))
         let region = Self.region(taken: 1_000, version: 7, page: 7, composite: 2_000)
         #expect(LaunchWindowCapture.regionImage(cached: page, region: region, fill: fill) === page)
     }
@@ -66,7 +66,7 @@ struct LaunchWindowCaptureTests {
     @Test func plainFillCoversThePageRegionOnly() throws {
         // A 20 x 10 point window at 2x: green everywhere (what the window server gave), page on the right half.
         let base = try Self.solid(40, height: 20, red: 0, green: 1, blue: 0)
-        let fill = try #require(LaunchWindowCapture.fillImage(red: 0.1, green: 0.1, blue: 0.1, alpha: 1))
+        let fill = try #require(LaunchWindowCapture.fillImage(CGColor(srgbRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)))
         let image = LaunchWindowCapture.compose(base: base, windowSize: CGSize(width: 20, height: 10),
                                                 layers: [.page(fill, NSRect(x: 10, y: 0, width: 10, height: 10))])
         let left = try Self.pixel(image, x: 5, y: 10), right = try Self.pixel(image, x: 35, y: 10)

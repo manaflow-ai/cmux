@@ -104,7 +104,7 @@ import PackageDescription
 //   CmuxNextScreenshots -> Compat, FileGrid, Files (the Screenshots pane: source detection for macOS and the
 //     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
 //     and the pane view; no daemon; the App supplies the workspace)
-//   CmuxNextLaunchCapture -> CCmuxAppFFI, Browser, Control, Design, DesignTokens, Pages, Screenshots, Wakeups (each
+//   CmuxNextLaunchCapture -> CCmuxAppFFI, Browser, Control, Design, Pages, Screenshots, Wakeups (each
 //     window's last frame for the next launch's stage 0: its capture schedule, the window server's composite
 //     with page regions by cmux-launch-image's age rule, the publish; the App supplies the windows)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
@@ -1485,7 +1485,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBrowser",
                 "CmuxNextControl",
                 "CmuxNextDesign",
-                "CmuxNextDesignTokens",
                 "CmuxNextPages",
                 "CmuxNextScreenshots",
                 "CmuxNextWakeups",

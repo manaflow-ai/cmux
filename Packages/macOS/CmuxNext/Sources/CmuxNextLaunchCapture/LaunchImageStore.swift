@@ -36,7 +36,7 @@ nonisolated struct LaunchCaptureClock: Sendable {
 /// dictionary write), never across I/O.
 nonisolated final class LaunchImageSchedule: Sendable {
     /// The window events, as the C ABI numbers them.
-    enum Event: UInt32 {
+    nonisolated enum Event: UInt32 {
         case changed = 1, hidden = 2, shown = 3, transitionBegan = 4, transitionEnded = 5, captureFailed = 6, captureDone = 7
     }
 
@@ -101,9 +101,8 @@ nonisolated struct LaunchImageStore: Sendable {
     /// Nil when nothing was written (the window keeps its previous image).
     func publish(windowID: String, png: Data, handOff: (LaunchRecordImage) -> Void) -> LaunchRecordImage? {
         #if canImport(CCmuxLaunchImageFFI)
-        final class Context { let body: (LaunchRecordImage) -> Void; init(_ body: @escaping (LaunchRecordImage) -> Void) { self.body = body } }
         return withoutActuallyEscaping(handOff) { handOff in
-            let context = Context(handOff)
+            let context = HandOff(handOff)
             var out = CmuxLaunchImage()
             let written = withExtendedLifetime(context) {
                 directory.path.withCString { dir in
@@ -111,7 +110,7 @@ nonisolated struct LaunchImageStore: Sendable {
                         png.withUnsafeBytes { bytes in
                             cmux_launch_image_publish_with(dir, id, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &out, { image, context in
                                 guard let image, let context, let record = LaunchImageStore.record(image.pointee) else { return }
-                                Unmanaged<Context>.fromOpaque(context).takeUnretainedValue().body(record)
+                                Unmanaged<HandOff>.fromOpaque(context).takeUnretainedValue().body(record)
                             }, Unmanaged.passUnretained(context).toOpaque())
                         }
                     }
@@ -145,6 +144,12 @@ nonisolated struct LaunchImageStore: Sendable {
     }
 
     #if canImport(CCmuxLaunchImageFFI)
+    /// The hand-off closure, passed through the C call's context pointer for the call only.
+    private nonisolated final class HandOff {
+        let body: (LaunchRecordImage) -> Void
+        init(_ body: @escaping (LaunchRecordImage) -> Void) { self.body = body }
+    }
+
     /// The record's view of a published image; nil for a path that is not UTF-8.
     private static func record(_ image: CmuxLaunchImage) -> LaunchRecordImage? {
         var path = image.path

@@ -2,7 +2,6 @@ public import AppKit
 public import CmuxNextBrowser
 public import CmuxNextControl
 import CmuxNextDesign
-public import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextScreenshots
 public import CmuxNextWakeups
@@ -17,8 +16,8 @@ public protocol LaunchCaptureHost: AnyObject {
     /// A capture may picture the window: never an incognito one.
     func launchCaptureAllows(_ id: String) -> Bool
     func launchCaptureWindow(_ id: String) -> NSWindow?
-    /// The window's background, the plain fill of a page region.
-    func launchCaptureBackground(_ id: String) -> ThemeRGB?
+    /// The window's background (the theme's surface color), the plain fill of a page region.
+    func launchCaptureBackground(_ id: String) -> CGColor?
     /// The Chromium browser pages window `id` shows in its panes, each with its cached hover picture.
     func launchCaptureBrowserPages(_ id: String) -> [LaunchCaptureBrowserPage]
     /// Where a publish names a window's image for the launch record, from any thread.
@@ -60,7 +59,8 @@ public struct LaunchCaptureBrowserPage {
 /// The main actor reads only window numbers, frames, page rectangles and cached images; the capture,
 /// the composite and the PNG encode run off it, the publish on `BackgroundWork`'s files lane, where
 /// `cmux_launch_image_publish_with` hands the image to the launch record only while the window has not
-/// moved on since the capture began (``LaunchImageSchedule/whileCurrent(_:_:)``).
+/// moved on since the capture began (``LaunchImageSchedule/whileCurrent(_:_:)``). Nothing here holds the
+/// quit: the file work runs `.continueOnShutdown`. Failed captures in a row back off in Rust.
 @MainActor
 public final class LaunchWindowCapture {
     private weak var host: (any LaunchCaptureHost)?
@@ -103,14 +103,19 @@ public final class LaunchWindowCapture {
     /// It ended.
     public func transitionEnded(_ id: String) { note(.transitionEnded, id) }
 
-    /// The person closed the window: its images go, and the record names none.
-    public func windowClosed(_ id: String) {
-        windows.removeValue(forKey: id)?.timer.cancel()
-        guard let host, let store else { return }
+    /// The window closed: its schedule goes, and a capture in flight goes stale (it names nothing). With
+    /// `keepImages` false (the person closed it) its images go too and the record names none; a window
+    /// the app closed keeps them until a prune.
+    public func windowClosed(_ id: String, keepImages: Bool) {
+        if let entry = windows.removeValue(forKey: id) {
+            entry.timer.cancel()
+            _ = entry.schedule.note(.hidden, at: LaunchCaptureClock.now())
+        }
+        guard !keepImages, let host, let store else { return }
         host.launchRecordForget(id)
         let work = work
         // task-owner: one file removal on the files lane; nothing awaits it.
-        Task { _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { store.removeWindow(id) } }
+        Task { _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .continueOnShutdown) { store.removeWindow(id) } }
     }
 
     /// At quit: each shown, settled window that changed since its last capture, or has none from this run,
@@ -174,8 +179,11 @@ public final class LaunchWindowCapture {
     /// Starts one capture of `id`; it reports to the schedule when it ends.
     private func capture(_ id: String, _ entry: Window, at now: UInt64) {
         let schedule = entry.schedule
-        guard let host, let store, let window = host.launchCaptureWindow(id),
-              let plan = window.compositedCapturePlan(includeChild: WindowOverlayHost.isPageWindow) else {
+        guard let host, let store, host.launchCaptureAllows(id), let window = host.launchCaptureWindow(id) else {
+            windows.removeValue(forKey: id)?.timer.cancel() // gone, or not to be pictured: no schedule
+            return
+        }
+        guard let plan = window.compositedCapturePlan(includeChild: WindowOverlayHost.isPageWindow) else {
             arm(entry, id, due: schedule.note(.captureFailed, at: now), now: now)
             return
         }
@@ -183,7 +191,7 @@ public final class LaunchWindowCapture {
         let epoch = schedule.epoch
         let size = window.frame.size, scale = window.backingScaleFactor
         let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
-        let fill = host.launchCaptureBackground(id).flatMap { Self.fillImage(red: $0.red, green: $0.green, blue: $0.blue, alpha: $0.alpha) }
+        let fill = host.launchCaptureBackground(id).flatMap(Self.fillImage)
         let layers = fill.map { pageLayers(in: window, pages: host.launchCaptureBrowserPages(id), fill: $0, compositeAt: now) } ?? []
         let images = host.launchRecordImages
         let work = work
@@ -192,7 +200,7 @@ public final class LaunchWindowCapture {
             let png = await Self.render(plan, width: width, height: height, windowSize: size, layers: layers)
             var outcome: (written: Bool, handed: Bool) = (false, false)
             if let png {
-                outcome = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { () -> (Bool, Bool) in
+                outcome = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .continueOnShutdown) { () -> (Bool, Bool) in
                     var handed = false
                     let written = store.publish(windowID: id, png: png) { image in
                         handed = schedule.whileCurrent(epoch) { images.set(image, forWindow: id) }
@@ -266,11 +274,11 @@ public final class LaunchWindowCapture {
     }
 
     /// A 1 x 1 image of the color, drawn stretched over a plain region.
-    nonisolated static func fillImage(red: Double, green: Double, blue: Double, alpha: Double) -> CGImage? {
+    nonisolated static func fillImage(_ color: CGColor) -> CGImage? {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: space,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha)) // colour-allow: the theme's surfaceBackground, passed in
+        context.setFillColor(color)
         context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
         return context.makeImage()
     }
@@ -283,6 +291,6 @@ public final class LaunchWindowCapture {
         let live = liveWindowIDs()
         let work = work
         // task-owner: one prune on the files lane; nothing awaits it.
-        Task { _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { store.prune(live: live) } }
+        Task { _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .continueOnShutdown) { store.prune(live: live) } }
     }
 }
