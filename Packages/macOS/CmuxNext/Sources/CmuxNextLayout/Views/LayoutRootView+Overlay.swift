@@ -136,8 +136,7 @@ extension LayoutRootView {
         refreshDividerHover()
     }
 
-    /// Whether a layout motion runs (the same panes going to another ratio or width, a keyboard resize, New Column's
-    /// reveal, a column scroll; not a split, a close or a zoom, which show in one frame): its springs
+    /// Whether a layout motion runs (a ratio or width change, a key resize, New Column's reveal, a column scroll): its springs
     /// move panes and dividers on every display frame until they land, including the frame they
     /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
     /// stepped yet, or a divider drag moves them under the pointer. The window keeps what follows the dividers

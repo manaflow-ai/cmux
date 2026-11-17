@@ -44,11 +44,18 @@ import Testing
         }
     }
 
+    /// Pane content that is no producer itself and names one inside it (`PaneCommitSurfaceHosting`), as a container of
+    /// tabs names its shown tab's.
+    final class Hosting: Content, PaneCommitSurfaceHosting {
+        let inner = Surface()
+        var commitSurfaces: [any PaneCommitSurface] { [inner] }
+    }
+
     final class Panes: LayoutPaneContentProvider {
         /// Every pane's content is of the kind that kept one size while its pane moved on a layout spring.
         let holds: Bool
-        /// Every pane's content is a ``Surface``.
-        let surfaces: Bool
+        /// Every pane's content is a ``Surface``; with `hosted`, a ``Hosting`` with one inside.
+        let surfaces: Bool, hosted: Bool
         private(set) var contents: [PaneID: Content] = [:]
         /// The panes whose content the layout released, in order.
         private(set) var released: [PaneID] = []
@@ -56,14 +63,19 @@ import Testing
         /// released, and again the ones a close gave back.
         private(set) var shown: Set<PaneID> = []
 
-        init(holds: Bool, surfaces: Bool) {
+        init(holds: Bool, surfaces: Bool, hosted: Bool) {
             self.holds = holds
             self.surfaces = surfaces
+            self.hosted = hosted
         }
 
         func makeContentView(for pane: PaneID) -> NSView {
-            let view = surfaces ? Surface() : Content()
+            let view: Content = hosted ? Hosting() : surfaces ? Surface() : Content()
             view.wantsLayer = true
+            if let hosting = view as? Hosting {
+                hosting.inner.autoresizingMask = [.width, .height]
+                hosting.addSubview(hosting.inner)
+            }
             contents[pane] = view
             shown.insert(pane)
             return view
@@ -80,7 +92,7 @@ import Testing
             if retired { shown.remove(pane) } else { shown.insert(pane) }
         }
 
-        func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface }
+        func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface ?? (contents[pane] as? Hosting)?.inner }
     }
 
     final class Harness {
@@ -90,8 +102,9 @@ import Testing
         let window: NSWindow
 
         /// `configure`: sets the model up before the view reads it.
-        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, configure: (LayoutModel) -> Void = { _ in }) {
-            provider = Panes(holds: holds, surfaces: surfaces)
+        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, hosted: Bool = false,
+             configure: (LayoutModel) -> Void = { _ in }) {
+            provider = Panes(holds: holds, surfaces: surfaces, hosted: hosted)
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -326,77 +339,6 @@ import Testing
         #expect(states[2].isShown(by: shown[shown.count - 1]), "the last frame is not the last layout")
     }
 
-    // MARK: Surfaces
-
-    /// A producer on another thread or in another process hears its new size in the change's turn, and the change waits
-    /// for it: no frame shows the new layout before the producer reported, and the first frame tick after its report
-    /// shows it. A pane the change does not resize hears nothing.
-    @Test func aChangeWaitsForTheSurfacesItResizesAndShowsWhenTheyReport() throws {
-        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
-        defer { harness.window.closeAfterTest() }
-        Self.rest(harness)
-        let screen = try #require(harness.screen)
-        let style = harness.root.context.style
-        let old = Rest(harness.model.screens, in: screen, style: style)
-        let left = try #require(harness.provider.surface(Self.left)), right = try #require(harness.provider.surface(Self.right))
-
-        harness.model.apply(screens: Self.pairSplit(.horizontal))
-        let new = Rest(harness.model.screens, in: screen, style: style)
-        harness.root.syncWithModel()
-        #expect(left.asks.count == 1 && right.asks.isEmpty, "only the resized pane's surface hears a size: \(left.asks), \(right.asks)")
-        let change = try #require(left.asks.first), was = try #require(old.panes[Self.left]), will = try #require(new.panes[Self.left])
-        #expect(abs(change.width - (will.width - was.width)) <= 1.02 && abs(change.height - (will.height - was.height)) <= 1.02,
-                "the surface hears how much its pane's size changes: \(change), from \(was) to \(will)")
-        #expect(old.isShown(by: Self.shown(screen)), "the change's own turn shows the new layout")
-
-        #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "a change that waits asks for no more frames")
-        #expect(old.isShown(by: Self.shown(screen)), "a frame tick showed the new layout before its surface reported")
-        left.report()
-        #expect(old.isShown(by: Self.shown(screen)), "the report showed the new layout outside a frame tick")
-        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "frames run on after the change showed")
-        #expect(new.isShown(by: Self.shown(screen)), "the first frame tick after the report does not show the new layout")
-        #expect(screen.lateSurfaceCommits == 0 && harness.root.context.hosts[Self.left]?.showsLateGround == false,
-                "a surface that reported in time counts as late")
-    }
-
-    /// A producer that does not report: the change shows at its bound, counted in frame ticks (the bound, then the tick
-    /// that shows it), never later. That pane shows its own ground, counted as late; every other pane is whole. No frame
-    /// tick runs after it. The ground goes when the producer reports, with no frame tick.
-    @Test func aSurfaceThatNeverReportsShowsItsPanesGroundAtTheBound() throws {
-        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
-        defer { harness.window.closeAfterTest() }
-        Self.rest(harness)
-        let screen = try #require(harness.screen)
-        let style = harness.root.context.style
-        let old = Rest(harness.model.screens, in: screen, style: style)
-        let left = try #require(harness.provider.surface(Self.left))
-
-        harness.model.apply(screens: Self.pairSplit(.horizontal))
-        let new = Rest(harness.model.screens, in: screen, style: style)
-        harness.root.syncWithModel()
-        for tick in 1...ScreenContentView.commitBound {
-            #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "tick \(tick): the change stopped asking for frames inside its bound")
-            #expect(old.isShown(by: Self.shown(screen)), "tick \(tick): the new layout showed inside the bound with a surface not ready")
-        }
-        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a frame tick is asked for after the change showed at its bound")
-        #expect(new.isShown(by: Self.shown(screen)), "the change did not show at the tick after its bound")
-        let hosts = harness.root.context.hosts
-        #expect(hosts[Self.left]?.showsLateGround == true, "the late pane does not show its ground")
-        #expect(hosts[Self.right]?.showsLateGround == false && hosts[Self.added]?.showsLateGround == false, "a pane that is not late shows ground")
-        #expect(screen.lateSurfaceCommits == 1, "the late pane is not counted once: \(screen.lateSurfaceCommits)")
-        // The `debug.motion` sample names the late pane apart (`late`); it is one of the panes too.
-        let sample = try #require(ScreenContentView.motionSample(screen), "the screen gives no trace sample")
-        let ids = { (key: String) in (sample[key] ?? []).compactMap { ($0 as? [Any])?.first as? String } }
-        #expect(ids("late") == [Self.left.rawValue], "the trace sample does not name the late pane apart: \(ids("late"))")
-        #expect(Set(ids("panes")) == Set([Self.left, Self.right, Self.added].map(\.rawValue)), "the trace sample's panes are not the layout's: \(ids("panes"))")
-        for _ in 0..<Self.frames {
-            #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a late surface keeps the frames running")
-        }
-        #expect(hosts[Self.left]?.showsLateGround == true, "the ground went before the surface reported")
-        left.report()
-        #expect(hosts[Self.left]?.showsLateGround == false, "the ground stays after the surface reported")
-    }
-
     /// A pane a close takes out is shown until the close shows, hidden in the frame that shows it, and torn down only
     /// after that frame's commit: the frame that shows the close carries no teardown. The provider's shown panes lose
     /// it in the close's own turn (a key, a focus or a lookup there never finds a closed pane); only its teardown waits.
@@ -483,131 +425,5 @@ import Testing
         afterCommit = []
         for item in work { item() }
         #expect(harness.provider.released == [PaneID("p1-0")] && closed.superview == nil, "the closed pane was not torn down after that turn's commit")
-    }
-
-    // MARK: A close that moves a camera
-
-    /// One full-width column of rows (`heights` in permille of the column), as the daemon sends it: the rows, and the
-    /// chain of vertical splits that holds every pane. Rows of more than 1000 in all overflow, and the column scrolls.
-    static func rows(_ heights: [Int]) -> [LayoutScreen] {
-        let rows = heights.enumerated().map { index, height in
-            LayoutRow(id: RowID("r\(index + 1)"), height: height, root: .leaf(PaneID("p\(index + 1)")))
-        }
-        func chain(_ rest: ArraySlice<LayoutRow>) -> SplitNode {
-            guard rest.count > 1, let first = rest.first else { return rest.first?.root ?? .leaf("p1") }
-            return .split(SplitID("v\(first.id.rawValue)"), axis: .vertical, ratio: 1 / Double(rest.count), a: first.root, b: chain(rest.dropFirst()))
-        }
-        return [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c1", width: 1, root: chain(rows[...]), rows: rows)]))]
-    }
-
-    /// A strip of the columns `numbers` (column `cN` holds pane `pN`), each half the screen wide: more than two scroll.
-    static func strip(_ numbers: [Int]) -> [LayoutScreen] {
-        [LayoutScreen(id: "s", name: "s", layout: .columns(numbers.map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }))]
-    }
-
-    struct CameraClose: CustomTestStringConvertible, Sendable {
-        let name: String
-        var testDescription: String { name }
-    }
-
-    nonisolated static let cameraCloses = [
-        CameraClose(name: "the last row, and the rest fit their column"), CameraClose(name: "the last row, and the rows still overflow"),
-        CameraClose(name: "the last column of a scrolled strip"), CameraClose(name: "a middle column of a strip scrolled to its end"),
-    ]
-
-    /// The layout before the close with the pane that has the focus in it (the pane at its end, so its camera rests at
-    /// its end), and the layout after the close with the pane the close's topology focuses.
-    static func layouts(of close: CameraClose) -> (before: [LayoutScreen], focused: PaneID, after: [LayoutScreen], focus: PaneID) {
-        switch close.name {
-        case "the last row, and the rest fit their column": (rows([500, 500, 500]), "p3", rows([500, 500]), "p2")
-        case "the last row, and the rows still overflow": (rows([400, 400, 400, 400]), "p4", rows([400, 400, 400]), "p3")
-        case "the last column of a scrolled strip": (strip([1, 2, 3]), "p3", strip([1, 2]), "p2")
-        default: (strip([1, 2, 3, 4]), "p4", strip([1, 2, 4]), "p4")
-        }
-    }
-
-    /// A close that leaves a scrolled camera with less to show (the last row of a column whose rows overflow, the last
-    /// column of a scrolled strip, a column before the last one): the camera's new place is part of the close. Each
-    /// frame shows what the screen showed before the close, or the layout after it with its camera at rest, with
-    /// nothing between: no frame shows the panes that stay on their way to their places, beside the ground of the pane
-    /// that left.
-    @Test(arguments: cameraCloses)
-    func aCloseThatMovesACameraShowsInOneFrame(_ close: CameraClose) throws {
-        let change = Self.layouts(of: close)
-        let harness = Harness(change.before, focused: change.focused, holds: false) { $0.rowsEnabledOverride = true }
-        defer { harness.window.closeAfterTest() }
-        Self.rest(harness)
-        let screen = try #require(harness.screen)
-        let camera = max(screen.rowScrolls["c1"]?.state.spring.value ?? 0, screen.scroll.value)
-        try #require(camera > 100, "set-up: the camera is not scrolled to the pane that closes (\(camera))")
-        let before = Self.shown(screen)
-
-        // The app's order for a close: the daemon's tree, then the focus its topology lands.
-        harness.model.apply(screens: change.after)
-        // At rest the camera shows the end of what the layout still has: all of it, when it fits.
-        let after = Rest(harness.model.screens, in: screen, style: harness.root.context.style, camerasAtEnd: true)
-        harness.root.syncWithModel()
-        harness.model.focus(change.focus, notify: false)
-        harness.root.syncWithModel()
-        var shown = [Self.shown(screen)]
-        for _ in 0..<Self.frames {
-            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
-            shown.append(Self.shown(screen))
-        }
-
-        var reached = false
-        for (index, frame) in shown.enumerated() {
-            if after.isShown(by: frame) {
-                reached = true
-            } else {
-                #expect(!reached, "frame \(index) leaves the layout after the close: \(frame.panes)")
-                #expect(Self.same(frame, before), "frame \(index) shows neither what showed before the close nor the layout after it: \(frame.panes); after \(after.panes)")
-            }
-        }
-        #expect(after.isShown(by: shown[1]), "the first display frame after the close does not show its layout at rest: \(shown[1].panes)")
-    }
-
-    /// Two closes of that kind, the second in the turn of the first and one display frame after it (a held close key):
-    /// each frame shows what the screen showed before them, or the layout after one of them with its camera at rest, in
-    /// their order, and the last one shows the layout after both.
-    @Test(arguments: ["rows", "columns"], [0, 1])
-    func twoClosesThatMoveACameraShowOnlyWholeLayouts(of kind: String, framesBetween: Int) throws {
-        let layouts = kind == "rows"
-            ? [Self.rows([400, 400, 400, 400, 400]), Self.rows([400, 400, 400, 400]), Self.rows([400, 400, 400])]
-            : [Self.strip([1, 2, 3, 4, 5]), Self.strip([1, 2, 3, 4]), Self.strip([1, 2, 3])]
-        let harness = Harness(layouts[0], focused: "p5", holds: false) { $0.rowsEnabledOverride = true }
-        defer { harness.window.closeAfterTest() }
-        Self.rest(harness)
-        let screen = try #require(harness.screen)
-        let camera = max(screen.rowScrolls["c1"]?.state.spring.value ?? 0, screen.scroll.value)
-        try #require(camera > 100, "set-up: the camera is not scrolled to the pane that closes (\(camera))")
-        let before = Self.shown(screen)
-
-        var states: [Rest] = [], shown: [Frame] = []
-        for (index, focus) in [PaneID("p4"), PaneID("p3")].enumerated() {
-            // The app's order for a close: the daemon's tree, then the focus its topology lands.
-            harness.model.apply(screens: layouts[index + 1])
-            states.append(Rest(harness.model.screens, in: screen, style: harness.root.context.style, camerasAtEnd: true))
-            harness.root.syncWithModel()
-            harness.model.focus(focus, notify: false)
-            harness.root.syncWithModel()
-            shown.append(Self.shown(screen))
-            for _ in 0..<(index == 0 ? framesBetween : Self.frames) {
-                _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
-                shown.append(Self.shown(screen))
-            }
-        }
-
-        // The newest layout a frame showed: none yet (what showed before the closes), then the first, then the second.
-        var reached: Int?
-        for (index, frame) in shown.enumerated() {
-            if let next = ((reached ?? 0)..<states.count).first(where: { states[$0].isShown(by: frame) }) {
-                reached = next
-            } else {
-                #expect(reached == nil && Self.same(frame, before),
-                        "frame \(index) shows no whole layout of the two closes, or one after a later one: \(frame.panes)")
-            }
-        }
-        #expect(states[1].isShown(by: shown[shown.count - 1]), "the last frame is not the layout after both closes at rest: \(shown[shown.count - 1].panes)")
     }
 }

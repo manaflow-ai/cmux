@@ -161,8 +161,8 @@ extension ScreenContentView {
 
     /// Lays every pane out at the rect its frame presents now (the host, its tab strip and its terminal or page take
     /// that size now), then clips each host by the docks and by the panes in front of it. A layout change that waits
-    /// for its frame tick shows here, in this one pass: the panes and dividers it took out go, the panes it brings back
-    /// show (`ScreenContentView+SnapFrame`).
+    /// for its frame tick shows here, in this one pass: the panes and dividers it took out go, the docks' backdrops and
+    /// the stacking order become its own, the panes it brings back show (`ScreenContentView+SnapFrame`).
     ///
     /// Work per frame is O(what changed): a host whose placed frame, alpha, clip and covers are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
@@ -175,7 +175,7 @@ extension ScreenContentView {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
-        hideSnapDeparted()
+        beginShowingChange()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1

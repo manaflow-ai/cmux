@@ -117,13 +117,12 @@ extension ScreenContentView {
 
     /// Glass backdrops for overlay columns and the stacking order: strip
     /// hosts, strip dividers, backdrops, docked hosts, docked dividers,
-    /// then the scrollbar.
+    /// then the scrollbar. Runs in the pass that shows a layout change (`beginShowingChange`), not in the change's turn.
     func reconcileDock() {
         let overlays = geometry.dock.filter { $0.dock.mode == .overlay }
         let live = Set(overlays.map(\.column))
-        // A backdrop whose dock the layout no longer has goes with the frame that shows that change (`hideSnapDeparted`).
         for (column, view) in backdrops where !live.contains(column) {
-            frameInput.snapDepartedBackdrops.append(view)
+            view.removeFromSuperview()
             backdrops[column] = nil
         }
         for entry in overlays {

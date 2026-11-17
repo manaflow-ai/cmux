@@ -7,7 +7,7 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// RESIZE VIDEOS F1 (STATUS 6164, 6209; feat e34fecc1312): one refresh is lost at the start of every close. The
+/// RESIZE VIDEOS F1 (feat e34fecc1312): one refresh is lost at the start of every close. The
 /// closed pane's HOST stays until the close showed, but its CONTENT went before that: the close's reply and the
 /// gone-tab watch (the tree no longer lists the tab) release the tab at once (`TabContentCache.release`), which takes
 /// the terminal view out of the closing pane (`surfaceWasDisplaced`) and closes its surface; the views then deallocate
@@ -125,7 +125,7 @@ import Testing
         try #require(app.cache.presenter(of: closedTab) == nil, "fixture: the closing pane withdrew its tab")
         // A close releases its tab more than once before it shows: the gone-tab watch on the tree that drops the pane and
         // again on each later tree revision, then the reply's finish. Every one of them waits for the pane's teardown
-        // (review of #32197: the second release found no pane and ran at once).
+        // (a second release once found no pane and ran at once).
         app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
         await ClosedPaneContentStaysUntilLandingTests.drainMain()
         // The test applies the tree as a whole snapshot, which shows the closing pane's tab again for a moment (the

@@ -23,10 +23,11 @@ struct ScreenFrameInput {
     var snapDeparted: [PaneID] = []
     /// The dividers that change took out, shown where they were until it shows.
     var snapDepartedDividers: [DividerHandleView] = []
-    /// The glass backdrops of overlay docks the change took out: they stay under their docks until the change shows.
-    var snapDepartedBackdrops: [DockBackdropView] = []
     /// The panes that change brings back from a zoom's cover: hidden until it shows, then shown at their places.
     var snapReturning: [PaneID] = []
+    /// A layout change reconciled since the docks' backdrops and the stacking order last followed the layout: the pass
+    /// that shows the change brings them along (``ScreenContentView/beginShowingChange()``).
+    var dockIsStale = false
     /// The rings and dims the model asked for while that change waited: applied in the turn that shows it.
     var heldChrome: (@MainActor () -> Void)?
     /// The producers a change resized (``PaneCommitSurface``) that have not all reported ready, by pane: whether each

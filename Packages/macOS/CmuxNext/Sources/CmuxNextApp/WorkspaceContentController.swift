@@ -450,8 +450,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         services.paneMounts.changed()
     }
 
-    /// A springing close hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this update, so
-    /// no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
+    /// A close took `pane` out of the layout; its host goes after the frame that shows the close. It leaves `panes` (what the
+    /// window shows) in this update, so no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
     func retainContentView(_ view: NSView, for pane: LayoutPaneID, retired: Bool) {
         if retired { retiredPanes[pane] = panes.removeValue(forKey: pane) } else if let back = retiredPanes.removeValue(forKey: pane) { panes[pane] = back; sendTopology() }
         services.paneMounts.changed()
