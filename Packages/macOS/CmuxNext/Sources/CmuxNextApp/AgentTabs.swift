@@ -550,7 +550,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page)
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
