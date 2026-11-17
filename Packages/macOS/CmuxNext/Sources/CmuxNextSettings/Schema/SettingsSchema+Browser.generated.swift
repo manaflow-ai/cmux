@@ -262,7 +262,7 @@ nonisolated enum BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.toolbarButtons", "Toolbar Buttons"),
-                help: SettingsText.keyed("settings.browser.toolbarButtons.help", "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."),
+                help: SettingsText.keyed("settings.browser.toolbarButtons.help", "The rest are in the More menu."),
                 kind: .choiceSet([
                     SettingChoice("media", SettingsText.keyed("settings.browser.toolbarButtons.media", "Media Controls")),
                     SettingChoice("zoom", SettingsText.keyed("settings.browser.toolbarButtons.zoom", "Zoom Level")),
@@ -281,7 +281,7 @@ nonisolated enum BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.showLoadingBar", "Show Loading Bar"),
-                help: SettingsText.keyed("settings.browser.showLoadingBar.help", "A thin progress line under the address bar while a page loads. The Stop button shows either way."),
+                help: SettingsText.keyed("settings.browser.showLoadingBar.help", "A thin line under the address bar while a page loads."),
                 kind: .toggle,
                 default: .bool(BrowserLoadingBarSetting.fallback),
                 keywords: ["loading", "progress", "bar", "line", "omnibar"]
@@ -312,7 +312,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
-                help: SettingsText.keyed("settings.browser.siteEngines.help", "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                help: SettingsText.keyed("settings.browser.siteEngines.help", "Sites that always open in chromium or webkit, such as spotify.com."),
                 kind: .stringMap,
                 default: BrowserSiteEngines.siteEnginesDefault,
                 keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
@@ -358,7 +358,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
-                help: SettingsText.keyed("settings.browser.importEnabled.help", "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."),
+                help: SettingsText.keyed("settings.browser.importEnabled.help", "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."),
                 kind: .toggle,
                 default: .bool(BrowserImportSetting.fallback),
                 keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
@@ -368,7 +368,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
-                help: SettingsText.keyed("settings.browser.importCookieBanner.help", "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."),
+                help: SettingsText.keyed("settings.browser.importCookieBanner.help", "Browser tabs offer to import cookies from your other browsers."),
                 kind: .toggle,
                 default: .bool(BrowserCookieBannerSetting.fallback),
                 keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
@@ -378,7 +378,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.importCookieSync", "Keep Imported Cookies in Sync"),
-                help: SettingsText.keyed("settings.browser.importCookieSync.help", "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."),
+                help: SettingsText.keyed("settings.browser.importCookieSync.help", "Brings over changed cookies from the browser you imported from. Stays on this Mac."),
                 kind: .toggle,
                 default: .bool(BrowserCookieSyncSetting.fallback),
                 keywords: ["import", "cookies", "sync", "keep", "chrome", "sign in", "login", "signed in"]
