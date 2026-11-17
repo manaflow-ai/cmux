@@ -17,11 +17,13 @@
 /// right of the place.
 ///
 /// The command to the daemon does not have this type's rule: it keeps the index, not the neighbours. In two cases
-/// the store's order and the daemon's are not the same until the move's event, and then the daemon's order shows:
+/// the store's order and the daemon's are not the same until the move's answer settles (the move's event alone does
+/// not heal it: `IntentOverlay.restore` applies the waiting move again), and then the daemon's order shows:
 /// - the daemon refuses a sent close of a tab left of the place. The command did not count that tab, so the daemon's
 ///   move puts the moved tab one slot left of its place (`AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`, the row of
 ///   the refusal);
-/// - the daemon refuses the move of the left neighbour (`TabMovePlaceTests`, the limit row).
+/// - the move of the left neighbour is refused: by the daemon, or by the store at a request that passed its
+///   deadline or lost its connection (`TabMovePlaceTests`, the limit row, with who reaches it).
 struct TabMovePlace: Equatable {
     /// The tab that the moved tab stands directly before in the daemon's order; nil: it is the pane's last tab.
     let before: SurfaceID?

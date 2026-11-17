@@ -26,9 +26,10 @@ import Testing
 /// (`WorkLine.targetsHiddenAtTheirTurn`), and the row waits for the count (a set-up wait by the line's own
 /// observation with a bound, no poll; not a verdict). Then the
 /// row ends the close in its own way and takes the pane's next turn: that turn starts when the move task ended, and
-/// the row reads its verdict then. No verdict has a clock, and no verdict reads the strip: the app shows a new tab at
-/// its slot for some time before its move, so a strip that is right says nothing of the move. The strip's samples
-/// are only in the words of a failure.
+/// the row reads its verdict then. No verdict has a clock. One verdict reads the strip: the row of the settled close
+/// expects the strip's sample at the end of the pane's next turn (an event, not a fixed time) to have no new
+/// tab. No other verdict reads the strip: the app shows a new tab at its slot for some time before its move, so a
+/// strip that is right says nothing of the move, and there the strip's samples are only in the words of a failure.
 ///
 /// The wait of 500 ms before the hide is not the step, and it is a fixed time. Its cause: the creation's reply
 /// starts the move task, and the task reads the tab one time before it waits for its turn. No fact of the app tells

@@ -162,13 +162,29 @@ struct TabMovePlaceTests {
         #expect(try Self.order(store) == "tabcNd")
     }
 
-    /// A LIMIT, not the daemon's order. Pane `t a b c N M`. `N` moves right after `b` (`t a b N c M`), then `M` moves
-    /// right after `N` (`t a b N M c`; its command has the index 4). The daemon refuses the move of `N`. Its list is
-    /// then `t a b c N M`, and its move of `M` to index 4 gives `t a b c M N`. The store shows `t a b c N M` until the
-    /// move's event: `M` stays right after its neighbour `N`. By a read of the daemon, no act of a person reaches a
-    /// refused move of a tab that stays in its pane: `move-tab` refuses an unknown pane or tab, and a drag into a
-    /// pinned column that takes no tabs (`cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs`, `move-tab`;
-    /// `cmux-tui/crates/cmux-layout-reducer/src/tab_moves.rs`, the same-pane move).
+    /// THIS ROW PINS A LIMIT, NOT A WANTED RESULT. The wanted result is the daemon's order, `t a b c M N`: a mend of
+    /// the limit changes this row's expect to it.
+    ///
+    /// Pane `t a b c N M`. `N` moves right after `b` (`t a b N c M`), then `M` moves right after `N` (`t a b N M c`;
+    /// its command has the index 4). The move of `N` is refused. The daemon's list is then `t a b c N M`, and its
+    /// move of `M` to index 4 gives `t a b c M N`. The store shows `t a b c N M`: `M` stays right after its neighbour
+    /// `N`. The store's order heals when the answer of `M`'s move settles, not at the move's event: until then the
+    /// store applies the waiting move again after each event (`IntentOverlay.restore`). Before this rule the store
+    /// applied `M` again with its own index 4 and showed the daemon's order at once: in this case the rule is one
+    /// swap of the 2 last tabs worse, for the time of one answer.
+    ///
+    /// Who reaches it:
+    /// - The daemon refuses no move of a tab that stays in its pane. `move-tab` refuses an unknown pane or tab
+    ///   (`cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs`), and so does the same-pane move of the reducer
+    ///   (`cmux-tui/crates/cmux-layout-reducer/src/tab_moves.rs`). A pinned column refuses a move that breaks it
+    ///   (`cmux-tui/crates/cmux-tui-core/src/mux/pinned_columns.rs`, `ensure_pinned_columns_kept`): that is a move
+    ///   to or from another pane.
+    /// - The app's store refuses a move for each error of its request (`DaemonService+Intents.swift`, the `catch` of
+    ///   the send): a request that passed its deadline and a lost connection too. After a missed deadline the
+    ///   daemon can make the move later; then this rule and the older one each show a wrong order until the
+    ///   events come.
+    /// - 2 moves that wait in one pane need 2 drags of a person, or a drag and a command, inside one round trip to
+    ///   the daemon. 2 new tabs do not make them: the second one's move waits for the answer of the first.
     @Test func aRefusedMoveOfTheNeighbourLeavesTheLaterMovedTabAfterIt() throws {
         let store = Self.store("tabcNM")
         let first = try Self.move("N", to: 3, in: store)
