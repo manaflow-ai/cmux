@@ -81,10 +81,10 @@ struct CloudMachineCreateFlow {
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
 
-    /// The default machine named `name` (trimmed; empty is none), in the stub plan's smallest
-    /// size (the backend checks the plan); `sizeShown` false when the plan picks the size.
+    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk, so a
+    /// chat's folder fits (the backend checks the plan); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 16384, sizeShown: sizeShown, askedBy: askedBy)
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 4, memoryMB: 16384, diskMB: 65536, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
