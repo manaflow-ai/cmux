@@ -96,6 +96,6 @@ struct AgentPaneGitHubRequestTests {
         ("GitHub:acme/api", nil),
     ] as [(String, String?)])
     func aGitHubFolderNamesOneRepository(folder: String, repository: String?) {
-        #expect(AgentPaneGitHubFolder.repository(folder) == repository)
+        #expect(AgentPaneGitHubFolder(folder)?.repository == repository)
     }
 }

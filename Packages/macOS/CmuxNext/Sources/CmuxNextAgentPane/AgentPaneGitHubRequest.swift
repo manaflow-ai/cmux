@@ -118,17 +118,21 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
 
 /// A chat folder that names a GitHub repository instead of a folder on this Mac: `github:owner/name`.
 /// Only a Cloud start takes one (its machine clones the repository); a chat here is refused.
-public nonisolated enum AgentPaneGitHubFolder {
+public nonisolated struct AgentPaneGitHubFolder: Equatable, Sendable {
     public static let prefix = "github:"
     /// The refusal's code for a chat here that names one (`session/new`'s `cwd`, `workspace.useFolder`).
     public static let cloudOnlyReason = "github.cloud_only"
 
-    public static func isGitHub(_ folder: String) -> Bool { folder.hasPrefix(prefix) }
+    /// `owner/name`.
+    public let repository: String
 
-    /// `owner/name` of `github:owner/name`; nil for any other text, a bad name included.
-    public static func repository(_ folder: String) -> String? {
-        guard isGitHub(folder) else { return nil }
-        let name = String(folder.dropFirst(prefix.count))
-        return CloudGitHubRepos.isFullName(name) ? name : nil
+    /// The folder `github:owner/name` names; nil for any other text, a bad name included.
+    public init?(_ folder: String) {
+        guard Self.isGitHub(folder) else { return nil }
+        let name = String(folder.dropFirst(Self.prefix.count))
+        guard CloudGitHubRepos.isFullName(name) else { return nil }
+        repository = name
     }
+
+    public static func isGitHub(_ folder: String) -> Bool { folder.hasPrefix(prefix) }
 }

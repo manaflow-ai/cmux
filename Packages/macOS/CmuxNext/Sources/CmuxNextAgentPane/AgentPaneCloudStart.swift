@@ -96,7 +96,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let gestureTicket = params?["gestureTicket"]
         if let gestureTicket, (gestureTicket as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
-        let repository = (cwd as? String).flatMap(AgentPaneGitHubFolder.repository)
+        let repository = (cwd as? String).flatMap { AgentPaneGitHubFolder($0)?.repository }
         if let cwd, repository == nil, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
