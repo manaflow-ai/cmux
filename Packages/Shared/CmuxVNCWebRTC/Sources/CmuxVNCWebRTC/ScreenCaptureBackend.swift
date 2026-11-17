@@ -12,7 +12,7 @@ import ScreenCaptureKit
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
 // crash-allow: mutable state is behind `lock` and SCStream calls back on its one serial `queue`.
-public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     // @unchecked: state behind `lock`; SCStream calls back on `queue`.
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "cmux.screen.capture", qos: .userInteractive)
@@ -43,6 +43,12 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         set { lock.withLock { excludedSource = newValue } }
     }
     private var excludedSource: (@Sendable () -> [pid_t])?
+    /// Each picture's changed rects (``ScreenDamageSource``); read only while set.
+    var onDamage: (@Sendable ([CGRect], CGSize) -> Void)? {
+        get { lock.withLock { damageSink } }
+        set { lock.withLock { damageSink = newValue } }
+    }
+    private var damageSink: (@Sendable ([CGRect], CGSize) -> Void)?
     /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
     private var longEdgeCap: Int?
     /// The last reconfiguration failed: the running capture may not be at
@@ -359,8 +365,14 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
         timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
-        let sink = lock.withLock { onFrame }
-        sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
+        let (sink, damage) = lock.withLock { (onFrame, damageSink) }
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        sink?(buffer, CGRect(origin: .zero, size: size))
+        // ScreenCaptureKit's changed rects, in this picture's pixels.
+        if let damage, let rects = attachments.first?[.dirtyRects] as? [NSDictionary] {
+            let changed = rects.compactMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+            if !changed.isEmpty { damage(changed, size) }
+        }
     }
 
     public func select(display index: Int) {
@@ -416,6 +428,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                 streamGeneration += 1
                 stopped = true
                 self.reconfiguration = nil
+                damageSink = nil
             }
             return (self.stream, self.reconfiguration)
         }

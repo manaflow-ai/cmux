@@ -519,7 +519,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                     if signaling.endsSessionOnClose { signaling.close() }
                 case let .path(local, remote):
                     self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
-                case .video: break
+                case .video, .focus: break
                 }
             }
         })
@@ -533,6 +533,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
         sendCapabilities(session)
+        startFocusSignals(session)
         session.add(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
@@ -659,6 +660,20 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         }
         session.add(task)
+    }
+
+    /// Follow mode (FocusSignals.swift): the pointer, caret, focused window
+    /// and screen damage in the streamed display's pixels, only on a `focus`
+    /// channel the viewer opened (an older viewer gets none).
+    private func startFocusSignals(_ session: Session) {
+        let link = session.link
+        let producer = FocusSignalProducer(probe: FocusSignalProducer.systemProbe(), geometry: { [weak session] in
+            guard let session, let display = session.backend.displayFrame else { return nil }
+            let pixels = session.lock.withLock { session.displays.indices.contains(session.current) ? session.displays[session.current] : nil }
+            return pixels.map { FocusGeometry(display: display, pixels: $0) }
+        }, send: { link.sendText($0, onlyOn: VNCPeerLink.focusLabel) })
+        (session.backend as? any ScreenDamageSource)?.onDamage = { rects, size in producer.damage(rects, captured: size) }
+        session.add(Task { await producer.run { link.hasOpenChannel(VNCPeerLink.focusLabel) } })
     }
 
     /// Whether a viewer message ends its session (the viewer left: `bye`).
@@ -979,6 +994,10 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onICEError: (@Sendable (ICECandidateError) -> Void)?
     /// The connection stalled (true: no picture coming) or recovered (false).
     public var onStall: (@Sendable (Bool) -> Void)?
+    /// Follow mode: each message on the host's `focus` channel, the UTF-8
+    /// JSON of one focus event (cmux-follow-cam's `Event`); any thread. An
+    /// older host sends none.
+    public var onFocus: (@Sendable (Data) -> Void)?
     /// How long `connect()` waits for the input channel to open (a reconnect's
     /// last try gets only what is left of its deadline).
     public var openTimeout: TimeInterval = 30
@@ -1038,6 +1057,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 case let .video(track):
                     self?.lock.withLock { self?.track = track }
                     self?.onVideo?(track)
+                case let .focus(data):
+                    self?.onFocus?(data)
                 case let .message(data):
                     guard let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) else { break }
                     if let capabilities = Self.capabilities(in: message) {
@@ -1112,7 +1133,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 defer { offered = true }
                 return !offered
             }) else { return }
-            let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
+            let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer",
+                                           focusLabel: VNCPeerLink.focusLabel)
             try await lock.withLock({ socket })?.send(.offer(sdp))
         case let .answer(sdp):
             try await link.accept(answer: sdp)
