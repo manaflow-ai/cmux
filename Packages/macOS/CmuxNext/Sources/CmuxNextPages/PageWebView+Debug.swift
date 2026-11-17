@@ -240,9 +240,12 @@ extension PageWebView {
 
     /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
     /// input; WebKit receives native AppKit mouse events in its own view, including
-    /// in a non-key capture window. No router gesture is granted directly.
+    /// in a non-key capture window. No router gesture is granted directly, unless `gesture`: then a
+    /// Chromium release counts as the person's input, as ``debugDrag(from:to:steps:)``'s release does,
+    /// so a gesture-gated call the click makes goes through (a capture slot's window never activates,
+    /// and a native press there does not reach the page).
     /// `beforeRelease` runs right before the release goes in (the instant the page's click fires: a bench's input time).
-    public func debugPress(x: Double, y: Double, native: Bool = false, beforeRelease: (() -> Void)? = nil) async -> Bool {
+    public func debugPress(x: Double, y: Double, native: Bool = false, gesture: Bool = false, beforeRelease: (() -> Void)? = nil) async -> Bool {
         if native, let page = chromiumSession?.page {
             guard x.isFinite, y.isFinite else { return false }
             let zoom = max(pageZoom, 0.01)
@@ -266,7 +269,10 @@ extension PageWebView {
             return true
         }
         for type in ["mousePressed", "mouseReleased"] {
-            if type == "mouseReleased" { beforeRelease?() }
+            if type == "mouseReleased" {
+                beforeRelease?()
+                if gesture { chromiumUserInput(at: ProcessInfo.processInfo.systemUptime) }
+            }
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
                 "clickCount": 1, "modifiers": 0,
@@ -370,6 +376,26 @@ extension PageWebView {
         // and only the release: a drag's save then rests on the release alone.
         chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
         return await send("mouseReleased", to, buttons: 0)
+    }
+
+    /// A trusted key press (Enter or Return, Tab, Escape) on a Chromium page through DevTools, to the
+    /// element that has focus: a field's submit in a window that is never key. With `gesture` the key
+    /// counts as the person's input, as ``debugPress(x:y:native:gesture:beforeRelease:)`` does.
+    /// `{key, gesture}`, or an error for WebKit, another key, or a refused event. DEBUG verb only.
+    public func debugKey(_ name: String, gesture: Bool = false) async -> JSONValue {
+        guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
+        let keys: [String: (key: String, code: Int, text: String)] = [
+            "Enter": ("Enter", 13, "\r"), "Return": ("Enter", 13, "\r"), "Tab": ("Tab", 9, "\t"), "Escape": ("Escape", 27, ""),
+        ]
+        guard let key = keys[name] else { return ["error": "key is one of Enter, Return, Tab, Escape"] }
+        if gesture { chromiumUserInput(at: ProcessInfo.processInfo.systemUptime) }
+        var down: [String: any Sendable] = ["type": key.text.isEmpty ? "rawKeyDown" : "keyDown", "key": key.key, "code": key.key,
+                                            "windowsVirtualKeyCode": key.code, "nativeVirtualKeyCode": key.code, "modifiers": 0]
+        if !key.text.isEmpty { down["text"] = key.text; down["unmodifiedText"] = key.text }
+        guard (try? await page.devTools("Input.dispatchKeyEvent", params: down)) != nil,
+              (try? await page.devTools("Input.dispatchKeyEvent", params: down.filter { !$0.key.hasSuffix("ext") }.merging(["type": "keyUp"]) { $1 })) != nil
+        else { return ["error": "the key did not reach the page"] }
+        return ["key": .string(key.key), "gesture": .bool(gesture)]
     }
 
     /// The point (CSS pixels) a `press` or `drag` names: the numbers under `xKey` and `yKey`, else the
