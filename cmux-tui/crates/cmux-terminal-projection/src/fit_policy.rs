@@ -29,9 +29,6 @@
 //!   program and stops typing from fitting it again until it next starts.
 //!
 //! Pure state, no clock and no I/O: the phone persists [`FitPolicy::remembered`].
-
-use std::collections::BTreeSet;
-
 /// Printable characters typed into one foreground TUI that make the phone
 /// fit it. Three: one or two keys (`q`, `jj`, `y`) are a viewer's commands,
 /// a word is text being written.

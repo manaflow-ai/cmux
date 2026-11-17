@@ -274,7 +274,7 @@ mod tests {
         projection.set_viewport(54, 38);
         let policy = TerminalFitPolicy::new(Vec::new());
         projection.feed(b"\x1b]0;\xe2\x9c\xb3 Claude Code\x07\x1b[?25l> ".to_vec(), true);
-        let entered = policy.observe(projection.clone(), "zsh".into());
+        let entered = policy.observe(projection, "zsh".into());
         assert!(entered.is_tui);
         assert_eq!(entered.program.as_deref(), Some("claude"));
         assert!(policy.typed(b"fix it".to_vec()).claims);
