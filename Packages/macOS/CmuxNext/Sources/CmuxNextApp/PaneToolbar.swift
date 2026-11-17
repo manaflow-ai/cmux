@@ -128,16 +128,14 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
-        // The zoom that the pane's screen shows (`PaneContentView.setPaneShownZoomed`), not the store's: the store has a
-        // zoom from its key, frames before the screen shows it.
-        let zoomed = pane.stripModel.zoomsSelected
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
+        // `zoomed` is what the pane's screen shows (`TabStripModel.zoomsSelected`), not the store's zoom: the store has it from the key, frames before.
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: pane.stripModel.zoomsSelected, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no pins, not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
-            return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
+            return State(zoomed: pane.stripModel.zoomsSelected, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: pane.stripModel.zoomsSelected, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {

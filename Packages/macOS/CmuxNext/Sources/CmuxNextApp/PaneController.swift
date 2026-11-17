@@ -86,7 +86,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
-        var zoomed = false // the store's zoom of the pane (Toggle Pane Zoom); the zoom marks follow the layout (PaneContentView+ZoomMark)
+        var zoomed = false // the store's zoom of the pane (Toggle Pane Zoom); the zoom marks follow the layout (TabStripModel.zoomsSelected)
         var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
@@ -350,7 +350,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         snapshotHidesStrip = snapshot.hidesStrip
         view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
-        if presentsPage, stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // only under a page's fullscreen (PaneContentView+ZoomMark)
+        if presentsPage, stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // only under a page's fullscreen (TabStripModel.zoomsSelected)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
             stripModel.tabs = snapshot.items

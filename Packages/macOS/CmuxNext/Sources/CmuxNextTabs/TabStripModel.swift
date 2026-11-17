@@ -43,6 +43,13 @@ public final class TabStripModel {
     /// The strip's pane is zoomed: the pane shows ``PaneZoomIndicatorView`` at its top-right, whose
     /// click restores the layout (`TabStripIntent.toggleZoom`), and VoiceOver reads the selected tab
     /// as zoomed. The tabs draw nothing for it, so a zoom never changes the strip's width or moves a tab.
+    ///
+    /// The layout that shows the pane writes it, not the store (`PaneContentChrome.setPaneShownZoomed`). A zoom key
+    /// changes the store in the key's turn, and the screen shows the zoom some frames later (a zoom's dim comes
+    /// first, then the panes hear their sizes): a mark that followed the store showed over the layout before the
+    /// zoom for those frames, and went before an unzoom showed. One case stays with the store: a page that has the
+    /// whole window shows its pane alone, as a zoom does, whatever the store's zoom is, so while the pane presents
+    /// its page the layout leaves this alone and the pane's snapshot of the store writes it.
     public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).

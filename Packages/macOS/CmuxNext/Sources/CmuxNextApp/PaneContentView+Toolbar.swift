@@ -2,7 +2,7 @@ import AppKit
 
 // The pane's trailing controls (`PaneToolbar`: pins, Exit Zoom) sit at the strip's trailing end, as wide as they need: in frame
 // layout the strip gives up that width (`layout()`); pinned to a browser's band (R109) it pins
-// beside it.
+// beside it. The layout says the zoom that the pane's screen shows in the pass that shows it (`PaneContentChrome`), and the controls take it in that call: their observation task runs a turn later.
 extension PaneContentView {
     func installToolbar(replacing old: PaneToolbar?) {
         // Pins to a browser's band name the toolbar: they are made again for the new one.
@@ -16,6 +16,7 @@ extension PaneContentView {
 
     /// The trailing controls' width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row.
     func toolbarWidth(shown: CGFloat, sharing: Bool = false) -> CGFloat { shown > 0 ? toolbar?.view.paneWidth(in: bounds.width, sharing: sharing) ?? 0 : 0 }
+    func setPaneShownZoomed(_ zoomed: Bool) { if stripView.model.zoomsSelected != zoomed { stripView.model.zoomsSelected = zoomed; needsLayout = true; toolbar?.refresh() } }
 
     /// The trailing controls' constraints beside a strip pinned to a browser's band.
     func toolbarBandPins() -> [NSLayoutConstraint] {
