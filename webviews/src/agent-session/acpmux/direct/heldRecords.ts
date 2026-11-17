@@ -23,14 +23,17 @@ export const HELD_RETRY = HELD_KEPT / 4;
 
 /// A row a shed kept across its cut (direct.ts `splits`): an activity row (its thoughts and calls, one of which runs
 /// on), or the reply streaming beside it. `aside`: the records older than the held ones that draw it again, oldest
-/// first, a run of chunks joined into one. `earlier`: the row's calls whose oldest output lines went with their
-/// records. `thoughts`: the seqs each joined run of thought chunks spans, which an older page folds out of the way.
+/// first, each run of chunks its first chunk and the rest joined (`joinChunks`). `earlier`: the row's calls whose
+/// oldest output lines went with their records. `runs`: the seqs each run of chunks spans, first to last, which an
+/// older page folds out of the way and held records that reach into trim. `open`: an activity row later thoughts and
+/// calls still joined at the cut.
 export type HeldSplit = {
   id: string;
   kind: "activity" | "reply";
   aside: EventRecord[];
   earlier: string[];
-  thoughts: [number, number][];
+  runs: [number, number][];
+  open: boolean;
 };
 
 /// The most records a shed holds aside for one row it keeps across its cut (`planSplits`): a row that needs more (a
@@ -64,7 +67,8 @@ export const FOLD_TURN_KEYS = [
   "streamingAssistantMessageId",
   "streamingSegment",
   "assistantCut",
-  "streamingActivity",
+  // The field behind `streamingActivity`: a fold copied back sets it as it was, with no row noted closed.
+  "activityRow",
   "planRow",
   "progressRow",
   "progressSuperseded",

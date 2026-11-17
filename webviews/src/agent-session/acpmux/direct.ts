@@ -858,13 +858,25 @@ function outputOnly(event: EventRecord): "append" | "whole" | undefined {
   return textOnlyContent(update) ? "whole" : undefined;
 }
 
-/// Chunk `next` (a thought's or a reply's) joined onto `into`: one record at `into`'s seq carrying both texts.
+/// Chunk `next` (a thought's or a reply's) joined onto `into`: one record at `into`'s seq carrying both texts, and
+/// otherwise `next` (its time ends a thought, its phase marks a reply).
 function joinChunks(into: EventRecord, next: EventRecord): EventRecord {
-  const params = into.msg.params;
-  const text = textFromContent(params.update.content) + textFromContent(sessionUpdate(next)?.content);
+  const params = next.msg.params;
+  const text = textFromContent(sessionUpdate(into)?.content) + textFromContent(params.update.content);
   return {
-    ...into,
-    msg: { ...into.msg, params: { ...params, update: { ...params.update, content: { type: "text", text } } } },
+    ...next,
+    seq: into.seq,
+    msg: { ...next.msg, params: { ...params, update: { ...params.update, content: { type: "text", text } } } },
+  };
+}
+
+/// Chunk `event` with its text cut to its first `length` characters.
+function chunkPrefix(event: EventRecord, length: number): EventRecord {
+  const params = event.msg.params;
+  const text = textFromContent(params.update.content).slice(0, length);
+  return {
+    ...event,
+    msg: { ...event.msg, params: { ...params, update: { ...params.update, content: { type: "text", text } } } },
   };
 }
 
@@ -1966,7 +1978,20 @@ export class AcpmuxDirectClient {
   /// The newest chunk seq each reply row took (`agent_message_chunk`): a chunk at or below it is in
   /// the row already, so folding it again (a refold that kept the row, a repair) adds nothing.
   private replyChunkSeq = new Map<string, number>();
-  private streamingActivity?: string;
+  /// The activity row the next thought or new call joins (`streamingActivity`).
+  private activityRow?: string;
+  /// The record each activity row stopped being the one thoughts and calls join at, by row id: whether a row a shed kept
+  /// across its cut was still open at the cut (`openSplit`). Its entries leave with their rows.
+  private activityClosed = new Map<string, number>();
+  private get streamingActivity(): string | undefined {
+    return this.activityRow;
+  }
+  private set streamingActivity(id: string | undefined) {
+    const was = this.activityRow;
+    if (was !== undefined && was !== id && this.rows.current !== undefined)
+      this.activityClosed.set(was, this.rows.current);
+    this.activityRow = id;
+  }
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
   /// The chat's latest plan row, for Session Info's Progress: unlike `planRow` it outlives its turn
@@ -7823,35 +7848,47 @@ export class AcpmuxDirectClient {
       // Its maker is neither held nor aside (a row a page started inside): nothing could draw it again.
       if (records[0]?.seq !== order) return undefined;
       const chunks = row.kind === "assistant" ? "agent_message_chunk" : "agent_thought_chunk";
-      const priorEnds = new Map(prior?.thoughts);
-      const thoughts: [number, number][] = [];
+      const priorEnds = new Map(prior?.runs);
+      const runs: [number, number][] = [];
       const aside: EventRecord[] = [];
       // Each call's newest output line dropped and newest whole output (`outputOnly`).
       const appended = new Map<string, number>();
       const whole = new Map<string, EventRecord>();
+      // Each call's newest record that said it ended, by its place in `aside`.
+      const ended = new Map<string, number>();
+      // Where the run of chunks being read keeps all but its first chunk joined (`joinChunks`).
+      let rest: number | undefined;
       let joining = false;
       for (const event of records) {
         // A reply is drawn again from its chunks alone: one something else wrote to stays where it is.
         if (event.kind !== chunks && row.kind === "assistant") return undefined;
         if (event.kind === chunks) {
-          if (joining) {
-            aside[aside.length - 1] = joinChunks(aside.at(-1)!, event);
-            if (chunks === "agent_thought_chunk") thoughts.at(-1)![1] = event.seq;
-          } else {
+          if (!joining) {
             aside.push(event);
-            if (chunks === "agent_thought_chunk") thoughts.push([event.seq, priorEnds.get(event.seq) ?? event.seq]);
-          }
+            rest = undefined;
+            runs.push([event.seq, priorEnds.get(event.seq) ?? event.seq]);
+          } else if (rest === undefined) {
+            aside.push(event);
+            rest = aside.length - 1;
+          } else aside[rest] = joinChunks(aside[rest]!, event);
+          const run = runs.at(-1)!;
+          run[1] = Math.max(run[1], event.seq);
           joining = true;
           continue;
         }
+        const update = sessionUpdate(event);
+        // Only the agent's own updates draw the row again: a permission asked and answered, or anything acpmux noted
+        // on it, is not asked again.
+        if (!update) continue;
         const output = outputOnly(event);
-        const callId = String(sessionUpdate(event)?.toolCallId);
+        const callId = String(update.toolCallId);
         // An output update changes its call's item in place, so the chunks on either side of it still join.
         if (output === "append") appended.set(callId, event.seq);
         else if (output === "whole") whole.set(callId, event);
         else {
           aside.push(event);
           joining = false;
+          if (update.status === "completed" || update.status === "failed") ended.set(callId, aside.length - 1);
         }
       }
       const earlier: string[] = [];
@@ -7861,6 +7898,25 @@ export class AcpmuxDirectClient {
         if (callId === undefined) continue;
         const newest = whole.get(callId);
         const dropped = appended.get(callId);
+        const end = ended.get(callId);
+        // A call that ended before the cut with lines appended after its newest whole output: its end carries all it
+        // printed, so it shows the same, unmarked.
+        if (
+          dropped !== undefined &&
+          dropped > (newest?.seq ?? -Infinity) &&
+          end !== undefined &&
+          !(prior?.earlier.includes(callId) ?? false) &&
+          item.tool?.output !== undefined
+        ) {
+          const record = aside[end]!;
+          const params = record.msg.params;
+          const content = [{ type: "content", content: { type: "text", text: item.tool.output } }];
+          aside[end] = {
+            ...record,
+            msg: { ...record.msg, params: { ...params, update: { ...params.update, content } } },
+          };
+          continue;
+        }
         // Cut: lines went after its newest whole output, or it was cut before and nothing since gave all of it.
         const marked =
           dropped !== undefined
@@ -7875,7 +7931,11 @@ export class AcpmuxDirectClient {
       }
       if (aside.length > SPLIT_ASIDE) return undefined;
       aside.sort((a, b) => a.seq - b.seq);
-      plans.set(id, { id, kind: row.kind === "assistant" ? "reply" : "activity", aside, earlier, thoughts });
+      // Still the row later thoughts and calls join at the cut (`streamingActivity`): a refold opens it again there.
+      const open =
+        row.kind === "activity" &&
+        (this.streamingActivity === id || (this.activityClosed.get(id) ?? -Infinity) >= cutSeq);
+      plans.set(id, { id, kind: row.kind === "assistant" ? "reply" : "activity", aside, earlier, runs, open });
     }
     return plans;
   }
@@ -7885,6 +7945,8 @@ export class AcpmuxDirectClient {
   /// (`earlierOutput`, the Shell block's "…"). One pass over the held records.
   private keepSplits(kept: Map<string, HeldSplit>): void {
     this.splits = kept;
+    // A full refold left the rows it did not draw again noted as closed.
+    for (const id of this.activityClosed.keys()) if (!this.rows.has(id)) this.activityClosed.delete(id);
     const calls = new Map<string, { id: string; callId: string; records: EventRecord[] }>();
     for (const split of kept.values())
       for (const callId of split.earlier) {
@@ -7936,13 +7998,34 @@ export class AcpmuxDirectClient {
     return index < 0 ? 0 : index;
   }
 
+  /// What `split` holds aside that the held records `events` hold again goes (an older page brought it): a record they
+  /// hold, and the text of a run's chunks they reach into, cut from its joined rest (`joinChunks`).
+  private trimSplit(split: HeldSplit, events: readonly EventRecord[]): void {
+    const heldFrom = events[0]?.seq ?? Infinity;
+    split.aside = split.aside.flatMap((event) => {
+      if (holdsSeq(events, event.seq)) return [];
+      const chunk = event.kind === "agent_thought_chunk" || event.kind === "agent_message_chunk";
+      const run = chunk ? split.runs.find(([from, to]) => event.seq > from && event.seq <= to) : undefined;
+      if (!run || run[1] < heldFrom) return [event];
+      let held = 0;
+      for (
+        let index = firstHeldFrom(events, heldFrom);
+        index < events.length && events[index]!.seq <= run[1];
+        index += 1
+      )
+        if (events[index]!.kind === event.kind) held += textFromContent(sessionUpdate(events[index]!)?.content).length;
+      const length = textFromContent(sessionUpdate(event)?.content).length - held;
+      return length > 0 ? [chunkPrefix(event, length)] : [];
+    });
+  }
+
   /// A copy of the rows a shed kept across its cut (`splits`), for a tail or a chat carried to another client.
   private heldSplits(): HeldSplit[] {
     return [...this.splits.values()].map((split) => ({
       ...split,
       aside: [...split.aside],
       earlier: [...split.earlier],
-      thoughts: split.thoughts.map(([from, to]) => [from, to] as [number, number]),
+      runs: split.runs.map(([from, to]) => [from, to] as [number, number]),
     }));
   }
 
@@ -7955,7 +8038,7 @@ export class AcpmuxDirectClient {
         ...split,
         aside: [...split.aside],
         earlier: [...split.earlier],
-        thoughts: split.thoughts.map(([from, to]) => [from, to] as [number, number]),
+        runs: split.runs.map(([from, to]) => [from, to] as [number, number]),
       };
       this.splits.set(split.id, copy);
       for (const event of copy.aside)
@@ -8004,6 +8087,7 @@ export class AcpmuxDirectClient {
         this.supersededRowIds.delete(rowId);
         this.runChangeRows.delete(rowId);
         this.compactionHeardAt.delete(rowId);
+        this.activityClosed.delete(rowId);
       }
       const left = (rowId: string | undefined) => rowId !== undefined && gone.has(rowId);
       if (left(this.lastReplyRow)) this.lastReplyRow = undefined;
@@ -8972,7 +9056,7 @@ export class AcpmuxDirectClient {
     // The rows refolded take their chunks again; a row kept above the cut keeps its mark.
     if (frozenBefore === undefined) this.replyChunkSeq.clear();
     else for (const [row, seq] of this.replyChunkSeq) if (seq >= frozenBefore) this.replyChunkSeq.delete(row);
-    this.streamingActivity = undefined;
+    this.activityRow = undefined;
     if (frozenBefore === undefined) {
       this.supersededMessageIds.clear();
       this.supersededRowIds.clear();
@@ -9023,15 +9107,28 @@ export class AcpmuxDirectClient {
       // Then the records a shed held aside for the rows it kept across its cut (`splits`), as it does the opener; one
       // the held records hold again (an older page brought it) is theirs now, and one a page only reached below (it
       // left the record out) stays aside.
-      // A record two kept rows hold (one that wrote both) folds once.
-      const aside = new Map<number, EventRecord>();
+      // A record two kept rows hold (one that wrote both) folds once, as the row it drew first had it.
+      const aside = new Map<number, { event: EventRecord; row: HeldSplit }>();
+      // The row open where the held records start: open at the cut, or one an older page brought back closed after.
+      const heldFrom = events[0]?.seq ?? Infinity;
+      const open = [...this.splits.values()].find(
+        (split) =>
+          split.kind === "activity" && (split.open || (this.activityClosed.get(split.id) ?? -Infinity) >= heldFrom),
+      );
       for (const [id, split] of this.splits) {
-        split.aside = split.aside.filter((event) => !holdsSeq(events, event.seq));
+        this.trimSplit(split, events);
         if (split.aside.length === 0) this.splits.delete(id);
-        else for (const event of split.aside) aside.set(event.seq, event);
+        else for (const event of split.aside) if (!aside.has(event.seq)) aside.set(event.seq, { event, row: split });
       }
-      for (const event of [...aside.values()].sort((a, b) => a.seq - b.seq))
-        if (event.seq <= through) this.reduce(event);
+      for (const { event, row } of [...aside.values()].sort((a, b) => a.event.seq - b.event.seq)) {
+        if (event.seq > through) continue;
+        // Each record joins its own row: the records between that ended a row's turn as the one thoughts and calls
+        // join went with the cut.
+        if (row.kind === "activity") this.activityRow = this.rows.has(row.id) ? row.id : undefined;
+        this.reduce(event);
+      }
+      // The held records go on into the row that was open where they start, or into a row of their own.
+      if (aside.size > 0) this.activityRow = open && this.rows.has(open.id) ? open.id : undefined;
     }
     for (const event of events) {
       this.lastSeq = Math.max(this.lastSeq, event.seq);
@@ -17401,8 +17498,8 @@ export class AcpmuxDirectClient {
   ): void {
     for (const [id, { fill, calls }] of fills) {
       if (event.kind === "agent_thought_chunk") {
-        const thoughts = this.splits.get(id)?.thoughts ?? [];
-        if (thoughts.some(([from, to]) => event.seq >= from && event.seq <= to)) this.streamingActivity = fill;
+        const runs = this.splits.get(id)?.runs ?? [];
+        if (runs.some(([from, to]) => event.seq >= from && event.seq <= to)) this.streamingActivity = fill;
         continue;
       }
       if (event.kind !== "tool_call" && event.kind !== "tool_call_update") continue;
@@ -17481,7 +17578,7 @@ export class AcpmuxDirectClient {
           if (row && this.rows.get(id) !== row) this.rows.set(id, row);
         }
         split.aside = split.aside.filter((event) => !page.has(event.seq));
-        split.thoughts = split.thoughts.filter(([from]) => !page.has(from));
+        split.runs = split.runs.filter(([from]) => !page.has(from));
         if (split.aside.length === 0) this.splits.delete(id);
       }
     } finally {
