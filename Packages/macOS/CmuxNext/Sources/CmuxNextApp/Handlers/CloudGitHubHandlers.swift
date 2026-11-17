@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemonService
@@ -37,13 +38,21 @@ enum CloudGitHubHandlers {
             }
             CloudHandlers.runTracked("set up GitHub on Cloud machine", context) {
                 let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
-                let app = await cloud.gitHubApp()
+                let checked = await cloud.gitHubApp(), connect = checked == .notConnected // the team's App first: Connect GitHub, never the machine's own sign-in
                 let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                    CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), confirmBody(identity, app: app),
-                                           button: CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
+                    CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), connect ? CloudStrings.gitHubConnectBody : confirmBody(identity, app: checked),
+                                           button: connect ? CloudStrings.gitHubConnect : CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
                                            in: CloudHandlers.window(context)) { done.resume(returning: $0) }
                 }
                 guard go else { return }
+                var app = checked
+                if connect {
+                    switch AgentPaneGitHubConnect(await context.services.accounts.github.connectResult()) {
+                    case .opened: return // the installation page is open in the browser; Set Up again once it is done
+                    case .alreadyConnected: app = .ready // connected meanwhile: set up through the App now
+                    case .failed(let message): return CloudPresenter.show(CloudStrings.gitHubSetupTitle, message, failed: true, in: CloudHandlers.window(context))
+                    }
+                }
                 let outcome = try await setUp(identity, app)
                 // The person clicked Set Up: one browser page, with the code on the clipboard to paste.
                 if let code = outcome.deviceCode {
