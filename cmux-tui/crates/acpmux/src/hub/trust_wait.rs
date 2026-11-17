@@ -299,8 +299,7 @@ impl Hub {
 
     /// Whether a sub-session start takes `parent`'s trust instead of a card (Leo, 2026-10-24, on a
     /// card a chat in full access raised for a lane folder: "why did this even happen in the first
-    /// place? I thought we bypassed this"; 2026-11-17: "go remove this ... bullshit belt and
-    /// suspenders"). A chat in full access already runs any command anywhere without asking, so it
+    /// place? I thought we bypassed this"; 2026-11-17: no belt and suspenders). A chat in full access already runs any command anywhere without asking, so it
     /// could load a folder's hooks itself: a card on its sub-session's folder stops nothing. Only
     /// all of these: `parent` runs in full access by cmux's own doing ([`full_access_by_cmux`]: a
     /// mode cmux set, never one the harness claimed), outside a Web turn, and is no chat a Web
