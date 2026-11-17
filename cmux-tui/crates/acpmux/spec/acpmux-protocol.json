@@ -4974,7 +4974,9 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "calls": true,
         "cursor": true,
+        "endedWithin": true,
         "limit": true,
         "recent": true,
         "sessionId": true

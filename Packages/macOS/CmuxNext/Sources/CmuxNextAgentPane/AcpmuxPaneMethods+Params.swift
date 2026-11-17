@@ -69,9 +69,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        // The page holds the running ones and the newest ended (`recent`); a daemon without it is
+        // The page holds the running ones and the newest ended (`recent`, `endedWithin`) and the
+        // processes of the calls its transcript shows (`calls`); a daemon without them is
         // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
-        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent"], []),
+        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent", "endedWithin", "calls"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
