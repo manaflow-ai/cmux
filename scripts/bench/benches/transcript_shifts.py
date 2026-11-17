@@ -1,12 +1,12 @@
-"""transcript-replay: visible-row shifts and first paint of the agent chat transcript, over one scripted replay.
+"""transcript-shifts: visible-row shifts and first paint of the agent chat transcript, over one scripted replay.
 
-Wraps webviews/scripts/agent-pane/transcript-replay.bench.ts, the step 0 harness of cmuxterm-hq
+Wraps webviews/scripts/agent-pane/transcript-shifts.bench.ts, the step 0 harness of cmuxterm-hq
 docs/design/agent-transcript-clean-slate.md. It opens a chat of ROWS log records (default 50,000) on a synthetic
 daemon in headless Chrome, streams at 60 tokens/s, pages up 3 times, streams scrolled up, folds and unfolds a tool
 row 10 times and grows the composer, recording every visible row's top after every painted frame. It prints one
 line, which `ingest` reads:
 
-  BENCH {"bench": "transcript-replay", "small": {...}, "big": {"totals": {...}, "phases": {...}, ...}}
+  BENCH {"bench": "transcript-shifts", "small": {...}, "big": {"totals": {...}, "phases": {...}, ...}}
 
 Rows (better = lower):
   row_shifts (count): rows that moved with no user act in the last 500 ms; labels phase (stream, page-up,
@@ -14,7 +14,8 @@ Rows (better = lower):
   shift_frames (count), max_shift (px), input_jostle (count: rows that moved apart inside an act's window),
     scroll_writes (count: offset writes the ScrollController traced), same labels.
   first_paint (ms) and socket_to_paint (ms), labels rows (500, the run's count).
-Run: `cmux-bench transcript-replay --build SHA` sends the harness through `cmux-ci test` (Linux, at the caller's
+(bench/transcript-replay.bench.ts, a different harness, gates open and live CLS and per-token cost at top speed.)
+Run: `cmux-bench transcript-shifts --build SHA` sends the harness through `cmux-ci test` (Linux, at the caller's
 open PR head on a lane VM). `--import LOG` reads a saved log.
 """
 from __future__ import annotations
@@ -27,16 +28,16 @@ from pathlib import Path
 
 from benchlib.bench import Bench, BenchError, Context
 
-HARNESS = "webviews/scripts/agent-pane/transcript-replay.bench.ts"
+HARNESS = "webviews/scripts/agent-pane/transcript-shifts.bench.ts"
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
-LINE = re.compile(r"^BENCH (\{.*\"bench\":\s*\"transcript-replay\".*\})$")
+LINE = re.compile(r"^BENCH (\{.*\"bench\":\s*\"transcript-shifts\".*\})$")
 PHASE_METRICS = (("row_shifts", "rowShifts", "count"), ("shift_frames", "shiftFrames", "count"),
                  ("max_shift", "maxShiftPx", "px"), ("input_jostle", "inputJostleRows", "count"),
                  ("scroll_writes", "scrollWrites", "count"))
 
 
-class TranscriptReplay(Bench):
-    name = "transcript-replay"
+class TranscriptShifts(Bench):
+    name = "transcript-shifts"
     summary = "Agent chat transcript: visible-row shifts per scripted replay phase, and first paint at 500 and 50k rows"
     units = "count, px, ms"
     owner = "agent chat transcript (clean slate, step 0)"
@@ -48,12 +49,12 @@ class TranscriptReplay(Bench):
     def run(self, ctx: Context) -> None:
         rows = ctx.arg("rows") or "50000"
         command = ("set -o pipefail; cd webviews && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null && "
-                   f"CMUX_BROWSER_TESTS=1 ROWS={shlex.quote(rows)} bun scripts/agent-pane/transcript-replay.bench.ts")
+                   f"CMUX_BROWSER_TESTS=1 ROWS={shlex.quote(rows)} bun scripts/agent-pane/transcript-shifts.bench.ts")
         cmd = ["cmux-ci", "test", "--timeout", "1800", "--", "bash", "-c", command]
         if ctx.dry_run:
             print("dry run:", shlex.join(cmd))
             raise BenchError("dry run")
-        log = ctx.workdir / "transcript-replay.log"
+        log = ctx.workdir / "transcript-shifts.log"
         with log.open("w", encoding="utf-8") as f:
             subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
         ctx.host.update({"name": "linux-ci", "os": "Linux"})
@@ -66,7 +67,7 @@ class TranscriptReplay(Bench):
             if match:
                 found = json.loads(match.group(1))
         if found is None:
-            raise BenchError(f"transcript-replay: no BENCH line in {path}")
+            raise BenchError(f"transcript-shifts: no BENCH line in {path}")
         for key in ("small", "big"):
             run = found.get(key) or {}
             labels = {"rows": str(run.get("rows"))}
@@ -81,4 +82,4 @@ class TranscriptReplay(Bench):
                     ctx.row(metric, counts[field], unit, labels={"phase": phase})
 
 
-BENCH = TranscriptReplay()
+BENCH = TranscriptShifts()

@@ -1,4 +1,4 @@
-"""transcript-replay: a real harness run (feat-cmux-next e244410a856, 50k rows, lane VM) -> rows."""
+"""transcript-shifts: a real harness run (feat-cmux-next e244410a856, 50k rows, lane VM) -> rows."""
 from __future__ import annotations
 
 import sys
@@ -9,9 +9,9 @@ BENCH_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BENCH_DIR))
 
 from benchlib.bench import BenchError, Context  # noqa: E402
-from benches.transcript_replay import BENCH  # noqa: E402
+from benches.transcript_shifts import BENCH  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "transcript-replay"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "transcript-shifts"
 
 
 def find(found, metric, **labels):
@@ -25,7 +25,7 @@ def context():
                    timestamp="2026-11-17T00:00:00Z")
 
 
-class TranscriptReplayTest(unittest.TestCase):
+class TranscriptShiftsTest(unittest.TestCase):
     def test_base_run(self):
         ctx = context()
         BENCH.ingest(ctx, FIXTURES / "base-e244410a856.log")
@@ -38,7 +38,7 @@ class TranscriptReplayTest(unittest.TestCase):
         self.assertEqual(find(rows, "socket_to_paint", rows="50582")["value"], 1311)
 
     def test_no_line(self):
-        empty = BENCH_DIR / "tests" / "fixtures" / "transcript-replay" / "missing.log"
+        empty = BENCH_DIR / "tests" / "fixtures" / "transcript-shifts" / "missing.log"
         with self.assertRaises(Exception):
             BENCH.ingest(context(), empty)
         with self.assertRaises(BenchError):

@@ -1,5 +1,7 @@
-// Transcript replay bench: the step 0 harness of cmuxterm-hq docs/design/agent-transcript-clean-slate.md
-// (Leo, 2026-11-11: "the jostling is just insane"). It opens a recorded-shape chat of ROWS log records
+// Transcript shifts bench: the step 0 harness of cmuxterm-hq docs/design/agent-transcript-clean-slate.md
+// (Leo, 2026-11-11: "the jostling is just insane"). bench/transcript-replay.bench.ts plays logs in at top
+// speed and gates open and live layout shift and per-token cost; this one plays a reader's journey at
+// a reader's pace and says which rows moved without the reader asking. It opens a chat of ROWS log records
 // (default 50,000) over a synthetic daemon, then plays one fixed script against the real pane:
 //
 //   stream    a reply at 60 tokens/s while following the latest
@@ -20,7 +22,7 @@
 // at 500 records. Prints one `BENCH {...}` line; asserts only that the run completed, so the
 // numbers are a baseline each step lowers, never a gate that goes red on today's list.
 //
-// Run from webviews: CMUX_BROWSER_TESTS=1 bun scripts/agent-pane/transcript-replay.bench.ts
+// Run from webviews: CMUX_BROWSER_TESTS=1 bun scripts/agent-pane/transcript-shifts.bench.ts
 // Env: ROWS (default 50000), CMUX_REPLAY_CAPTURE_DIR (a video and the per-frame shift log).
 // l10n-allow-file: synthetic transcript and measurement diagnostics.
 import assert from "node:assert/strict";
@@ -501,7 +503,7 @@ try {
     errors: big.errors.slice(0, 5),
   };
   if (capture) await writeFile(path.join(capture, "shifts.json"), JSON.stringify(probe.log, null, 1));
-  console.log(`BENCH ${JSON.stringify({ bench: "transcript-replay", inputMs: INPUT_MS, ...runs })}`);
+  console.log(`BENCH ${JSON.stringify({ bench: "transcript-shifts", inputMs: INPUT_MS, ...runs })}`);
   assert.ok(totals.frames > 0, "the probe saw painted frames");
 } finally {
   for (const run of opened) await run.context.close().catch(() => undefined);
