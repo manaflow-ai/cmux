@@ -35,6 +35,15 @@ struct FloatingPanesWireTests {
         #expect(bad.floating.isEmpty)
         #expect(bad.id == ScreenID(rawValue: 4))
         #expect(bad.layout != .unknown)
+        // The chosen rule: one record that does not decode ends the whole list, the good records with it. A part
+        // of a list would show some floating panes and tile the others, in an order the daemon did not send.
+        let good = #"{"pane":1,"x":0,"y":0,"w":0.5,"h":0.5}"#
+        #expect(try Self.screen("[\(good)]").floating.count == 1)
+        #expect(try Self.screen(#"[\#(good),{"pane":2,"x":0.5}]"#).floating.isEmpty, "one bad record among good ones")
+        #expect(try Self.screen("null").floating.isEmpty, "a list that is null")
+        #expect(try Self.screen(#"{"pane":2}"#).floating.isEmpty, "a list that is no array")
+        #expect(try Self.screen(#"[{"pane":2,"x":"0.5","y":0.25,"w":0.4,"h":0.3}]"#).floating.isEmpty, "a frame number as a string")
+        #expect(try Self.screen(#"[{"pane":-2,"x":0.5,"y":0.25,"w":0.4,"h":0.3}]"#).floating.isEmpty, "a negative pane id")
     }
 
     @Test func aLayoutChangeCarriesTheList() throws {
@@ -78,13 +87,14 @@ struct FloatingPanesWireTests {
     }
 
     @Test func aFrameRequestCarriesAllFourNumbers() throws {
-        let frame = FloatingPaneSnapshot.Frame(x: 0.25, y: 0.5, w: 0.5, h: 0.25)
+        // Four different numbers: a swap of two fields goes red.
+        let frame = FloatingPaneSnapshot.Frame(x: 0.125, y: 0.25, w: 0.5, h: 0.625)
         let fields = try Self.fields(FloatPaneRequest(pane: PaneID(rawValue: 2), mode: .on, frame: frame, transaction: 11))
         #expect(fields["mode"] == .string("on"))
-        #expect(fields["x"] == .number(0.25))
-        #expect(fields["y"] == .number(0.5))
+        #expect(fields["x"] == .number(0.125))
+        #expect(fields["y"] == .number(0.25))
         #expect(fields["w"] == .number(0.5))
-        #expect(fields["h"] == .number(0.25))
+        #expect(fields["h"] == .number(0.625))
         #expect(fields["transaction"] == .number(11))
         #expect(try Self.fields(FloatPaneRequest(pane: PaneID(rawValue: 2), mode: .off))["mode"] == .string("off"))
     }
@@ -96,10 +106,61 @@ struct FloatingPanesWireTests {
         #expect(!answer.changed)
     }
 
-    /// The answer of `split` names the pane it made: a new floating pane is that pane.
-    @Test func theAnswerOfASplitNamesItsPane() throws {
-        let created = try JSONDecoder().decode(SurfaceCreated.self, from: Data(#"{"surface":8,"pane":5}"#.utf8))
-        #expect(created.pane == PaneID(rawValue: 5))
-        #expect(try JSONDecoder().decode(SurfaceCreated.self, from: Data(#"{"surface":8}"#.utf8)).pane == nil)
+    /// A request that only the fixture daemon of the test below knows: the `float-pane` requests it got.
+    private struct CapturedFloatCalls: DaemonRequest {
+        typealias Response = JSONValue
+        static let command = "test-float-calls"
+    }
+
+    /// A daemon that does not list `floating-panes-v1` gets no `float-pane` request: the connection refuses the
+    /// request before it sends it. A daemon that lists it gets the request and its answer comes back. A real
+    /// connection over a fixture bridge; no daemon of a person starts.
+    @Test(arguments: [false, true])
+    func aDaemonWithoutTheCapabilityGetsNoRequest(serves: Bool) async throws {
+        let script = #"""
+        import json, sys
+        serves = sys.argv[1] == 'yes'
+        calls = []
+        print('{"ok":true}', file=sys.stderr, flush=True)
+        for line in sys.stdin:
+            frame = json.loads(line)
+            cmd = frame.get('cmd')
+            result = {}
+            if cmd == 'identify':
+                result = {'app':'cmux-tui','protocol':12,'generation':'float-boot',
+                    'capabilities':['floating-panes-v1'] if serves else []}
+            elif cmd == 'float-pane':
+                calls.append(frame)
+                result = {'screen':4,'floating':True,'changed':True}
+            elif cmd == 'test-float-calls':
+                result = calls
+            print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
+        """#
+        let bridge = DaemonBridge.fakePython(["-c", script, serves ? "yes" : "no"])
+        let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-float-test-\(UUID().uuidString).sock", bridge: bridge)
+        let connection = DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
+        do {
+            try await connection.start()
+            do {
+                let answer = try await connection.request(FloatPaneRequest(pane: PaneID(rawValue: 2)))
+                #expect(serves, "a daemon without the capability got an answer")
+                #expect(answer.floating)
+                #expect(answer.changed)
+            } catch DaemonError.missingCapabilities(let missing) {
+                #expect(!serves, "a daemon with the capability was refused")
+                #expect(missing == ["floating-panes-v1"])
+            }
+            let captured = try await connection.request(CapturedFloatCalls())
+            let calls = try #require(captured.arrayValue)
+            #expect(calls.count == (serves ? 1 : 0))
+            if let call = calls.first {
+                #expect(call["cmd"] == .string("float-pane"))
+                #expect(call["pane"] == .number(2))
+            }
+            await connection.close()
+        } catch {
+            await connection.close()
+            throw error
+        }
     }
 }
