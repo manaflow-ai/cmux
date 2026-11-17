@@ -148,7 +148,13 @@ const LOADER: [&str; 10] = [
 /// A variable name an app may get: `[A-Za-z_][A-Za-z0-9_]*`, not `HOME` or `PORT`, and no
 /// loader variable (`LD_*`, `MALLOC_*`, [`LOADER`]).
 pub fn env_key_allowed(key: &str) -> bool {
-    unimplemented!("red: env_key_allowed")
+    let mut bytes = key.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && !RESERVED.contains(&key)
+        && !key.starts_with("LD_")
+        && !key.starts_with("MALLOC_")
+        && !LOADER.contains(&key)
 }
 
 /// The `apps.spawn` object of a socket line, checked.
@@ -224,7 +230,37 @@ pub fn isolated(user: &AppUser, groups: &[u32], agent_gid: Option<u32>, asker: u
 /// The staged directory of the asker's version: `.../apps/<slug>/v<n>`, not a symlink, and the
 /// asker's own; then its `src.tar`, opened without following a link, a regular file of theirs.
 pub fn staged_archive(ask: &SpawnAsk, asker: u32) -> Result<File, String> {
-    unimplemented!("red: staged_archive")
+    let dir = &ask.version_dir;
+    let tail = [format!("v{}", ask.version), ask.slug.clone(), "apps".to_owned()];
+    let mut names = dir.components().rev().filter_map(|c| match c {
+        Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+        _ => None,
+    });
+    if !tail.iter().all(|want| names.next().as_deref() == Some(want.as_str())) {
+        return Err(format!(
+            "{} is not a version directory (.../apps/{}/v{})",
+            dir.display(),
+            ask.slug,
+            ask.version
+        ));
+    }
+    let meta = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !meta.is_dir() || meta.uid() != asker {
+        return Err(format!("{} is not a directory of the asking user", dir.display()));
+    }
+    let archive = dir.join("src.tar");
+    let file = OpenOptions::new()
+        .read(true)
+        // O_NONBLOCK: a FIFO here must not hang the agent's one thread on open.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(&archive)
+        .map_err(|e| format!("{}: {e}", archive.display()))?;
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", archive.display()))?;
+    if !meta.is_file() || meta.uid() != asker {
+        return Err(format!("{} is not a file of the asking user", archive.display()));
+    }
+    blocking(&file).map_err(|e| format!("{}: {e}", archive.display()))?;
+    Ok(file)
 }
 
 /// Clears `O_NONBLOCK` on a regular file opened with it.
@@ -242,7 +278,25 @@ fn blocking(file: &File) -> io::Result<()> {
 
 /// `path` for appending, refusing a symbolic link or a second hard link, then owned by `uid`.
 pub fn open_log(path: &Path, uid: u32, gid: u32) -> Result<File, String> {
-    unimplemented!("red: open_log")
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o644)
+        // O_NONBLOCK: a FIFO here must not hang the agent's one thread on open.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|e| match e.raw_os_error() {
+            Some(libc::ELOOP) => format!("{} is a symbolic link; refused", path.display()),
+            _ => format!("{}: {e}", path.display()),
+        })?;
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(format!("{} is not a plain file; refused", path.display()));
+    }
+    blocking(&file).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::os::unix::fs::fchown(&file, Some(uid), Some(gid))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(file)
 }
 
 /// `/proc/<pid>/stat`: its state letter and start time (field 22, clock ticks after boot).
@@ -329,12 +383,48 @@ pub struct StartPlan {
 }
 
 pub fn start_plan(user: &AppUser, ask: &SpawnAsk, run: &Path) -> StartPlan {
-    unimplemented!("red: start_plan")
+    let src = run.join("src");
+    let workdir = if ask.subdir.is_empty() { src } else { src.join(&ask.subdir) };
+    let mut args = drop_args(user);
+    args.push("/usr/bin/env".to_owned());
+    args.push("-i".to_owned());
+    args.extend(spawn_env(&ask.env, run, ask.port).into_iter().map(|(k, v)| format!("{k}={v}")));
+    args.push("/bin/sh".to_owned());
+    args.push("-c".to_owned());
+    let cd = "cd -- \"$1\" || { echo \"cmux: no directory $1\"; exit 96; }";
+    match &ask.setup {
+        None => {
+            args.push(format!("{cd}; exec /bin/sh -c \"$2\""));
+            args.extend([
+                "cmux-app-start".to_owned(),
+                workdir.display().to_string(),
+                ask.cmd.clone(),
+            ]);
+        }
+        Some(setup) => {
+            args.push(format!(
+                "{cd}; echo 'cmux: setup'; timeout \"$2\" /bin/sh -c \"$3\" || {{ echo \"cmux: setup failed ($?)\"; exit {SETUP_FAILED}; }}; echo 'cmux: start'; exec /bin/sh -c \"$4\""
+            ));
+            args.extend([
+                "cmux-app-start".to_owned(),
+                workdir.display().to_string(),
+                SETUP_LIMIT.as_secs().to_string(),
+                setup.clone(),
+                ask.cmd.clone(),
+            ]);
+        }
+    }
+    StartPlan {
+        program: SETPRIV.to_owned(),
+        args,
+        root_env: vec![("PATH".to_owned(), ROOT_PATH.to_owned())],
+        root_dir: PathBuf::from("/"),
+    }
 }
 
 /// Whether a start runs the tree already unpacked: only a restart, and only when one exists.
 pub fn keeps_tree(restart: bool, exists: bool) -> bool {
-    unimplemented!("red: keeps_tree")
+    restart && exists
 }
 
 fn wait_bounded(mut child: Child, limit: Duration, what: &str) -> Result<(), String> {

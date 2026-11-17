@@ -436,7 +436,7 @@ pub fn rollback(
             setup: None,
             port: target.port,
             env: &env,
-            restart: false,
+            restart: true,
         };
         let started = host.procs.start(&start).map_err(|e| Failure::new("app.start", e))?;
         if let Err(e) = probe(host, slug, target.n, target.port, timeout) {
