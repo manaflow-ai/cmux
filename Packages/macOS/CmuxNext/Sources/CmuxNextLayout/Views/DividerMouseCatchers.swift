@@ -144,13 +144,16 @@ public final class DividerMouseCatchers {
         spares.append(panel)
     }
 
+    /// A panel no divider will use again leaves the window and closes: a panel only ordered out stays open as long
+    /// as anything holds its catchers (a closed window that is still alive keeps them).
     private func remove(_ panel: DividerMousePanel) {
         if panel.parent === window { window.removeChildWindow(panel) }
-        panel.orderOut(nil)
+        panel.close()
     }
 
+    /// The window closes (`WindowController.teardown` -> `WindowOverlayLayer.teardown`): every panel closes.
     public func teardown() {
-        // The window closes: no press holds a panel.
+        // No press holds a panel.
         for panel in panels.values { panel.catcher.resetForReuse() }
         update([], active: false)
     }
