@@ -160,7 +160,7 @@ export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {
   // Shortest paths from the root (breadth first, weak edges left out), and each node's place on it.
   const synthetic = nodeTypes.indexOf("synthetic");
   const placeOf = new Int32Array(n).fill(-1);
-  const prefix: (string | undefined)[] = new Array(n);
+  const prefix = Array.from<string | undefined>({ length: n });
   const placeNames: string[] = [];
   const placeIds = new Map<string, number>();
   const placeId = (name: string) => {
