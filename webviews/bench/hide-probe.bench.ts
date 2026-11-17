@@ -1,7 +1,12 @@
 // Temporary probe: which DevTools call hides a page to headless Chromium (document hidden, no frames).
 import { chromium } from "./browsers";
 
-const server = await chromium.launchServer({ headless: true, args: ["--process-per-site", "--js-flags=--expose-gc"] });
+// PROBE_CHANNEL=chrome: the installed Google Chrome in its new headless mode (real tabs and windows).
+const server = await chromium.launchServer({
+  headless: true,
+  args: ["--process-per-site", "--js-flags=--expose-gc"],
+  ...(process.env.PROBE_CHANNEL ? { channel: process.env.PROBE_CHANNEL } : {}),
+});
 const browser = await chromium.connect(server.wsEndpoint());
 const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
 const html = `<html><body>probe<script>
@@ -93,6 +98,33 @@ const keep = await open(); // a shown page, so the probes are not the only one
     await state(page, "screencast on/off then frozen->active");
   } catch (e) {
     console.log(`screencast: ${String(e).slice(0, 200)}`);
+  }
+}
+{
+  // Tabs of one window: a tab opened in the background, then the foreground one switched.
+  const bcdp = await browser.newBrowserCDPSession();
+  try {
+    const front = context.pages().at(-1)!;
+    const frontCdp = await context.newCDPSession(front);
+    const { targetInfo } = (await frontCdp.send("Target.getTargetInfo" as never)) as {
+      targetInfo: { browserContextId: string };
+    };
+    const opened = context.waitForEvent("page");
+    await bcdp.send("Target.createTarget", {
+      url: `data:text/html,${encodeURIComponent(html)}`,
+      newWindow: false,
+      background: true,
+      browserContextId: targetInfo.browserContextId,
+    } as never);
+    const tab = await opened;
+    await tab.waitForLoadState();
+    await state(tab, "background tab (createTarget newWindow false)");
+    await tab.bringToFront();
+    await state(tab, "background tab brought to front");
+    await front.bringToFront();
+    await state(tab, "front switched back to the other tab");
+  } catch (e) {
+    console.log(`tabs: ${String(e).slice(0, 300)}`);
   }
 }
 console.log(`browser version: ${browser.version()}`);
