@@ -66,12 +66,18 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         // Going up never moves the window back down (run 8f9f55310f87a97be78b36cd:
         // 40 steps down on the way up, 98 fetches, the page left on the Mac's screen).
         XCTAssertEqual(top.down, 0, "going up never moved the window toward the screen: \(caption.label)")
-        // The page's very top: row 000000.
-        for _ in 0..<6 { fling(app, from: 0.2, to: 0.7) }
-        // Read from the page's own rows, not the caption's numbers: at
-        // 77fee684 (step 8f9f55310f87a97be78b36cd) the numbers passed while
-        // the page showed the Mac's screen.
-        XCTAssertTrue(wait(caption, timeout: 10) { $0.top == "000000" }, "the page rests on line 1: \(caption.label)")
+        // The page's very top: row 000000. The reader rests on their own rows
+        // after the last fetch, a window step (1,500 rows) below line 1, a
+        // few flings of the rows held. Read from the page's own rows, not the
+        // caption's numbers: at 77fee684 (step 8f9f55310f87a97be78b36cd) the
+        // numbers passed while the page showed the Mac's screen.
+        var topFlings = 0
+        while !wait(caption, timeout: 2, { $0.top == "000000" }), topFlings < 40 {
+            fling(app, from: 0.2, to: 0.7)
+            topFlings += 1
+        }
+        XCTAssertEqual(state(caption).top, "000000", "the page rests on line 1 after \(topFlings) more flings: \(caption.label)")
+        XCTAssertEqual(state(caption).omitted, 0, "no row above line 1: \(caption.label)")
         attach(app, "3-line-1")
 
         // Back down: reaching the window's end moves it toward the screen.

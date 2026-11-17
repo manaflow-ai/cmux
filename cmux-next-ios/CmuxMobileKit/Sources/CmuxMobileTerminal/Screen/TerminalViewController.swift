@@ -1514,12 +1514,27 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
+        let ownMark = pendingRestore == nil
         let pending = pendingRestore ?? readingMark.map { TerminalScrollRestore(mark: $0, fromEnd: false) }
         readingMark = nil
         pendingRestore = nil
         olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else {
+        fingerRestore = nil
+        let markOffsetY = readingMarkOffsetY
+        readingMarkOffsetY = nil
+        let held = scrollView.isTracking || scrollView.isDecelerating
+        // A finger (or its fling) took the page after the mark: its rows are
+        // still put back, moved as far as the finger moved them since
+        // (`markOffsetY`). Before, they were dropped and the page stayed on
+        // the old rows' offset: past a history window that moved 1,500 rows,
+        // other rows, and the Mac's screen after a switch from the newest
+        // rows (simulator step 4a7b618b0ab0733665f972e6: 13 restores
+        // dropped on the way to line 1). Only for the reader's own mark: a
+        // place waiting for older rows is dropped by the drag
+        // (`dropPendingRestore`).
+        let underFinger = held && ownMark && markOffsetY != nil
+        guard var restore = pending, !model.isTUI, !held || underFinger else {
             #if DEBUG
             if pending != nil, !model.isTUI { TerminalHistoryWindowProbe.shared.note("T") }
             #endif
@@ -1550,12 +1565,54 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         let placed = restore.mark
-        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)\(underFinger ? " under a finger" : "", privacy: .public)")
+        if underFinger, let markOffsetY {
+            // Placed once the document has the replay's rows (`applyFingerRestore`).
+            fingerRestore = (anchor, scrollView.contentOffset.y - markOffsetY)
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("F")
+            #endif
+            return
+        }
         scroll.restoreReading(anchor)
         restoredMark = (placed, anchor)
         #if DEBUG
         TerminalHistoryWindowProbe.shared.note("P")
         #endif
+    }
+
+    /// A reader's rows found while a finger held the page
+    /// (`restoreReadingMark`): the anchor, and how far the finger moved the
+    /// page since the mark (points).
+    private var fingerRestore: (anchor: TerminalScrollModel.Anchor, movedY: CGFloat)?
+    /// The page's offset when the reading mark was taken.
+    private var readingMarkOffsetY: CGFloat?
+
+    /// After the document took the replay's rows: a reader restored under a
+    /// finger gets the page moved to their rows, the finger's move since the
+    /// mark kept, as `historyPruned` moves it under a finger. A fling is
+    /// stopped there and the page rests on those rows.
+    private func applyFingerRestore() {
+        guard let restore = fingerRestore else { return }
+        fingerRestore = nil
+        guard let document, cell.height > 0, !model.isTUI else { return }
+        let target = document.contentY(ofRow: restore.anchor.row, cellHeight: cell.height) + restore.anchor.delta + restore.movedY
+        let y = min(max(-scrollView.contentInset.top, target), maxOffsetY)
+        let decelerating = scrollView.isDecelerating || fling != nil
+        if decelerating {
+            fling?.stop()
+            fling = nil
+            stopGlide()
+        }
+        settingOffset = true
+        if decelerating {
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
+        } else {
+            scrollView.contentOffset.y = y
+        }
+        settingOffset = false
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        if decelerating, !scrollView.isTracking { settleScroll() }
     }
 
     /// Where the reader is, for the tab's next host when the warm set cools
@@ -1644,6 +1701,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
+        readingMarkOffsetY = readingMark == nil ? nil : scrollView.contentOffset.y
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
     }
 
@@ -1659,6 +1717,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
             }
             self.applyScroll()
             if let held = self.freezeView, !self.restorePending { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
@@ -1753,6 +1812,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
         updateDocument()
+        if restoring { applyFingerRestore() }
         if restoring { applyScroll() }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm scrollbar %@", debugState) }
@@ -1802,6 +1862,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
                 self.applyScroll()
             }
             self.releaseHeldFrameAtCap(held, recover: true)

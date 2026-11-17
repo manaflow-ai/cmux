@@ -6,7 +6,7 @@ import Foundation
 /// history fetches, for `TerminalHistoryWindowDemo`'s caption (the UI test's
 /// simulator is deleted before its app log is read). Each event is counted
 /// and appended, one letter, to a short trail:
-/// `P` a reading mark placed, `S` a replay read as short of the reader (older
+/// `P` a reading mark placed, `F` placed under a finger, `S` a replay read as short of the reader (older
 /// rows asked), `T` a restore dropped because a finger or a fling held the
 /// page, `D` a waiting place dropped by a drag, `N` the newest rows asked for
 /// from the screen, `R` newer rows asked for coming down.
@@ -27,9 +27,9 @@ public final class TerminalHistoryWindowProbe {
         if trail.count > trailLength { trail.removeFirst(trail.count - trailLength) }
     }
 
-    /// `top=000123 probe=P3,S0,T0,D0,N0,R0 trail=PPS`: no spaces inside a field.
+    /// `top=000123 probe=P3,F0,S0,T0,D0,N0,R0 trail=PPS`: no spaces inside a field.
     public var caption: String {
-        let fields = "PSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
+        let fields = "PFSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
         return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail)"
     }
 }
