@@ -73,7 +73,8 @@ export default async function TermsOfServicePage() {
       <p>
         You acknowledge that all intellectual property rights, including
         copyrights, patents, trademarks, and trade secrets, in the Application
-        and its content are owned by Company or Company&rsquo;s suppliers.
+        and its content (not including Your Content as defined in Section 10)
+        are owned by Company or Company&rsquo;s suppliers.
         These Terms do not transfer to you any rights, title or interest in such
         intellectual property, except for the limited license above. Company and
         its suppliers reserve all rights not granted in these Terms.
@@ -142,7 +143,8 @@ export default async function TermsOfServicePage() {
 
       <h2>7. Term and Termination</h2>
       <p>
-        These Terms will remain in effect while you use the Application. We may
+        These Terms will remain in effect while you use the Application. Except
+        as Section 10 says for cmux Cloud, we may
         suspend or terminate your rights at any time for any reason at our sole
         discretion. Upon termination, you shall cease all use of the Application
         and delete all copies from your devices.
@@ -277,10 +279,9 @@ export default async function TermsOfServicePage() {
       <h3>Fees, credits, and spend limits</h3>
       <p>
         cmux Cloud charges for usage, such as AI model use, transcription,
-        meeting notetaking, and cloud machine time, at the prices shown in
-        cmux Cloud or on its pricing page when the usage occurs. Usage is paid
-        from your team&rsquo;s credits or charged to your payment method
-        through our payment processor. You authorize those charges. Prices do
+        and cloud machine time, at the prices shown in cmux Cloud or on its
+        pricing page when the usage occurs. Usage is paid from credits that
+        your team buys through our payment processor. Prices do
         not include taxes, and you are responsible for applicable taxes.
         Except where the law requires otherwise, purchased credits are not
         refundable and have no cash value. We can change prices with notice;
@@ -289,9 +290,10 @@ export default async function TermsOfServicePage() {
       <p>
         cmux Cloud has no spend limit unless a person on your team sets one.
         You and your team set dollar limits, and you are responsible for the
-        limits you set or do not set. Limits are checked while work runs, so
-        usage can go over a limit by a small amount before work stops; you pay
-        for that usage. When your credits run out or a limit is reached, cmux
+        limits you set or do not set. Limits are checked at set points while
+        work runs, so usage can go over a limit before work stops (for example,
+        a notetaker that is already in a meeting continues until the meeting
+        ends). You pay for that usage. When your credits run out or a limit is reached, cmux
         Cloud can stop or refuse work.
       </p>
 
