@@ -127,6 +127,10 @@ pub struct Watching {
     /// at once, oldest first, so the line that runs each later does not show it again (`watch.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued: Vec<String>,
+    /// Prompts the terminal took while a turn ran that did not show at once (past the cap, or
+    /// text a delivery may have): one shows as typed when the turn takes it in (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unshown: Vec<String>,
 }
 
 /// The process a chat handed its conversation to (`Watching::terminal`): `acpmux resume-here`,

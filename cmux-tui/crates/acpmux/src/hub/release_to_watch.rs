@@ -248,6 +248,7 @@ impl Hub {
             open: None,
             terminal: terminal.map(|pid| driver(pid, root)),
             queued: Vec::new(),
+            unshown: Vec::new(),
         };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
