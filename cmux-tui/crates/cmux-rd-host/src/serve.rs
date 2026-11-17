@@ -438,6 +438,8 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
