@@ -230,6 +230,14 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("::error title=deferred runs not re-run::", result.stdout)
 
+    def test_published_with_no_markers_makes_one_artifact_read(self):
+        result, calls = self.run_handoff({"artifacts": []}, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("No run of tree", result.stdout)
+        self.assertEqual([call for call in calls if call[0] == "api"],
+                         [["api", "repos/o/r/actions/artifacts?name=cmux-tui-tree-deferred-"
+                           + KEY + "&per_page=100&page=1"]])
+
     def test_published_cap_is_a_backstop(self):
         self.assertTrue(handoff.may_rerun({"status": "completed", "run_attempt": 3}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
         self.assertFalse(handoff.may_rerun({"status": "completed", "run_attempt": 5}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
