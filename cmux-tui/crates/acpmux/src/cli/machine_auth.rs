@@ -272,7 +272,10 @@ pub fn run(json_out: bool) -> i32 {
         .collect();
     let value = report(
         crate::cloud_host::is_cloud_vm(),
-        cloud_model_plane::read_at(Path::new(PLANE_FILE), true),
+        // As a spawn sees it: a route whose host does not resolve here is no route.
+        cloud_model_plane::read_at(Path::new(PLANE_FILE), true).map(|plane| {
+            cloud_model_plane::where_resolves(plane, cloud_model_plane::plane_host_resolves)
+        }),
         read_daemon_env(&crate::config::home()),
         &home_dir(),
         managed,
