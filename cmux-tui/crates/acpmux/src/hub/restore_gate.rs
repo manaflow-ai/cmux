@@ -320,11 +320,10 @@ impl Hub {
             let waiting = {
                 let mut s = self.restore_gate.lock();
                 s.queue.retain(|w| !queue::closing(&w.session));
-                let queued: std::collections::HashSet<&str> =
-                    s.queue.iter().map(|w| w.session.id.as_str()).collect();
-                let parked = std::mem::take(&mut s.parked);
-                s.parked =
-                    parked.into_iter().filter(|p| queued.contains(p.session_id.as_str())).collect();
+                // A chat closed while parked leaves the queue: its parked entry goes with it.
+                let queued: std::collections::HashSet<String> =
+                    s.queue.iter().map(|w| w.session.id.clone()).collect();
+                s.parked.retain(|p| queued.contains(&p.session_id));
                 if s.queue.is_empty() {
                     s.driving = false;
                     s.holding = None;
