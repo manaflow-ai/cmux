@@ -166,8 +166,9 @@ for side in dict.fromkeys(r["side"] for r in rows):
     # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
     # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
     # model key) and the top page are compared; the tab id is kept in the row only.
-    # state=bare: every launch starts from an empty home, so there is nothing to reopen; what a bare launch owes is
-    # the window taking keys (window_usable) before the probe quits it.
+    # state=bare: every launch starts from an empty home, so there is nothing to reopen (each launch's workspace is
+    # new: its id comes from the emptied home). What a bare launch owes is Home's page (home.first_page) and the window
+    # taking keys in it (window_usable) before the probe quits it.
     prev, measured, reopened, usable = None, 0, 0, 0
     for r in (r for r in rows if r["side"] == side):
         front = r.get("front")
@@ -177,7 +178,8 @@ for side in dict.fromkeys(r["side"] for r in rows):
             if r.get("cross_arm"):
                 reason = "cross-arm " + json.dumps(r["cross_arm"])
             elif bare:
-                reason = None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys"
+                reason = ("not on Home: no home.first_page" if "home.first_page" not in r["marks"]
+                          else None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys")
             elif not front or "error" in front:
                 reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
             elif not prev or "error" in prev:
@@ -190,7 +192,7 @@ for side in dict.fromkeys(r["side"] for r in rows):
             if reason:
                 print("LR-FAIL", side, r["label"], reason, flush=True)
         prev = front
-    med["reopened"] = "n/a" if bare else f"{reopened}/{measured}"
+    med["reopened"] = "n/a (bare: expects Home)" if bare else f"{reopened}/{measured}"
     med["usable"] = f"{usable}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
