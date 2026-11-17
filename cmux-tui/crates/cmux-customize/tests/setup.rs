@@ -98,6 +98,7 @@ fn receipt(setup: &setup::Setup, installed: &setup::Installed) -> Receipt {
         generation: installed.applied.as_ref().map(|applied| applied.generation.n),
         before: installed.before,
         library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
+        library_created: installed.library_created,
         actions: setup.actions().clone(),
         prior_actions: installed.prior_actions.clone(),
         extensions: Vec::new(),
@@ -359,4 +360,102 @@ fn export_writes_a_setup_repo_that_installs_on_another_machine() {
     assert_eq!(there.settings()["appearance"]["themeFile"], json!("night"));
     assert_eq!(there.settings()["actions"]["hi"]["command"], json!("echo hi"));
     assert!(there.read("themes/night.json").is_some());
+}
+
+#[test]
+fn a_setup_that_carries_a_credential_is_refused_whole() {
+    let home = Home::new();
+    let repo = sample_repo(home.dir.path());
+    let customize = home.customize();
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+
+    let mut in_setting = setup::read_dir(&repo).unwrap();
+    in_setting
+        .profile
+        .settings
+        .insert("browser.newTabPage".to_owned(), json!("https://me:hunter2@example.com/"));
+    let mut in_file = setup::read_dir(&repo).unwrap();
+    in_file
+        .profile
+        .files
+        .insert("themes/leaky.json".to_owned(), format!("{{ \"name\": \"{token}\" }}\n"));
+    let mut in_action = setup::read_dir(&repo).unwrap();
+    in_action
+        .manifest
+        .actions
+        .insert("leak".to_owned(), json!({ "command": format!("curl -H {token}") }));
+    for bad in [in_setting, in_file, in_action] {
+        for result in [
+            customize.plan_setup(&bad, "manaflow-ai", "0.0.0").map(|_| ()),
+            customize.install_setup(&bad, "setup", "cli", 10).map(|_| ()),
+        ] {
+            let why = match result {
+                Err(error) => error.to_string(),
+                Ok(()) => panic!("a setup with a credential went through"),
+            };
+            assert!(!why.contains("hunter2") && !why.contains("a1B2"), "{why}");
+        }
+    }
+    assert!(!home.config("themes/sample-dusk.json").exists());
+}
+
+#[test]
+fn exporting_again_leaves_out_what_this_export_leaves_out() {
+    let home = Home::new();
+    home.write("cmux-next.json", "{ \"appearance\": { \"themeFile\": \"night\" } }\n");
+    home.write("themes/night.json", "{ \"name\": \"night\" }\n");
+    home.write("themes/old.json", "{ \"name\": \"old\" }\n");
+    let customize = home.customize();
+    customize.apply(None, "cli", 5).unwrap();
+    let out = home.dir.path().join("my-setup");
+    let header = ExportHeader {
+        id: "leo/night".to_owned(),
+        name: "Night".to_owned(),
+        description: "My night look.".to_owned(),
+        repo: String::new(),
+        extensions: Vec::new(),
+    };
+    customize.export_setup(&out, &header, 10).unwrap();
+    assert!(out.join("themes/old.json").is_file());
+
+    // The old theme now holds a token, so the next export leaves it out:
+    // the copy the first export wrote must not stay behind in the repo.
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    home.write("themes/old.json", &format!("{{ \"name\": \"{token}\" }}\n"));
+    customize.apply(None, "cli", 15).unwrap();
+    let exported = customize.export_setup(&out, &header, 20).unwrap();
+    assert_eq!(exported.files, ["themes/night.json"]);
+    assert!(!out.join("themes/old.json").exists());
+    assert!(out.join("themes/night.json").is_file());
+    let read = setup::read_dir(&out).unwrap();
+    assert!(!read.profile.files.contains_key("themes/old.json"));
+}
+
+#[test]
+fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
+    let home = Home::new();
+    let repo = sample_repo(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+
+    // You already have this look as a library entry, turned off.
+    let first = customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    assert!(first.library_created);
+    let yours = first.applied.as_ref().and_then(|applied| applied.library.clone()).unwrap();
+    customize.library_set_on(&yours, false, "cli", 15).unwrap();
+    assert!(!home.config("themes/sample-dusk.json").exists());
+
+    // Installing the setup now matches your entry rather than making one.
+    let installed = customize.install_setup(&read, "setup", "cli", 20).unwrap();
+    let named = installed.applied.as_ref().and_then(|applied| applied.library.clone());
+    if named.as_deref() == Some(yours.as_str()) {
+        assert!(!installed.library_created);
+    }
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    let found = customize.setups().unwrap().remove(0);
+    customize.remove_setup(&found, "cli", 30).unwrap();
+    assert!(
+        customize.library().unwrap().entries.iter().any(|entry| entry.name == yours),
+        "your entry is still in the library"
+    );
 }

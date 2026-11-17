@@ -127,6 +127,7 @@ impl Setup {
 }
 
 mod reference;
+mod secrets;
 pub use reference::Reference;
 use reference::plain;
 
@@ -394,6 +395,9 @@ pub struct Installed {
     pub before: Option<u32>,
     /// What the setup's actions replaced, by name (`None`: there was none).
     pub prior_actions: PriorActions,
+    /// The install made the library entry `applied` names (`false`: the
+    /// apply matched one you already had).
+    pub library_created: bool,
 }
 
 /// An installed setup, as `update` and `remove` read it.
@@ -416,6 +420,10 @@ pub struct Receipt {
     /// The library entry it is, which `remove` takes off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<String>,
+    /// The install made that entry, so `remove` deletes it; otherwise the
+    /// entry was yours already and `remove` only turns it off.
+    #[serde(default)]
+    pub library_created: bool,
     /// The actions it set, and what each replaced (`null`: none).
     #[serde(default)]
     pub actions: BTreeMap<String, Value>,
@@ -520,6 +528,10 @@ impl Customize {
     /// Keeps `receipt`, replacing one for the same repo.
     pub fn record_setup(&self, receipt: Receipt) -> Result<(), Error> {
         let _lock = self.store().lock()?;
+        self.put_receipt_locked(receipt)
+    }
+
+    fn put_receipt_locked(&self, receipt: Receipt) -> Result<(), Error> {
         let mut file = self.read_setup_receipts()?;
         file.setups.retain(|old| old.reference.key() != receipt.reference.key());
         file.setups.insert(0, receipt);
@@ -550,8 +562,7 @@ impl Customize {
         for extension in &manifest.extensions {
             Reference::parse(extension)?;
         }
-        self.check_profile(&setup.profile)?;
-        check_actions(&manifest.actions)?;
+        self.check_setup(setup)?;
 
         let live = tree::read(self.roots(), SETTINGS)?
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
@@ -641,29 +652,27 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_profile(&setup.profile)?;
-        check_actions(setup.actions())?;
+        self.check_setup(setup)?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
-        match self.install_setup_locked(setup, label, origin, now_ms) {
-            Ok((applied, prior_actions)) => Ok(Installed { applied, before, prior_actions }),
-            Err(error) => {
-                // All or nothing: what was live before comes back (the preview
-                // and a half-written settings file are kept as a discarded
-                // generation, never lost).
-                if let Some(n) = before {
-                    let why = format!("setup {}: install failed", setup.manifest.id);
-                    let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
-                }
-                Err(error)
-            }
+        let installed = self.install_setup_locked(setup, label, origin, now_ms);
+        if installed.is_err()
+            && let Some(n) = before
+        {
+            // All or nothing: what was live before comes back (the preview
+            // and a half-written settings file are kept as a discarded
+            // generation, never lost).
+            let why = format!("setup {}: install failed", setup.manifest.id);
+            let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
         }
+        installed.map(|installed| Installed { before, ..installed })
     }
 
-    /// Updates `old` to `setup` as one change: `old` comes off, `setup` goes
-    /// on, and when the second step fails, `old` is put back as it was (its
-    /// library entry, what was live, its receipt).
+    /// Updates `old` to `setup` as one change, under one hold of the store
+    /// lock (no other change can land between its steps): `old` comes off,
+    /// `setup` goes on, and when a step fails, `old` is back as it was (the
+    /// library file, what was live, its receipt).
     pub fn replace_setup(
         &self,
         old: &Receipt,
@@ -672,30 +681,41 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_profile(&setup.profile)?;
-        check_actions(setup.actions())?;
+        self.check_setup(setup)?;
+        self.no_preview_open()?;
         self.ensure_baseline(now_ms)?;
+        let _lock = self.store().lock()?;
         let before = self.current_generation()?;
         let library = self.library_snapshot()?;
-        let error = match self
-            .remove_setup(old, origin, now_ms)
-            .and_then(|_| self.install_setup(setup, label, origin, now_ms))
-        {
-            Ok(installed) => return Ok(installed),
-            Err(error) => error,
-        };
-        // Back to exactly what was there: the library file, what was live
-        // (what the failed steps wrote stays as a discarded generation), and
-        // the old receipt.
-        if let Ok(_lock) = self.store().lock() {
+        let replaced = self.remove_setup_locked(old, origin, now_ms).and_then(|_| {
+            let between = self.current_generation()?;
+            let installed = self.install_setup_locked(setup, label, origin, now_ms)?;
+            Ok(Installed { before: between, ..installed })
+        });
+        if replaced.is_err() {
             let _ = self.library_write_back(library.as_deref());
             if let Some(n) = before {
                 let why = format!("setup {}: update failed", old.id);
                 let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
             }
+            let _ = self.put_receipt_locked(old.clone());
         }
-        let _ = self.record_setup(old.clone());
-        Err(error)
+        replaced
+    }
+
+    pub(crate) fn check_setup(&self, setup: &Setup) -> Result<(), Error> {
+        self.check_profile(&setup.profile)?;
+        check_actions(setup.actions())?;
+        secrets::check_secrets(setup)
+    }
+
+    fn no_preview_open(&self) -> Result<(), Error> {
+        if self.store().draft()?.is_some() {
+            return Err(Error::Setup(
+                "a preview is open: apply or discard it first (`cmux customize`)".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     fn install_setup_locked(
@@ -704,7 +724,8 @@ impl Customize {
         label: &str,
         origin: &str,
         now_ms: u64,
-    ) -> Result<(Option<Applied>, PriorActions), Error> {
+    ) -> Result<Installed, Error> {
+        let had = self.library_names()?;
         self.preview_profile_locked(&setup.profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {
@@ -714,37 +735,47 @@ impl Customize {
                 let path = action_path(name);
                 prior_actions
                     .insert(name.clone(), cmux_config::value::value_at(&file, &path).cloned());
-                text = jsonc::set(&text, &path, value).map_err(|error| {
-                    Error::Setup(format!(
-                        "your settings file: {}",
-                        crate::redact::text(&error.to_string())
-                    ))
-                })?;
+                text = jsonc::set(&text, &path, value).map_err(settings_error)?;
             }
             tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
         }
         let applied = self.apply_locked(Some(label), origin, now_ms)?;
-        Ok((applied.recorded.then_some(applied), prior_actions))
+        let applied = applied.recorded.then_some(applied);
+        // An apply that matched an entry you already had names that entry:
+        // it is yours, and removing the setup only turns it off.
+        let library_created = applied
+            .as_ref()
+            .and_then(|applied| applied.library.as_ref())
+            .is_some_and(|name| !had.contains(name));
+        Ok(Installed { applied, before: None, prior_actions, library_created })
     }
 
-    /// Undoes an installed setup: its library entry off and removed (what
-    /// was under it comes back), its actions out (or back to yours), its
-    /// receipt dropped. An action you changed since stays as you left it.
-    /// Extensions are the caller's (it names them in the receipt).
+    /// Undoes an installed setup: its library entry off (and removed when
+    /// the install made it; what was under it comes back), its actions out
+    /// (or back to yours), its receipt dropped. An action you changed since
+    /// stays as you left it. Extensions are the caller's (it names them in
+    /// the receipt).
     pub fn remove_setup(
         &self,
         receipt: &Receipt,
         origin: &str,
         now_ms: u64,
     ) -> Result<Removed, Error> {
-        if self.store().draft()?.is_some() {
-            return Err(Error::Setup(
-                "a preview is open: apply or discard it first (`cmux customize`)".to_owned(),
-            ));
-        }
+        self.no_preview_open()?;
+        self.ensure_baseline(now_ms)?;
+        let _lock = self.store().lock()?;
+        self.remove_setup_locked(receipt, origin, now_ms)
+    }
+
+    fn remove_setup_locked(
+        &self,
+        receipt: &Receipt,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Removed, Error> {
         let library = match &receipt.library {
-            Some(name) if self.library()?.entries.iter().any(|entry| &entry.name == name) => {
-                self.library_remove(name, origin, now_ms)?;
+            Some(name) if self.library_names()?.contains(name) => {
+                self.library_take_off_locked(name, receipt.library_created, origin, now_ms)?;
                 Some(name.clone())
             }
             _ => None,
@@ -752,7 +783,6 @@ impl Customize {
         let mut actions = Vec::new();
         let mut kept_actions = Vec::new();
         if !receipt.actions.is_empty() {
-            let _lock = self.store().lock()?;
             let mut text = settings_text(self)?;
             let file = jsonc::parse(&text).unwrap_or(Value::Null);
             for (name, value) in &receipt.actions {
@@ -765,12 +795,7 @@ impl Customize {
                     Some(prior) => jsonc::set(&text, &path, &prior),
                     None => jsonc::remove(&text, &path),
                 };
-                text = changed.map_err(|error| {
-                    Error::Setup(format!(
-                        "your settings file: {}",
-                        crate::redact::text(&error.to_string())
-                    ))
-                })?;
+                text = changed.map_err(settings_error)?;
                 actions.push(name.clone());
             }
             if !actions.is_empty() {
@@ -779,7 +804,6 @@ impl Customize {
                 self.apply_locked(Some(&label), origin, now_ms)?;
             }
         }
-        let _lock = self.store().lock()?;
         let mut file = self.read_setup_receipts()?;
         file.setups.retain(|old| old.reference.key() != receipt.reference.key());
         self.write_setup_receipts(&file)?;
@@ -849,6 +873,16 @@ impl Customize {
             actions: actions.clone(),
         };
         std::fs::create_dir_all(dir)?;
+        // Exporting again into a setup repo: a file the last export wrote
+        // that this one leaves out (one that now holds a credential, a theme
+        // you deleted) goes, so the repo is exactly this export.
+        if dir.join(SETUP_FILE).is_file() {
+            for path in repo_files(dir)?.keys() {
+                if !profile.files.contains_key(path) {
+                    std::fs::remove_file(dir.join(path))?;
+                }
+            }
+        }
         for (path, text) in &profile.files {
             if path.split('/').any(|piece| piece.is_empty() || piece == "." || piece == "..") {
                 continue;
@@ -898,6 +932,10 @@ pub fn readme_text(manifest: &Manifest, repo: &str) -> String {
         }
     }
     text
+}
+
+fn settings_error(error: jsonc::JsoncError) -> Error {
+    Error::Setup(format!("your settings file: {}", crate::redact::text(&error.to_string())))
 }
 
 fn settings_text(customize: &Customize) -> Result<String, Error> {

@@ -832,6 +832,18 @@ impl Customize {
     ) -> Result<Changed, Error> {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.library_change_locked(label, origin, now_ms, edit)
+    }
+
+    /// [`Customize::library_change`] for a caller that holds the store lock
+    /// (and made the baseline): one step of a longer change.
+    fn library_change_locked(
+        &self,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+        edit: impl FnOnce(&mut LibraryFile) -> Result<(), Error>,
+    ) -> Result<Changed, Error> {
         let mut library = self.read_library()?;
         let before = library.entries.clone();
         edit(&mut library)?;

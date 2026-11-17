@@ -80,6 +80,32 @@ impl Customize {
         })
     }
 
+    /// The names of the library's entries now.
+    pub(crate) fn library_names(&self) -> Result<Vec<String>, Error> {
+        Ok(self.read_library()?.entries.iter().map(|entry| entry.name().to_owned()).collect())
+    }
+
+    /// `library_remove` or `library_set_on(name, false)` for a caller that
+    /// holds the store lock: what was under the entry comes back.
+    pub(crate) fn library_take_off_locked(
+        &self,
+        name: &str,
+        delete: bool,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let verb = if delete { "remove" } else { "off" };
+        let label = format!("library: {verb} {name}");
+        self.library_change_locked(&label, origin, now_ms, |library| {
+            if delete {
+                library.entries.retain(|entry| entry.name() != name);
+            } else if let Some(entry) = library.entries.iter_mut().find(|e| e.name() == name) {
+                entry.on = false;
+            }
+            Ok(())
+        })
+    }
+
     /// The library file as it is now (`None`: there is none), to write back
     /// with [`Customize::library_write_back`] when a change made of several
     /// steps fails after one of them. Its entries and the base under them

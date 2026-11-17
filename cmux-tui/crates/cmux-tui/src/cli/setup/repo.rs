@@ -546,6 +546,7 @@ pub(super) fn install(
         generation: installed.applied.as_ref().map(|applied| applied.generation.n),
         before: installed.before,
         library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
+        library_created: installed.library_created,
         actions: read.actions().clone(),
         prior_actions: installed.prior_actions,
         extensions: extension_receipts,
@@ -684,6 +685,7 @@ fn apply_update(
         generation: installed.applied.as_ref().map(|applied| applied.generation.n),
         before: installed.before,
         library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
+        library_created: installed.library_created,
         actions: read.actions().clone(),
         // The old layer's remove put your own actions back first, so what
         // the new one replaced is yours.
