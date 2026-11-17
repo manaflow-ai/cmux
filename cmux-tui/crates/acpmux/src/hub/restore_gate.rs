@@ -200,7 +200,7 @@ impl RestoreGate {
 
 impl RestoreGate {
     /// A restored prompt's task was spawned: it counts until [`Hub::admit_restored`] lets it go.
-    pub(super) fn expect(&self) {
+    pub(super) fn count_restored(&self) {
         self.pending.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -225,7 +225,7 @@ impl RestoreGate {
 
 impl Hub {
     /// Waits until the staged restore lets `session`'s restored prompt start (module docs).
-    /// Returns at once when staged restore is off. Pairs with one [`RestoreGate::expect`].
+    /// Returns at once when staged restore is off. Pairs with one [`RestoreGate::count_restored`].
     pub(super) async fn admit_restored(self: &Arc<Self>, session: &Arc<Session>) {
         self.wait_staged(session).await;
         self.restore_gate.release_one();
@@ -245,7 +245,8 @@ impl Hub {
         };
         if start {
             let hub = self.clone();
-            tokio::spawn(async move { hub.drive_restore().await });
+            self.scope
+                .spawn_until_cancelled("restore-stages", async move { hub.drive_restore().await });
         }
         // A dropped sender (the driver ended without it) lets the prompt go on: never stuck.
         let _ = rx.await;
@@ -362,7 +363,12 @@ impl Hub {
     async fn restore_reading(&self) -> Reading {
         #[cfg(test)]
         {
-            let fake = self.restore_gate.fake.lock().unwrap().clone();
+            let fake = self
+                .restore_gate
+                .fake
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
             if let Some(fake) = fake {
                 return fake(self.restore_gate.lock().admitted);
             }

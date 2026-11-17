@@ -1458,7 +1458,7 @@ impl Hub {
                 let session = session.clone();
                 let staged = self.clone_of().is_none();
                 if staged {
-                    self.restore_gate.expect();
+                    self.restore_gate.count_restored();
                 }
                 tokio::spawn(async move {
                     // After the login env and the catalog reload: its harness may need them.

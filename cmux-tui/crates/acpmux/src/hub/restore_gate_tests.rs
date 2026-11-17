@@ -30,7 +30,7 @@ fn hub_with(n: usize) -> (Arc<Hub>, Vec<Arc<Session>>) {
 fn restore_all(hub: &Arc<Hub>, sessions: &[Arc<Session>]) -> Arc<AtomicUsize> {
     let through = Arc::new(AtomicUsize::new(0));
     for session in sessions {
-        hub.restore_gate.expect();
+        hub.restore_gate.count_restored();
         let (hub, session, through) = (hub.clone(), session.clone(), through.clone());
         tokio::spawn(async move {
             hub.admit_restored(&session).await;
