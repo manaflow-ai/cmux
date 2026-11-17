@@ -601,3 +601,123 @@ fn a_shard_repaired_after_a_nack_still_counts_as_lost() {
     e.on_datagram(&feedback(&Feedback::default()), false, 400_000);
     assert!(e.stats().loss > 0.0, "a repaired loss is a loss: {}", e.stats().loss);
 }
+
+/// D12 + D6: while the path is away (the window after a hold until a datagram sent
+/// after it arrives) only the newest frame is repaired: an older frame's resend would
+/// land in the hold's burst, but the newest frame (a key press's echo) is what the viewer
+/// waits on. Once the path is up, older frames are repaired too.
+#[test]
+fn only_the_newest_frame_is_repaired_while_the_path_is_away() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
+        sent.iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: at,
+            })
+            .collect()
+    };
+    let first = e.start(0).expect("first");
+    let sent_first = send(&mut e, &first, true, 6_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: arrived(&sent_first, 5_000),
+            ..Feedback::default()
+        }),
+        false,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let second = e.damage(0, small, 20_000).expect("second");
+    let sent = send(&mut e, &second, false, 6_000, 20_000);
+    // The radio was away for 400 ms; the head of the newest frame arrives at once and
+    // the viewer asks for its rest, and for a shard of the older frame.
+    let older = Nack { frame: first.frame, indexes: vec![1] };
+    let newest = Nack { frame: second.frame, indexes: vec![2, 3] };
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&sent[..2], 420_000),
+            nacks: vec![older.clone(), newest],
+            ..Feedback::default()
+        }),
+        false,
+        424_000,
+    );
+    assert!(out.outage_ended.is_some());
+    let resent: Vec<u32> =
+        out.datagrams.iter().map(|d| DatagramHeader::decode(d).expect("header").0.frame).collect();
+    assert_eq!(resent, vec![second.frame, second.frame], "only the newest frame, at once");
+    // A datagram sent after the outage arrives: the path is up, older frames are repaired.
+    let third = e.damage(0, small, 430_000).expect("third");
+    let fresh = send(&mut e, &third, false, 500, 430_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&fresh, 435_000),
+            nacks: vec![older],
+            ..Feedback::default()
+        }),
+        false,
+        440_000,
+    );
+    assert_eq!(out.datagrams.len(), 1, "the older frame is repaired once the path is back");
+}
+
+/// D12: a recovery ask during the hold's first feedback waits for the path (the viewer
+/// keeps asking); it is answered with a keyframe once the path is up.
+#[test]
+fn no_recovery_keyframe_while_the_path_is_away() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
+        sent.iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: at,
+            })
+            .collect()
+    };
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: arrived(&sent, 5_000),
+            ..Feedback::default()
+        }),
+        false,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let second = e.damage(0, small, 20_000).expect("second");
+    let sent = send(&mut e, &second, false, 6_000, 20_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&sent[..2], 420_000),
+            need_recovery: true,
+            ..Feedback::default()
+        }),
+        false,
+        424_000,
+    );
+    assert!(out.outage_ended.is_some());
+    assert!(out.encode.as_ref().is_none_or(|r| !r.force_idr), "a keyframe into the hold: {out:?}");
+    // A frame sent after the outage (the one the outage end asked for, or new damage).
+    let next =
+        out.encode.or_else(|| e.damage(0, small, 430_000)).expect("a frame after the outage");
+    let fresh = send(&mut e, &next, false, 500, 430_000);
+    let newest = DatagramHeader::decode(&fresh[0]).expect("header").0.frame;
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&fresh, 435_000),
+            acked_frame: newest,
+            need_recovery: true,
+            ..Feedback::default()
+        }),
+        false,
+        450_000,
+    );
+    let req = out.encode.expect("the recovery ask is answered once the path is back");
+    assert!(req.force_idr);
+}
