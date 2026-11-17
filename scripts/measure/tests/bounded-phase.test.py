@@ -130,6 +130,16 @@ class UpdateClickAbPhasesTests(unittest.TestCase):
         for name, seconds in limits.items():
             self.assertLess(int(seconds), 45 * 60, f"{name} must end a stuck phase before the controller does")
 
+    def test_checkout_fetch_and_detach_are_bounded(self):
+        text = re.sub(r"\\\n\s*", " ", SCRIPT.read_text())
+        helper = text[text.index("fetch_checkout() {"):text.index("\n}\n\n# Builds", text.index("fetch_checkout() {"))]
+        for command in ("git fetch", "git -c advice.detachedHead=false checkout"):
+            lines = [line for line in helper.splitlines() if command in line]
+            self.assertTrue(lines, command)
+            for line in lines:
+                self.assertRegex(line, r"\bphase \"[^\"]+\" \"\$FETCH_DEADLINE\" \"\$FETCH_STALL\"",
+                                 f"{command} runs outside a phase: {line.strip()}")
+
 
 if __name__ == "__main__":
     unittest.main()

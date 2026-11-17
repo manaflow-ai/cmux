@@ -50,7 +50,7 @@ main() {
   for side in base head; do
     local sha="$base"
     [[ "$side" == head ]] && sha="$head"
-    fetch_checkout "$sha" || exit 3
+    fetch_checkout "$sha" "$side" || exit 3
     build_app "$out" "$side" || { git -c advice.detachedHead=false checkout --quiet --detach "$checkout"; exit 3; }
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout" || exit 3
@@ -85,6 +85,7 @@ GHOSTTYKIT_DEADLINE=1200 GHOSTTYKIT_STALL=600
 ACPMUX_DEADLINE=3600 ACPMUX_STALL=1200
 RELOAD_DEADLINE=5400 RELOAD_STALL=1200
 ROUND_DEADLINE=1500 ROUND_STALL=600
+FETCH_DEADLINE=900 FETCH_STALL=600
 OUT="" TOOLS=""
 # phase NAME DEADLINE STALL [bounded-phase.py options] -- COMMAND...
 phase() {
@@ -124,10 +125,14 @@ stop_stress() {
 trap finish EXIT
 
 fetch_checkout() {
-  local sha="$1" depth=()
+  local sha="$1" side="$2" depth=()
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
-  git -c advice.detachedHead=false checkout --quiet --detach "$sha"
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    phase "$side fetch $sha" "$FETCH_DEADLINE" "$FETCH_STALL" -- \
+      git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
+  fi
+  phase "$side checkout $sha" "$FETCH_DEADLINE" "$FETCH_STALL" -- \
+    git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 
 # Builds the checkout's bench app with tag ucab (both sides one bundle id; the second build recompiles only what the
