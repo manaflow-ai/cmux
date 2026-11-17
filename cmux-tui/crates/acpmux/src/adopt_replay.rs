@@ -358,11 +358,25 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
 /// an interruption.
 fn claude_prompt(content: &Value) -> Option<Step> {
     let text = text_of(content)?;
-    let start = text.trim_start();
-    let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-        .iter()
-        .any(|prefix| start.starts_with(prefix));
+    let echo = ECHOES.iter().any(|prefix| text.trim_start().starts_with(prefix));
     (!echo).then_some(Step::Prompt(text))
+}
+
+/// What a Claude Code user line starts with when it echoes a command or a hook or marks an
+/// interruption.
+const ECHOES: [&str; 4] = ["<command-", "<local-command-", "<bash-", "[Request interrupted"];
+
+/// What Claude Code queues by itself, not typed by the person: a finished background task or
+/// subagent, another session's message.
+const HARNESS_QUEUED: [&str; 3] =
+    ["<task-notification>", "<agent-message", "<cross-session-message"];
+
+/// Whether the text of a Claude Code `queue-operation` `enqueue` line is a prompt the person
+/// typed. The line carries no `origin` (`from_person`), so its text says: Claude Code queues
+/// task notifications and other sessions' messages too, and those are no prompt of the person's.
+pub(crate) fn queued_by_person(text: &str) -> bool {
+    let start = text.trim_start();
+    !ECHOES.iter().chain(HARNESS_QUEUED.iter()).any(|prefix| start.starts_with(prefix))
 }
 
 /// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
