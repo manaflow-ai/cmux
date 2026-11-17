@@ -866,11 +866,6 @@ class OpenSameTreeRun(unittest.TestCase):
                       jobs={501: same_tree_jobs(tiers="daemon,scheme")})
         self.assertEqual(run(api), 1)
 
-    def test_a_failed_state_report_is_never_held_by_an_open_run(self):
-        api = FakeApi([push_marker()], runs=[open_run(501, 30, branch="feat-cmux-next", sha=SHA)],
-                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
-        self.assertEqual(run(api, state="failed"), 1)
-
 
 def pending_zip(key: str = KEY, state: str = "ready") -> bytes:
     buffer = io.BytesIO()

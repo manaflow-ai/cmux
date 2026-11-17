@@ -19,6 +19,17 @@ publish-cmux-tui-tree.py writes it last and only once, so it is the record
 that the tree is published: a run cancelled after (or while another run)
 published the key reports ready, not the run's conclusion (#23517).
 
+A ready state never dispatches a same-tree run that is already open: one
+`--sweep-pending` per push read the same pending record and marker before
+any of them deleted them, and each dispatched the same run (2026-11-17,
+lane/launch-stage0-window b0549a37: three runs, three Debug scheme compiles
+queued on the owned Mac minis). A marker whose same-tree run (by its run name,
+on a dispatch ref of the marker) was created after the marker was uploaded,
+is still open, and has the Mac job of every tier the marker needs not
+skipped or cancelled, is dropped as started (open_run_carrying). A failed
+state's report run skips its Mac jobs, so it never stands in for a ready
+run, and a failed state never looks: its red report is not held back.
+
 A failed marker is kept (a later publication of the key still starts its
 jobs), so every artifacts run that fails the same key would report it in red
 again. A key that cannot build (a stale Cargo.lock on the base it came from)
@@ -28,7 +39,7 @@ for hours, draining the routing App's REST quota. So a failed state is
 reported once per marker: the run history of cmux-next.yml (read once per
 notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
-state always dispatches.
+state dispatches unless its run is already open (below).
 
 A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
 feat-cmux-next commit re-runs its own artifacts run, which claims, builds
@@ -105,6 +116,12 @@ WORKFLOW = "cmux-next.yml"
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 # The Mac jobs of a same-tree run (its tiers, TIERS). A run with one of them in progress is never cancelled.
 MAC_JOBS = ("cmux-next daemon tests", "cmux app scheme compile (Debug)")
+# A tier -> the names its Mac job has in a same-tree run (a DEV daily's scheme tier is its Release compile).
+TIER_JOBS = {"daemon": ("cmux-next daemon tests",),
+             "scheme": ("cmux app scheme compile (Debug)", "cmux NEXT DEV Release compile")}
+# The run history a ready notify reads for an open same-tree run: the newest pages only (an open duplicate is
+# minutes old; the failed report reads RUN_PAGES).
+OPEN_RUN_PAGES = 2
 # Jobs whose `if` reads `inputs.same_tree_sha == ''`: a same-tree run lists both as skipped (run 42607592895),
 # a plain dispatch runs them. The REST API returns no dispatch inputs, and a plain dispatch on the branch has
 # the same `cmux-next · <sha>` name, so these are what tells a same-tree run apart.
@@ -322,24 +339,67 @@ def run_identity(marker: dict, repo: str) -> tuple:
             tuple(dispatch_refs(marker, repo)))
 
 
-def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
-    """cmux-next.yml dispatch runs created at or after `since`: run name -> created_at times."""
-    names: dict[str, list[str]] = {}
-    for page in range(1, RUN_PAGES + 1):
+def dispatch_name(marker: dict) -> str:
+    """The run name a same-tree dispatch of MARKER gets. A plain run is named for the dispatch ref's tip
+    (cmux-next.yml run-name: github.sha), which is_current checked is the marker's status_sha."""
+    if marker.get("dev_daily") or marker.get("tip_suite"):
+        return run_name(marker)
+    return f"cmux-next · {marker['status_sha']}"
+
+
+def dispatch_history(api: Api, repo: str, since: str, pages: int = RUN_PAGES) -> list[dict]:
+    """cmux-next.yml dispatch runs created at or after `since`, newest first."""
+    found: list[dict] = []
+    for page in range(1, pages + 1):
         listing = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch"
                           f"&created=%3E%3D{since}&per_page=100&page={page}")
         runs = listing.get("workflow_runs", []) if isinstance(listing, dict) else []
-        for run in runs:
-            if not isinstance(run, dict):
-                continue
-            # The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow
-            # sets run-name, as cmux-next.yml does; both are read so neither field alone is relied on).
-            for title in {run.get("display_title"), run.get("name")}:
-                if isinstance(title, str):
-                    names.setdefault(title, []).append(str(run.get("created_at", "")))
+        found.extend(run for run in runs if isinstance(run, dict))
         if len(runs) < 100:
             break
+    return found
+
+
+def run_titles(run: dict) -> set[str]:
+    """The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow sets run-name,
+    as cmux-next.yml does; both are read so neither field alone is relied on)."""
+    return {title for title in (run.get("display_title"), run.get("name")) if isinstance(title, str)}
+
+
+def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
+    """cmux-next.yml dispatch runs created at or after `since`: run name -> created_at times."""
+    names: dict[str, list[str]] = {}
+    for run in dispatch_history(api, repo, since):
+        for title in run_titles(run):
+            names.setdefault(title, []).append(str(run.get("created_at", "")))
     return names
+
+
+def open_run_carrying(api: Api, repo: str, runs: list[dict], marker: dict, tiers: set[str],
+                      uploaded: str) -> tuple[int, str] | None:
+    """An open same-tree run that already carries MARKER's TIERS, as (run id, ref), or None: named as its
+    dispatch would be (dispatch_name), on one of its dispatch refs, created at or after the marker was UPLOADED,
+    and with the Mac job of each tier neither skipped (a failed state's report run) nor cancelled. Jobs not
+    created yet, or unreadable, are no stand-in."""
+    if not ISO_TIME.match(uploaded):
+        return None
+    name = dispatch_name(marker)
+    refs = dispatch_refs(marker, repo)
+    for run in runs:
+        created = str(run.get("created_at", ""))
+        if (run.get("status") not in OPEN or name not in run_titles(run) or not ISO_TIME.match(created)
+                or created < uploaded or not isinstance(run.get("id"), int)):
+            continue
+        ref = run.get("head_branch")
+        if ref not in refs:
+            continue
+        jobs = run_jobs(api, repo, run["id"])
+        if not jobs or not is_same_tree(jobs):
+            continue
+        if all(any(job.get("name") in TIER_JOBS[tier] and job.get("conclusion") not in ("skipped", "cancelled")
+                   for job in jobs) for tier in tiers):
+            return run["id"], str(ref)
+    return None
 
 
 def run_jobs(api: Api, repo: str, run_id: int) -> list[dict] | None:
@@ -517,6 +577,8 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         except (RuntimeError, OSError, ValueError) as error:
             log(f"::warning::could not read cmux-next.yml's run history ({error}); "
                 f"failed markers are reported again")
+    # A ready state: the open same-tree runs a dispatch would duplicate, read once (open_run_carrying).
+    open_runs: list[dict] | None = None
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
     # Markers of one same-tree run (run_identity) start it once, with every tier any of them carries.
@@ -592,6 +654,20 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"run {run_id}: `{run_name(marker)}` already reported tree {key} after this marker; "
                 f"not dispatched again (a publication of the key still starts it)")
             continue
+        if state == "ready":
+            if open_runs is None:
+                try:
+                    open_runs = dispatch_history(api, repo, min(stamps), OPEN_RUN_PAGES) if stamps else []
+                except (RuntimeError, OSError, ValueError) as error:
+                    log(f"::warning::could not read cmux-next.yml's run history ({error}); dispatching as before")
+                    open_runs = []
+            held = open_run_carrying(api, repo, open_runs, marker, tiers_of[identity], uploaded)
+            if held is not None:
+                log(f"run {run_id}: same-tree run {held[0]} on {held[1]} (`{dispatch_name(marker)}`) is already "
+                    f"open with tiers {','.join(sorted(tiers_of[identity]))}; not dispatched again")
+                started.add(identity)
+                api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                continue
         inputs = {
             "same_tree_sha": marker["sha"],
             "same_tree_status_sha": marker["status_sha"],
