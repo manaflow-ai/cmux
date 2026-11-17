@@ -56,10 +56,16 @@ export function useNewTabWidgets(injected?: PageClient | null) {
     if (!owner) return;
     owner.start();
     const stop = () => owner.stop();
+    // A page restored from the back/forward cache lists and mounts again.
+    const show = (event: Event) => {
+      if ((event as PageTransitionEvent).persisted) owner.start();
+    };
     // Native pane retirement can discard the document without unmounting React first.
     globalThis.addEventListener?.("pagehide", stop);
+    globalThis.addEventListener?.("pageshow", show);
     return () => {
       globalThis.removeEventListener?.("pagehide", stop);
+      globalThis.removeEventListener?.("pageshow", show);
       owner.stop();
     };
   }, [owner]);
@@ -253,9 +259,10 @@ function useMeters(
   tiles: readonly WidgetTilePlacement[],
 ): ReadonlyMap<string, WidgetMeter> {
   const [meters, setMeters] = useState<ReadonlyMap<string, WidgetMeter>>(new Map());
-  const count = tiles.length;
+  // A resize or a remount gives a tile a new mount: read again for it.
+  const shape = tiles.map((tile) => `${tile.instance}:${tile.size}`).join(",");
   useEffect(() => {
-    if (!owner || !editing || count === 0) return;
+    if (!owner || !editing || shape === "") return;
     let live = true;
     const read = () =>
       void owner.meters().then((rows) => {
@@ -267,6 +274,6 @@ function useMeters(
       live = false;
       clearInterval(timer);
     };
-  }, [owner, editing, count]);
+  }, [owner, editing, shape]);
   return meters;
 }

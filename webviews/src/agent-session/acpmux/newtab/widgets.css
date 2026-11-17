@@ -16,7 +16,7 @@
   margin-block: var(--ds-space-4);
 }
 .nt-widgets[data-look="solid"] {
-  --nt-widget-card: var(--agent-surface, var(--acpmux-base));
+  --nt-widget-card: var(--agent-surface, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   --nt-widget-card-edge: var(--agent-border);
 }
 .nt-widgets[data-look="tinted"] {
@@ -82,7 +82,7 @@
   padding: 2px var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
   /* Opaque over the dimmed scene, so the words never mix with the widget's own. */
-  background: color-mix(in srgb, var(--agent-text) 10%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 10%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   color: var(--agent-muted);
   font-size: var(--text-caption);
 }
@@ -121,7 +121,7 @@
 }
 .nt-widget-bar-button[data-primary] {
   background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  color: var(--agent-on-accent, var(--acpmux-base, var(--agent-page-bg, Canvas)));
 }
 .nt-widget-bar-button:focus-visible,
 .nt-widget-frame:focus-visible {
@@ -160,8 +160,8 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) 72%, var(--acpmux-base));
-  color: var(--acpmux-base);
+  background: color-mix(in srgb, var(--agent-text) 72%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
+  color: var(--acpmux-base, var(--agent-page-bg, Canvas));
   box-shadow: var(--elevation-1);
 }
 .nt-widget-remove:hover {
@@ -241,7 +241,7 @@
   text-overflow: ellipsis;
   padding: 1px var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
@@ -371,7 +371,7 @@
   height: 22px;
   border-radius: 50%;
   background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  color: var(--agent-on-accent, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   box-shadow: var(--elevation-1);
 }
 .nt-widget-preview:hover .nt-widget-card {
