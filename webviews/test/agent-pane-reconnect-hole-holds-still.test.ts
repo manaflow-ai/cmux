@@ -10,7 +10,7 @@
 // The detector: while nothing new is appended, the rows above the newest turn keep their identity
 // and order in every frame the pane draws; and the running turn's clock is the newest turn's.
 import { beforeEach, expect, test } from "bun:test";
-import { AcpmuxDirectClient, BRIDGE_MAX_SEQS, type CarriedChat } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, type CarriedChat } from "../src/agent-session/acpmux/direct";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 beforeEach(() => resetKeptTailsForTests());
@@ -18,6 +18,9 @@ beforeEach(() => resetKeptTailsForTests());
 const CHAT = "0190a000-0000-7000-8000-0000000000e8";
 const START = Date.UTC(2026, 10, 17, 6, 0, 0);
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+/// Turns (3 records each) in a hole three `_acpmux/events` reads wide (5,000 records a read; direct.ts
+/// `BRIDGE_MAX_SEQS`). A literal, so this test runs on the code before the fix too.
+const READS_WIDE = 5_000;
 
 const user = (seq: number, text: string) => ({
   sessionId: CHAT,
@@ -202,7 +205,7 @@ test("a reconnect past a hole wider than one read holds the rows above the newes
   const daemon = pagingDaemon([...held], 64);
   const pane = await page(daemon);
   expect(pane.last().texts).toContain("morning reply 3");
-  const hole = turns(held.length + 1, Math.ceil((BRIDGE_MAX_SEQS * 3) / 3), "afternoon");
+  const hole = turns(held.length + 1, READS_WIDE, "afternoon");
   const newestSeq = held.length + hole.length + 1;
   daemon.state.history.push(...hole, user(newestSeq, "newest prompt"), chunk(newestSeq + 1, "working on it", "now"));
   const before = pane.frames.length;
