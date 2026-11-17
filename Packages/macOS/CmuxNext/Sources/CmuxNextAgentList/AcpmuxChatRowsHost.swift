@@ -28,6 +28,9 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         case limit = "chat.rows.limit"
         /// A name of another shape, one the handle holds, or a sid this page did not open.
         case name = "chat.rows.name"
+        /// The core refused the sub request itself (an anchor or window of another shape, a chat
+        /// id over the wire's limit): the code the page route gives any malformed params.
+        case request = "cmux.protocol.invalid_params"
     }
 
     /// What the host has done (tests and the bench): every queue turn it ran (`wakeups`), each
@@ -55,10 +58,14 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         var driver: AcpmuxClientByteConnection?
         var sids: Set<String> = []
         var hidden = false
-        /// The batch the page has and has not taken, and the driver it came from.
-        var outstanding: (batch: Int, driver: AcpmuxClientByteConnection)?
+        /// The batch the page has and has not taken, and the driver it came from (nil: a carried
+        /// batch, which owes no driver an ack).
+        var outstanding: (batch: Int, driver: AcpmuxClientByteConnection?)?
         /// A batch the driver handed over that waits for the page (hidden, or one is out).
         var held: (bytes: Data, driver: AcpmuxClientByteConnection)?
+        /// A held batch whose driver was replaced. The core already gave these changes, so they
+        /// go to the page before anything the new driver hands over, and no driver is owed an ack.
+        var carried: Data?
         /// A batch the page took while hidden: acknowledged when the pane shows.
         var ackOwed: AcpmuxClientByteConnection?
         var nextBatch = 1
@@ -102,10 +109,25 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
                 guard client.isAvailable else { return .failure(.off) }
                 state.client = client
             }
-            guard let client = state.client, client.subscribeChat(request) != nil else { return .failure(.name) }
+            guard let client = state.client else { return .failure(.off) }
+            if let refusal = Self.subscribeRefusal(client.subscribeChatCode(request)) { return .failure(refusal) }
             state.sids.insert(sid)
             if state.driver == nil, !state.reconnecting { startDriver(&state, client: client) }
             return .success(sid)
+        }
+    }
+
+    /// The page's code for the core's answer to `subscribe_chat`, or nil when it took the sub.
+    /// The core refuses a sid of another shape, one it holds, a 257th sub, an anchor or request of
+    /// another shape and a chat id over the wire's limit, all as `ERR_INVALID`; the first three
+    /// never reach it (``open(sid:request:)`` refuses them as `name` and `limit` first), so what
+    /// is left is the request. No handle (`ERR_NULL`, `ERR_UNKNOWN`) or a panic in the core
+    /// (`ERR_PANIC`) is no client: `off`.
+    static func subscribeRefusal(_ code: Int32) -> Refusal? {
+        switch code {
+        case 0: nil
+        case AcpmuxClient.refusedCode: .request
+        default: .off
         }
     }
 
@@ -142,8 +164,8 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
                 state.counters.wakeups += 1
                 guard let out = state.outstanding, out.batch == number else { return }
                 state.outstanding = nil
-                if out.driver === state.driver {
-                    if state.hidden { state.ackOwed = out.driver } else { out.driver.acknowledgeBatch() }
+                if let driver = out.driver, driver === state.driver {
+                    if state.hidden { state.ackOwed = driver } else { driver.acknowledgeBatch() }
                 }
                 deliverHeld(&state)
             }
@@ -208,26 +230,40 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
     }
 
     private func deliverHeld(_ state: inout State) {
-        guard !state.hidden, state.outstanding == nil, let held = state.held else { return }
-        state.held = nil
-        var changes = AcpmuxChatRowsBatch.changes(inFramed: held.bytes) ?? []
+        guard !state.hidden, state.outstanding == nil else { return }
+        let next: (bytes: Data, driver: AcpmuxClientByteConnection?)
+        if let carried = state.carried {
+            state.carried = nil
+            next = (carried, nil)
+        } else if let held = state.held {
+            state.held = nil
+            next = (held.bytes, held.driver)
+        } else {
+            return
+        }
+        var changes = AcpmuxChatRowsBatch.changes(inFramed: next.bytes) ?? []
         let fallback = changes.contains { AcpmuxChatRowsBatch.kind(of: $0) == "fallback" }
         if fallback { changes.removeAll { AcpmuxChatRowsBatch.kind(of: $0) == "fallback" } }
         if changes.isEmpty {
-            if !fallback { held.driver.acknowledgeBatch() }
+            if !fallback {
+                next.driver?.acknowledgeBatch()
+                deliverHeld(&state)
+                return
+            }
         } else {
             let number = state.nextBatch
             state.nextBatch += 1
-            state.outstanding = (number, held.driver)
+            state.outstanding = (number, next.driver)
             state.counters.bridgeCalls += 1
             deliver(AcpmuxChatRowsBatch.script(batch: number, changes: changes))
         }
         guard fallback else { return }
         // The daemon answered as v1 or grants no `chat`: each sid got its `chatError` in this
         // batch. The connection closes; the next open makes a new handle and upgrades again.
-        held.driver.stop()
+        state.driver?.stop()
         state.driver = nil
         state.client = nil
+        state.held = nil
         state.sids.removeAll()
     }
 
@@ -262,14 +298,18 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         }
     }
 
-    /// The driver could not reopen (it failed on bad bytes): a new one on the same handle.
+    /// The driver could not reopen (it failed on bad bytes): a new one on the same handle. A batch
+    /// it handed over that the page has not had is kept: the core gave those changes already.
     private func replace(_ id: ObjectIdentifier) {
         queue.async { [self] in
             state.withLock { state in
                 state.counters.wakeups += 1
                 guard let driver = state.driver, ObjectIdentifier(driver) == id, let client = state.client else { return }
-                if state.outstanding?.driver === driver { state.outstanding = nil }
-                state.held = nil
+                if let out = state.outstanding, out.driver === driver { state.outstanding = (out.batch, nil) }
+                if let held = state.held {
+                    state.carried = held.bytes
+                    state.held = nil
+                }
                 startDriver(&state, client: client)
             }
         }
