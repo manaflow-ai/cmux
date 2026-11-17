@@ -83,6 +83,19 @@ struct CloudGitHubReposTests {
         }
     }
 
+    /// A connected team never reaches `integration.connect` (it would add a second connection for the same installation):
+    /// it opens its installation settings, or nothing when the status names none; only a team with no connection asks.
+    @Test func aConnectedTeamNeverAsksForAnotherConnection() {
+        func status(_ connection: String) -> Data { Self.body(#"{"configured":true,"app_slug":"cmux","connection":\#(connection)}"#) }
+        let settings = status(#"{"status":"active","configure_url":"https://github.com/settings/installations/42"}"#)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: settings) == .open(URL(string: "https://github.com/settings/installations/42")!))
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","repos":null}"#)) == .connected)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","configure_url":"https://example.com/x"}"#)) == .connected)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status("null")) == nil)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: Self.body(#"{"configured":false}"#)) == .unavailable)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable)
+    }
+
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
     @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {

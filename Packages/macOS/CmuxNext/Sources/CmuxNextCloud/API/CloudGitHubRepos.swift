@@ -214,6 +214,17 @@ public struct CloudGitHubPicker {
         return await owner.client.gitHubRepos(team: owner.team, query: query)
     }
 
+    /// What the status route alone settles for `github.connect`; nil when the team has no connection (ask `integration.connect`).
+    /// A connected team opens its installation settings, or, when the status names none (an older Worker, or one whose
+    /// GitHub lookup failed), opens nothing: `integration.connect` would add a second connection for the same installation.
+    nonisolated static func connectFromStatus(status: Int, body: Data) -> Connect? {
+        switch CloudGitHubApp(status: status, body: body) {
+        case .ready: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open) ?? .connected
+        case .notConnected: nil
+        case .notConfigured, .unknown: .unavailable
+        }
+    }
+
     /// What `github.connect` does.
     public enum Connect: Equatable, Sendable {
         /// Open this page in the person's browser.
@@ -226,15 +237,11 @@ public struct CloudGitHubPicker {
 
     /// `github.connect` for the team ``owner()`` names (Settings' Connect GitHub asks in the active team, which can be
     /// another one): a connected team's installation settings, where the person adds repositories (More repositories);
-    /// else, or from an older Worker that names none, the App's installation page from `integration.connect` in that team.
+    /// a team with no connection, the App's installation page from `integration.connect` in that team.
     public func connect() async -> Connect {
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable }
-        switch CloudGitHubApp(status: status.status, body: status.body) {
-        case .ready: if let settings = CloudGitHubApp.configureURL(status: status.status, body: status.body) { return .open(settings) }
-        case .notConnected: break
-        case .notConfigured, .unknown: return .unavailable
-        }
+        if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
         let client = owner.client
         guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0) }) else { return .unavailable }
         return .open(page)
