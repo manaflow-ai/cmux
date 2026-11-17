@@ -57,6 +57,9 @@ enum VaultHandlers {
                 return nil
             })
         })
+        // With no session named and none selected the row actions leave the menus and palette; the CLI hears why.
+        registry.gate(["vaultFocusSession", "vaultOpenSession", "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest"],
+                      unlessFinds: { _ = try Self.session($0, services) })
     }
 
     /// The invocation's `session`, else the vault's selection.

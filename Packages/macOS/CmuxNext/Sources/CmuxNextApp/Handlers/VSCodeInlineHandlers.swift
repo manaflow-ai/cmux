@@ -28,23 +28,16 @@ enum VSCodeInlineHandlers {
                 }
             }
         })
+        // Where they cannot run (another machine's pane or workspace, no VS Code) the rows leave the menus and palette.
+        registry.gate(["palette.openFolderInVSCodeInline"], unlessFinds: { _ = try decide($0, beside: shownPane($0, context), context) })
+        registry.gate(["palette.vscodeServeWebRestart"], unlessFinds: { _ = try installedVSCode() })
     }
 
     private static func openFolder(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let pane = try targetPane(invocation, context: context)
-        let local = context.services.daemon(for: pane.pane).isLocal
-        let vscode = local ? (try? installedVSCode()) : nil
-        let shell = terminal(of: pane, invocation)
-        // Serve the terminal's folder, or ask in a panel that starts there (cmux-window-rules `files::vscode_open`).
-        let facts = WindowRules.VSCodeFacts(local: local, installed: vscode != nil, byPerson: invocation.origin == .user,
-                                            terminal: shell != nil, cwd: shell?.cwd)
-        let open = WindowRules().vscodeOpen(facts), decision = open?.decision
-        guard let vscode, decision == "serve" || decision == "panel" else {
-            throw ActionFailure(message: decision == "thisMacOnly" ? VSCodeInlineStrings.thisMacOnly
-                                    : decision == "notInstalled" ? VSCodeInlineStrings.notInstalled : VSCodeInlineStrings.noFolder)
-        }
+        let (open, vscode) = try decide(invocation, beside: pane, context)
         let folder = open?.folder
-        if decision == "serve", let folder { return serve(folder, vscode: vscode, beside: pane, byPerson: false, context: context) }
+        if open?.decision == "serve", let folder { return serve(folder, vscode: vscode, beside: pane, byPerson: false, context: context) }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -80,19 +73,45 @@ enum VSCodeInlineHandlers {
         }
     }
 
-    /// The pane the folder opens beside: a workspace target's (the sidebar row's menu) focused
-    /// pane, shown first in the window that lists it; else the targeted or focused pane.
+    /// The Rust decision (cmux-window-rules `files::vscode_open`) beside `pane`: serve the terminal's folder, or ask in
+    /// a panel that starts there, with the VS Code app it opens with; else why not. Changes nothing: with no pane (a
+    /// workspace row's workspace no window shows) only the workspace's machine and VS Code decide; its terminal is read
+    /// once the run shows it.
+    private static func decide(_ invocation: ActionInvocation, beside pane: PaneController?, _ context: AppActionContext) throws
+        -> (open: WindowRules.Open?, vscode: URL) {
+        let workspace = pane == nil ? (try? context.workspace(invocation))?.model.id : nil
+        let local = pane.map { context.services.daemon(for: $0.pane).isLocal }
+            ?? workspace.flatMap { context.services.machines.daemon(forWorkspace: $0)?.isLocal } ?? true
+        let vscode = local ? (try? installedVSCode()) : nil, shell = pane.flatMap { terminal(of: $0, invocation) }
+        let facts = WindowRules.VSCodeFacts(local: local, installed: vscode != nil, byPerson: invocation.origin == .user || pane == nil,
+                                            terminal: shell != nil, cwd: shell?.cwd)
+        let open = WindowRules().vscodeOpen(facts), decision = open?.decision
+        guard let vscode, decision == "serve" || decision == "panel" else {
+            throw ActionFailure(message: decision == "thisMacOnly" ? VSCodeInlineStrings.thisMacOnly
+                                    : decision == "notInstalled" ? VSCodeInlineStrings.notInstalled : VSCodeInlineStrings.noFolder)
+        }
+        return (open, vscode)
+    }
+
+    /// The pane the folder opens beside, if a window shows it: a workspace target's (the sidebar row's menu) focused
+    /// pane, else the targeted or focused pane.
+    private static func shownPane(_ invocation: ActionInvocation, _ context: AppActionContext) -> PaneController? {
+        guard let target = invocation.target ?? invocation["workspace"]?.targetValue, target.kind == .workspace else {
+            return try? context.pane(invocation)
+        }
+        guard let model = try? context.workspace(invocation).model else { return nil }
+        return context.services.windows.controllers.first { $0.workspaceContent?.workspace === model }?.focusedPane
+    }
+
+    /// ``shownPane(_:_:)``, showing a workspace target no window shows first, where it lives, as a click on its row does.
     static func targetPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneController {
+        if let pane = shownPane(invocation, context) { return pane }
         guard let target = invocation.target ?? invocation["workspace"]?.targetValue, target.kind == .workspace else {
             return try context.pane(invocation)
         }
-        let model = try context.workspace(invocation).model
-        let windows = context.services.windows
-        func shown() -> PaneController? { windows.controllers.first { $0.workspaceContent?.workspace === model }?.focusedPane }
-        if let pane = shown() { return pane }
-        // A row of a workspace no window shows: show it where it lives, as a click on the row does.
+        let model = try context.workspace(invocation).model, windows = context.services.windows
         if let state = windows.active?.state { windows.show(workspaceID: model.id, in: state) }
-        guard let pane = shown() else { throw ActionFailure(message: RefusalStrings.notShownInAnyWindow(target.description)) }
+        guard let pane = shownPane(invocation, context) else { throw ActionFailure(message: RefusalStrings.notShownInAnyWindow(target.description)) }
         return pane
     }
 
@@ -103,16 +122,10 @@ enum VSCodeInlineHandlers {
         return tab
     }
 
-    /// The installed VS Code app: by bundle id, else the usual install places; Insiders last.
+    /// The installed VS Code app (``VSCodeAppLocator``).
     private static func installedVSCode() throws -> URL {
-        let workspace = NSWorkspace.shared
-        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") { return url }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for path in ["/Applications/Visual Studio Code.app", "\(home)/Applications/Visual Studio Code.app", "/Applications/Code.app"]
-            where FileManager.default.fileExists(atPath: path) {
-            return URL(fileURLWithPath: path, isDirectory: true)
-        }
-        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCodeInsiders") { return url }
-        throw ActionFailure(message: VSCodeInlineStrings.notInstalled)
+        let found = VSCodeAppLocator { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.installed()
+        guard let found else { throw ActionFailure(message: VSCodeInlineStrings.notInstalled) }
+        return found
     }
 }
