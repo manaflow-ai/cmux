@@ -22,6 +22,7 @@ use parking_lot::{
     ArcReentrantMutexGuard, RawMutex, RawThreadId, ReentrantMutex, ReentrantMutexGuard,
 };
 use rusqlite::Connection;
+use rusqlite::config::DbConfig;
 
 use crate::lock_rank::{HeldRank, LockRank};
 
@@ -446,9 +447,18 @@ impl RegistryConnection {
     /// transaction is open on another thread while the caller holds it, so
     /// each commit that began before the release ended, and each later one
     /// reads the release. The caller drops the session locks before it
-    /// drops `_held`.
-    pub(crate) fn mark_released(&self, _held: &RegistryConnectionGuard<'_>) {
+    /// drops `held`.
+    ///
+    /// From here this connection makes no checkpoint at its close either:
+    /// SQLite's last connection of a database moves the log into the main
+    /// file and removes the log when it closes, and that close is after the
+    /// release, in a file that the next owner has. The log stays in the
+    /// folder, and the next owner reads each commit that it holds.
+    pub(crate) fn mark_released(&self, held: &RegistryConnectionGuard<'_>) {
         self.released.set();
+        if let Err(error) = held.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true) {
+            eprintln!("cmux-tui: the registry keeps its checkpoint at the close: {error}");
+        }
     }
 
     /// The connection for a request thread. The caller holds the workspace

@@ -57,6 +57,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use rusqlite::Connection;
+use rusqlite::config::DbConfig;
 
 use crate::panic_free::RecoverPoison;
 
@@ -559,6 +560,10 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -
         .and_then(|connection| {
             connection.execute_batch(CHECKPOINTER_PRAGMAS)?;
             connection.execute_batch(&journal_size_limit_pragma())?;
+            // This connection makes a checkpoint only where this function
+            // asks for one, never at its close: that close can be the last
+            // one of the database, after the owner's release.
+            connection.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
             Ok(connection)
         })
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
