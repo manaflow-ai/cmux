@@ -286,26 +286,10 @@ impl Oracle {
         self.clock
     }
 
-    /// F3 with plain comparisons: no `clamp`, and no constant of the rules.
+    /// F3 with its own numbers: no constant of the rules, and no function of them.
     fn fit(frame: FloatFrame) -> FloatFrame {
-        let size = |extent: u32| {
-            if extent < 150_000 {
-                150_000
-            } else if extent > 8_000_000 {
-                8_000_000
-            } else {
-                extent
-            }
-        };
-        let corner = |at: i32| {
-            if at < -16_000_000 {
-                -16_000_000
-            } else if at > 16_000_000 {
-                16_000_000
-            } else {
-                at
-            }
-        };
+        let size = |extent: u32| extent.clamp(150_000, 8_000_000);
+        let corner = |at: i32| at.clamp(-16_000_000, 16_000_000);
         FloatFrame { x: corner(frame.x), y: corner(frame.y), w: size(frame.w), h: size(frame.h) }
     }
 
