@@ -140,7 +140,9 @@ function calendarDay(): Node {
   const grid = width - labelWidth;
   const y = (hour: number) => (hour - start) * hourHeight;
   const rows = Array.from({ length: end - start + 1 }, (_, i) =>
-    node("HStack", { spacing: 4, alignment: "top", frame: { height: i === end - start ? 1 : hourHeight } }, [
+    // The row and its Line take the grid's width: a frameless Line is its parent's width, and a row
+    // that only wraps its content would leave it none (and squeeze the hour label out).
+    node("HStack", { spacing: 4, alignment: "top", frame: { width, height: i === end - start ? 1 : hourHeight } }, [
       text(`${(start + i) % 12 || 12} ${start + i < 12 ? "AM" : "PM"}`, {
         font: 11,
         color: "tertiary",
@@ -148,7 +150,7 @@ function calendarDay(): Node {
         frame: { width: labelWidth - 4 },
         offset: { y: -6 },
       }),
-      node("Line", { stroke: "separator" }),
+      node("Line", { stroke: "separator", frame: { width: grid } }),
     ]),
   );
   const event = (title: string, from: number, to: number, lane: number, lanes: number, tint: string) => {
@@ -166,7 +168,10 @@ function calendarDay(): Node {
       },
       [
         text(title, { font: 11, weight: "semibold", color: tint, lineLimit: 1 }),
-        text(`${from}:00`, { font: 11, color: "secondary" }),
+        text(`${Math.floor(from)}:${String(Math.round((from % 1) * 60)).padStart(2, "0")}`, {
+          font: 11,
+          color: "secondary",
+        }),
       ],
     );
   };

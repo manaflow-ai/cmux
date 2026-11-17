@@ -61,6 +61,13 @@ describe("SDK Timeline", () => {
     const [grid, list, line, dot] = view.children as ViewNode[]
     expect(grid!.type).toBe("VStack")
     expect(grid!.children.length).toBe(5)
+    // Each hour row is the timeline's width and its Line the grid's, so the label keeps its column
+    // and the rule reaches across (a content-wrapped row gave the Line no width).
+    const row = grid!.children[0] as ViewNode
+    expect((row.props.frame as { width?: number }).width).toBe(334)
+    const rule = row.children[1] as ViewNode
+    expect(rule.type).toBe("Line")
+    expect((rule.props.frame as { width?: number }).width).toBe(300)
     expect(list!.type).toBe("ForEach")
     const item = (event: (typeof events)[number]) => list!.list!.template(() => event, event.id)
     const standup = item(events[0]!)
