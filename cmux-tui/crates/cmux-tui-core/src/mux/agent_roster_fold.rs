@@ -266,7 +266,7 @@ impl Mux {
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
-        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+        let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
@@ -278,6 +278,17 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        // One agent's hooks run one after another, but an event the hook
+        // could not queue goes on its own connection with its own daemon
+        // thread, so the journal can take it out of order. The hook's start
+        // time orders what the agent did; the journal sequence orders transport.
+        if crate::agent_hooks::hook_event_is_reordered(
+            &ingress.kind,
+            observed_at_ms,
+            HookFence::last_observed_at_ms(previous_fence.as_ref(), &agent_session_id),
+        ) {
+            return Ok(());
+        }
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits

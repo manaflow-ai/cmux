@@ -852,7 +852,7 @@ impl Mux {
         };
         slot.remember(key, Some(commit.clone()));
         if let (Some(provider), Some(session)) = (facts.provider, facts.session) {
-            let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+            let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
             self.note_agent_activity(&facts.terminal, provider, session, observed_at_ms);
         }
         self.activity.note_agent_action();
