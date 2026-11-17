@@ -456,7 +456,8 @@ async fn with_the_setting_off_a_chat_handed_to_a_terminal_is_view_only() {
 /// typed prompt (an `enqueue` line with no origin), then takes it with a `queued_command`
 /// attachment of `commandMode: task-notification` and an `absorbed_mid_turn` remove: the sequence
 /// a real 2.1 transcript holds. On the default path (the setting off) it is no prompt of the
-/// person's: it never shows as one, and the turn it arrived in still ends.
+/// person's: it never shows as one, and the turn it arrived in still ends. The same for an inbox
+/// message, another session's message and a slash command typed mid-turn.
 #[tokio::test]
 async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
     let (hub, sid, file, mut terminal, root, first) = handed_to_terminal_as(1500, false).await;
@@ -476,6 +477,24 @@ async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
                 "commandMode": "task-notification"}}),
             json!({"type": "queue-operation", "operation": "remove", "content": note,
                    "reason": "absorbed_mid_turn", "commandUuid": source}),
+            // An inbox message another program sent (no enqueue text, no origin) and another
+            // session's (`peer`): no prompt of the person's either, as on base.
+            json!({"type": "queue-operation", "operation": "enqueue"}),
+            json!({"type": "attachment", "uuid": uuid::Uuid::now_v7().to_string(), "attachment": {
+                "type": "queued_command", "commandMode": "prompt",
+                "source_uuid": uuid::Uuid::now_v7().to_string(),
+                "prompt": [{"type": "text", "text": "From another agent (acpmux), not the person:"},
+                           {"type": "text", "text": "a build finished"}]}}),
+            json!({"type": "attachment", "uuid": uuid::Uuid::now_v7().to_string(), "attachment": {
+                "type": "queued_command", "commandMode": "prompt",
+                "source_uuid": uuid::Uuid::now_v7().to_string(),
+                "prompt": "<agent-message from=\"a1\">done</agent-message>",
+                "origin": {"kind": "peer", "from": "a1"}}}),
+            // A slash command typed mid-turn runs as command echoes, never as a prompt line.
+            json!({"type": "queue-operation", "operation": "enqueue", "content": "/rename build"}),
+            json!({"type": "queue-operation", "operation": "dequeue"}),
+            json!({"type": "user", "uuid": uuid::Uuid::now_v7().to_string(), "message": {
+                "role": "user", "content": "<command-name>/rename</command-name>"}}),
         ],
     );
     assert_eq!(terminal.until("END", 1).await, ["start"]);
