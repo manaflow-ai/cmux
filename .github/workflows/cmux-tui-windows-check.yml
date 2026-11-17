@@ -18,6 +18,69 @@ on:
       - ".github/workflows/cmux-tui-windows-check.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish"
+      - "Resources/cmux-cli-path/zsh/.zshenv"
+      - "Resources/theme-files/charcoal.json"
+      - "Resources/theme-files/classic-desktop.json"
+      - "Resources/theme-files/claude-desktop.json"
+      - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/phosphor.json"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "docs/remote-agents-and-cloud.md"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/cmux-next/cargo-locks.py"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
   workflow_dispatch:
 
 concurrency:
@@ -35,11 +98,45 @@ env:
   GHOSTTY_ZIG_SOURCE: ghostty-next
 
 jobs:
+  route:
+    name: route (crate graph)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    outputs:
+      windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
+    steps:
+      # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      # Jobs routed by the crate graph (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): each runs
+      # when the change touches an input of a crate it builds (the crate, its path dependencies with their
+      # features, the files their sources name) or of its own steps. A push, a dispatch, the full-ci label, a
+      # change to the router and a cmux-tui path it cannot place run every job; so does a failed router (the
+      # jobs read `!= 'false'`).
+      - name: Which jobs can the change affect (crate graph)
+        id: graph
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-windows-check.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
     # Forks never ran this (it was push-only), so its runner pool stays
-    # for this repository's own branches.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # for this repository's own branches. It runs by the crate graph (the route job); a failed
+    # router never skips it.
+    needs: route
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     steps:

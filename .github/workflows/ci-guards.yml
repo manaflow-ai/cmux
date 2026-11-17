@@ -847,6 +847,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      # The crate-graph job router (scripts/ci/affected_jobs.py), and that each workflow it routes keeps
+      # every input of its jobs on its paths filter and wires each job to the router.
+      - name: Validate the crate-graph job routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_affected_jobs.py
+
       - name: Validate the portable SwiftPM rolling cache keys
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_swift_packages_linux_cache.py
