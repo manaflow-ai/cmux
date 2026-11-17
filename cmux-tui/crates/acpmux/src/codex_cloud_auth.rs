@@ -186,11 +186,16 @@ where
 /// answer is waited for rather than read as unreachable, which would switch Codex to own mode.
 const RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The `host:port` a lookup of `host` (an https origin's host, port optional) asks for.
+pub(crate) fn lookup_target(host: String) -> String {
+    if host.contains(':') { host } else { format!("{host}:443") }
+}
+
 /// Whether `host` resolves (`agent-auth.sh` treats curl's exit 6 as unreachable); a resolver that
 /// gives no answer by `RESOLVE_DEADLINE` counts as unreachable.
 pub async fn host_resolves(host: String) -> bool {
-    let target = if host.contains(':') { host } else { format!("{host}:443") };
-    let lookup = tokio::time::timeout(RESOLVE_DEADLINE, tokio::net::lookup_host(target));
+    let lookup =
+        tokio::time::timeout(RESOLVE_DEADLINE, tokio::net::lookup_host(lookup_target(host)));
     match lookup.await {
         Ok(Ok(mut addrs)) => addrs.next().is_some(),
         _ => false,

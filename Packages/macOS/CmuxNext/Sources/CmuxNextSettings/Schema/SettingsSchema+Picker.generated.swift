@@ -18,7 +18,7 @@ nonisolated enum PickerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.picker.pinned", "Pinned Folders"),
-                help: SettingsText.keyed("settings.picker.pinned.help", "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."),
+                help: SettingsText.keyed("settings.picker.pinned.help", "Listed under Locations. Use full or ~/ paths."),
                 kind: .folderList,
                 default: .array(PickerPinnedSetting.pinnedDefault.map { .string($0) }),
                 keywords: ["picker", "pinned", "folders", "locations", "open", "save"]
