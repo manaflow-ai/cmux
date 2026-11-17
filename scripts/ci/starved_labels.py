@@ -246,7 +246,7 @@ def _carrier_state(row: Mapping[str, Any]) -> str:
         return "listening"
     if row.get("busy") or held.get("total"):
         return "full"
-    if row.get("down"):
+    if row.get("down") and not row.get("unreported"):
         return "offline"
     if row.get("unreported"):
         return "unknown"
@@ -258,12 +258,14 @@ def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> d
 
     GitHub lists a runner whose gate holds its listener off as offline, the same as a dead one, so the jobs alone
     cannot tell a full label from a broken one (cmux#45614, #45620-#45622 read as outages while every carrier ran or
-    was held for capacity units). `state` is CARRIER_STATES' worst over the label's parts found in the reading:
+    was held for capacity units). `state` is CARRIER_STATES' worst over the label's parts (a part the reading
+    leaves out counts as unknown; a full one with some carriers down says so in the issue):
       full       no idle listener; carriers run jobs or their gate holds them (units, CPU, livelock, other): capacity
       offline    carriers registered but down (offline with no gate hold), none running or held: an outage
       listening  a listener is up and idle, yet the job did not start
       none       the reading lists the label with no carrier at all
-      unknown    no fresh reading, the label is not in it, or its minis' probes failed
+      unknown    no fresh reading, the label or a part of it is not in it, or its minis' probes failed (also down
+                 carriers beside unreported ones)
     """
     reading = (gates or {}).get("labels") if isinstance(gates, Mapping) else None
     as_of = parse_time(str((gates or {}).get("as_of") or "")) if isinstance(gates, Mapping) else None
@@ -271,10 +273,13 @@ def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> d
         return {"state": "unknown", "why": "no fleet gate reading (CI_FLEET_GATES) in this sweep"}
     if (now - as_of).total_seconds() > CARRIER_READING_STALE_S:
         return {"state": "unknown", "why": f"the fleet gate reading is from {as_of.strftime('%H:%M:%SZ')}, stale"}
-    parts = [(part, reading[part]) for part in label.split("+") if isinstance(reading.get(part), Mapping)]
-    if not parts:
+    parts = [(part, reading.get(part)) for part in label.split("+")]
+    if not any(isinstance(row, Mapping) for _, row in parts):
         return {"state": "unknown", "why": "the fleet gate reading does not list this label"}
-    state = max((_carrier_state(row) for _, row in parts), key=CARRIER_STATES.index)
+    # A part the reading leaves out is unknown: the job needs runners carrying every part.
+    state = max((_carrier_state(row) if isinstance(row, Mapping) else "unknown" for _, row in parts),
+                key=CARRIER_STATES.index)
+    parts = [(part, row) for part, row in parts if isinstance(row, Mapping)]
     counts = []
     for part, row in parts:
         held = row.get("held_offline") or {}
@@ -282,7 +287,8 @@ def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> d
         counts.append(f"`{part}` {int(row.get('listening') or 0)} listening, {int(row.get('busy') or 0)} busy, "
                       f"{int(held.get('total') or 0)} held" + (f" ({holds})" if holds else "")
                       + f", {int(row.get('down') or 0)} down, {int(row.get('unreported') or 0)} unreported")
-    return {"state": state, "why": "; ".join(counts), "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    down = sum(int(row.get("down") or 0) for _, row in parts)
+    return {"state": state, "why": "; ".join(counts), "down": down, "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 CARRIER_SENTENCE = {
@@ -363,8 +369,12 @@ def issue_body(entry: Mapping[str, Any], generated_at: str, rescued: Mapping[int
              + (f"; started for run(s) {', '.join(str(run) for run in sorted(rescued))}. " if rescued else ". "))
     mark = " ".join(f"{run}@{at.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
                     for run, at in sorted(rescued.items()))
+    seen = entry.get("carriers") or {}
+    down = int(seen.get("down") or 0) if seen.get("state") == "full" else 0
     return (f"The CI queue janitor's sweep at {generated_at} found {describe(entry)}.\n\n"
-            + CARRIER_SENTENCE[str((entry.get("carriers") or {}).get("state") or "unknown")] + " "
+            + CARRIER_SENTENCE[str(seen.get("state") or "unknown")] + " "
+            + (f"{down} of its carriers are down with no hold, though: between jobs, or an outage on those minis "
+               "(`glaeda-mini-health` says which). " if down else "")
             + acted + "This issue is updated every sweep while the "
             "label stays starved and closed by the first sweep that finds it served.\n\n"
             "Source: `scripts/ci/starved_labels.py` (ci-queue-janitor.yml)."

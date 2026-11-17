@@ -344,8 +344,14 @@ class CarrierTests(unittest.TestCase):
     def test_carriers_down_with_no_hold_and_none_running_read_offline(self) -> None:
         self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=4)})), "offline")
 
-    def test_one_busy_carrier_beside_down_ones_reads_full(self) -> None:
-        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(busy=1, down=3)})), "full")
+    def test_one_busy_carrier_beside_down_ones_reads_full_and_names_the_down_ones(self) -> None:
+        found = starved_labels.carriers(SIDE, gates(**{SIDE: gate_row(busy=1, down=3)}), NOW)
+        self.assertEqual(found["state"], "full")
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j", "carriers": found}
+        self.assertIn("3 of its carriers are down with no hold", starved_labels.issue_body(entry, iso(0)))
+
+    def test_down_carriers_beside_unreported_ones_read_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=1, unreported=10)})), "unknown")
 
     def test_an_idle_listener_reads_listening(self) -> None:
         self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(listening=1, busy=2)})), "listening")
@@ -361,10 +367,12 @@ class CarrierTests(unittest.TestCase):
         self.assertEqual(self.state(SIDE, gates(minutes_ago=6, **{SIDE: gate_row(busy=1)})), "unknown")
         self.assertEqual(self.state(SIDE, gates(**{OTHER: gate_row(busy=1)})), "unknown")
 
-    def test_a_label_over_several_parts_reads_its_worst_listed_part(self) -> None:
-        # cmux#45620: glaeda-ios-sim+glaeda-std; the reading lists std only.
+    def test_a_label_over_several_parts_reads_its_worst_part_and_an_unlisted_part_is_unknown(self) -> None:
+        # cmux#45620: glaeda-ios-sim+glaeda-std; the reading lists std only, so std being full proves nothing.
         both = f"glaeda-ios-sim+{STD}"
-        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3, units=4)})), "full")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3, units=4)})), "unknown")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(units=2)})),
+                         "full")
         self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(down=2)})),
                          "offline")
 
