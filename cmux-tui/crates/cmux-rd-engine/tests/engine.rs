@@ -609,9 +609,11 @@ fn no_recovery_keyframe_while_the_path_is_away() {
         None => Vec::new(),
     };
     let fresh = if fresh.is_empty() { sent[2..4].to_vec() } else { fresh };
+    let newest = DatagramHeader::decode(&fresh[0]).expect("header").0.frame;
     let out = e.on_datagram(
         &feedback(&Feedback {
             arrivals: arrived(&fresh, 435_000),
+            acked_frame: newest,
             need_recovery: true,
             ..Feedback::default()
         }),
