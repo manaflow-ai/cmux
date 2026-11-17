@@ -2597,12 +2597,11 @@ function TranscriptView({
   /// end) reads its rows in the commit, so the pass that places them sees their heights: left to
   /// the observer's pass after it, the turn's end moved the rows by them at once (send-stream-motion
   /// tools and steer, 29 px). O(1): the tail window and the first row.
-  const tokenRows = useRef<{ rows: readonly AcpmuxRow[]; token: boolean }>({ rows, token: false });
-  if (tokenRows.current.rows !== rows)
-    tokenRows.current = {
-      rows,
-      token: rowsBefore !== rows && rowsBefore[0]?.id === rows[0]?.id && !arrivedAtTail(rowsBefore, rows),
-    };
+  /// Kept per rows list, set once when a render first draws it, so a render React discards leaves
+  /// no other list's answer behind; `queueDrawn` reads the latest list's (`rowsRef`).
+  const [tokenRows] = useState(() => new WeakMap<readonly AcpmuxRow[], boolean>());
+  if (!tokenRows.has(rows))
+    tokenRows.set(rows, rowsBefore !== rows && rowsBefore[0]?.id === rows[0]?.id && !arrivedAtTail(rowsBefore, rows));
   /// Whether the render before this one drew any row: a send into a chat with none yet (a new
   /// chat's first prompt) has no latest row to become, and fades in place (conversation/sendMorph.ts).
   const drewRowsBefore = useRef(false);
@@ -2858,7 +2857,7 @@ function TranscriptView({
       // browser's own layout pass, before the frame paints (`observer` below); one it left at its
       // height keeps the height already placed, whose version differs only in a field placement
       // never reads. Read here only when no height is kept for the row as it is drawn now.
-      if (versionOnly && tokenRows.current.token && typeof ResizeObserver !== "undefined") {
+      if (versionOnly && tokenRows.get(rowsRef.current) === true && typeof ResizeObserver !== "undefined") {
         const known = drawnRef.current.get(id);
         if (
           known &&
@@ -3241,7 +3240,7 @@ function TranscriptView({
               // 29 px; send-stream-motion). A second pass runs only when a height moved under the
               // first, and none while input waits (above): a streamed token still places once.
               // Still moving after them (or input came): the next commit places it.
-              for (let pass = 0; ; pass += 1) {
+              for (let pass = 0; pass <= 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
                   break;
