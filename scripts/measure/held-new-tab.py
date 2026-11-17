@@ -24,7 +24,7 @@ forms (--launch-form; `launch_form` and `key_source` in the report say which one
 `key_source` is the form's name):
 
   activate  the app is launched as a person's app (no CMUX_NEXT_NO_ACTIVATE: it takes the keyboard). A row is ONE
-            `debug.key {"sequence"}` in the shell window as the key window: the app builds each key as a real
+            `debug.key {"sequence"}` in the window that has the keys (KEY WINDOW): the app builds each key as a real
             CGEvent with its intended press time and posts it to its own event queue, so it takes `nextEvent`, the
             monitors, `sendEvent`, the key router and the action. A repeat has the repeat flag.
   one-key   the launcher's own launch (the app does not activate and has no key window). Each key-down of a row is
@@ -45,6 +45,26 @@ activate: by=launch|open|none|not asked app_active=... key_window=... front=... 
 report has that line as `launch.activate`. An app that is still not active (`by=none`) ends that launch as a failed
 preflight. A second instance of the app after the open ends the run with exit 1: no other launch form and no row
 (the function `activate` says which process gets a signal, and when).
+
+KEY WINDOW. A sequence of the `activate` form names the window that gets its keys (`key_window`): `shell`, or
+`page` when a Chromium page has the keys. The app shows such a page (the New Tab page, a chat, a browser tab) in a
+child window that has the keys while the page has the focus, and it refuses `shell` then (`the shell window did not
+become key`); so a take or a preflight key that starts on a page asks for `page`. The word comes from one read of
+`debug.focus` (`key_window_word`). The read and the keys are 2 calls, and the app moves the keys to a new page in
+that time (directly after a Cmd-T): when the app refuses the word with one of its 2 refusals of a key window, ONE
+new read and ONE more send, 2 sends of a sequence at most; the app refuses a word before it posts a key of that
+call, so no key goes 2 times. A refused send is not free: for a refused `shell` the app gives the keys to the shell
+window and then back to the page, which is 2 changes of the key window.
+A take sends a sequence with NO key and its word BEFORE its frames start (`key_window_ready`), so the app takes or
+refuses the word outside the frames; `key_window_refusals_before_the_frames` of the row has each such refusal. The
+keys' send then has the word that the app took. When the app still refuses that word (the keys moved between the 2
+sends), the refused send, its 2 changes of the key window and the tool's new read of `debug.focus` are INSIDE the
+frames: the take is INVALID, with the refusals in its `invalid` entry and in the record's `key_window_refusals`.
+The record of a take has the word of its keys' send as `key_window`. The word names the window at the FIRST key of
+a sequence: the app's own focus moves the keys after that, as for a person (a Cmd-T moves them to the new tab's
+page).
+An other error of the send with no key is in `key_window_refusals_before_the_frames` too, with the app's words: the
+take's validity does not change by it.
 
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
@@ -72,7 +92,7 @@ when it is `valid`, and that needs the proof that the app ran the keys' actions 
 names its key by the key's time) against the key's number. It reads when an action STARTED, not when a key came.
 `in_key_order` is true when no action ran after the action of a later key; `acts_after_a_later_key` counts the ones
 that did, and `first` names the first. It is null (no proof) when a key that did something has no record of its
-action, when the app ran no action at all, or at a fault of the tool: the row is then INVALID.
+action, when no action that the app ran pairs with a key, or at a fault of the tool: the row is then INVALID.
 When `in_key_order` is false, the row's state follows from `key_calls.each_call_ended_with_its_reply_before_the_next_began`
 (the `one-key` form: each call of the take got a reply of the app and ended before the next call started; null in the
 `activate` form, where the app plays the keys and the tool makes no call for each key). A reply with `error` is no
@@ -174,6 +194,18 @@ count.
 
 --film DIR adds one `mixed` take under `debug.window_record` (it slows the app: not for a table).
 
+SAMPLE. --sample-s SECONDS (off by default) adds ONE more `hold` take, after the wider recording, with the system's
+sampler (`/usr/bin/sample`) on the app's process: it starts after the take's last read before the keys, the first
+key waits for the sampler's first line (SAMPLE_START_S at most; `first_line_before_the_keys` says if it came), and
+the take waits for the sampler's end before its own reads. A sampler that ended before the first key is an error of
+the sample, and a take that stops at a fault of the tool gives its sampler one kill. No other
+take has a sampler. The row has the scenario `hold-sample` and the round `sample`, so it is in no number of the
+rounds' rows. The sampler stops the app for each sample: each time of that row is below `not_for_a_person`, and
+`sample` has COUNTS only: the samples of the main thread, by class, and the frames with the most samples that are
+not a wait (SAMPLE_LIMIT). The sampler's report is the file `sample-hold/sample.txt` of the artifact. A take with
+no report (the sampler did not start, its exit was not 0, the report has no main thread) keeps its row, says why
+in `sample.error`, and is a failure of the run.
+
 Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out; with --artifact FILE it also packs the
 report, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0 when each row
 measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a valid row; 1
@@ -181,7 +213,7 @@ when the preflight failed or a round has no valid row (the run ends after that r
 asked (no report file then). See `exit_code`.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
-import argparse, ctypes, importlib.util, json, os, re, signal, socket, subprocess, sys, tarfile, threading, time, traceback
+import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
 from pathlib import Path
 
 NEXT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next")
@@ -220,6 +252,22 @@ WIDE_LIMIT = ("one more `hold` take after the rounds, recorded with more signpos
               "left out, also the task of another key's call (`own_call_tasks_left_out`: the count and the ms for each "
               "slow key), and its parts have no name here. The recording of more categories can slow the app: compare "
               "this row's input to next commit with the `hold` rows")
+SAMPLER, SAMPLE_FILE, SAMPLE_NAME = "/usr/bin/sample", "sample.txt", "hold-sample"
+SAMPLE_START_S = 5.0  # the wait for the sampler's first line; then the keys start with no such line
+SAMPLE_END_S = 120.0  # the sampler's own end after its seconds: it reads the symbols and writes its report
+SAMPLE_TOP = 20
+SAMPLE_WHY = ("the system's sampler ran on the app in this take, and it stops the app for each sample: each field below is "
+              "not for a person")
+SAMPLE_LIMIT = ("one more `hold` take after the rounds, with the system's sampler on the app from the instant before the "
+                "first key, for `seconds`; it is in no number of the rounds' rows, and a count is not a time. The counts "
+                "are the samples of the MAIN thread only. `samples_by_class`: by the classes of perf-profile-split.py, a "
+                "guess by the names of the frames (`idle`: the thread waits). `top_frames`: for each sample that is not "
+                "idle, the first frame from the leaf that is the app's or a framework's (the class's deciding frame), "
+                "the SAMPLE_TOP frames with the most samples. The tool's own calls of the control socket in that time "
+                "are in the counts. `app_was_done` false: the sampler's seconds ended before the app said that the "
+                "burst was done, so the sample has only the first part of the take. `first_line_before_the_keys` false: "
+                "the sampler said no line with words in SAMPLE_START_S, or it did not run after that line, or its exit "
+                "was not 0, so the tool does not know that it sampled at the first key. The whole report: the file")
 TAKE_KILL_S = 10.0  # the wait for a killed take's child to go
 ENGINE_LIMIT = ("the app's own word (`debug.cef`) at 2 times, not a read of each new tab's own view: `webkit_fallbacks` "
                 "is the app's count of pages that fell back since its launch, in each window and workspace, so `mixed` "
@@ -240,8 +288,9 @@ APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/Applicat
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
 LAUNCH_FORMS = {"auto": ["activate", "one-key"], "activate": ["activate"], "one-key": ["one-key"]}
 ONE_KEY = "one key for each call, no repeat flag, the script's clock"
-KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own queue, in the shell window as the key window, a repeat "
-                           "with the repeat flag; not the HID tap, not the window server",
+KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own queue, in the window that has the keys (the shell "
+                           "window, or the window of a Chromium page that the pane shows), a repeat with the repeat flag; not the "
+                           "HID tap, not the window server",
                "one-key": ONE_KEY + ": each key-down is one debug.key call with its intended time, sent to the window directly; "
                           "not the app's event queue, no key-up, so the key router's repeat path is not in the rows"}
 PREFLIGHT_S = 120
@@ -251,6 +300,7 @@ SENT_BY = {"activate": "the app plays the sequence: one call, and the app posts 
 KEY_TIME = {"activate": "the app's own clock: each key's intended press time in the sequence",
             "one-key": "the key's planned time by this script's clock (the event's time that the app got), not the start of its "
                        "call: a number from a key's time has the wait of a late call in it"}
+KEY_REFUSALS = ("window did not become key", "no Chromium page window")  # the app's 2 refusals of a `key_window` word
 LATE_CALL_MS = 1.0  # a call that started this long after its planned time is `late` (a count for a reader, no gate)
 IN_TURN = "each_call_ended_with_its_reply_before_the_next_began"  # the field of `key_calls` (the docstring, INPUT ORDER)
 INPUT_ORDER_BY = ("the app's own records: the start of each key's action (`action.perform`, which names its key by the key's "
@@ -295,9 +345,45 @@ def uptime():
     return time.clock_gettime(time.CLOCK_UPTIME_RAW)
 
 
-def post_keys(source, rpc, steps, pane, form):
+def key_window_word(rpc):
+    """The `key_window` word of a sequence of the `activate` form (KEY WINDOW), by one read of `debug.focus`: `page`
+    when a Chromium page has the keys, else `shell`. The read: no cmux window is key (a page's window is key then),
+    and a window names its page (`appkit.child_window_page`). A cmux window that is key has the keys, also when it
+    still names a page. `shell` for a read that failed: the app's own refusal then says what is wrong."""
+    focus = rpc("debug.focus")
+    windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
+    page = any((w.get("appkit") or {}).get("child_window_page") for w in windows)
+    return "page" if page and not any(w.get("is_key") for w in windows) else "shell"
+
+
+def post_sequence(rpc, steps, pane, word=None):
+    """One sequence of the `activate` form in the window that has the keys (KEY WINDOW): `debug.key`'s reply, with
+    the word of the send as `key_window` and each refusal before it as `key_window_refusals` (`<word>: <the app's
+    words>`). `word`: the word of a read that the caller made; None for a read here. 2 sends at most, and a second
+    one only after a refusal of a key window, which the app makes before it posts a key."""
+    refusals = []
+    for again in (False, True):
+        word = word if word and not again else key_window_word(rpc)
+        sent = rpc("debug.key", {"sequence": steps, "key_window": word, "pane": pane}) or {}
+        sent = sent if isinstance(sent, dict) else {"error": f"debug.key: {str(sent)[:200]}"}
+        if again or not any(text in str(sent.get("error") or "") for text in KEY_REFUSALS):
+            break
+        refusals.append(f"{word}: {str(sent['error'])[:120]}")
+    return {**sent, "key_window": word, "key_window_refusals": refusals}
+
+
+def key_window_ready(rpc, pane):
+    """A take's word before its frames start (KEY WINDOW): the word of a sequence with no key, which the app takes
+    or refuses as each other sequence, and each refusal of the app (2 sends at most; after 2 refusals the word is
+    the last one that the tool asked). Each other error of that send is in the list too, with the app's words."""
+    sent = post_sequence(rpc, [], pane)
+    return sent["key_window"], sent["key_window_refusals"] + ([f"{sent['key_window']}: {str(sent['error'])[:120]}"] if sent.get("error") else [])
+
+
+def post_keys(source, rpc, steps, pane, form, word=None):
     """The ONE key source of a take, in the launch's key form: {base_s, duration_ms} or {error}. `activate`:
-    `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
+    `debug.key`'s reply to the sequence, which the app plays by its own clock in the window that has the keys
+    (`post_sequence`; `word` is its word from a read of the caller).
     `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call with its planned time as the event's time
     (`base_s` and the event times are on the clock of an event's time). ONE thread sends the calls in key order
     (`calls` has it): it waits for a key's planned time, and a call ends before the next one starts. With a reply of
@@ -309,7 +395,7 @@ def post_keys(source, rpc, steps, pane, form):
     if source != "app-queue":
         return {"error": f"the key source {source} is not in this script"}
     if form == "activate":
-        return rpc("debug.key", {"sequence": steps, "key_window": "shell", "pane": pane}) or {}
+        return post_sequence(rpc, steps, pane, word)
     letters, downs, at = {BENCH.KEY[name]: name for name in "tw"}, [], 0.0
     for step in steps:
         at += step.get("after_ms") or 0
@@ -476,7 +562,8 @@ def closes_by_key(record):
 def input_order(runs, fates):
     """(The row `input_order` (the docstring, INPUT ORDER), the keys' numbers in the order in which the app ran
     their actions). `runs`: `key_runs`. A key that did something and has no record of its action's start leaves the
-    proof open (`in_key_order` is None), and so does a row where the app ran no action: nothing proves an order."""
+    proof open (`in_key_order` is None), and so does a row where no action that the app ran pairs with a key: nothing
+    proves an order."""
     acts = [index for _, index in sorted((run["perform"]["at_s"], index) for index, run in runs.items() if run.get("perform"))]
     none = [index for index, fate in enumerate(fates) if fate in BENCH.APPLIED_FATES and index not in acts]
     moved, newest, first = 0, -1, None
@@ -734,9 +821,10 @@ def restore(builder, workspace, pane, state):
 
 def pack(out, film, target):
     """ONE file for a step to bring back (a step's command names one artifact): the report, each take's record and
-    signpost stream, and with a film its frames.json and each fifth frame. Returns the names in it."""
+    signpost stream, the sampler's report of the sample take, and with a film its frames.json and each fifth frame.
+    Returns the names in it."""
     names = {f"{found.parent.name}/{found.name}": found
-             for found in sorted(Path(out).glob("*/scenario.json")) + sorted(Path(out).glob("*/run.ndjson"))}
+             for kind in ("scenario.json", "run.ndjson", SAMPLE_FILE) for found in sorted(Path(out).glob(f"*/{kind}"))}
     if (Path(out) / "report.json").exists():
         names["report.json"] = Path(out) / "report.json"
     frames = Path(film) / "frames" if film else None
@@ -807,8 +895,105 @@ def bluetoothd_starts(start, end):
     return found
 
 
+def sampler_start(pid, seconds, path):
+    """The system's sampler on `pid` for `seconds`, its report to `path` (SAMPLE): (the child, its first line, if it
+    still ran after that read). The first line is the signal that it samples: this call waits for it, SAMPLE_START_S
+    at most (a sampler that keeps its words to its end gives no such signal: the line is then None, and the keys
+    start that long after the sampler). The last value is the read of the sampler's exit directly before the keys:
+    False says that the sampler ended before the first key. With no child: (None, why, False)."""
+    try:
+        child = subprocess.Popen([SAMPLER, str(pid), str(seconds), "-file", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, errors="replace")
+    except OSError as error:
+        return None, f"the sampler did not start: {error!r}", False
+    first = child.stdout.readline() if select.select([child.stdout], [], [], SAMPLE_START_S)[0] else None
+    return child, first, child.poll() is None
+
+
+def sampler_stop(children):
+    """One kill for each sampler that a take left behind (the take stopped at a fault before the sampler's end): no
+    take that follows starts with a sampler on the app."""
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+            try:
+                child.wait(timeout=TAKE_KILL_S)
+            except subprocess.TimeoutExpired:
+                pass  # the take's own fault still goes to its caller
+
+
+def sampler_end(child, first, ran, seconds, path, done):
+    """The take's record of its sample, after the sampler's end (SAMPLE_END_S more than its seconds, then one kill):
+    what the sampler said, `first_line_before_the_keys`, its exit, and `error` when there is no report or when the
+    sampler ended before the first key (`ran` false: the last value of `sampler_start`). The word
+    `first_line_before_the_keys` is true only when a first line with words came in the wait, the sampler still ran
+    after that read, and its exit was 0 (the first line of a sampler that fails is its fault, not the signal).
+    `done`: `app_was_done` (SAMPLE_LIMIT)."""
+    if child is None:
+        return {"error": first}
+    try:
+        rest, code = child.communicate(timeout=seconds + SAMPLE_END_S)[0], child.returncode
+    except subprocess.TimeoutExpired:
+        child.kill()
+        rest, code = "", None
+    said = [line.strip()[:200] for line in [first or ""] + (rest or "").splitlines() if line.strip()][:6]
+    record = {"file": SAMPLE_FILE, "seconds": seconds, "sampler_said": said,
+              "first_line_before_the_keys": bool((first or "").strip()) and ran and code == 0, "sampler_exit": code, "app_was_done": done}
+    if code != 0 or not os.path.exists(path):
+        record["error"] = f"no sample: the sampler's exit was {code}" + ("" if os.path.exists(path) else " and it wrote no file")
+    elif not ran:
+        record["error"] = "no sample of the keys: the sampler ended before the first key"
+    return record
+
+
+def sample_counts(path, profile):
+    """The main thread of the sampler's report at `path`, by counts only (SAMPLE_LIMIT)."""
+    with open(path, errors="replace") as f:
+        stacks = list(profile.stacks_from_sample(f.read()))
+    classes, frames = {}, {}
+    for count, stack in stacks:
+        name = profile.classify(stack)
+        classes[name] = classes.get(name, 0) + count
+        if name != "idle":
+            frame = (profile.deciding_frame(stack)[:160], name)
+            frames[frame] = frames.get(frame, 0) + count
+    top = sorted(frames.items(), key=lambda found: (-found[1], found[0]))[:SAMPLE_TOP]
+    return {"main_thread_samples": sum(classes.values()), "samples_by_class": dict(sorted(classes.items())),
+            "top_frames": [{"frame": frame, "class": name, "samples": count} for (frame, name), count in top]}
+
+
+def sample_row(row, said, path):
+    """The row of the sample take (SAMPLE): each field that is not in ROW_KEYS goes below NOT_FOR_A_PERSON (a row
+    with no proof of its keys' order has them there, with that cause; a row that was not run keeps its `not_run`),
+    and `sample` gets the take's record of the sampler with the counts of the report at `path`. Returns why the row
+    has no counts, or None."""
+    hidden = {} if NOT_FOR_A_PERSON in row else {key: row.pop(key) for key in list(row) if key not in ROW_KEYS + ("not_run",)}
+    if hidden:
+        row[NOT_FOR_A_PERSON] = {"why": SAMPLE_WHY, **hidden}
+    sample = {**(said or {"error": "the take made no record of the sampler"}), "limit": SAMPLE_LIMIT}
+    if not sample.get("error"):
+        try:
+            sample.update(sample_counts(path, BENCH.load("perf_profile_split", "perf-profile-split.py")))
+            if not sample["main_thread_samples"]:
+                sample["error"] = "the sampler's report has no sample of the main thread"
+        except Exception as error:  # noqa: BLE001  a fault of the read must not lose the row
+            sample["error"] = f"no read of the sampler's report: {error!r}"
+    row["sample"] = sample
+    return sample.get("error")
+
+
 def take(opts):
-    """One row on the running app (the child of perf-signposts.py); writes scenario.json to --out."""
+    """One row on the running app (the child of perf-signposts.py); writes scenario.json to --out. A sampler of the
+    take that still runs when the take stops at a fault gets one kill (SAMPLE)."""
+    samplers = []
+    try:
+        return take_row(opts, samplers)
+    finally:
+        sampler_stop(samplers)
+
+
+def take_row(opts, samplers):
+    """`take`. `samplers`: the take's sampler is in it from its start to the take's record of its end."""
     rpc = STRESS.socket_rpc(opts.socket)
     builder = STRESS.Stress(rpc, log=lambda line: None)
     builder.measured = opts.workspace
@@ -825,11 +1010,14 @@ def take(opts):
             json.dump(record, f, indent=1)
         return 0
     before, order = count(), {"before": pane_tabs(builder, rpc, opts.workspace, opts.pane)}
-    # Each journal and `debug.focus` read is outside the frame take: before it starts or after it ends.
+    # Each journal read is outside the frame take: before it starts or after it ends. So is each `debug.focus` read,
+    # but for the one new read after a refusal of the keys' send (KEY WINDOW): that take is INVALID.
     seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
     time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
+    # The window that has the keys now (KEY WINDOW): the app takes the word, with no key, before the frames start.
+    word, early = key_window_ready(rpc, opts.pane) if opts.launch_form == "activate" else (None, None)
     first, start = bluetoothd(), time.time()
     rpc("debug.frames", {"action": "start"})
     armed = rpc("debug.burst", {"action": "start"}) or {}
@@ -849,7 +1037,17 @@ def take(opts):
         steps, offsets = BENCH.sequence(letters, 0, (delay, interval))
     if opts.film:
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
-    sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form)
+    if opts.sample_pid:  # the sample take (SAMPLE): the sampler samples before the first key
+        sampled = time.monotonic()
+        sampler, said, sampling = sampler_start(opts.sample_pid, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE))
+        samplers += [sampler] if sampler else []
+    sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form, word)
+    if opts.launch_form == "activate":
+        record["key_window"] = sent.get("key_window") or word
+        if sent.get("key_window_refusals"):
+            record["key_window_refusals"] = sent["key_window_refusals"]
+            record["invalid"].append(f"the app refused a key window word after the frames started ({'; '.join(sent['key_window_refusals'])}): "
+                                     "the frames have one read of the focus and one refused send of this tool")
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
@@ -866,8 +1064,13 @@ def take(opts):
     in_take = STRESS.wait(done, max(0.5, FRAMES_S - (time.monotonic() - began)), step=0.1)  # less the time of late calls
     frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     end, moved = time.time(), bluetoothd() != first
-    if not (in_take or STRESS.wait(done, opts.deadline, step=0.1)):
+    settled = in_take or STRESS.wait(done, opts.deadline, step=0.1)
+    if not settled:
         record["invalid"].append(f"the app never said the burst was done within {opts.deadline:.0f} s more")
+    if opts.sample_pid:  # the sampler ends before each read of the take that follows
+        record["sample"] = sampler_end(sampler, said, sampling, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE),
+                                       bool(settled) and time.monotonic() - sampled <= opts.sample_s)
+        del samplers[:]
     settled_ms = round((time.monotonic() - began) * 1000)
     why = refused(sent, opts.deadline)
     if why:
@@ -898,6 +1101,7 @@ def take(opts):
                             "tab_shows_ring": JOURNAL,
                             "list_read_after_last_key_ms": round((list_read - times[-1]) * 1000, 1) if times else None,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
+                            **({} if early is None else {"key_window_refusals_before_the_frames": early}),
                             "disturbed": bool(moved or starts)}})
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
         json.dump(record, f, indent=1)
@@ -1192,11 +1396,15 @@ def preflight(app, st, out, film, form, display):
         before = tabs()
         sent = post_keys("app-queue", rpc, BENCH.sequence([letter], 0)[0], pane, form)
         why = sent.get("error") or ("base_s" not in sent and f"debug.key gave no start time: {sent}") or refused(sent, 10, ran=True)
+        # The word that the tool asked, and each refusal before that send: in the line of a key that failed too.
+        refusals = sent.get("key_window_refusals")
+        window = f", key_window = {sent.get('key_window')}" + (f" (the app refused {'; '.join(refusals)})" if refusals else "")
+        window = window if form == "activate" else ""
         if why:
-            fail(why)
+            fail(f"{why}{window}")
         if not wait(lambda: tabs() == before + change, 10, 0.05):
-            fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}")
-        ok(f"tabs {before} -> {tabs()}")
+            fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}{window}")
+        ok(f"tabs {before} -> {tabs()}{window}")
     st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
     st.made.clear()
     wait(lambda: not st.workspace(workspace), 10, 0.1)  # the session's count starts without it; a late close is no fault
@@ -1314,12 +1522,13 @@ def run(opts, app, signposts, report, form):
         builder.add_tab(workspace, pane, "terminal")
     # `no_openers`: why `openers` is None (the words for the `close` row that then has no verdict).
     state, openers, no_openers = BENCH.start_state(builder, workspace), {}, None
-    takes = [(r, n) for r in range(opts.rounds) for n in ROWS] + [("wide", "hold")] + ([("film", "mixed")] if opts.film else [])
+    takes = [(r, n) for r in range(opts.rounds) for n in ROWS] + [("wide", "hold")] + ([("sample", "hold")] if opts.sample_s else []) \
+        + ([("film", "mixed")] if opts.film else [])
     for index, name in takes:
-        wide = index == "wide"
+        wide, sample, record = index == "wide", index == "sample", {}
         # The wider recording has a scenario name of its own: a reader that groups the rows by `scenario` (the bench
         # `newtab` does) then keeps it out of the numbers of `hold` and lists it as a scenario of its own.
-        scenario, row, ended = WIDE_NAME if wide else name, None, None
+        scenario, row, ended = WIDE_NAME if wide else SAMPLE_NAME if sample else name, None, None
         out = os.path.join(opts.out, f"{index}-{name}")
         ndjson, before, start = os.path.join(out, "run.ndjson"), stats(path), time.time()
         if pane not in {found["id"] for found in builder.panes(builder.workspace(workspace))}:
@@ -1334,7 +1543,9 @@ def run(opts, app, signposts, report, form):
                         "--launch-form", form,
                         "--keep", str(len(state[pane])), "--hold-ms", str(opts.hold_ms), "--every-ms", str(opts.every_ms),
                         "--repeat-delay-ms", str(opts.repeat_delay_ms), "--repeat-ms", str(opts.repeat_ms), "--deadline", str(opts.deadline)]
-            bound = take_bound(opts)
+            if sample:
+                command += ["--sample-pid", str(app.process.pid), "--sample-s", str(opts.sample_s)]
+            bound = take_bound(opts) + (opts.sample_s + SAMPLE_END_S if sample else 0)
             code = record_take(command + (["--film", os.path.join(opts.film, "frames")] if index == "film" else []), bound)
             try:
                 with open(os.path.join(out, "scenario.json")) as f:
@@ -1398,7 +1609,7 @@ def run(opts, app, signposts, report, form):
                     none = proof.get("keys_with_no_act_record")
                     row.setdefault("invalid", []).append("no proof of the order of the keys: " + (proof.get("why") or (
                         f"{none} keys that did something have no record of when their action ran" if none else
-                        "the app ran no action of a key")))
+                        "no action that the app ran pairs with a key")))
             try:
                 row["order"], openers = order_row(record, row.get("press_fates"), known, no_openers, acts)
                 verdict = row["order"]["equal"]
@@ -1448,12 +1659,15 @@ def run(opts, app, signposts, report, form):
             except Exception as error:  # noqa: BLE001
                 row["opens_error"] = repr(error)
             try:
-                if name != "hold" or wide:  # `close` is the row that closes what `hold` made
+                if name != "hold" or wide or sample:  # `close` is the row that closes what `hold` made
                     state, row["not_restored"], row["tabs_given_back"] = restore(builder, workspace, pane, state)
             except Exception as error:  # noqa: BLE001  a restore that stopped is a restore that left a difference
                 row["not_restored"] = [f"the restore stopped: {error!r}"]
             if proof is None or proof["in_key_order"] is not True:
                 not_for_a_person(row, model)
+        if sample:
+            why = sample_row(row, record.get("sample"), os.path.join(out, SAMPLE_FILE))
+            report["failures"] += [f"{index} {name}: {why}"] if why else []
         report["rows"].append(sealed(row))
         report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])
                                if why != ERRORS_ONLY]
@@ -1483,12 +1697,14 @@ def main():
     parser.add_argument("--deadline", type=float, default=60.0, help="seconds after a take's frames for the app to say it is done")
     parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
     parser.add_argument("--film", help="a folder for one more `mixed` take under debug.window_record")
+    parser.add_argument("--sample-s", type=int, default=0,
+                        help="one more `hold` take with the system's sampler on the app for this many seconds (0: no such take)")
     parser.add_argument("--artifact", help="a .tgz to pack: the report, each take's record and signpost stream, the film's frames")
     parser.add_argument("--launch-form", default="auto", choices=tuple(LAUNCH_FORMS),
                         help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
-    for internal in ("--row", "--socket", "--workspace", "--pane"):
+    for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
     opts = parser.parse_args()

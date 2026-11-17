@@ -41,7 +41,7 @@ final class PaneToolbar {
         var nativeEnabled = false
     }
 
-    let view = PaneToolbarView()
+    let view: PaneToolbarView
     private let registry: () -> ActionRegistry?
     private let paneTarget: ActionTargetRef?
     private let machineID: () -> String?
@@ -59,8 +59,8 @@ final class PaneToolbar {
     private var refreshCurrent: (() -> Void)?
 
     init(registry: @escaping () -> ActionRegistry?, paneTarget: ActionTargetRef? = nil,
-         contentMenu: @escaping () -> [NSMenuItem] = { [] }, machineID: @escaping () -> String? = { nil }) {
-        self.registry = registry
+         contentMenu: @escaping () -> [NSMenuItem] = { [] }, machineID: @escaping () -> String? = { nil }, view: PaneToolbarView = PaneToolbarView()) {
+        (self.view, self.registry) = (view, registry)
         self.machineID = machineID
         self.paneTarget = paneTarget
         self.contentMenu = contentMenu
@@ -74,12 +74,12 @@ final class PaneToolbar {
         observation?.cancel()
     }
 
-    /// The pane's trailing controls: follow its selected tab and the pane's zoom.
-    convenience init(pane: PaneController) {
+    /// The pane's trailing controls: follow its selected tab and the pane's zoom. `view`: its buttons, made ahead (a pane spare's).
+    convenience init(pane: PaneController, view: PaneToolbarView? = nil) {
         let services = pane.services
         self.init(registry: { [weak services] in services?.registry },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
-                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID })
+                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID }, view: view ?? PaneToolbarView())
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
             // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)

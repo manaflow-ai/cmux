@@ -95,6 +95,12 @@
         ]
       },
       {
+        "lockfile": "cmux-tui/crates/cmux-rd-host/Cargo.lock",
+        "roots": [
+          "cmux-rd-host"
+        ]
+      },
+      {
         "lockfile": "cmux-next-ios/rust/Cargo.lock",
         "roots": [
           "cmux-mobile-host"

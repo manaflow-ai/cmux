@@ -191,6 +191,9 @@ pub struct Conn {
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
+    /// The sessions this connection's own `session/new` created here, newest last (at most
+    /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
+    created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     watch_inventory: StdMutex<bool>,
@@ -254,6 +257,8 @@ pub struct Conn {
     /// This link carries the v2 list stream: its `initialize` reply names `listStream`
     /// (`link_v2.rs`).
     pub(crate) list_stream: bool,
+    /// Its fan-out's drain, which a turn's answer waits on (`fanout::Flush`).
+    fan_flush: fanout::Flush,
 }
 
 /// The only authority a trigger connection carries after platform admission.
@@ -373,6 +378,22 @@ where
 }
 
 impl Conn {
+    const MAX_CREATED: usize = 256;
+
+    /// Records a session this connection's `session/new` just created here.
+    pub(crate) fn note_created(&self, session: &str) {
+        let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
+        if created.len() >= Self::MAX_CREATED {
+            created.pop_front();
+        }
+        created.push_back(session.to_owned());
+    }
+
+    /// True when this connection's own `session/new` created `session` here.
+    pub(crate) fn created_here(&self, session: &str) -> bool {
+        self.created.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|id| id == session)
+    }
+
     fn preparation_cancel(&self, session: &str) -> tokio::sync::watch::Receiver<bool> {
         self.preparation_cancels
             .lock()
@@ -1639,6 +1660,7 @@ async fn serve_connection_from(
             cmux_usage_patterns::count("machine", &cmux_usage_patterns::opaque_id(device));
         }
     }
+    let (fan_flush, flushes) = fanout::Flush::channel();
     let conn = Arc::new(Conn {
         scope: hub.scope.child("acpmux conn"),
         id: uuid::Uuid::now_v7().to_string(),
@@ -1654,6 +1676,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
+        created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
@@ -1687,11 +1710,12 @@ async fn serve_connection_from(
         wire,
         dual_principal,
         list_stream: link_v2.is_some(),
+        fan_flush,
     });
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
-    let fan = fanout::start(hub.clone(), conn.clone());
+    let fan = fanout::start(hub.clone(), conn.clone(), flushes);
     let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
@@ -1890,6 +1914,10 @@ async fn serve_connection_from(
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
+                    // A turn's answer after its updates (`fanout::Flush`).
+                    if m == method::SESSION_PROMPT {
+                        conn.fan_flush.sent().await;
+                    }
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
                         let answer = result.map_err(|mut e| {
@@ -2326,6 +2354,9 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
+#[cfg(test)]
+#[path = "connection_token_tests.rs"]
+mod connection_token_tests;
 mod in_flight;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
@@ -2401,9 +2432,11 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+mod connections;
 mod mcp_connect;
 mod routes;
 mod secrets;
+mod share_host;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
 mod races;

@@ -14,23 +14,33 @@ import tab_switch_frames as tsf  # noqa: E402
 
 
 class FakeApp:
-    """A control socket that answers every request with {"result": {}} and keeps what it was sent."""
+    """A control socket that answers every request with {"result": {}} and keeps what it was sent.
+
+    close() stops the server thread and joins it before closing the socket. Closing under a thread that is about to
+    call accept() let the next test's FakeApp reuse the fd number, so the old thread accepted the new test's request
+    and recorded it in the old list (IndexError on `requests[-1]` in CI under load, hq#12220)."""
 
     def __init__(self):
         self.folder = tempfile.mkdtemp(prefix="tsw-")
         self.path = os.path.join(self.folder, "c.sock")
         self.requests = []
+        self.stopping = threading.Event()
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(self.path)
         self.server.listen(4)
-        threading.Thread(target=self.serve, daemon=True).start()
+        self.server.settimeout(0.05)
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
 
     def serve(self):
-        while True:
+        while not self.stopping.is_set():
             try:
                 conn, _ = self.server.accept()
+            except TimeoutError:
+                continue
             except OSError:
                 return
+            conn.settimeout(None)
             with conn:
                 buf = b""
                 while not buf.endswith(b"\n"):
@@ -42,6 +52,8 @@ class FakeApp:
                 conn.sendall(b'{"id": 1, "result": {}}\n')
 
     def close(self):
+        self.stopping.set()
+        self.thread.join()
         self.server.close()
 
 
