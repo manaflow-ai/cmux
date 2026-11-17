@@ -97,6 +97,23 @@ const NEAR_GROWTH_PER_S: f64 = 1.15;
 const MAX_STEP_US: u64 = 200_000;
 /// Shortest time between two cuts.
 const MIN_DECREASE_INTERVAL_US: u64 = 200_000;
+/// D12: no feedback, or no arrival while datagrams were in flight, for longer than
+/// this (or four round trips) is an outage, not congestion.
+pub const OUTAGE_MIN_US: u64 = 100_000;
+
+/// D12: the one outage threshold, max(100 ms, 4 x RTT). Silence or a one-way
+/// delay jump longer than this is a path that went away, not congestion. Every
+/// outage reader (the host's controller, the viewer's link state) uses this.
+/// `rtt_us` is the path's smallest round trip, if one has been measured.
+pub fn outage_threshold_us(rtt_us: Option<u64>) -> u64 {
+    rtt_us.map_or(OUTAGE_MIN_US, |rtt| rtt.saturating_mul(4).max(OUTAGE_MIN_US))
+}
+
+/// An outage's freeze ends at the first arrival of a datagram sent after it, or
+/// after this long at most.
+const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
+/// One response window never cuts the target below this share of where it began.
+const CUT_FLOOR: f64 = 0.5;
 
 /// One send group: packets sent within [`GROUP_SPAN_US`].
 #[derive(Debug, Clone, Copy)]
@@ -266,6 +283,78 @@ impl Trendline {
     }
 }
 
+impl Trendline {
+    /// A new delay baseline that keeps the path's learned jitter threshold: what
+    /// accumulated before (an outage's burst) never reaches the trend.
+    fn rebase(&mut self) {
+        *self = Self { threshold_ms: self.threshold_ms, ..Self::default() };
+    }
+}
+
+/// How an outage ended, for the host (D12): what queued during it is stale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutageEnd {
+    /// How long the path was silent.
+    pub silent_us: u64,
+    /// The target held through it, and resumed at once.
+    pub target_bps: u64,
+}
+
+/// D12, "an outage is not congestion": a Wi-Fi radio leaves for hundreds of
+/// milliseconds and then delivers everything at once. The controller freezes
+/// through it, throws away the burst's delay samples and resumes where it was.
+#[derive(Debug, Default)]
+struct OutageWatch {
+    /// The smallest round trip on this path (a stall inflates the others).
+    min_rtt_us: Option<u64>,
+    /// When the oldest datagram sent since the last feedback left.
+    unanswered_since_us: Option<u64>,
+    /// When the previous feedback arrived. Silence counts from the later of this
+    /// and the oldest unanswered send, so a long but flowing path (a growing
+    /// queue) is never silence: its feedback keeps arriving.
+    last_feedback_us: Option<u64>,
+    /// The newest timed sample: (send time, raw viewer arrival time).
+    last_sample: Option<(u64, u32)>,
+    /// Datagrams sent before this host time crossed the outage: their delay and
+    /// throughput say nothing about congestion.
+    burst_sent_before_us: u64,
+    link: LinkState,
+    /// The current response window: (ends at, the target when it began).
+    cut_window: Option<(u64, u64)>,
+    ended: Option<OutageEnd>,
+}
+
+/// Whether the controller may act. Every field an outage needs lives in its
+/// variant, so a frozen controller always knows the rate it resumes at.
+#[derive(Debug, Clone, Copy, Default)]
+enum LinkState {
+    /// Feedback flows: delay and loss drive the target.
+    #[default]
+    Up,
+    /// The path went away: no cut, no growth, until a datagram sent after
+    /// `since_us` arrives (or [`OUTAGE_FREEZE_MAX_US`] passes); then the
+    /// target is `resume_bps` again at once.
+    Away { since_us: u64, resume_bps: u64 },
+}
+
+impl OutageWatch {
+    fn on_rtt(&mut self, rtt_us: u64) {
+        if rtt_us > 0 {
+            self.min_rtt_us = Some(self.min_rtt_us.map_or(rtt_us, |m| m.min(rtt_us)));
+        }
+    }
+
+    /// [`outage_threshold_us`] on this path.
+    fn threshold_us(&self) -> u64 {
+        outage_threshold_us(self.min_rtt_us)
+    }
+
+    /// A response window: at least [`MIN_DECREASE_INTERVAL_US`] or one round trip.
+    fn window_us(&self) -> u64 {
+        self.min_rtt_us.unwrap_or(0).max(MIN_DECREASE_INTERVAL_US)
+    }
+}
+
 fn slope(points: &VecDeque<(f64, f64)>) -> Option<f64> {
     let n = points.len() as f64;
     let (sx, sy) = points.iter().fold((0.0, 0.0), |(a, b), &(x, y)| (a + x, b + y));
@@ -302,6 +391,8 @@ pub struct CongestionController {
     /// of ours; sending about what arrives, far under the target, is a quiet screen.
     sent_window: VecDeque<(u64, u32)>,
     sent_window_bytes: u64,
+    /// D12: outage detection, the freeze and the cut floor (see [`OutageWatch`]).
+    outage: OutageWatch,
     /// Throughput measured at overuse, smoothed: the path's capacity until it changes.
     capacity_bps: Option<f64>,
     last_increase_us: Option<u64>,
@@ -324,6 +415,7 @@ impl CongestionController {
             acked_bytes: 0,
             sent_window: VecDeque::new(),
             sent_window_bytes: 0,
+            outage: OutageWatch::default(),
             capacity_bps: None,
             last_increase_us: None,
             last_decrease_us: None,
@@ -371,6 +463,7 @@ impl CongestionController {
             sent.at_us = now_us;
             return;
         }
+        self.outage.unanswered_since_us.get_or_insert(now_us);
         self.sent.insert(transport_seq, Sent { at_us: now_us, bytes });
         if bytes > 0 {
             self.sent_window.push_back((now_us, bytes));
@@ -404,6 +497,7 @@ impl CongestionController {
         self.acked_bytes = 0;
         self.sent_window.clear();
         self.sent_window_bytes = 0;
+        self.outage = OutageWatch::default();
         self.capacity_bps = None;
         self.last_decrease_us = None;
         self.usage = Usage::Normal;
@@ -422,6 +516,7 @@ impl CongestionController {
             self.target_bps = self.config.lan_start_bps;
             self.clamp();
         }
+        self.outage.on_rtt(rtt_us);
     }
 
     fn unwrap_arrival(&mut self, raw: u32) -> i64 {
@@ -469,6 +564,9 @@ impl CongestionController {
     /// and show no overuse), by time elapsed, never more than
     /// [`MAX_STEP_US`] of growth at once.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
+        let before_bps = self.target_bps;
+        let (screened, loss) = self.screen_outage(arrivals, loss, now_us);
+        let arrivals = &screened[..];
         let mut samples: Vec<(u64, i64, u32)> = arrivals
             .iter()
             .filter_map(|a| {
@@ -525,6 +623,7 @@ impl CongestionController {
             self.last_increase_us = Some(now_us);
         }
         self.clamp();
+        self.after_feedback(before_bps, now_us);
     }
 
     fn decrease(&mut self, now_us: u64) {
@@ -599,5 +698,127 @@ impl CongestionController {
             self.config.max_bps
         };
         self.target_bps = self.target_bps.clamp(self.config.min_bps, max.max(self.config.min_bps));
+    }
+}
+
+/// D12: outages and the cut floor. Kept apart from the delay and loss responses
+/// above, which only see what this screens through.
+impl CongestionController {
+    /// An outage ended since the last call: the host drops what queued during it,
+    /// sends only the newest frame and stops waiting for stale acknowledgements.
+    pub fn take_outage_end(&mut self) -> Option<OutageEnd> {
+        self.outage.ended.take()
+    }
+
+    /// The controller holds its estimate through an outage.
+    pub fn frozen(&self) -> bool {
+        matches!(self.outage.link, LinkState::Away { .. })
+    }
+
+    /// Detects an outage and returns the arrivals and loss the controller may act
+    /// on. An outage is feedback going silent while something we sent is
+    /// unanswered, or a datagram's one-way delay jumping, by more than max(100 ms, 4 round trips): no queue grows that
+    /// fast between two datagrams, a radio that went away does. Its burst (every
+    /// datagram sent before the outage was seen) is never timed or counted as
+    /// throughput, and until a datagram sent after it arrives nothing cuts or grows.
+    fn screen_outage(
+        &mut self,
+        arrivals: &[Arrival],
+        loss: f64,
+        now_us: u64,
+    ) -> (Vec<Arrival>, f64) {
+        let threshold = self.outage.threshold_us();
+        // Silence needs a feedback to be silent after: a path's first feedback (at
+        // start or after a path change) may be slow to set up, and is not an outage.
+        let last_feedback = self.outage.last_feedback_us.replace(now_us);
+        let unanswered = self.outage.unanswered_since_us.take();
+        let silent = match (last_feedback, unanswered) {
+            (Some(feedback), Some(sent)) => now_us.saturating_sub(sent.max(feedback)),
+            _ => 0,
+        };
+        let mut timed: Vec<(u64, u32)> = arrivals
+            .iter()
+            .filter_map(|a| self.sent.get(&a.transport_seq).map(|s| (s.at_us, a.arrival_us)))
+            .filter(|&(sent, _)| sent >= self.outage.burst_sent_before_us)
+            .collect();
+        timed.sort_unstable_by_key(|t| t.0);
+        let mut jump = 0u64;
+        for (sent, arrived) in timed {
+            if let Some((last_sent, last_arrived)) = self.outage.last_sample {
+                if sent < last_sent {
+                    continue;
+                }
+                let arrival_delta = i64::from(arrived.wrapping_sub(last_arrived) as i32);
+                let delay_delta = arrival_delta - (sent - last_sent) as i64;
+                jump = jump.max(u64::try_from(delay_delta).unwrap_or(0));
+            }
+            self.outage.last_sample = Some((sent, arrived));
+        }
+        if silent > threshold || jump > threshold {
+            let resume_bps = match self.outage.link {
+                LinkState::Away { resume_bps, .. } => resume_bps,
+                LinkState::Up => self.target_bps,
+            };
+            self.outage.link = LinkState::Away { since_us: now_us, resume_bps };
+            self.outage.burst_sent_before_us = now_us;
+            self.outage.last_sample = None;
+            self.outage.ended =
+                Some(OutageEnd { silent_us: silent.max(jump), target_bps: resume_bps });
+            // The burst's accumulated delay never reaches the trend, and the
+            // throughput measured across the hold never becomes the capacity.
+            self.groups = InterArrival::default();
+            self.trend.rebase();
+            self.acked.clear();
+            self.acked_bytes = 0;
+            self.sent_window.clear();
+            self.sent_window_bytes = 0;
+            self.usage = Usage::Normal;
+        }
+        let cutoff = self.outage.burst_sent_before_us;
+        let mut kept = Vec::with_capacity(arrivals.len());
+        for a in arrivals {
+            match self.sent.get(&a.transport_seq) {
+                Some(s) if s.at_us < cutoff => {
+                    self.sent.remove(&a.transport_seq);
+                }
+                _ => kept.push(*a),
+            }
+        }
+        let LinkState::Away { since_us, resume_bps } = self.outage.link else {
+            return (kept, loss);
+        };
+        let fresh = kept.iter().any(|a| self.sent.contains_key(&a.transport_seq));
+        if fresh || now_us.saturating_sub(since_us) > OUTAGE_FREEZE_MAX_US.max(threshold) {
+            // Resume at the rate held before the outage at once, with no climb back,
+            // and no growth credited for the frozen time.
+            self.outage.link = LinkState::Up;
+            self.target_bps = self.target_bps.max(resume_bps);
+            self.last_increase_us = Some(now_us);
+            self.clamp();
+            return (kept, loss);
+        }
+        (Vec::new(), 0.0)
+    }
+
+    /// One response window never cuts the target under [`CUT_FLOOR`] of where it
+    /// began, whatever delay or loss asked for: a measurement that a stall made
+    /// low cannot collapse the rate to the floor.
+    fn after_feedback(&mut self, before_bps: u64, now_us: u64) {
+        if self.target_bps >= before_bps {
+            return;
+        }
+        let anchor = match self.outage.cut_window {
+            Some((until, anchor)) if now_us < until => anchor,
+            _ => {
+                self.outage.cut_window =
+                    Some((now_us.saturating_add(self.outage.window_us()), before_bps));
+                before_bps
+            }
+        };
+        let floor = (anchor as f64 * CUT_FLOOR) as u64;
+        if self.target_bps < floor {
+            self.target_bps = floor;
+            self.clamp();
+        }
     }
 }

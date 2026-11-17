@@ -3215,7 +3215,7 @@ public func FfiConverterTypeTerminalChatCandidate_lower(_ value: TerminalChatCan
  */
 public struct TerminalChatFaces: Equatable, Hashable {
     /**
-     * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+     * The tab offers its page menu's Show Chat / Show Terminal row.
      */
     public var offered: Bool
     /**
@@ -3239,7 +3239,7 @@ public struct TerminalChatFaces: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+         * The tab offers its page menu's Show Chat / Show Terminal row.
          */offered: Bool, 
         /**
          * The face the tab opens on when the person chose none: the tab's own kind (a

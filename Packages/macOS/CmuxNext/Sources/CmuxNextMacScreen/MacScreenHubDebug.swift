@@ -179,7 +179,7 @@ extension MacScreenPages {
                     "view_only": .bool(pane.model.viewOnly), "card": pane.model.card.map { .string("\($0)") } ?? .null]
         }
         guard let hub else {
-            return ["configured": .bool(hubConfigured), "signed_in": .bool(false), "tabs": .array(tabsRows),
+            return ["configured": .bool(hubConfigured), "restoring": .bool(hubRestoring), "signed_in": .bool(false), "tabs": .array(tabsRows),
                     "last_error": hubStartupError.map(JSONValue.string) ?? .null]
         }
         let me = hub.identity.id

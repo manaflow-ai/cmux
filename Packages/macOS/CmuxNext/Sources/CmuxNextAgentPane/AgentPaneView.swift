@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchPriorChat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDictation
@@ -632,6 +633,9 @@ public final class AgentPaneView: NSView {
             openPanel?.warmWhenIdle()
             // The window's toasts stay clear of its composer.
             toastAvoidanceMoved()
+            // A chat (not a new tab's page) shown before the launch's pane region is ready: the restored front tab is a chat.
+            // Chats outside the focused pane wait for that region (`AgentTabStore.deferAtLaunch`); `cmux app launch-times`, CMUX-119.
+            if model.newTab == nil, !LaunchReveal.shared.isReady(.pane) { AgentPaneLaunchTimings.shared.mark(LaunchPriorChat.frontMark) }
         }
         applyTheme()
     }

@@ -490,11 +490,19 @@ public final class NativeMarkdownView: UIView {
     }
 
     /// The link under `point` (in `label`'s coordinates): only on the glyph itself, not the blank
-    /// space after a line or between paragraphs.
-    public static func link(in label: UILabel, at point: CGPoint) -> URL? {
+    /// space after a line or between paragraphs. `asDrawn`: lay the text out as UILabel draws it,
+    /// with no font leading between lines and centered in a frame taller than the text (the chat's
+    /// labels); otherwise with TextKit's leading from the frame's top (the Feed's fixed-height lines).
+    public static func link(in label: UILabel, at point: CGPoint, asDrawn: Bool = false) -> URL? {
         guard let text = label.attributedText, text.length > 0 else { return nil }
+        var point = point
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
+        if asDrawn {
+            manager.usesFontLeading = false
+            let drawn = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 0).height
+            point.y -= max(0, label.bounds.height - drawn) / 2
+        }
         // Unbounded height: the label's height leaves out the last line's leading TextKit adds.
         let container = NSTextContainer(size: CGSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0

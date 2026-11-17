@@ -1,6 +1,7 @@
 // The new tab screen's pure state (variant B, plans/cmux-next/new-tab.md sections 3-4): the
 // rows under the field for the typed text, the `!` conversion and the chat cards. No React, no
 // host: NewTabScreen renders what these return.
+import { withoutInlineTokens } from "../attachments";
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../newTabModel";
 import {
@@ -19,6 +20,7 @@ import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
+import { translateNewTab, type NewTabTranslate } from "./strings";
 import {
   chatRows,
   type ChatRow,
@@ -37,6 +39,7 @@ export type ScreenAgent = { id: string; name: string };
 export type ScreenRow =
   /// Search the web for `text` (the browser's search engine).
   | { type: "search"; text: string }
+  | { type: "create"; kind: "terminal" | "browser" | "chat"; title: string }
   /// Load `url` (what `text` resolved to, or a top site that completes it).
   | { type: "open"; url: string; text: string }
   /// An open tab; `url` is a browser tab's page as `canonicalAddress` gives it.
@@ -64,6 +67,8 @@ export type ScreenRow =
 /// disk's answer for a typed path (``FolderListing``). All optional: without them the rows are as
 /// before.
 export type ScreenAgentSources = {
+  translate?: NewTabTranslate;
+  create?: readonly ("terminal" | "browser" | "chat")[];
   chats?: readonly OmnibarChat[];
   folders?: readonly string[];
   agents?: readonly LaunchAgent[];
@@ -87,6 +92,7 @@ export function rowSection(row: ScreenRow): ScreenSection {
     case "history":
       return "pages";
     case "action":
+    case "create":
       return "actions";
     case "search":
       return "web";
@@ -143,7 +149,7 @@ export const MINIMAL_MATCH_ROWS = 3;
 /// Shorter text matches a name only at its start or a word's ("ff" is not "diffviewer").
 const SUBSTRING_MATCH_LENGTH = 3;
 
-/// Suggestions for the typed text. Create actions live in the buttons under the composer.
+/// Suggestions for the typed text, including creation commands only when their names match.
 export function screenRows(
   text: string,
   context: {
@@ -236,6 +242,31 @@ function navigationRows(
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const query = text.trim();
+  const actionID = (kind: "terminal" | "browser" | "chat") =>
+    kind === "terminal" ? "newSurface" : kind === "browser" ? "openBrowser" : "palette.newAgentChat";
+  const createQuery = withoutInlineTokens(query).trim();
+  const creates: ScreenRow[] = (context.create ?? []).flatMap((kind) => {
+    const label = (context.translate ?? translateNewTab)(`create.${kind}`);
+    const action = context.omnibar.actions?.find((item) => item.id === actionID(kind));
+    const title = action?.title ?? label;
+    const score = matchScore(
+      createQuery,
+      title,
+      label,
+      kind === "terminal" ? "new terminal tab" : "",
+      ...(action?.keywords ?? []),
+    );
+    return score >= 2 || (score > 0 && createQuery.length >= SUBSTRING_MATCH_LENGTH)
+      ? [{ type: "create" as const, kind, title }]
+      : [];
+  });
+  const replaced = new Set<string>((context.create ?? []).map(actionID));
+  const actions = [
+    ...creates,
+    ...actionRows(query, context.omnibar, MAX_ACTION_ROWS + replaced.size).filter(
+      (row) => row.type !== "action" || !replaced.has(row.id),
+    ),
+  ].slice(0, MAX_ACTION_ROWS);
   const search: ScreenRow[] =
     intent.kind === "url" && intent.url.startsWith("file:") ? [] : [{ type: "search", text: query }];
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
@@ -273,11 +304,11 @@ function navigationRows(
   };
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    if (!top) return [...named, ...search, ...fit(search), ...actionRows(query, context.omnibar)];
-    return [...named, top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
+    if (!top) return [...named, ...search, ...fit(search), ...actions];
+    return [...named, top, ...fit([top]), ...actions, ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...named, ...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+  return [...named, ...lead, ...fit(lead), ...actions, ...search];
 }
 
 /// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
