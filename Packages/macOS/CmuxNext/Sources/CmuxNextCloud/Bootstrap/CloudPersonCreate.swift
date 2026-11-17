@@ -93,7 +93,7 @@ public nonisolated enum CloudPersonCreate {
     /// done (the create's `user.ensure`: nothing holds a direct create, so its bind must find the user). A call that
     /// throws before anything went out (no session) is ``Unavailable``; a transport failure may have reached the
     /// server, so it is thrown as is and the key stays on this route.
-    public static func ops(_ call: @escaping Call, after first: @escaping @Sendable () async -> Void = {}) -> CloudAppOp {
+    public static func ops(_ call: @escaping Call, after first: @escaping @Sendable () async -> Void) -> CloudAppOp {
         { op, args, key, origin in
             let sent = try Self.body(op: op, params: args, key: key, origin: origin)
             await first()

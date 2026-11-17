@@ -90,12 +90,12 @@ import Testing
 
     @Test func noUsableSessionIsTheRouteUnavailable() async {
         struct NoSession: Error {}
-        let ops = CloudPersonCreate.ops { _, _ in throw NoSession() }
+        let ops = CloudPersonCreate.ops({ _, _ in throw NoSession() }, after: {})
         await #expect(throws: CloudPersonCreate.Unavailable.self) { _ = try await ops("cloud.machine.create", .object([:]), "k", .user) }
     }
 
     @Test func aTransportFailureMayHaveReachedTheServerSoItIsNoFallback() async {
-        let ops = CloudPersonCreate.ops { _, _ in throw URLError(.timedOut) }
+        let ops = CloudPersonCreate.ops({ _, _ in throw URLError(.timedOut) }, after: {})
         await #expect(throws: URLError.self) { _ = try await ops("cloud.machine.create", .object([:]), "k", .user) }
     }
 
