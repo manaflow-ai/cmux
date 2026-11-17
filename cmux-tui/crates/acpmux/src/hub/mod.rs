@@ -71,6 +71,8 @@ mod first_work_tests;
 mod fork;
 pub use fork::Retarget;
 #[cfg(test)]
+mod approvals_stress_tests;
+#[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
