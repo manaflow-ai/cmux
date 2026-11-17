@@ -259,6 +259,17 @@ impl Http for PosterHttp {
         self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        self.via(url, |poster, url| poster.send_with_headers(method, url, body, bearer, headers))
+    }
+
     fn request_with_deadline(
         &self,
         url: &str,
@@ -957,7 +968,7 @@ impl Worker {
                 client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
                 continue;
             }
-            if let Some(ask) = agent_ask(&line) {
+            if let Some(ask) = agent_ask(&line, &self.paths) {
                 asks.push((i, ask));
                 continue;
             }
@@ -1465,7 +1476,7 @@ fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
-fn agent_ask(line: &str) -> Option<Ask> {
+fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
@@ -1478,6 +1489,14 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
+        return Some(Ask::AppsCall(super::apps_call::check_call(ask)));
+    }
+    if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
+        // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
+        let proc_root = paths.root().join("proc");
+        return Some(Ask::AppsListener(super::apps_call::check_listener(ask), proc_root));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

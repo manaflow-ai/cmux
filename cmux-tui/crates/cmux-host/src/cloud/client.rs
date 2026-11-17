@@ -56,6 +56,19 @@ pub trait Http {
         Err("GET is not supported by this transport".to_owned())
     }
 
+    /// One request with any `method` and extra `headers` (`apps_call.rs`: the apps routes'
+    /// PUT and DELETE, and a promote's `Idempotency-Key`). Transports opt in; the default refuses.
+    fn send(
+        &self,
+        _method: &str,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        Err("this Cloud transport sends no other method".to_owned())
+    }
+
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
@@ -629,6 +642,27 @@ impl<H: Http> CloudClient<H> {
         let path = super::carrier_ticket::path(&self.bound.machine);
         let answer = self.post_empty_with_token(&path, now_wall_ms);
         super::carrier_ticket::reply_for(&answer)
+    }
+
+    /// One apps route as this machine's `vm` install (`apps_call.rs`, checked before it gets
+    /// here): the platform's status and body, with the machine the install speaks for.
+    pub fn apps_call(&mut self, call: &super::apps_call::AppsCall, now_wall_ms: u64) -> Value {
+        let url = self.url(&call.path);
+        let key = call.idempotency_key.as_deref();
+        let headers: Vec<(&str, &str)> = key.map(|k| ("Idempotency-Key", k)).into_iter().collect();
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send(&call.method, &url, call.body.as_ref(), Some(&token), &headers).ok()
+        };
+        let answer = match send(self) {
+            None => Answer::Transport,
+            Some((401, _)) => {
+                self.cached = None;
+                send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
+            }
+            Some((status, body)) => Answer::Http { status, body },
+        };
+        super::apps_call::reply_for(&answer, &self.bound.machine)
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {

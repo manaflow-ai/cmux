@@ -1185,6 +1185,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-apps"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -1679,6 +1689,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-apps",
  "cmux-cloud-environment",
  "cmux-file-lock",
  "cmux-json",
@@ -2291,6 +2302,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-apps",
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
