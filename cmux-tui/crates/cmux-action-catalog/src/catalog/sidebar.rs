@@ -35,6 +35,33 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
+    // CMUX-383 slice 2: the way back from every sidebar hide (`sidebar.sections.hidden`,
+    // `sidebar.workspaces.<id>.hidden`). Every hidden section and workspace shows again; order
+    // and groups stay. A button on Settings > Sidebar and a palette row.
+    Action {
+        id: "sidebar.showHidden",
+        group: GROUP,
+        title: t("ActionCatalog", "action.sidebar.showHidden", "Show Hidden Sidebar Items"),
+        keywords: &["sidebar", "hidden", "show", "unhide", "restore", "sections", "workspaces"],
+        category: "sidebar",
+        symbol: "eye",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "sidebar show-hidden",
+        ..Action::DEFAULT
+    },
+    // CMUX-383 slice 2: Reset for the sidebar's projection settings: hides, section order and
+    // per-workspace group and order go, so the sidebar document's own placement shows again.
+    Action {
+        id: "sidebar.resetLayout",
+        group: GROUP,
+        title: t("ActionCatalog", "action.sidebar.resetLayout", "Reset Sidebar Sections and Order"),
+        keywords: &["sidebar", "reset", "sections", "order", "hidden", "groups", "default"],
+        category: "sidebar",
+        symbol: "arrow.counterclockwise",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "sidebar reset-layout",
+        ..Action::DEFAULT
+    },
     Action {
         id: "focusSidebar",
         group: GROUP,

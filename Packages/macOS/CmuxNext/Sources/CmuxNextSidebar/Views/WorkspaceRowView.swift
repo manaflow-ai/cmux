@@ -27,6 +27,9 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// `sidebar.workspaceRow.statusPlacement` `leading` (`WorkspaceRowContent.statusLeads`): the status mark draws in
+    /// the leading icon slot (`leadingStatusMark`, WorkspaceRowView+StatusGlyph), which the row keeps while idle.
+    var statusLeads = false
     /// The badge states this row last showed, and for which workspace: a done glyph settles in only
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
@@ -296,10 +299,11 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
         // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
-        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let nativeTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let shownTitle = shown.displayedTitle(nativeTitle)
         title.stringValue = shownTitle
         lastTitle = shownTitle
-        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
+        hiddenWorkspaceName = ws.namesWorkspace(nativeTitle) ? nil : ws.title
         isArchived = ws.isArchived
         icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
@@ -358,6 +362,7 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
+        statusLeads = shown.statusLeads
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
         themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.

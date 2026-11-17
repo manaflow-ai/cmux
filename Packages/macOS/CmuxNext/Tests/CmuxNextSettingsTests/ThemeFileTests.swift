@@ -132,6 +132,25 @@ import Testing
         #expect(overlay.diagnostics.map(\.path) == ["sidebar.showChats"])
     }
 
+    /// The sidebar's rows are part of a look too (density, text size, status icons, grouping and the row's own
+    /// elements), so one file restyles the sidebar; a per-kind row override and what the sidebar holds stay out.
+    /// cmux-config's `a_theme_file_sets_how_the_sidebar_rows_draw` checks the same file.
+    @Test func aThemeFileSetsHowTheSidebarRowsDraw() {
+        let overlay = Self.overlay(#"""
+            { "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+              "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+              "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+              "sidebar.workspaceRow.secondLineOrder": ["branch"],
+              "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false }
+            """#)
+        #expect(Set(overlay.values.map { $0.path.joined(separator: ".") }) == [
+            "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.groupBy", "sidebar.showColors", "sidebar.textSize",
+            "sidebar.workspaceRow.icon", "sidebar.workspaceRow.secondLineOrder", "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ])
+        #expect(Set(overlay.diagnostics.map(\.path)) == ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"])
+    }
+
     /// A picture beside the theme file travels with it: a relative path resolves against the themes
     /// folder, `~` against home, and an absolute one is kept.
     @Test func aRelativePictureResolvesAgainstTheThemesFolder() {
@@ -156,7 +175,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] { #expect(names.contains(look), "\(look)") }
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "minimal-sessions"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)

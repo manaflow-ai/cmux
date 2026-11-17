@@ -199,6 +199,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.statusLeads = workspaceRow.statusPlacement == .leading
         content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
@@ -209,7 +210,7 @@ nonisolated extension SidebarLayoutOptions {
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
         // off by default. The hover card keeps the pull request.
-        if workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
+        if content.titleParts == nil, workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
             content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         } else {
             content.badge = nil
@@ -227,7 +228,7 @@ nonisolated extension SidebarLayoutOptions {
         if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if content.detail != nil, let step = ws.agentStep {
+        if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
         return content
@@ -239,6 +240,9 @@ nonisolated extension SidebarLayoutOptions {
             var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
+        }
+        if workspaceRow.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) != nil {
+            return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
         }
         if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)

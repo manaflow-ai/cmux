@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
+  The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
+  the settings watcher. The existing title, detail and metadata slots move together using
+  current density metrics; absent layouts preserve the current look. Quiet, by-kind and
+  by-agent variants share the native gallery, with light and dark captures. Regression:
+  `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
+  `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
+
+- 2026-11-16 (lane/sidebar-share-icon, ask-3d308b4cbd): Sidebar-Look: Leo, 2026-11-16, on the share arrow drawn on every row: "Holy moly is THIS the icon for screen sharing???". Workspace rows draw no screen button (the revert below, ask-035c65b611, stands). Where Share and View screen remain, on the machine header and the Projects header, they draw a screen (`remote.display`), never the generic share arrow (`action.share`), and show on hover only; the header keeps the slot so the name never moves. While This Mac shares (`SidebarMachine.screenShared`, from this device's `HubDevice.macScreenShared`), those headers draw the screen in the accent at rest, labelled "Sharing screen": the sharing badge. VoiceOver reaches a hidden header button through the header's custom action. The header's + stays at rest (cx-g2kk). Regression: `SidebarScreenActionTests`, `SidebarRowControlsAtRestTests` (no row draws an action at rest); gallery `AASidebarScreenActionsGalleryTests.renderStates` (four glyph variants).
+
 - 2026-11-17 (chief-group-rail): Sidebar-Look: Lawrence, 2026-11-17: "chief workspaces group missing left rail". The
   host makes "Chief's workspaces" with no color, and a group with no color drew only its block (`sidebar.noColorGroup`)
   with a fully clear line, so it had no left rail while each colored group beside it had one. Every open group now draws
@@ -2443,3 +2453,14 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-17 (Lawrence, via Leo: "also for customization make it possible to turn out sidebar into [another app]'s
+  sidebar"): two opt-in settings and a theme file restyle the sidebar into a minimal session list, with no code
+  change. `sidebar.workspaceRow.statusPlacement` `leading` draws the row's status mark (badge, agent mark or spinner)
+  in the leading icon slot, which the row keeps while idle so the title's x never moves; `trailing` (the default) is
+  today's drawing. `appearance.statusIndicator.iconSet` makes the status icon set a setting (default `codex`, the
+  Debug override still wins). A theme file now also takes the rows' density, text size, status icons, grouping and
+  every `sidebar.workspaceRow.<name>`; `Resources/theme-files/minimal-sessions.json` ships the look. The default
+  sidebar does not change. Regression: `SidebarRowStatusPlacementTests`, `StatusIconSetSettingTests`,
+  `WorkspaceRowStatusPlacementSettingTests`, `ThemeFileTests.aThemeFileSetsHowTheSidebarRowsDraw`.
+  Sidebar-Look: also for customization make it possible to turn out sidebar into a minimal session list (Lawrence).

@@ -135,8 +135,9 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon takes no slot: its bar sits in the leading inset, so its title starts on the one left
     /// edge (Lawrence 2026-11-09, "red dot on left feels weird"; it kept the swatch's slot after #25705).
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || textOnlyKeepsIconSlot)
+    /// `reservesIconSlot`: a leading status mark (`sidebar.workspaceRow.statusPlacement` `leading`) keeps the slot.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesIconSlot: Bool = false) -> CGFloat {
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesIconSlot || textOnlyKeepsIconSlot)
             - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {

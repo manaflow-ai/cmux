@@ -1453,6 +1453,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -1500,6 +1501,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
+name = "cmux-customize-recipes"
+version = "0.1.0"
+dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
+ "cmux-customize",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -2305,6 +2318,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-customize-recipes",
  "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",

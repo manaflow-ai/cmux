@@ -146,8 +146,8 @@ import PackageDescription
 //   CmuxNextCrashReporting -> Compat, Wakeups, CmuxSentryReporting, Sentry (crash and exception reports
 //     to Sentry: consent, channel environment, release, scrubbing; the run marker's background file
 //     writer, RunMarkerFile; no UI, no daemon; cx-urd.58)
-//   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
-//     product links it)
+//   CmuxNextTestSupport -> TestExitTrace, system frameworks (shared test helpers under
+//     TestSupport/; the standalone native gallery product also exposes them)
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
 //     transferable session and peer values, the picker and the toast text; no AppKit, no daemon;
 //     the App's SessionTransferService discovers peers and moves sessions; cx-yxmkh)
@@ -252,6 +252,8 @@ let uiLayerPreviewTargets: [Target] = [
 ]
 
 let packageProducts: [Product] = [
+    // Only the standalone native gallery harness consumes these existing modules.
+    .library(name: "CmuxNextNativeGallerySupport", targets: ["CmuxNextDesign", "CmuxNextSidebar", "CmuxNextTestSupport"]),
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
@@ -2326,6 +2328,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextSidebarTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSidebar",
                 "CmuxNextWakeups",
@@ -2507,6 +2510,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextSettings",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -2592,16 +2596,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Never in xctest, which runs its own main (XCTestPhaseTests).
         .target(
             name: "CmuxNextTestExitTrace",
-            path: "Tests/Support/CmuxNextTestExitTrace",
+            path: "TestSupport/CmuxNextTestExitTrace",
             linkerSettings: [.linkedFramework("CoreFoundation")]
         ),
-        // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
+        // Exported test helpers live outside Tests/, which nightly cache invalidation excludes.
+        // Helpers test targets and the native gallery harness share: FrameBudgetCalibration, which
         // scales a main-thread frame budget to the runner a suite runs on. CmuxNextTestExitTrace
         // holds the window census `.closesItsWindows` reads, so every target that has the trait links it.
         .target(
             name: "CmuxNextTestSupport",
             dependencies: ["CmuxNextTestExitTrace"],
-            path: "Tests/CmuxNextTestSupport",
+            path: "TestSupport/CmuxNextTestSupport",
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

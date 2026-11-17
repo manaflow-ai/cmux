@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -4316,6 +4316,30 @@
           "help": "",
           "kind": "toggle",
           "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.lines",
+          "title": "Row Layout",
+          "help": "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line.",
+          "kind": "json",
+          "default": null,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByAgent",
+          "title": "Row Layout by Agent",
+          "help": "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts.",
+          "kind": "json",
+          "default": null,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByKind",
+          "title": "Row Layout by Kind",
+          "help": "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout.",
+          "kind": "json",
+          "default": null,
           "group": "Workspace Rows"
         },
         {

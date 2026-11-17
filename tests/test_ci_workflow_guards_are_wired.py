@@ -45,6 +45,10 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, AGENTS.md).
+    # Execute both native gallery entrypoints against fake fleet receipts through cmux-ci test after
+    # changing either entrypoint. Exit: wire it here if that policy changes and the registry moves to CI.
+    "tests/test_native_sidebar_gallery.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.

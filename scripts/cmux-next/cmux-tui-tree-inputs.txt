@@ -72,6 +72,7 @@ blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
+blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/phosphor.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
@@ -127,6 +128,12 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+# cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
+blob docs/cmux-next/customize-recipes.md
+blob skills/cmux-customization/templates/clock-weather/cmux-app.json
+blob skills/cmux-customization/templates/clock-weather/main.js
+blob skills/cmux-customization/templates/my-prs/cmux-app.json
+blob skills/cmux-customization/templates/my-prs/main.js
 blob schemas/build-identity/vectors.json
 blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl

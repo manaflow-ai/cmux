@@ -161,7 +161,8 @@ fn sidebar_mirror_scale_bench() {
             let batched = started.elapsed();
             assert_eq!(answer["ok"], true, "{answer}");
             let projected = Instant::now();
-            let answer = serde_json::to_vec(&mirror.project(&request)).expect("answer");
+            // What the FFI entry hands over (`cmux_sidebar_mirror_project`).
+            let answer = mirror.project_json(&request);
             project.push(projected.elapsed().as_secs_f64() * 1e6);
             batch.push(batched.as_secs_f64() * 1e6);
             tick.push(started.elapsed().as_secs_f64() * 1e6);

@@ -10,6 +10,9 @@ extension StatusIndicatorConfigParser {
     /// `appearance.statusIndicator.animation`.
     nonisolated static let animationPath = ["appearance", "statusIndicator", "animation"]
     nonisolated static let animationDefault: StatusIndicatorAnimation = .animated
+    /// `appearance.statusIndicator.iconSet`.
+    nonisolated static let iconSetPath = ["appearance", "statusIndicator", "iconSet"]
+    nonisolated static let iconSetDefault: StatusIconSet = .codex
     /// `appearance.statusIndicator.size`.
     nonisolated static let sizePath = ["appearance", "statusIndicator", "size"]
     nonisolated static let sizeDefault: Double = 1
@@ -73,6 +76,29 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 ]),
                 default: .string(StatusIndicatorConfigParser.animationDefault.rawValue),
                 keywords: ["animation", "motion", "blink", "pulse", "flash", "static", "reduce motion", "accessibility", "headache"]
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.iconSetPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.statusIndicator.iconSet", "Status Icons"),
+                help: SettingsText.keyed("settings.statusIndicator.iconSet.help", "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges."),
+                kind: .choice([
+                    SettingChoice(StatusIconSet.codex.rawValue, SettingsText.keyed("statusIconSet.codex", "Codex-like")),
+                    SettingChoice(StatusIconSet.current.rawValue, SettingsText.keyed("statusIconSet.current", "Dots (original)")),
+                    SettingChoice(StatusIconSet.still.rawValue, SettingsText.keyed("statusIconSet.still", "Static")),
+                    SettingChoice(StatusIconSet.symbols.rawValue, SettingsText.keyed("statusIconSet.symbols", "Symbols")),
+                    SettingChoice(StatusIconSet.symbolsOutline.rawValue, SettingsText.keyed("statusIconSet.symbolsOutline", "Outlined Symbols")),
+                    SettingChoice(StatusIconSet.pips.rawValue, SettingsText.keyed("statusIconSet.pips", "Minimal Pips")),
+                    SettingChoice(StatusIconSet.rings.rawValue, SettingsText.keyed("statusIconSet.rings", "Rings")),
+                    SettingChoice(StatusIconSet.badges.rawValue, SettingsText.keyed("statusIconSet.badges", "Badges")),
+                    SettingChoice(StatusIconSet.signs.rawValue, SettingsText.keyed("statusIconSet.signs", "Signs")),
+                    SettingChoice(StatusIconSet.shapes.rawValue, SettingsText.keyed("statusIconSet.shapes", "Shapes")),
+                    SettingChoice(StatusIconSet.bars.rawValue, SettingsText.keyed("statusIconSet.bars", "Pulse Bars")),
+                    SettingChoice(StatusIconSet.letters.rawValue, SettingsText.keyed("statusIconSet.letters", "Letters")),
+                ]),
+                default: .string(StatusIndicatorConfigParser.iconSetDefault.rawValue),
+                keywords: ["icons", "glyphs", "status", "working", "blocked", "done", "error", "spinner"]
             ),
             SettingDescriptor(
                 StatusIndicatorConfigParser.sizePath,

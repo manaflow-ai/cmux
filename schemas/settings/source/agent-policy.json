@@ -40,6 +40,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
+      "keys": [
+        "customize.fromTheApp"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -334,6 +341,7 @@
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
         "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.iconSet",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -633,6 +641,10 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
+        "sidebar.workspaceRow.statusPlacement",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",

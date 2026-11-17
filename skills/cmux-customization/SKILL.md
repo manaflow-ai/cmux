@@ -136,8 +136,9 @@ top, so a block copies between the two:
 - cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
   list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
   behind the window and the pane background), `classic-desktop` (gray chrome, hard
-  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
-  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
+  `charcoal` (a dark chat app) and `minimal-sessions` (only the sidebar: one line per
+  session, its status mark first, then its name). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
@@ -146,8 +147,13 @@ top, so a block copies between the two:
   `~/.config/cmux/themes`, so a theme and its pictures move as one folder.
 - Only look settings apply (`appearance.*`, `ui.animation*`, `ui.calm`,
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
-  `terminal.fontSize`, and the sidebar's `sidebar.style`, `sidebar.border`,
-  `sidebar.borderWidth` and `sidebar.sectionLook`), each checked like `cmux settings set`.
+  `terminal.fontSize`, the sidebar's shape (`sidebar.style`, `sidebar.border`,
+  `sidebar.borderWidth`, `sidebar.sectionLook`), how its rows draw (`sidebar.density`,
+  `sidebar.textSize`, `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`,
+  `sidebar.showColors`, `workspaceColors.indicatorStyle`, and every
+  `sidebar.workspaceRow.<name>`, such as `statusPlacement` and `lines`, but not the per-kind
+  `sidebar.workspaceRow.<kind>.*`) and its grouping (`sidebar.groupBy`,
+  `sidebar.groupHeader.*`, `sidebar.groupPalette`, `sidebar.groupGradient`)), each checked like `cmux settings set`.
   A refused value or key is dropped with the toast settings use, naming the
   theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
   ignored: ...`); the rest still applies. Look keys up as in

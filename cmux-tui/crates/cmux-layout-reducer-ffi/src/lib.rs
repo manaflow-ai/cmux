@@ -277,6 +277,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_projection_edit" => {
+                use cmux_layout_reducer::sidebar_section_customization;
+                let request: sidebar_section_customization::EditRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_section_customization::edit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -648,10 +655,30 @@ mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
 );
-mirror_entry!(
-    /// The sections a view request's rows draw (`sidebar_doc::project`).
-    cmux_sidebar_mirror_project => project
-);
+/// The sections a view request's rows draw (`sidebar_doc::project`), from
+/// the mirror's kept view, serialized with no JSON value tree.
+///
+/// # Safety
+///
+/// `mirror` is a live mirror, `json` points to `json_len` readable bytes (or
+/// is null with length 0). Free the result with
+/// `cmux_sidebar_mirror_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_sidebar_mirror_project(
+    mirror: *mut Mirror,
+    json: *const u8,
+    json_len: usize,
+) -> *mut c_char {
+    if mirror.is_null() {
+        return std::ptr::null_mut();
+    }
+    let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null_mut() };
+    // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
+    let mirror = unsafe { &mut *mirror };
+    let text = catch_unwind(AssertUnwindSafe(|| mirror.project_json(bytes)))
+        .unwrap_or_else(|_| r#"{"error":"panic"}"#.into());
+    CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
+}
 mirror_entry!(
     /// The ops of New Subgroup or of a remote group (`sidebar_doc::plan`).
     cmux_sidebar_mirror_plan => plan

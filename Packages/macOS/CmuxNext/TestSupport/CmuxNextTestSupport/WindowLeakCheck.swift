@@ -13,7 +13,7 @@ import ObjectiveC
 /// suite, so the suite that leaks fails by name instead of slowing every suite after it.
 ///
 /// Windows are tagged with the suite and test that created them when they are created
-/// (Tests/Support/CmuxNextTestExitTrace/CmuxNextTestWindowCensus.c), so a suite running in
+/// (TestSupport/CmuxNextTestExitTrace/CmuxNextTestWindowCensus.c), so a suite running in
 /// parallel with others closes only its own. A window its test closed is not a leak, even when
 /// something still holds it; a window that was never closed is, whether or not it is on screen.
 public struct WindowLeakCheck: SuiteTrait, TestScoping {

@@ -90,6 +90,8 @@ on:
       - docs/configuration.md
       # Why: docs/ci/cmux-next-workflow-notes.md#note-353
       - docs/remote-agents-and-cloud.md
+      # cmux-customize-recipes embeds the recipes guide (in the tree key).
+      - docs/cmux-next/customize-recipes.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
@@ -370,6 +372,7 @@ on:
       - scripts/cmux-next/state-roots-baseline.tsv
       - docs/configuration.md
       - docs/remote-agents-and-cloud.md
+      - docs/cmux-next/customize-recipes.md
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
@@ -2183,6 +2186,7 @@ jobs:
         run: |
           python3 -I scripts/cmux-next/gen-settings-sources.py --check
           python3 -I scripts/cmux-next/tests/test_settings_export_keys.py
+          python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
 
       # The phone daemon lane's per-command field allowlist, generated from the daemon's request
       # Why: docs/ci/cmux-next-workflow-notes.md#note-151

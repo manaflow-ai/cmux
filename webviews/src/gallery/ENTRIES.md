@@ -47,6 +47,41 @@ file then. Builders for the pane's structures (rows, tool calls, sessions, snaps
 `src/gallery/fixtures/acpmux.ts`. Times are relative to the gallery clock (`src/gallery/clock.ts`),
 so `minutesAgo(5)` reads "5m" in every run.
 
+### Native sidebar captures
+
+`sidebar.native-gallery` points to JSON fixtures in
+`Packages/macOS/CmuxNext/Tests/Fixtures/SidebarGallery`. The DEBUG-only
+`SidebarGalleryFixture` builds the real sidebar model and session-tree state;
+`CmuxNativeSidebarGallery` is a standalone test package that renders the native views
+in light and dark appearances without compiling unrelated app test targets.
+From a checkout whose committed head has been pushed, run:
+
+```sh
+scripts/ci/native-sidebar-gallery.sh FULL_SHA
+```
+
+The helper submits the suite through the supported fleet runner with a GUI session
+and `CMUX_TEST_REQUIRE_GUI=1`, verifies the completed job's source SHA, then downloads
+`artifacts/native-sidebar-gallery.tar`. The archive contains six PNGs and a
+`manifest.json` mapping each fixture to its row IDs and image names. The
+`native-sidebar-gallery.yml` workflow also runs the suite for sidebar changes and
+prints the fleet job ID and archive download command in its summary.
+The browser registers these native entries as metadata; native pixels come from
+the captured archive.
+
+An app compile alone does not validate this renderer: compile and execute the test
+target, then inspect the downloaded images. Even a cancelled or advisory fleet job
+can contain compiler errors; inspect its full log before attributing it to routing.
+The parameterized `loadFixture` test checks fixture loading without requiring a GUI.
+Both entrypoints select `CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests`: SwiftPM lists
+tests as `Target.Suite/test`. `tests/test_native_sidebar_gallery.py` checks that the
+submitted filter matches the renderer and fixture tests; `Target/Suite` matches neither.
+The gateway keeps client stderr in memory and forwards worker stdout to the job log;
+worker output cannot supply its receipt. Its warm-cache registration lives in
+`.github/warm-sources.json`. Before changing the workflow, run the receipt checks,
+`test_ci_noclobber_sweep.py`, `test_ci_warm_sources.py`, and
+`test_ci_workflow_guards_are_wired.py` through `cmux-ci test`, plus the workflow linter.
+
 ## Example: a page (the diff viewer)
 
 ```ts
