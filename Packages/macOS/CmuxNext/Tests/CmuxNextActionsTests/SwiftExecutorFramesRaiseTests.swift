@@ -118,6 +118,8 @@ nonisolated private let markHandUnwind: objc_exception_handler = { _, context in
 }
 
 /// An object whose `encode(with:)` runs `work`, so `work` runs below Foundation's Objective-C catch.
+/// The archive writes the class name: a private class needs a fixed Objective-C name.
+@objc(CmuxNextRaisingCoderForExecutorFramesTests)
 nonisolated private final class RaisingCoder: NSObject, NSCoding {
     private let work: @Sendable () -> Void
 
