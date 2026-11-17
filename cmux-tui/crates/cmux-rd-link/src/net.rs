@@ -241,10 +241,10 @@ impl MediaQueue {
                 self.record_drop(datagrams, DropReason::RejectedProtected);
                 return;
             }
-        } else if self.frames.front().is_some_and(|frame| frame.droppable) {
-            if let Some(old) = self.pop() {
-                self.record_drop(old, DropReason::EvictedForProtected);
-            }
+        } else if self.frames.front().is_some_and(|frame| frame.droppable)
+            && let Some(old) = self.pop()
+        {
+            self.record_drop(old, DropReason::EvictedForProtected);
         }
         self.queued_datagrams += datagrams.datagrams.len();
         self.frames.push_back(datagrams);
@@ -732,21 +732,20 @@ impl Driver {
         for transmit in self.endpoint.send_datagram(datagram)? {
             if let Some((departed_us, wire_bytes)) =
                 self.send(transmit.route, &transmit.packet, now)
-            {
-                if let Some(header) = header.filter(|header| {
+                && let Some(header) = header.filter(|header| {
                     matches!(
                         header.kind,
                         cmux_rd_proto::DatagramKind::Video
                             | cmux_rd_proto::DatagramKind::Fec
                             | cmux_rd_proto::DatagramKind::UpMedia
                     )
-                }) {
-                    let receipt = DatagramDeparture { header, departed_us, wire_bytes };
-                    if self.departures.try_send(receipt).is_ok() {
-                        self.departure_wake = true;
-                    } else {
-                        self.departure_overflows.fetch_add(1, Ordering::Relaxed);
-                    }
+                })
+            {
+                let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                if self.departures.try_send(receipt).is_ok() {
+                    self.departure_wake = true;
+                } else {
+                    self.departure_overflows.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }

@@ -31,7 +31,6 @@ pub enum Incoming {
 /// the session is using cmux-rd-link.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MediaQueueStats {
-    pub departure_overflows: u64,
     pub queue_frames: usize,
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
@@ -48,7 +47,6 @@ pub struct MediaQueueStats {
 impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
     fn from(stats: cmux_rd_link::net::NetStats) -> Self {
         Self {
-            departure_overflows: stats.departure_overflows,
             queue_frames: stats.queue_frames,
             queue_datagrams: stats.queue_datagrams,
             dropped_frames: stats.dropped_frames,
@@ -66,11 +64,9 @@ impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
 pub trait Carrier {
     /// Append a bounded batch of successful transport writes, never enqueue times.
     /// Each adapter must preserve the underlying transport's observations.
-    fn drain_departures(&mut self, _out: &mut Vec<DatagramDeparture>) {}
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>);
     /// Lost observations (not lost media). Consumers must mark affected timings incomplete.
-    fn departure_overflows(&self) -> u64 {
-        0
-    }
+    fn departure_overflows(&self) -> u64;
 
     /// Readable when [`Carrier::receive`] may have something.
     fn fds(&self) -> Vec<RawFd>;

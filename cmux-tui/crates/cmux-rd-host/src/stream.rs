@@ -381,7 +381,7 @@ impl MediaSession {
                 .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
             let timeout = Some(
                 timeout
-                    .min(carrier_send_queue_busy(carrier).then_some(1_000_000).unwrap_or(u64::MAX))
+                    .min(if carrier_send_queue_busy(carrier) { 1_000_000 } else { u64::MAX })
                     .max(1_000_000),
             );
             let mut fds = carrier.fds();

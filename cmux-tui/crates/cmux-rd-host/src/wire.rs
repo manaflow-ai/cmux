@@ -108,10 +108,6 @@ pub enum DatagramOut {
 }
 
 impl DatagramOut {
-    pub fn send<S: Write + AsRawFd>(&self, stream: &mut S, datagram: &[u8]) -> io::Result<()> {
-        self.send_observed(stream, datagram).map(|_| ())
-    }
-
     /// Bytes accepted by the socket, or None for best-effort buffer loss.
     pub fn send_observed<S: Write + AsRawFd>(
         &self,
