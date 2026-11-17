@@ -24,7 +24,7 @@ import Foundation
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector
-//   (`click`, `drag` (`html5: true`: HTML5 drag and drop; `from`/`to` selectors), `press` (or `selector`): an error when the input did not happen);
+//   (`click`, `drag` (`html5: true`: HTML5 drag and drop; `from`/`to` selectors), `press` (or `selector`, `gesture`; `key`: Enter, Tab, Escape): an error when the input did not happen);
 // - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
 //   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
 //   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
@@ -99,10 +99,10 @@ enum DebugPages {
             guard n.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) or from, to (selectors) are required"] }
             if params["html5"]?.boolValue == true { return await page.debugDragAndDrop(from: CGPoint(x: n[0], y: n[1]), to: CGPoint(x: n[2], y: n[3]), steps: steps) }
             return await page.debugDrag(from: CGPoint(x: n[0], y: n[1]), to: CGPoint(x: n[2], y: n[3]), steps: steps) ? ["dragged": .bool(true)] : ["error": "the drag did not reach the page: it shows in WebKit, or DevTools refused an event"]
-        case "press":
+        case "press": if let key = params["key"]?.stringValue { return await page.debugKey(key, gesture: params["gesture"]?.boolValue == true) }
             let numbers = await page.debugPoint(params, x: "x", y: "y", selector: "selector")
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) or a selector are required"] }
-            return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
+            return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true, gesture: params["gesture"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
         case "paste": return await page.debugPaste()
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
