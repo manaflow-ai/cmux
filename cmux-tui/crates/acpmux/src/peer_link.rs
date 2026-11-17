@@ -102,6 +102,25 @@ impl LinkTimings {
     }
 }
 
+/// Give the observer more time to run its keepalive when its own scheduler is overloaded.
+///
+/// The base budget is still fixed for a normally loaded observer. Once the host's load is over
+/// its measured limit, each additional load-limit-sized band gets one more base interval, capped
+/// at a minute. This depends only on the observer's current CPU pressure, never on the peer's
+/// recorded session history.
+pub fn load_aware_silence_budget(base: Duration, load1: Option<f64>, load_limit: f64) -> Duration {
+    const CAP: Duration = Duration::from_secs(60);
+    let Some(load1) = load1.filter(|load| load.is_finite() && *load > load_limit) else {
+        return base;
+    };
+    let Some(limit) = load_limit.is_finite().then_some(load_limit).filter(|limit| *limit > 0.0)
+    else {
+        return base;
+    };
+    let bands = (load1 / limit).ceil() as u32 + 1;
+    base.saturating_mul(bands).min(CAP)
+}
+
 /// How long one peer's links may stay silent before they are dropped. It starts at
 /// `LinkTimings::silence_budget` (6 s), so a dead link is found in seconds, and grows for a peer
 /// that answers late but answers (a loaded host): an answer that came after more than half the
@@ -1131,6 +1150,19 @@ mod tests {
         assert_eq!(budget.current(), Duration::from_secs(15));
         let slow = LinkTimings { ping_every: Duration::from_secs(40), ..LinkTimings::default() };
         assert_eq!(SilenceBudget::new(&slow).current(), Duration::from_secs(120), "over the cap");
+    }
+
+    #[test]
+    fn observer_load_extends_only_the_keepalive_miss_window() {
+        let base = Duration::from_secs(6);
+        assert_eq!(load_aware_silence_budget(base, None, 32.0), base);
+        assert_eq!(load_aware_silence_budget(base, Some(31.9), 32.0), base);
+        assert_eq!(load_aware_silence_budget(base, Some(84.0), 32.0), Duration::from_secs(24));
+        assert_eq!(
+            load_aware_silence_budget(base, Some(10_000.0), 32.0),
+            Duration::from_secs(60),
+            "a runaway load cannot disable liveness forever"
+        );
     }
 
     #[test]
