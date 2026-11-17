@@ -38,7 +38,7 @@ final class AgentDisclosureUITests: XCTestCase {
         field.typeText("What is in the README?")
         app.buttons["Send"].firstMatch.tap()
         // A short turn can end, and fold under "Worked for", before the group is seen.
-        let group = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Read a file", "Worked for")).firstMatch
+        let group = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Read a file", "Worked for")).firstMatch
         XCTAssertTrue(group.waitForExistence(timeout: 20), "the turn's tool group arrives\n\(app.debugDescription)")
         let stop = app.buttons["Stop"].firstMatch
         expect(stop, "exists == false", "the turn ends")
@@ -50,7 +50,7 @@ final class AgentDisclosureUITests: XCTestCase {
         // Found again by its label (and its place among lines with that label): the rows the body
         // opens are buttons too, so an index into all disclosures would shift under it.
         let (label, nth) = lowestDisclosure(in: app)
-        let header = app.buttons.matching(NSPredicate(format: "label == %@", label)).element(boundBy: nth)
+        let header = Self.lines(app).matching(NSPredicate(format: "label == %@", label)).element(boundBy: nth)
         let before = header.frame
         print("CMUX_DISCLOSURE header '\(label)' at \(before)")
         attach(app, "0-before-open")
@@ -76,11 +76,18 @@ final class AgentDisclosureUITests: XCTestCase {
         XCTAssertEqual(closed.minY, before.minY, accuracy: 2, "closed, '\(label)' moved from \(before.minY) to \(closed.minY)")
     }
 
+    /// Where disclosure lines are looked up: every element, not only buttons, since a "Worked for"
+    /// line can reach the tree as its text and chevron.
+    @MainActor
+    private static func lines(_ app: XCUIApplication) -> XCUIElementQuery {
+        app.descendants(matching: .any)
+    }
+
     /// The disclosure line nearest the bottom of the transcript that is on screen and tappable.
     @MainActor
     private func lowestDisclosure(in app: XCUIApplication) -> (label: String, nth: Int) {
         let pattern = NSPredicate(format: "label MATCHES %@", "^(Worked for|Read|Ran|Edited|Searched|Thought|Running|Reading).*")
-        let candidates = app.buttons.matching(pattern)
+        let candidates = Self.lines(app).matching(pattern)
         XCTAssertTrue(candidates.firstMatch.waitForExistence(timeout: 15), "the demo chat has a disclosure\n\(app.debugDescription)")
         let screen = app.windows.firstMatch.frame
         let composer = app.textViews["chat.composer.field"]
@@ -99,7 +106,7 @@ final class AgentDisclosureUITests: XCTestCase {
             return ("", 0)
         }
         let label = best.label
-        let same = app.buttons.matching(NSPredicate(format: "label == %@", label))
+        let same = Self.lines(app).matching(NSPredicate(format: "label == %@", label))
         let nth = (0..<same.count).first { abs(same.element(boundBy: $0).frame.minY - bestY) < 1 } ?? 0
         return (label, nth)
     }

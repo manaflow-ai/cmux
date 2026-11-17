@@ -50,7 +50,12 @@ final class AgentChatCollapseUITests: XCTestCase {
         incoming.tap()
 
         // A finished turn: "Worked for", its reply under it; the work opens on a tap.
-        let worked = app.buttons.matching(identifier: "agent-chat.worked-for")
+        // Looked up on every element: the line can reach the tree as its text and chevron. The
+        // demo's folded turn is above the messages, so scroll back up to it.
+        let worked = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Worked for"))
+        for _ in 0..<12 where !worked.firstMatch.exists {
+            top.press(forDuration: 0.05, thenDragTo: bottom)
+        }
         XCTAssertTrue(worked.firstMatch.waitForExistence(timeout: 10), "a finished turn's work folds under Worked for\n\(app.debugDescription)")
         let line = worked.allElementsBoundByIndex.last { $0.isHittable } ?? worked.firstMatch
         for _ in 0..<12 where !line.isHittable {
@@ -59,11 +64,11 @@ final class AgentChatCollapseUITests: XCTestCase {
         XCTAssertTrue(line.label.hasPrefix("Worked for") || line.label.hasPrefix("Failed after") || line.label.hasPrefix("You stopped after"),
                       "the line says how long the turn worked: \(line.label)")
         let work = NSPredicate(format: "label MATCHES %@", "^(Read|Ran|Edited|Searched|Thought).*")
-        let shut = app.buttons.matching(work).count
+        let shut = app.descendants(matching: .any).matching(work).count
         attach(app, "4-worked-closed")
         line.tap()
         sleep(1)
-        XCTAssertGreaterThan(app.buttons.matching(work).count, shut, "opened, the turn's work shows under the line")
+        XCTAssertGreaterThan(app.descendants(matching: .any).matching(work).count, shut, "opened, the turn's work shows under the line")
         attach(app, "5-worked-open")
         line.tap()
         sleep(1)
