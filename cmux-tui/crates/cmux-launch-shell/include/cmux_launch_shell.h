@@ -18,13 +18,14 @@ uint8_t cmux_launch_shell_input_disposition(uint8_t kind, size_t held);
 bool cmux_launch_shell_replays(uint8_t kind, bool showed_image, bool mismatch);
 
 /* With no launch record, the stage-0 plan's reason: 1 fresh install (bare Home at the default
- * frame) only on positive evidence: session has no registry folder (<session>-<id>, one id part)
- * in state_dir (NULL: CMUX_TUI_STATE_DIR, else ~/Library/Application Support/cmux-tui/sessions;
- * a directory that cannot be listed counts as having one), no file at launch_times_path (the
- * app's launch-times.jsonl), and snapshot_path_recorded is false (the app's defaults hold no
- * cmuxNext.launchSnapshotPath.<session>). Else 10: no stage-0 window, today's launch. A NULL
- * session or launch_times_path is 10. Strings are NUL-terminated UTF-8 paths. Blocking (one
- * directory listing and a stat): call it off the main thread. */
+ * frame) only on positive evidence: session has no registry folder in state_dir (the name
+ * cmux-tui gives it: its safe bytes, then its FNV-1a hash; state_dir NULL: CMUX_TUI_STATE_DIR,
+ * else ~/Library/Application Support/cmux-tui/sessions; a folder that cannot be checked counts
+ * as one), no file at launch_times_path (the app's launch-times.jsonl), and
+ * snapshot_path_recorded is false (the app's defaults hold no cmuxNext.launchSnapshotPath.
+ * <session>). Else 10: no stage-0 window, today's launch. A NULL session or launch_times_path is
+ * 10. Strings are NUL-terminated UTF-8 paths. Blocking (two stats, never a directory listing):
+ * call it off the main thread. */
 uint8_t cmux_launch_shell_no_record_reason(const char *session, const char *state_dir,
                                            const char *launch_times_path,
                                            bool snapshot_path_recorded);

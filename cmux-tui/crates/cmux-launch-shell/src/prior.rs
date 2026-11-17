@@ -1,18 +1,18 @@
 //! Whether a launch with no launch record is a first launch ever: `Reason::FreshInstall` only on
 //! positive evidence, else no stage-0 window (today's launch). No record alone proves nothing: an
 //! upgrade from a build without the writer has none either, beside a session that restores windows.
-//! The Swift original is `LaunchKind.of` with `LaunchSnapshotLocation.registryExists`. One directory
-//! listing and a stat; no process, socket or network.
+//! The Swift original is `LaunchKind.of` with `LaunchSnapshotLocation.registryExists`. Two stats,
+//! never a directory listing; no process, socket or network.
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// Whether the session has a registry folder (`<session>-<id>`) in the daemon's state directory.
+/// Whether the session has its registry folder in the daemon's state directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Registry {
-    /// The directory does not exist, or holds no folder of the session.
+    /// Neither the directory nor the session's folder in it exists.
     Absent,
     Present,
-    /// The directory could not be listed, or not be found (no home): it may hold one.
+    /// The folder could not be checked, or the directory not be found (no home): it may exist.
     Unknown,
 }
 
@@ -74,33 +74,38 @@ fn resolve_state_dir(env_dir: Option<OsString>, home: Option<OsString>) -> Optio
     Some(PathBuf::from(home).join("Library/Application Support/cmux-tui/sessions"))
 }
 
-/// Whether `dir` holds a registry folder of `session`: one listing. A directory that does not
-/// exist has none; one that cannot be listed may.
+/// Whether `dir` holds `session`'s registry folder: one stat of its exact path, never a listing,
+/// so a state directory of many sessions costs nothing more. Only "not found" is absent.
 pub fn registry(session: &str, dir: &Path) -> Registry {
     if session.is_empty() {
         return Registry::Unknown;
     }
-    match dir.try_exists() {
-        Ok(false) => return Registry::Absent,
-        Ok(true) => {}
-        Err(_) => return Registry::Unknown,
+    match dir.join(storage_component(session)).try_exists() {
+        Ok(false) => Registry::Absent,
+        Ok(true) => Registry::Present,
+        Err(_) => Registry::Unknown,
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return Registry::Unknown };
-    for entry in entries {
-        let Ok(entry) = entry else { return Registry::Unknown };
-        if is_registry_name(entry.file_name().as_encoded_bytes(), session) {
-            return Registry::Present;
-        }
-    }
-    Registry::Absent
 }
 
-/// `<session>-<id>` with one id part, so `cmux-app-a` never takes `cmux-app-a-b`'s registry
-/// (Swift `LaunchSnapshotLocation.find`).
-fn is_registry_name(name: &[u8], session: &str) -> bool {
-    name.strip_prefix(session.as_bytes())
-        .and_then(|rest| rest.strip_prefix(b"-"))
-        .is_some_and(|id| !id.contains(&b'-'))
+/// The folder name cmux-tui gives `session` below its state directory (cmux-tui-core's
+/// `session_storage_component`): its first 48 safe bytes, then its FNV-1a hash. Kept equal to it
+/// by `the_registry_folder_is_named_as_cmux_tui_names_it`.
+pub(crate) fn storage_component(session: &str) -> String {
+    let mut readable = String::new();
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in session.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+        if readable.len() < 48 && (byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')) {
+            readable.push(char::from(byte));
+        } else if readable.len() < 48 {
+            readable.push('_');
+        }
+    }
+    if readable.is_empty() {
+        readable.push_str("session");
+    }
+    format!("{readable}-{hash:016x}")
 }
 
 #[cfg(test)]
@@ -108,12 +113,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_names_have_one_id_part() {
-        assert!(is_registry_name(b"cmux-app-a-1f2e", "cmux-app-a"));
-        assert!(!is_registry_name(b"cmux-app-a-b-1f2e", "cmux-app-a"));
-        assert!(!is_registry_name(b"cmux-app-a", "cmux-app-a"));
-        assert!(!is_registry_name(b"cmux-app-ab", "cmux-app-a"));
-        assert!(!is_registry_name(b"other-1f2e", "cmux-app-a"));
+    fn the_registry_folder_is_named_as_cmux_tui_names_it() {
+        // FNV-1a 64 of the session's bytes, as cmux-tui-core's session_storage_component.
+        let fnv = |s: &str| {
+            s.bytes()
+                .fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
+        };
+        assert_eq!(storage_component("cmux-app"), format!("cmux-app-{:016x}", fnv("cmux-app")));
+        assert_eq!(storage_component("a b/c"), format!("a_b_c-{:016x}", fnv("a b/c")));
+        assert_eq!(storage_component("é"), format!("__-{:016x}", fnv("é")));
+        assert_eq!(storage_component(&"x".repeat(60)).len(), 48 + 1 + 16);
     }
 
     #[test]

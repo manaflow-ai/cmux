@@ -232,18 +232,20 @@ fn a_fresh_install_needs_every_sign_of_an_earlier_run_absent() {
 
     // A registry folder of the session: its daemon ran here.
     let home = Home::new();
-    fs::create_dir(home.state_dir().join(format!("{SESSION}-1f2e"))).unwrap();
+    fs::create_dir(home.state_dir().join(crate::prior::storage_component(SESSION))).unwrap();
     assert_eq!(home.prior(false).registry, Registry::Present);
     assert_eq!(home.reason(false), Reason::Upgrade);
 
-    // Another session's folder (`<session>-a-b` has two id parts) is not this one's.
+    // Another session's folder is not this one's, even one whose name starts with this session's.
     let home = Home::new();
-    fs::create_dir(home.state_dir().join(format!("{SESSION}-b-1f2e"))).unwrap();
+    fs::create_dir(home.state_dir().join(crate::prior::storage_component(&format!("{SESSION}-b"))))
+        .unwrap();
+    fs::create_dir(home.state_dir().join(format!("{SESSION}-1f2e"))).unwrap();
     fs::create_dir(home.state_dir().join("other-1f2e")).unwrap();
     assert_eq!(home.prior(false).registry, Registry::Absent);
     assert_eq!(home.reason(false), Reason::FreshInstall);
 
-    // A state directory that cannot be listed may hold one (a file there lists as no directory).
+    // A state directory that cannot be read may hold one (a file there: its child cannot be checked).
     let home = Home::new();
     fs::remove_dir(home.state_dir()).unwrap();
     fs::write(home.state_dir(), "").unwrap();

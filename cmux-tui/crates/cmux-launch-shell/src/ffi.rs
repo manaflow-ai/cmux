@@ -12,7 +12,7 @@ use crate::{InputKind, PriorState, Reason, input_disposition};
 /// `CMUX_TUI_STATE_DIR`, else `~/Library/Application Support/cmux-tui/sessions`), no
 /// `launch-times.jsonl` at `launch_times_path`, and `snapshot_path_recorded` is false; else 10
 /// (`Reason::Upgrade`, no stage-0 window). A NULL or non-UTF-8 `session`, or a NULL
-/// `launch_times_path`, is 10. Blocking (one directory listing and a stat): call it off the main
+/// `launch_times_path`, is 10. Blocking (two stats, no listing): call it off the main
 /// thread.
 ///
 /// # Safety
@@ -72,7 +72,10 @@ mod tests {
         assert_eq!(reason(session.as_ptr(), times.as_ptr(), true), 10);
         assert_eq!(reason(null(), times.as_ptr(), false), 10);
         assert_eq!(reason(session.as_ptr(), null(), false), 10);
-        std::fs::create_dir(dir.join("sessions/cmux-app-a-1f2e")).unwrap();
+        std::fs::create_dir(
+            dir.join("sessions").join(crate::prior::storage_component("cmux-app-a")),
+        )
+        .unwrap();
         assert_eq!(reason(session.as_ptr(), times.as_ptr(), false), 10);
         let _ = std::fs::remove_dir_all(&dir);
     }
