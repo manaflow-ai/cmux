@@ -95,6 +95,8 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// The most appended prompts whose ticks wait to enter once drawn (TickList); the oldest go first.
+const ENTRANCES_KEPT = 256;
 /// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
 /// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
@@ -1627,6 +1629,13 @@ const TickList = memo(function TickList({
     if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
       for (let index = Math.max(ticks.pendingCount, after + 1); index < ticks.length; index++)
         pending.add(ticks.at(index)!.key);
+    }
+    // Only the newest prompts not drawn yet keep their entrance: one never drawn stayed pending for good, so a chat
+    // whose prompts arrived off the rail's drawn rows held them all (19,774 keys of a 50,000-turn chat, chat-100k-flat
+    // grown_x1), and each new prompt copied them (the Set above).
+    for (const key of pending) {
+      if (pending.size <= ENTRANCES_KEPT) break;
+      pending.delete(key);
     }
     entrance = { sessionId, ticks, pending };
   }
