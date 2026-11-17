@@ -34,7 +34,10 @@
 set -o pipefail
 pool_n=8
 ns="1,2,4,8"
+# fleet-sudo -f runs the script as `bash -c 'eval "$1"' fleet-sudo SCRIPT`, so the script's own text arrives as $1:
+# an argument with a newline in it is that text, never one of ours.
 for arg in "$@"; do
+  [[ "$arg" == *$'\n'* ]] && continue
   case "$arg" in
     n=*) pool_n="${arg#n=}" ;;
     ns=*) ns="${arg#ns=}" ;;
