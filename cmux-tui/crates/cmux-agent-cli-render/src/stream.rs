@@ -86,7 +86,18 @@ impl HybridStream {
         if delta.shift == 0 && delta.spans.is_empty() {
             return None;
         }
-        self.shown.apply_delta(&delta, &self.blank);
+        Some(self.push(&delta))
+    }
+
+    /// A frame that changes no cell: the screen's cells stayed but its cursor moved, showed or
+    /// hid (a full-screen program moving its cursor, a prompt showing it), which only a frame
+    /// tells the viewer. Numbered and kept for a resume like any other.
+    pub fn still(&mut self, at_ms: u64) -> Frame {
+        self.push(&Delta { seq: 0, at_ms, shift: 0, spans: Vec::new() })
+    }
+
+    fn push(&mut self, delta: &Delta) -> Frame {
+        self.shown.apply_delta(delta, &self.blank);
         let data = delta.encode();
         let base = self.frame;
         self.frame += 1;
@@ -100,7 +111,7 @@ impl HybridStream {
             }
             self.base_frame += 1;
         }
-        Some(Frame { frame: self.frame, base: Some(base), data })
+        Frame { frame: self.frame, base: Some(base), data }
     }
 
     /// The newest screen as one delta over a blank screen.
@@ -209,6 +220,21 @@ mod tests {
             shown.apply_delta(&Delta::decode(&frame.data).unwrap(), &blank);
         }
         shown.compose(&blank)
+    }
+
+    /// A frame that changes no cell (the cursor alone moved) is numbered after the one before
+    /// it, keeps the screen, and a resume from before it still lands on the newest screen.
+    #[test]
+    fn a_still_frame_changes_no_cell_and_resumes_like_any_frame() {
+        let mut stream = HybridStream::new(20, 4);
+        let a = stream.update(&screen(&["> hi"]), 0).unwrap();
+        let still = stream.still(100);
+        assert_eq!((still.frame, still.base), (a.frame + 1, Some(a.frame)));
+        assert_eq!(viewer(&[&a, &still]), screen(&["> hi"]));
+        let b = stream.update(&screen(&["> hi", "there"]), 200).unwrap();
+        assert_eq!(b.base, Some(still.frame));
+        let resumed = stream.resume(a.frame, 300).expect("the stream holds frame a");
+        assert_eq!(viewer(&[&a, &resumed]), screen(&["> hi", "there"]));
     }
 
     #[test]

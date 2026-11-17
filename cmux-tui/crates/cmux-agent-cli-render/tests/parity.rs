@@ -570,12 +570,31 @@ fn live_screen(term: &mut ghostty_vt::Terminal) -> (Grid, vt::Cursor) {
             .collect();
         slot.resize(usize::from(cols), Cell::default());
     }
-    let cursor = frame.cursor.map_or(vt::Cursor::default(), |c| vt::Cursor {
-        x: c.x,
-        y: c.y,
-        visible: true,
-    });
+    // As the daemon reads it (`HybridViewer::screen`): a hidden cursor keeps its place.
+    let cursor = match frame.cursor {
+        Some(c) => vt::Cursor { x: c.x, y: c.y, visible: true },
+        None => term.cursor_position().map_or(vt::Cursor::default(), |(x, y)| vt::Cursor {
+            x,
+            y,
+            visible: false,
+        }),
+    };
     (grid, cursor)
+}
+
+/// The daemon's frame check (`HybridViewer::frame_now`): the frame that changes the cells,
+/// else, when only the cursor moved since the frame before (`sent`), one that changes none.
+fn daemon_frame(
+    hybrid: &mut HybridStream,
+    real: &Grid,
+    cursor: vt::Cursor,
+    sent: &mut vt::Cursor,
+    at_ms: u64,
+) -> Option<cmux_agent_cli_render::stream::Frame> {
+    let frame =
+        hybrid.update(real, at_ms).or_else(|| (cursor != *sent).then(|| hybrid.still(at_ms)))?;
+    *sent = cursor;
+    Some(frame)
 }
 
 struct Streamed {
@@ -653,12 +672,15 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
     let key = hybrid.keyframe(0);
     deliver(&key, vt::Cursor::default(), &mut encoder, &mut decoder, &mut phone, &mut out);
     let mut dropped = false;
+    let mut sent = vt::Cursor::default();
     let mut send = |now: u64,
                     mac: &mut ghostty_vt::Terminal,
                     phone: &mut ghostty_vt::Terminal,
                     out: &mut Streamed| {
         let (real, cursor) = live_screen(mac);
-        let Some(frame) = hybrid.update(&real, now - start) else { return };
+        let Some(frame) = daemon_frame(&mut hybrid, &real, cursor, &mut sent, now - start) else {
+            return;
+        };
         let offline = drop.is_some_and(|(from, to)| now - start >= from && now - start < to);
         if offline {
             dropped = true;
@@ -776,6 +798,8 @@ struct BenchStream {
     frames: Vec<Value>,
     shown: String,
     cursor: vt::Cursor,
+    /// The cursor the newest frame carried.
+    sent: vt::Cursor,
     cols: u16,
     rows: u16,
 }
@@ -783,7 +807,7 @@ struct BenchStream {
 impl BenchStream {
     fn check(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) {
         let (real, cursor) = live_screen(mac);
-        if let Some(frame) = self.hybrid.update(&real, at_ms) {
+        if let Some(frame) = daemon_frame(&mut self.hybrid, &real, cursor, &mut self.sent, at_ms) {
             self.frames
                 .push(json!([at_ms, sized_frame_event(&frame, cursor, self.cols, self.rows)]));
         }
@@ -800,6 +824,7 @@ impl BenchStream {
         self.hybrid.update(&real, at_ms);
         let key = self.hybrid.keyframe(at_ms);
         self.frames.push(json!([at_ms, sized_frame_event(&key, cursor, cols, rows)]));
+        self.sent = cursor;
         self.cursor = cursor;
         self.shown = mac.viewport_text().unwrap();
     }
@@ -833,6 +858,7 @@ fn export(session: &Session) -> Value {
         frames: Vec::new(),
         shown: String::new(),
         cursor: vt::Cursor::default(),
+        sent: vt::Cursor::default(),
         cols: COLS,
         rows: ROWS,
     };
@@ -1114,6 +1140,8 @@ struct PhoneRun {
     start: u64,
     tables: ParityTables,
     steps: Vec<Value>,
+    /// The cursor the newest frame carried.
+    sent: vt::Cursor,
 }
 
 impl PhoneRun {
@@ -1172,13 +1200,16 @@ impl PhoneRun {
             "cursor": [cursor.x, cursor.y, cursor.visible], "screen": screen,
         }));
         self.applied = frame.frame;
+        self.sent = cursor;
     }
 
     /// A frame check at `now`, as the daemon's pacer makes it.
     fn check(&mut self, now: u64) {
         let (real, cursor) = live_screen(&mut self.mac);
         let at = now - self.start;
-        let Some(frame) = self.hybrid.update(&real, at) else { return };
+        let Some(frame) = daemon_frame(&mut self.hybrid, &real, cursor, &mut self.sent, at) else {
+            return;
+        };
         if self.offline(now) {
             self.dropped = true;
             return;
@@ -1248,6 +1279,7 @@ fn phone_parity(name: &'static str, session: &Session) -> Value {
         start,
         tables: ParityTables::default(),
         steps: Vec::new(),
+        sent: vt::Cursor::default(),
     };
     // The attach: the daemon's first frame is a keyframe of the screen then.
     let (real, cursor) = live_screen(&mut run.mac);

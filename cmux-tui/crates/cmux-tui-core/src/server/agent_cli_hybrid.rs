@@ -135,6 +135,9 @@ pub(super) struct HybridViewer {
     stream: HybridStream,
     pacer: FramePacer,
     started: Instant,
+    /// The cursor the viewer was last sent: when only the cursor moves (shows, hides), no cell
+    /// changes, and the frame that says so changes none.
+    cursor: vt::Cursor,
     /// The connection's lean encoder, when it declared `agent-cli-hybrid-v2`.
     lean: Option<LeanEncoder>,
     /// A plain shell's terminal ([`TERMINAL_SHELL_LINES_CAPABILITY`]).
@@ -190,6 +193,7 @@ impl HybridViewer {
             stream,
             pacer: FramePacer::default(),
             started: Instant::now(),
+            cursor: vt::Cursor::default(),
             lean: lean.then(LeanEncoder::new),
             shell: shell.then_some(Shell { pty: false }),
             scan: (lines || shell).then(FullScreenScan::new),
@@ -292,7 +296,9 @@ impl HybridViewer {
             shell.pty = false;
         }
         self.scan = Some(FullScreenScan::new());
-        let (real, _) = self.screen()?;
+        let (real, cursor) = self.screen()?;
+        // The viewer got the program's bytes, its cursor moves among them.
+        self.cursor = cursor;
         let at_ms = u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
         self.stream.update(&real, at_ms);
         Ok(())
@@ -350,7 +356,13 @@ impl HybridViewer {
         self.pacer.sent(now);
         let (real, cursor) = self.screen()?;
         let at_ms = u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
-        let Some(frame) = self.stream.update(&real, at_ms) else { return Ok(None) };
+        let frame = match self.stream.update(&real, at_ms) {
+            Some(frame) => frame,
+            // Only the cursor moved: the viewer's terminal places typed text, pans and keeps
+            // the cursor row in view by it, as over the PTY.
+            None if cursor != self.cursor => self.stream.still(at_ms),
+            None => return Ok(None),
+        };
         Ok(Some(self.event(&frame, cursor)))
     }
 
@@ -405,12 +417,13 @@ impl HybridViewer {
         Ok(())
     }
 
-    fn event(&mut self, frame: &Frame, cursor: Option<ghostty_vt::CursorInfo>) -> Value {
+    fn event(&mut self, frame: &Frame, cursor: vt::Cursor) -> Value {
         let (cols, rows) = self.stream.size();
-        let at =
-            cursor.map_or(vt::Cursor::default(), |c| vt::Cursor { x: c.x, y: c.y, visible: true });
-        if let Some(lean) =
-            self.lean.as_mut().and_then(|encoder| encoder.encode(&self.id, cols, rows, frame, at))
+        self.cursor = cursor;
+        if let Some(lean) = self
+            .lean
+            .as_mut()
+            .and_then(|encoder| encoder.encode(&self.id, cols, rows, frame, cursor))
         {
             return json!({
                 "event": "agent-cli-lean",
@@ -427,17 +440,25 @@ impl HybridViewer {
             "cols": cols,
             "rows": rows,
             "data": base64::engine::general_purpose::STANDARD.encode(&frame.data),
-            "cursor_x": cursor.map_or(0, |c| c.x),
-            "cursor_y": cursor.map_or(0, |c| c.y),
-            "cursor_visible": cursor.is_some(),
+            "cursor_x": cursor.x,
+            "cursor_y": cursor.y,
+            "cursor_visible": cursor.visible,
         })
     }
 
-    /// The shadow terminal's screen as cells, and its cursor when it shows.
-    fn screen(&mut self) -> anyhow::Result<(Grid, Option<ghostty_vt::CursorInfo>)> {
+    /// The shadow terminal's screen as cells, and its cursor. A hidden cursor still has its
+    /// place (`visible` false): the PTY's terminal keeps it there, and so must the viewer's.
+    fn screen(&mut self) -> anyhow::Result<(Grid, vt::Cursor)> {
         self.render.update(&mut self.term)?;
         let frame = self.render.build_frame()?;
-        Ok((grid(&frame), frame.cursor))
+        let cursor = match frame.cursor {
+            Some(c) => vt::Cursor { x: c.x, y: c.y, visible: true },
+            None => self
+                .term
+                .cursor_position()
+                .map_or(vt::Cursor::default(), |(x, y)| vt::Cursor { x, y, visible: false }),
+        };
+        Ok((grid(&frame), cursor))
     }
 }
 
