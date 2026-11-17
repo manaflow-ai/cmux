@@ -339,13 +339,32 @@ fn steady_motion_report() {
     }
 }
 
+/// The texture [`motion_picture`] moves.
+fn motion_noise() -> Vec<u8> {
+    let mut rng = Lcg(3);
+    (0..1024 * 1024).map(|_| (rng.next() >> 16) as u8).collect()
+}
+
+/// Frame `f` of the netem rig's `cmux-rd testapp --workload motion`: a full-screen gradient and
+/// noise texture, every sample moving each frame.
+fn motion_picture(pic: &mut I420, noise: &[u8], f: usize) {
+    let (dx, dy) = (f * 7, f * 3);
+    for y in 0..H {
+        let ny = ((y + dy) & 1023) * 1024;
+        let gy = ((y * 255 / H) + f * 3) as u8;
+        for x in 0..W {
+            let n = noise[ny + ((x + dx) & 1023)] >> 2;
+            pic.y[y * W + x] = 16 + ((gy.wrapping_add(n) as u32 * 219) / 255) as u8;
+        }
+    }
+}
+
 /// The netem rig's start: `cmux-rd testapp --workload motion` (a full-screen moving gradient
 /// and noise texture) from the first frame, a press every 100 ms in a marker block, and the
 /// host's target rising the way the rig's clean link moved it (8, 11, 20, 38, then 50 Mbit/s).
 /// Answers the worst press over `secs` seconds, the frames coded per second, and Mbit/s per second.
 fn motion_start(enc: &mut OpenH264, secs: i64) -> (f64, Vec<usize>, Vec<f64>) {
-    let mut rng = Lcg(3);
-    let noise: Vec<u8> = (0..1024 * 1024).map(|_| (rng.next() >> 16) as u8).collect();
+    let noise = motion_noise();
     let mut pic = I420::new(W, H);
     let mut au = Vec::new();
     let (mut coded, mut presses) = (Vec::new(), Vec::new());
@@ -359,16 +378,7 @@ fn motion_start(enc: &mut OpenH264, secs: i64) -> (f64, Vec<usize>, Vec<f64>) {
         if frame % FPS as i64 == 0 && frame > 0 {
             enc.set_bitrate([11_000, 20_000, 38_000, 50_000][(sec - 1).min(3)]);
         }
-        let f = frame as usize + 1;
-        let (dx, dy) = (f * 7, f * 3);
-        for y in 0..H {
-            let ny = ((y + dy) & 1023) * 1024;
-            let gy = ((y * 255 / H) + f * 3) as u8;
-            for x in 0..W {
-                let n = noise[ny + ((x + dx) & 1023)] >> 2;
-                pic.y[y * W + x] = 16 + ((gy.wrapping_add(n) as u32 * 219) / 255) as u8;
-            }
-        }
+        motion_picture(&mut pic, &noise, frame as usize + 1);
         while t >= next_press {
             counter = counter.wrapping_add(1);
             presses.push(next_press);
@@ -406,4 +416,46 @@ fn motion_start_report() {
     println!(
         "motion start: worst press in 2 s {worst2:.0} ms; fps per s {fps:?}; Mbit/s per s {mbps:?}"
     );
+}
+
+/// The LAN start rate (cmux-rd-core `CcConfig::lan_start_bps`), the rate a share on a LAN now
+/// creates its encoder at.
+const LAN_START_KBPS: u32 = 30_000;
+/// The first P-frame after the move to camera usage stays under this: 107 ms of the LAN start
+/// rate. Before `openh264::FIRST_P_FRAME_QP` it coded at the keyframe's table QP, 788 KB here
+/// (769 KB on the netem rig), against ~150 KB a frame once rate control settles.
+const FIRST_P_BOUND_BYTES: usize = 400_000;
+
+/// Motion from the first frame at the LAN start rate: the coded frames' (frame, bytes, IDR,
+/// camera usage) over the first `frames` frames.
+fn motion_frames(enc: &mut OpenH264, frames: usize) -> Vec<(usize, usize, bool, bool)> {
+    let noise = motion_noise();
+    let mut pic = I420::new(W, H);
+    let mut au = Vec::new();
+    let mut out = Vec::new();
+    for frame in 0..frames {
+        motion_picture(&mut pic, &noise, frame + 1);
+        let idr = enc.encode(&pic, frame == 0, frame as i64 * FRAME_US, &mut au).expect("encode");
+        if !au.is_empty() {
+            out.push((frame, au.len(), idr, enc.name().contains("camera")));
+        }
+    }
+    out
+}
+
+#[test]
+fn the_first_p_frame_after_the_move_to_camera_usage_is_bounded() {
+    let coded = motion_frames(&mut encoder(LAN_START_KBPS), 30);
+    println!("coded (frame, bytes, idr, camera): {coded:?}");
+    let move_idr = coded.iter().position(|&(_, _, idr, camera)| idr && camera);
+    let move_idr = move_idr.expect("full-screen motion moves the encoder to camera usage");
+    let (frame, bytes, idr, _) = coded[move_idr + 1];
+    assert!(!idr, "the frame after the move's keyframe is a P-frame: {coded:?}");
+    assert!(
+        bytes < FIRST_P_BOUND_BYTES,
+        "the first P-frame after the move (frame {frame}) is {bytes} bytes: {coded:?}"
+    );
+    // Rate control is back from the next frame: the coded frames after it settle under it.
+    let next = coded[move_idr + 2..].iter().map(|c| c.1).max().unwrap_or(0);
+    assert!(next < bytes, "the frames after the first P-frame: {coded:?}");
 }
