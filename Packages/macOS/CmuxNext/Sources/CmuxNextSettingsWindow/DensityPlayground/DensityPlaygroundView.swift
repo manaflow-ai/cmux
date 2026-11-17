@@ -122,6 +122,8 @@ struct DensityPlaygroundView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+                .themedHelp("⌘1 ⌘2 ⌘3")
+                .background { groupShortcuts }
                 .accessibilityIdentifier("cmux.densityPlayground.group")
                 Spacer(minLength: 0)
                 Toggle(DensityPlaygroundStrings.changedOnly, isOn: $changedOnly)
@@ -133,6 +135,16 @@ struct DensityPlaygroundView: View {
         // The titlebar is transparent and the content runs under it.
         .padding(.top, 36)
         .padding(.bottom, Size.gap + 4)
+    }
+
+    /// Command-1, -2 and -3 pick a group from the keyboard (a segmented control takes no focus by default).
+    private var groupShortcuts: some View {
+        ForEach(Array(DensityTokenCatalog.Group.allCases.enumerated()), id: \.offset) { index, item in
+            Button("") { group = item }
+                .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
     }
 
     private var statusLine: String {
