@@ -15,8 +15,13 @@
 //! timeouts take milliseconds. A failure prints its seed; replay it with
 //! `CMUX_WG_TCP_MODEL_SEED=<seed>`. `CMUX_WG_TCP_MODEL_SEEDS=<n>` runs more
 //! seeds (default [`DEFAULT_SEEDS`]) and `CMUX_WG_TCP_MODEL_FIRST=<n>` starts
-//! elsewhere. The stacks pick their initial sequence numbers at random, so a
-//! seed fixes the channel and the workload, not the ISN.
+//! elsewhere. `CMUX_WG_TCP_MODEL_TRACE=1` prints every packet and socket
+//! state change. The stacks pick their initial sequence numbers at random, so
+//! a seed fixes the channel and the workload, not the ISN.
+//!
+//! Known failures past the default seeds: 183, 232, 425, 504, 579 and 655 of
+//! 0-999 end in a reset, because a lost retransmission waits out the backed-off
+//! RTO and the user timeout fires first (#45027).
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -128,6 +133,8 @@ struct Script {
     /// Chance a step reads at all (a slow reader closes the window).
     read_chance: f64,
     ending: Ending,
+    /// No reads before this much simulated time (a reader busy elsewhere).
+    read_after: Duration,
     /// Bytes the peer must have read before this side ends (0: whenever).
     /// Lets one side half-close long before the other finishes sending.
     end_after_peer: usize,
@@ -153,6 +160,7 @@ impl Script {
                 _ => Ending::HalfClose,
             },
             end_after_peer: 0,
+            read_after: Duration::ZERO,
         }
     }
 }
@@ -333,7 +341,12 @@ impl Side {
     }
 
     /// One step of the script. Returns whether anything happened.
-    fn act(&mut self, oracle: &mut StreamOracle, cx: &mut Context<'_>) -> Result<bool, Violation> {
+    fn act(
+        &mut self,
+        oracle: &mut StreamOracle,
+        cx: &mut Context<'_>,
+        elapsed: Duration,
+    ) -> Result<bool, Violation> {
         let Some(stream) = self.stream.as_mut() else { return Ok(false) };
         let mut acted = false;
         // Writes: a few per step, each of a random size.
@@ -361,7 +374,11 @@ impl Side {
             }
         }
         // Reads: maybe none this step.
-        if self.reading && !oracle.saw_eof(self.end) && self.rng.chance(self.script.read_chance) {
+        if self.reading
+            && !oracle.saw_eof(self.end)
+            && elapsed >= self.script.read_after
+            && self.rng.chance(self.script.read_chance)
+        {
             for _ in 0..1024 {
                 let size = self.rng.range(1, self.script.max_read as u64) as usize;
                 let mut buffer = vec![0u8; size];
@@ -448,7 +465,11 @@ fn to_duration(delay: Option<Duration>) -> Duration {
 
 /// Run one seed to completion or to its first violation.
 async fn run(seed: u64) -> Result<Outcome, String> {
-    let scenario = Scenario::draw(seed);
+    run_scenario(seed, Scenario::draw(seed)).await
+}
+
+/// Run `scenario`, with `seed` for the channel's fates and the bytes.
+async fn run_scenario(seed: u64, scenario: Scenario) -> Result<Outcome, String> {
     let start = tokio::time::Instant::now();
     let now = || tokio::time::Instant::now() - start;
     let mut client = stack(CLIENT_IP);
@@ -529,7 +550,9 @@ async fn run(seed: u64) -> Result<Outcome, String> {
             opened[1] = true;
         }
         for side in &mut sides {
-            busy |= side.act(&mut oracle, &mut cx).map_err(|violation| violation.to_string())?;
+            busy |= side
+                .act(&mut oracle, &mut cx, elapsed)
+                .map_err(|violation| violation.to_string())?;
         }
         for (side, stack) in sides.iter_mut().zip([&mut client, &mut server]) {
             if side.abort && opened.iter().all(|opened| *opened) {
@@ -647,4 +670,35 @@ async fn tunnel_tcp_delivers_every_byte_once_in_order_over_a_lossy_link() {
          {dropped} dropped, {duplicated} duplicated, {resets} RST segments"
     );
     assert!(failures.is_empty(), "failing seeds: {failures:?}");
+}
+
+/// A reader that looks away for longer than TIME-WAIT lasts still gets every
+/// byte. The server sends 600 KiB, more than the stream channel holds but
+/// less than the channel and socket buffer together, and closes; the client,
+/// which half-closed first, enters TIME-WAIT with the rest in its socket
+/// buffer, which the 10 s TIME-WAIT timer clears.
+#[tokio::test(start_paused = true)]
+async fn a_reader_back_after_time_wait_gets_every_byte() {
+    let quiet = Script {
+        total: 0,
+        max_write: 1,
+        max_read: 64 * 1024,
+        read_chance: 1.0,
+        ending: Ending::HalfClose,
+        end_after_peer: 0,
+        read_after: Duration::from_secs(30),
+    };
+    let sender = Script {
+        total: 600 * 1024,
+        max_write: 64 * 1024,
+        max_read: 1,
+        read_chance: 1.0,
+        ending: Ending::HalfClose,
+        end_after_peer: 0,
+        read_after: Duration::ZERO,
+    };
+    let link =
+        Link { loss: 0.0, duplicate: 0.0, delay: Duration::from_millis(5), jitter: Duration::ZERO };
+    let result = run_scenario(1, Scenario { link, scripts: [quiet, sender] }).await;
+    assert!(result.is_ok(), "{result:?}");
 }
