@@ -22,7 +22,7 @@ pub const VIEW_ONLY: &str = "view only: this desktop has no remote-input portal"
 /// The line for a virtual display `enable` started.
 pub fn virtual_display_line(display: u32) -> String {
     format!(
-        "no graphical session on this machine; started a virtual display at :{display} for sharing"
+        "no graphical session on this machine; shares use a virtual display at :{display}, started when one is needed"
     )
 }
 
@@ -188,21 +188,85 @@ pub fn display_of_unit(text: &str) -> Option<u32> {
     exec.split_whitespace().find_map(|w| w.strip_prefix(':')?.parse().ok())
 }
 
-/// The host unit's drop-in for a virtual display: the host starts with it, not with a
-/// graphical session, and captures it.
+/// The host unit's drop-in for a virtual display: the host runs without a graphical session
+/// and captures the virtual display, which it starts when a share or an app needs it
+/// ([`ensure_virtual_display`]), not with itself.
 pub fn host_virtual_drop_in(display: u32) -> String {
     format!(
         "# Written by `cmux-rd linux-host enable`: this machine has no graphical session, so the\n\
-         # host shares the virtual display :{display} (cmux-screen-display.service).\n\
+         # host shares the virtual display :{display} (cmux-screen-display.service), started\n\
+         # when a share or an app launch needs it.\n\
          [Unit]\n\
          PartOf=\n\
          Requisite=\n\
-         Requires={DISPLAY_UNIT}\n\
-         After={DISPLAY_UNIT}\n\
          \n\
          [Service]\n\
-         Environment=DISPLAY=:{display} XDG_SESSION_TYPE=x11\n"
+         Environment=DISPLAY=:{display} XDG_SESSION_TYPE=x11 {VIRTUAL_DISPLAY_ENV}=:{display}\n"
     )
+}
+
+/// Set in the host's environment by [`host_virtual_drop_in`]: the virtual display this host
+/// starts on demand.
+pub const VIRTUAL_DISPLAY_ENV: &str = "CMUX_VIRTUAL_DISPLAY";
+
+/// The virtual display this machine's host owns: from the host's environment, else (a command
+/// run outside the unit, such as `linux-host display`) from the display unit `enable` wrote.
+pub fn virtual_display() -> Option<u32> {
+    if let Ok(value) = std::env::var(VIRTUAL_DISPLAY_ENV) {
+        return value.trim().strip_prefix(':')?.parse().ok();
+    }
+    let dir = user_unit_dir().ok()?;
+    // Only while the host is set up for it: a desktop's join removes the drop-in.
+    if !dir.join(format!("{HOST_UNIT}.d")).join("virtual-display.conf").exists() {
+        return None;
+    }
+    display_of_unit(&std::fs::read_to_string(dir.join(DISPLAY_UNIT)).ok()?)
+}
+
+/// How long a started Xvfb may take to open its socket.
+const DISPLAY_START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Starts the virtual display `display` (its user unit) unless its socket is already there,
+/// and waits for the socket; `:N`.
+pub fn ensure_virtual_display(display: u32) -> Res<String> {
+    let socket = PathBuf::from(format!("/tmp/.X11-unix/X{display}"));
+    if !socket.exists() {
+        systemctl(&["start", DISPLAY_UNIT])?;
+        let deadline = std::time::Instant::now() + DISPLAY_START_WAIT;
+        while !socket.exists() {
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "the virtual display :{display} did not start within {} s ({DISPLAY_UNIT})",
+                    DISPLAY_START_WAIT.as_secs()
+                )
+                .into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+    Ok(format!(":{display}"))
+}
+
+/// Stops the virtual display.
+pub fn stop_virtual_display() -> Res<()> {
+    systemctl(&["stop", DISPLAY_UNIT])
+}
+
+/// Whether an app shows a window on the virtual display: the X server is asked for its root's
+/// mapped top-level windows (a virtual display runs no window manager, so an app's window is
+/// one). A display that does not answer counts as in use, so it is never stopped by mistake.
+pub fn display_in_use(display: u32) -> bool {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::xproto::{ConnectionExt as _, MapState};
+    let Ok((conn, screen)) = x11rb::connect(Some(&format!(":{display}"))) else { return true };
+    let Some(root) = conn.setup().roots.get(screen).map(|s| s.root) else { return true };
+    let Some(tree) = conn.query_tree(root).ok().and_then(|c| c.reply().ok()) else { return true };
+    tree.children.iter().any(|&window| {
+        conn.get_window_attributes(window)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .is_none_or(|a| a.map_state == MapState::VIEWABLE)
+    })
 }
 
 /// `~/.config/systemd/user` (or under `XDG_CONFIG_HOME`).
@@ -253,8 +317,9 @@ fn on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// Writes the virtual display's unit (keeping the display number of one written before) and
-/// the host's drop-in, and starts the display; the display number.
-pub fn start_virtual_display() -> Res<u32> {
+/// the host's drop-in; the display number. The display is not started here: the host starts
+/// it when a share or an app needs it, and stops it when idle.
+pub fn set_up_virtual_display() -> Res<u32> {
     let xvfb = on_path("Xvfb").ok_or(
         "no graphical session on this machine, and no Xvfb to start a virtual display (install the xvfb package, then run enable again)",
     )?;
@@ -271,7 +336,8 @@ pub fn start_virtual_display() -> Res<u32> {
         &host_virtual_drop_in(display),
     )?;
     systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", DISPLAY_UNIT])?;
+    // An earlier join enabled it at boot; it now starts on demand. A running one keeps running.
+    let _ = systemctl(&["disable", DISPLAY_UNIT]);
     Ok(display)
 }
 
@@ -316,7 +382,7 @@ mod tests {
     fn the_join_lines_are_the_contract() {
         assert_eq!(
             virtual_display_line(99),
-            "no graphical session on this machine; started a virtual display at :99 for sharing"
+            "no graphical session on this machine; shares use a virtual display at :99, started when one is needed"
         );
         assert_eq!(
             CANT_REMEMBER,
@@ -393,8 +459,56 @@ mod tests {
         let drop_in = host_virtual_drop_in(101);
         // Not bound to a graphical session that never starts here.
         assert!(drop_in.contains("PartOf=\nRequisite=\n"));
-        assert!(drop_in.contains(&format!("Requires={DISPLAY_UNIT}\nAfter={DISPLAY_UNIT}\n")));
-        assert!(drop_in.contains("Environment=DISPLAY=:101 XDG_SESSION_TYPE=x11\n"));
+        // Started on demand, not with the host.
+        assert!(!drop_in.contains("Requires="), "{drop_in}");
+        assert!(drop_in
+            .contains("Environment=DISPLAY=:101 XDG_SESSION_TYPE=x11 CMUX_VIRTUAL_DISPLAY=:101\n"));
+    }
+
+    /// On a real Xvfb: an empty display is idle, a mapped app window keeps it in use, an
+    /// unmapped one does not, and a display nobody serves is never called idle.
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn a_mapped_app_window_keeps_the_virtual_display_in_use() {
+        use std::io::BufRead as _;
+        use x11rb::connection::Connection as _;
+        use x11rb::protocol::xproto::{ConnectionExt as _, CreateWindowAux, WindowClass};
+        use x11rb::wrapper::ConnectionExt as _;
+        let mut xvfb = std::process::Command::new("Xvfb")
+            .args(["-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("Xvfb");
+        let mut line = String::new();
+        std::io::BufReader::new(xvfb.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let n: u32 = line.trim().parse().expect("Xvfb printed its display");
+        assert!(!display_in_use(n), "an empty display is idle");
+        let (app, screen) = x11rb::connect(Some(&format!(":{n}"))).unwrap();
+        let root = app.setup().roots[screen].root;
+        let win = app.generate_id().unwrap();
+        app.create_window(
+            0,
+            win,
+            root,
+            0,
+            0,
+            100,
+            100,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            0,
+            &CreateWindowAux::new(),
+        )
+        .unwrap();
+        app.sync().unwrap();
+        assert!(!display_in_use(n), "an unmapped window shows nothing");
+        app.map_window(win).unwrap();
+        app.sync().unwrap();
+        assert!(display_in_use(n), "an app's window is on it");
+        drop(app);
+        let _ = xvfb.kill();
+        let _ = xvfb.wait();
+        assert!(display_in_use(n), "a display that does not answer is never stopped");
     }
 
     #[test]

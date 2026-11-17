@@ -78,7 +78,8 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   it continues. `--stack-token-file PATH` (a file only this user can read, mode 0600, or `-`
   for stdin) passes a cmux access token instead. No token is stored. It creates this desktop's device keys in
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
-  it and turns sharing on. The anchor lets the host renew its own session with its device key
+  it, downloads Cisco's OpenH264 into the per-user data directory (the encoder, never bundled;
+  the file `cmux-rd openh264-install` writes) and turns sharing on. The anchor lets the host renew its own session with its device key
   for 30 days; after that, `share on` again (it signs in the same way).
 - Consent: this desktop joined your own account, so your devices view and control it with no
   prompt here (the hub serves a device of the same account at once; `enable --view-only` keeps
@@ -108,12 +109,15 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   dialog stays up a minute at most), and "this desktop's screen-share portal can't
   remember a grant; each share will ask once on this machine" or "view only: this desktop
   has no remote-input portal" when its portal cannot keep one. With no graphical session
-  it starts an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
-  one) and says "no graphical session on this machine; started a virtual display at :N for
-  sharing". A desktop still enabled (anchored) gets the host unit installed, enabled and
-  started, with lingering for a virtual display; any other prints one `not_installed:`
-  line until the device hub can sign a joined machine in with its machine credential. It
-  never fails the join.
+  it sets up an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
+  one) and says "no graphical session on this machine; shares use a virtual display at :N,
+  started when one is needed". The host starts it for a share or `linux-host display`
+  (an app launch), and stops it after 10 minutes with no share and no app window on it.
+  A desktop still enabled (anchored), or a machine joined to cmux, gets the host unit
+  installed, enabled and started, with lingering for a virtual display. A joined machine
+  signs itself in with its machine credential (`$ACPMUX_HOME/machine-credential.json`, the home of the acpmux that runs it,
+  `POST /v1/auth/machine`), registers, and turns sharing on, so nobody does anything on it.
+  Any other machine prints one `not_installed:` line. It never fails the join.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened

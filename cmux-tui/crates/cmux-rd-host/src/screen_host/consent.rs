@@ -5,8 +5,8 @@
 //! `approve|deny` of the host command answers it. This desktop's own consent (`consent.json`,
 //! set at `enable`) may further refuse control, as the Mac's local consent does.
 
-use super::identity::{read_private, write_private};
 use crate::Res;
+use cmux_hub_host::identity::{read_private, write_private};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

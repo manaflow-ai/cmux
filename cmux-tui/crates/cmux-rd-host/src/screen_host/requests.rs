@@ -2,9 +2,10 @@
 //! `approve` and `deny` that answer them. Only a request this host recorded can be answered.
 
 use super::consent::{self, LocalConsent, Pending};
-use super::hub::{now_ms, Hub};
-use super::{printable, COMMAND, TAG};
+use super::{COMMAND, TAG};
 use crate::Res;
+use cmux_hub_host::hub::{now_ms, Hub};
+use cmux_hub_host::printable;
 use std::path::Path;
 
 /// One `requests` line.
@@ -119,7 +120,7 @@ mod tests {
         let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
         for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
             assert!(
-                !line.chars().any(|c| c.is_control() || super::super::is_bidi_control(c)),
+                !line.chars().any(|c| c.is_control() || cmux_hub_host::text::is_bidi_control(c)),
                 "{line:?}"
             );
             assert!(line.contains("Mallorylinux-host: approved"), "{line:?}");

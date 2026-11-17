@@ -1,6 +1,6 @@
 [package]
 name = "cmux-rd-host"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -34,21 +34,15 @@ openh264 = { version = "0.9", default-features = false, features = ["source"], o
 # VP9 and AV1 for measurement (features `vp9`, `av1`).
 cmux-codecs = { path = "../cmux-codecs", default-features = false, optional = true }
 
-[target.'cfg(any(target_os = "linux", windows))'.dependencies]
-# `cmux-rd linux-host` and `cmux-rd windows-host` (src/screen_host/): the device key (P-256
-# ECDSA), SHA-256 and the hub's HTTPS and WebSocket over the TLS stack this crate already links
-# through cmux-encode's OpenH264 download (ring provider, platform trust store): no new crate
-# in the lockfile.
-ring = "0.17"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-native-certs = "0.8"
-# The host's `cmux-rd serve` children (src/screen_host/session.rs): owned, ended with their
-# session.
-cmux-process = { path = "../cmux-process" }
-
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput", "present", "dri3"] }
 # `dri3` only because x11rb 0.14's `present` names dri3 types without enabling that module.
+# `cmux-rd linux-host` (src/linux_host/) and `cmux-rd view`: the device hub host shared with
+# the acpmux share host on macOS (the device key, the hub client over rustls with the ring
+# provider and the platform trust store, serving one session through `cmux-rd serve`).
+cmux-hub-host = { path = "../cmux-hub-host" }
+# The host's `cmux-rd serve` children: owned, ended with their session.
+cmux-process = { path = "../cmux-process" }
 # Wayland capture (features `portal-dbus` and `portal`: src/portal.rs, src/pipewire_capture.rs):
 # the xdg-desktop-portal ScreenCast and RemoteDesktop handshakes over D-Bus and the PipeWire
 # stream they open.
@@ -57,6 +51,11 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 pipewire = { version = "0.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
+# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client and session serving
+# as `linux-host`.
+cmux-hub-host = { path = "../cmux-hub-host" }
+# `windows-serve-selftest`'s own `cmux-rd serve` child: owned, ended with the test.
+cmux-process = { path = "../cmux-process" }
 # The Windows host uses the stable user32/gdi32 capture path and SendInput.  The
 # DirectX and Media Foundation feature groups are kept here for the phase-3
 # backend seams; the first Windows runner uses GDI readback plus OpenH264 while

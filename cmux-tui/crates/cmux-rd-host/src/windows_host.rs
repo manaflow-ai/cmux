@@ -1,6 +1,6 @@
 //! `cmux-rd windows-host`: this Windows PC as a device hub screen host, viewed from cmux on a
 //! Mac exactly like a shared Mac or a `cmux-rd linux-host` desktop, with the same hub client,
-//! consent and session serving (src/screen_host/). It registers the PC as a `windows` device
+//! consent and session serving (the cmux-hub-host crate, src/screen_host/). It registers the PC as a `windows` device
 //! with its own device key, anchors it (it renews its own host session for 30 days with that
 //! key, no token), turns sharing on, and while `run` runs holds the hub socket and serves each
 //! approved session through a `cmux-rd serve` child (src/windows_serve.rs: GDI capture,
@@ -24,12 +24,13 @@
 //! docs/device-hub/windows-host.md.
 
 use crate::screen_host::consent::LocalConsent;
-use crate::screen_host::hub::{now_ms, Hub, HubError};
-use crate::screen_host::identity::{self, Account, Device};
+use crate::screen_host::requests;
 use crate::screen_host::serving::Host;
-use crate::screen_host::session::ServeArgs;
-use crate::screen_host::{printable, requests};
 use crate::Res;
+use cmux_hub_host::hub::{now_ms, Hub, HubError};
+use cmux_hub_host::identity::{self, Account, Device};
+use cmux_hub_host::printable;
+use cmux_hub_host::session::ServeCommand;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -213,7 +214,7 @@ fn enable(args: &Args) -> Res<()> {
         device.save(&dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register()?;
+        hub.register(crate::screen_host::PLATFORM)?;
         Ok((hub, user_id))
     };
     // The hub never registers a removed id again: a refused identity gets a fresh one, as the
@@ -417,10 +418,18 @@ fn run(args: &Args) -> Res<()> {
     let check = check_capture();
     eprintln!("windows-host: {}", capture_line(&check));
     identity::write_private(&runtime.join("capture.json"), &serde_json::to_vec_pretty(&check)?)?;
-    let mut serve_args = Vec::new();
+    // Each approved session runs this executable's `serve` (src/windows_serve.rs).
+    let mut serve_args = vec!["serve".to_owned()];
     if let Some(lib) = args.get("openh264-lib") {
         serve_args.extend(["--openh264-lib".to_owned(), lib.to_owned()]);
     }
+    let command = ServeCommand {
+        program: std::env::current_exe()?,
+        args: serve_args,
+        disclaim: false,
+        log_prefix: crate::screen_host::TAG.to_owned(),
+        status_prefix: crate::screen_host::COMMAND.to_owned(),
+    };
     eprintln!(
         "windows-host: serving \"{}\" ({}), {}",
         printable(&hub.device.name),
@@ -428,7 +437,7 @@ fn run(args: &Args) -> Res<()> {
         shares_line(&Ok(consent))
     );
     // SendInput applies a control session's input: `full` tickets are served with control.
-    let host = Host::new(hub, dir, runtime, ServeArgs(serve_args), true);
+    let host = Host::new(hub, dir, runtime, command, true);
     host.run(|e| Fatal::from_hub(e).map(Into::into))
 }
 

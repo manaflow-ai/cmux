@@ -18,7 +18,7 @@ What Windows lacks is the device hub path: the secure link and the session loop 
 
 ## 1. Register as `windows`
 
-`cmux-rd windows-host` shares the hub client of `linux-host` (`src/screen_host/`): a P-256
+`cmux-rd windows-host` shares the hub client of `linux-host` (the cmux-hub-host crate): a P-256
 device key, Stack sign-in once at `enable`, `POST /v1/devices` with `platform: "windows"`,
 an anchor so the PC renews its own host session for 30 days with its device key, and the
 User DO socket held by `windows-host run` (online while it runs). The hub accepts `windows`
@@ -72,9 +72,9 @@ encoder; never bundled). `run` serves each approved session (step 4).
    app's lines). The media is `cmux-rd host`'s Windows session (`windows/session.rs`: GDI,
    OpenH264, the shared engine, SendInput) over the link instead of a TCP stream. A `view`
    session gives the engine no input gate and injects nothing.
-3. `windows-host run` drives `serve` per approved ticket with linux-host's own code, moved to
-   `screen_host`: `session.rs` (signaling, the signed answer, candidates both ways),
-   `rd_doc.rs`, `serving.rs` (the hub socket's pushes, consent read every second, one
+3. `windows-host run` drives `serve` per approved ticket with the session code it shares with
+   linux-host in cmux-hub-host: `session.rs` (signaling, the signed answer, candidates both ways),
+   `rd_doc.rs`; and in `src/screen_host/`, `serving.rs` (the hub socket's pushes, consent read every second, one
    session at a time, a session stopped when the hub link drops) and `requests.rs`
    (`requests|approve|deny`).
 4. CI: `cmux-rd-windows.yml` runs the link's real-UDP session test on the Windows runner and

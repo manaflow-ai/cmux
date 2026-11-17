@@ -1,7 +1,7 @@
 //! `cmux-rd serve` on Windows: one device hub session over the secure link, with the same JSON
 //! lines as the Unix `serve` (src/serve.rs: the setup line, then candidates or `stop` on stdin;
 //! the displays, this side's session key, candidates, `connected`, path changes and `ended` on
-//! stdout), driven by `windows-host run` (src/screen_host/session.rs) the way the Mac app and
+//! stdout), driven by `windows-host run` (cmux-hub-host's session.rs) the way the Mac app and
 //! `linux-host run` drive theirs.
 //!
 //! The Unix `serve` waits on file descriptors (stdin, the link's event pipe); here a thread
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn setup_line_reads_the_linux_hosts_fields() {
-        // What screen_host::session::setup_line writes.
+        // What cmux_hub_host::session::setup_line writes.
         let line = r#"{"session":"s1","peer_key":"ab","viewer":{"user":"v1","install":"v1"},
             "scope":"view","stun":["127.0.0.1:3478"],"turn":[],"display":"main",
             "max_fps":120,"max_width":null}"#;

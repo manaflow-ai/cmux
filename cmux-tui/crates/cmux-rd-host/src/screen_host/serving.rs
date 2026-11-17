@@ -1,14 +1,17 @@
-//! The running host of `linux-host run` and `windows-host run`: holds the account's hub
-//! socket (online for the account's devices), records viewers waiting for the person, serves
-//! one approved session at a time under this desktop's consent (read again for every ticket
-//! and every second), and stops a session as soon as its link to the hub drops.
+
+//! The running host of `windows-host run`: holds the account's hub socket (online for the
+//! account's devices), records viewers waiting for the person, serves one approved session at
+//! a time under this desktop's consent (read again for every ticket and every second), and stops
+//! a session as soon as its link to the hub drops. linux-host runs its own copy of this loop
+//! (src/linux_host/), with the virtual display and the machine credential's renewal.
 
 use super::consent::{self, LocalConsent, Pending};
-use super::hub::{now_ms, Hub, HubError};
-use super::net::Message;
-use super::session::{self, ServeArgs, Ticket};
-use super::{printable, requests, TAG};
+use super::{requests, TAG};
 use crate::Res;
+use cmux_hub_host::hub::{now_ms, Hub, HubError};
+use cmux_hub_host::net::Message;
+use cmux_hub_host::printable;
+use cmux_hub_host::session::{self, ServeCommand, Ticket};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,8 +40,8 @@ pub struct Host {
     pub dir: PathBuf,
     /// The runtime directory (pending requests).
     pub runtime: PathBuf,
-    /// Options for every `cmux-rd serve` child.
-    pub serve_args: ServeArgs,
+    /// The `cmux-rd serve` child every session starts.
+    pub serve: ServeCommand,
     /// Whether this host's capture applies a viewer's input; when not, control tickets are
     /// served view only.
     pub applies_input: bool,
@@ -50,14 +53,14 @@ impl Host {
         hub: Hub,
         dir: PathBuf,
         runtime: PathBuf,
-        serve_args: ServeArgs,
+        serve: ServeCommand,
         applies_input: bool,
     ) -> Self {
         Self {
             hub: Arc::new(hub),
             dir,
             runtime,
-            serve_args,
+            serve,
             applies_input,
             current: Arc::new(Mutex::new(None)),
         }
@@ -203,8 +206,7 @@ impl Host {
                 stop: stop.clone(),
             });
         }
-        let (hub, args, current) =
-            (self.hub.clone(), self.serve_args.clone(), self.current.clone());
+        let (hub, args, current) = (self.hub.clone(), self.serve.clone(), self.current.clone());
         let spawned = std::thread::Builder::new().name(format!("{TAG}-session")).spawn(move || {
             eprintln!(
                 "{TAG}: serving a {} session for {}",
@@ -328,8 +330,8 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::b64;
     use super::*;
+    use cmux_hub_host::b64;
 
     /// A `Current` serving session `s1` with `scope`, and its stop flag.
     fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
