@@ -1,15 +1,147 @@
-ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
-==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: emit-module command failed with exit code 1 (use -v to see invocation)
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: fatalError
-ci-step focus-audit-58539eb6edf8-v1 exited 1
+ci-step ss-own-devices-0436c9f: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext CmuxNextAppTests.MacScreenHubTests,CmuxNextAppTests.JoinConsentTests,CmuxNextAppTests.JoinConsentInterleavingTests,CmuxNextDevicesTests.DeviceHubModelTests at 0436c9f22a052cbfa7a4789c6bcffda9723704fa: exit 1
+==> same-tree cmux-tui: source=published fallback_seconds=0 total_seconds=36
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+::error title=Swift suite failed::CmuxNextAppTests.MacScreenHubTests in Packages/macOS/CmuxNext: failed (exit 1) after 12s
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 44 tests in 1 suite passed after 3.635 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 1 test in 1 suite passed after 1.437 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 14 tests in 1 suite passed after 0.029 seconds.
+CmuxNextAppTests.MacScreenHubTests               failed (exit 1)              12s
+CmuxNextAppTests.JoinConsentTests                passed                        8s
+CmuxNextAppTests.JoinConsentInterleavingTests    passed                        5s
+CmuxNextDevicesTests.DeviceHubModelTests         passed                        4s
+1 of 4 suites failed or gave no result.
+ci-step ss-own-devices-0436c9f exited 1
