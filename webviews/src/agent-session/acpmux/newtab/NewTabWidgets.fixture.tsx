@@ -4,8 +4,11 @@
 import { useEffect, useState } from "react";
 import type { WidgetTilePlacement } from "../../../apps/scene/widgetsClient";
 import { MockWidgetsHost } from "../../../apps/scene/widgetsMock";
+import { noChat } from "../../../gallery/fixtures/acpmux";
 import type { AddWidgetLook } from "./AddWidgetGallery";
-import { NewTabWidgets, type WidgetTileLook } from "./NewTabWidgets";
+import { NewTabScreen } from "./NewTabScreen";
+import type { ScreenTemplate } from "./templates";
+import { NewTabWidgets, NewTabWidgetsHost, type WidgetTileLook } from "./NewTabWidgets";
 import type { WidgetEditLook } from "./WidgetEditing";
 
 export const FIXTURE_TILES: WidgetTilePlacement[] = [
@@ -57,5 +60,36 @@ export function NewTabWidgetsFixture({
         initialGallery={gallery}
       />
     </div>
+  );
+}
+
+const noop = () => {};
+
+/** The whole New Tab page, composer and all, with a full widget grid on the in-memory host. */
+export function NewTabPageWithWidgetsFixture({
+  template = "minimal",
+  tiles = FIXTURE_TILES,
+}: {
+  template?: ScreenTemplate;
+  tiles?: WidgetTilePlacement[];
+}) {
+  const [host] = useState(() => new MockWidgetsHost(tiles));
+  return (
+    <NewTabWidgetsHost value={host}>
+      <NewTabScreen
+        template={template}
+        snapshot={noChat([])}
+        lastAgent="claude"
+        home="/Users/you"
+        cwd="/Users/you/src/cmux"
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />
+    </NewTabWidgetsHost>
   );
 }
