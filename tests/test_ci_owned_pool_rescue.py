@@ -10307,5 +10307,135 @@ class OwnedWaitBound(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
 
 
+def rate_limited(reset_epoch):
+    """GitHub's refusal of a read on a spent installation budget, as GitHub.request() raises it once its waits are
+    used up (X-RateLimit-Remaining 0 of 12500)."""
+    headers = {"X-RateLimit-Limit": "12500", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(reset_epoch)),
+               "X-RateLimit-Resource": "core"}
+    return urllib.error.HTTPError("https://api.github.com/repos/manaflow-ai/cmux/actions/runs/44019100451/attempts/1/"
+                                  "jobs", 403, "Forbidden", headers, io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+
+
+class ReleasedWatch(unittest.TestCase):
+    """A sweeper's watch that ends on a read error or a rate limit before any write is taken up again later, with its
+    job sightings kept (sweep(), WatchKept). cmux#44053's test-ios.yml run 44019100451 (2026-11-17): ios-simulator-build
+    queued on [glaeda-std-xcode-26.6, glaeda-ios-sim]; the watch's read was refused for the spent cmux-bot budget about
+    30 s before its budget would have moved the job to retry_runs_on, it gave up, and no watch looked at it again."""
+
+    EPOCH = 1_800_000_000.0  # time.time() at the sweep's START
+    BUDGET = 1800
+
+    def ios_jobs(self, seconds):
+        found = [e2e_runner()(seconds)]
+        if seconds >= 40:
+            found.append({**job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40), "id": 123})
+        return found
+
+    def test_a_watch_refused_just_before_its_budget_is_moved_by_the_watch_that_takes_it_up_again(self):
+        clock = Clock()
+        refused_from, reset_at = rescue.FIRST_LOOK_SECONDS + self.BUDGET - 30, 3600
+        test = self
+
+        class API(FakeAPI):
+            def sent_write(self):
+                return any(call in ("cancel", "rerun", "rerun-failed") for call in self.calls)
+
+            def jobs(self, run_id, attempt):
+                if attempt == 1 and refused_from <= clock.seconds < reset_at:
+                    raise rate_limited(test.EPOCH + reset_at)
+                return super().jobs(run_id, attempt)
+        api = API(clock, self.ios_jobs, marker=True)
+        target = rescue.target_from_event(e2e_event(path=rescue.IOS_TEST_WORKFLOW_PATH), "manaflow-ai/cmux")
+        kept, said = rescue.WatchKept(), []
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            rescue.follow(api, target, seconds=self.BUDGET, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                          log=said.append, kept=kept)
+        # Refused before the budget: nothing was cancelled or re-run, so the run may be watched again.
+        self.assertFalse(api.sent_write(), api.calls)
+        self.assertEqual(kept.started, START)
+        first_sighting = START + dt.timedelta(seconds=rescue.FIRST_LOOK_SECONDS)
+        self.assertEqual(kept.seen, {123: first_sighting})
+        # Not before the reset the refusal named.
+        with unittest.mock.patch.object(rescue.time, "time", lambda: self.EPOCH + clock.seconds):
+            self.assertEqual(rescue.release_delay(api, refused.exception), reset_at - clock.seconds + 5)
+        clock.seconds = reset_at + 5
+        again = clock.seconds
+        rescue.follow(api, target, seconds=self.BUDGET, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                      log=said.append, kept=kept)
+        # Its budget kept counting from the first sighting: the first look of the new watch moves it to retry_runs_on.
+        self.assertEqual(kept.seen[123], first_sighting)
+        self.assertTrue(any("watching again" in line for line in said), said)
+        self.assertEqual(api.first_cancel, again + rescue.FIRST_LOOK_SECONDS)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertTrue(any(f"queued on {MINI}" in line for line in said), said)
+
+    def sweep(self, api, follow, *, ticks=60):
+        clock, calls = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            calls.append((kwargs["now"](), target.run_id, kwargs["kept"]))
+            return follow(len(calls), kwargs)
+
+        def tick(seconds):
+            # Each watch thread ends before the next tick, so the test does not race them.
+            for thread in rescue.threading.enumerate():
+                if thread.name.startswith("run-"):
+                    thread.join(5)
+            clock.sleep(seconds)
+        with unittest.mock.patch.object(rescue, "follow", fake_follow), \
+                unittest.mock.patch.object(rescue.time, "time", lambda: self.EPOCH + clock.seconds):
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=self.BUDGET, queue_rounds="0", now=clock.now,
+                                    log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60, wait=tick)
+        return calls, outcomes
+
+    def ios_run(self):
+        return listed(7, path=rescue.IOS_TEST_WORKFLOW_PATH, event="workflow_dispatch", pull_requests=[],
+                      status="queued")
+
+    def test_the_sweeper_adopts_a_run_again_after_the_reset_keeping_its_sightings(self):
+        reset_in = 20 * 60
+        cases = (
+            # (why the first watch ended, wrote, seconds to the second watch at the soonest, or None: never)
+            ("rate limit", rate_limited(self.EPOCH + reset_in), False, reset_in),
+            ("read error", urllib.error.URLError("down"), False, rescue.RELEASE_BACKOFF_SECONDS),
+            ("quota spent", rescue.QuotaSpent(rate_limited(self.EPOCH + reset_in), "", "spent"), False, reset_in),
+            ("after a write", rate_limited(self.EPOCH + reset_in), True, None),
+        )
+        for name, error, wrote, soonest in cases:
+            with self.subTest(name):
+                api = SweepAPI([self.ios_run()], picker=[7])
+                api.sent_write = lambda wrote=wrote: wrote
+
+                def follow(count, kwargs, error=error):
+                    if count == 1:
+                        kwargs["kept"].started = kwargs["now"]()
+                        kwargs["kept"].seen[123] = kwargs["now"]()
+                        raise error
+                    return "done"
+                calls, outcomes = self.sweep(api, follow)
+                if soonest is None:
+                    self.assertEqual(len(calls), 1, calls)
+                    continue
+                self.assertEqual(len(calls), 2, calls)
+                (first, _, kept), (second, run_id, kept_again) = calls
+                self.assertEqual(run_id, 7)
+                self.assertGreaterEqual((second - first).total_seconds(), soonest)
+                self.assertLess((second - first).total_seconds(), soonest + 2 * 60)
+                self.assertIs(kept_again, kept)
+                self.assertEqual(kept_again.seen, {123: first})
+                self.assertEqual(outcomes.get("done"), 1)
+
+    def test_a_released_run_that_finished_is_not_watched_again(self):
+        run = self.ios_run()
+        api = SweepAPI([run], picker=[7])
+        api.sent_write = lambda: False
+
+        def follow(count, kwargs):
+            run.update(status="completed", conclusion="success")
+            raise urllib.error.URLError("down")
+        calls, _ = self.sweep(api, follow, ticks=20)
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
