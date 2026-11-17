@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44120766216",
+  "recorded_at": "2026-11-17T16:16:51Z",
+  "reason": "cmux-tui 2178b792d5ea changes the image's cmux-tui (pinned 45f939340626)",
+  "dry_run": false,
+  "cmux_tui": "2178b792d5ea17e237362f6f2017e50c7bf8d584",
+  "fixes": [
+    {
+      "sha": "2178b792d5ea17e237362f6f2017e50c7bf8d584",
+      "mergedAt": "2026-11-17T07:44:19-08:00",
+      "subject": "cmux-stack-auth: CmuxAuthRuntime's Stack Auth REST calls in Rust (auth port step 1 of 6) (#44906)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T16:16:51Z",
+    "snapshot_id": "sh-5b9126a7e4bc49ddac47812ac4877a40",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44120766216): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "87293855c2cb54bed25046482cd75595f4bddfc3",
+    "image": "cloud-native-auto-2178b792-44120766216-1",
+    "revision": "ci-44120766216-1",
+    "at": "2026-11-17T16:16:51Z"
+  },
+  "rolled_back": false
+}
