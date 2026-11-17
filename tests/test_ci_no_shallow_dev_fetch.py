@@ -68,6 +68,8 @@ OWN_REPOSITORY = {
     "scripts/cmux-next/cloud-journey-proof-record.sh": "fetches only into its own `git init` temp directory of the proof branch",
     "scripts/pr-media.py": "fetches only into its own `git init --bare` cache clone of the media branch",
     "scripts/cmux-next/base-autofix-changed.sh": "fetches into a scratch `git init --bare` repository it just made",
+    "scripts/ci/cmux_next_base_merge_carry.py":
+        "clean_merge_tree fetches into a scratch `git init --bare` TemporaryDirectory it just made (#44253)",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
     "scripts/cmux-next/build-cua-driver-sdk.sh": "fetches into its own `git init` work directory",

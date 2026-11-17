@@ -344,6 +344,16 @@ class Comment(unittest.TestCase):
                     mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
                 self.assertEqual(hr.has_receipt(7), want)
             self.assertLessEqual(run.call_count, 2)
+        # A full page asks for the next one, one bounded call each, never gh's paginate flag (tests/test_gh_pages.py).
+        def paged(argv, **kw):
+            if "comments" not in argv[2]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            text = "false\n" * hr.PER_PAGE if argv[2].endswith("&page=1") else "true\n"
+            return subprocess.CompletedProcess(argv, 0, text, "")
+        with mock.patch.object(hr.subprocess, "run", side_effect=paged) as run:
+            self.assertTrue(hr.has_receipt(7))
+        self.assertEqual(run.call_count, 3)
+        self.assertNotIn("--" + "paginate", [arg for call in run.call_args_list for arg in call.args[0]])
         denied = subprocess.CompletedProcess([], 1, "", "HTTP 403: API rate limit exceeded")
         with mock.patch.object(hr.subprocess, "run", return_value=denied) as run, redirect_stderr(io.StringIO()):
             self.assertEqual(hr.main(["--pr", "7"]), 1)
