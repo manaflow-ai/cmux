@@ -1760,15 +1760,30 @@ public final class ComputerUseRuntimeService {
         else {
             return
         }
-        guard Self.writeAuthenticationToken(
+        _ = Self.writeAuthenticationTokenIfAbsent(
             paths.authenticationToken,
             to: paths.authenticationTokenFileURL
-        ) else {
-            // A failed write can leave an empty file behind. Remove it so the
-            // next health check sees nothing at the path and tries again.
-            Darwin.unlink(paths.authenticationTokenFileURL.path)
-            return
+        )
+    }
+
+    /// Creates the token file at `fileURL` only when nothing is there.
+    ///
+    /// The token goes into a new file beside it, which is then moved into place
+    /// with `RENAME_EXCL`. An entry that another process puts at the path in
+    /// the meantime is neither followed nor removed, and a failed write leaves
+    /// nothing at the path, so the next health check tries again.
+    nonisolated static func writeAuthenticationTokenIfAbsent(_ token: String, to fileURL: URL) -> Bool {
+        let stagedURL = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("\(fileURL.lastPathComponent).\(UUID().uuidString)")
+        guard writeAuthenticationToken(token, to: stagedURL, creatingNewFile: true) else {
+            Darwin.unlink(stagedURL.path)
+            return false
         }
+        guard Darwin.renamex_np(stagedURL.path, fileURL.path, UInt32(RENAME_EXCL)) == 0 else {
+            Darwin.unlink(stagedURL.path)
+            return false
+        }
+        return true
     }
 
     /// Starts one pass immediately, then schedules maintenance after it finishes.
@@ -1879,10 +1894,14 @@ public final class ComputerUseRuntimeService {
         return true
     }
 
-    nonisolated private static func writeAuthenticationToken(_ token: String, to fileURL: URL) -> Bool {
+    nonisolated private static func writeAuthenticationToken(
+        _ token: String,
+        to fileURL: URL,
+        creatingNewFile: Bool = false
+    ) -> Bool {
         let descriptor = Darwin.open(
             fileURL.path,
-            O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW | (creatingNewFile ? O_EXCL : 0),
             mode_t(0o600)
         )
         guard descriptor >= 0 else { return false }

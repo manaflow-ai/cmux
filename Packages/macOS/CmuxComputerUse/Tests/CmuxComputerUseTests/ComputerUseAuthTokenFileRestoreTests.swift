@@ -199,4 +199,51 @@ struct ComputerUseAuthTokenFileRestoreTests {
 
         #expect(!FileManager.default.fileExists(atPath: runtime.paths.authenticationTokenFileURL.path))
     }
+
+    /// A folder under `/tmp` holding only what the test puts there.
+    private func emptyFolder() throws -> URL {
+        let folder = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cua-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    @Test func writingIfAbsentCreatesAPrivateTokenFileAndNothingElse() throws {
+        let folder = try emptyFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokenURL = folder.appendingPathComponent("auth-token")
+
+        #expect(ComputerUseRuntimeService.writeAuthenticationTokenIfAbsent("fixture-token", to: tokenURL))
+
+        #expect(try String(contentsOf: tokenURL, encoding: .utf8) == "fixture-token\n")
+        #expect(try permissions(at: tokenURL) == 0o600)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["auth-token"])
+    }
+
+    /// The health check looks first and writes second. A symlink that shows up
+    /// between the two must stay where it is, and its target must not get the token.
+    @Test func writingIfAbsentLeavesASymlinkThatAppearedAtThePath() throws {
+        let folder = try emptyFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokenURL = folder.appendingPathComponent("auth-token")
+        let targetURL = folder.appendingPathComponent("elsewhere")
+        try FileManager.default.createSymbolicLink(at: tokenURL, withDestinationURL: targetURL)
+
+        #expect(!ComputerUseRuntimeService.writeAuthenticationTokenIfAbsent("fixture-token", to: tokenURL))
+
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: tokenURL.path) == targetURL.path)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["auth-token"])
+    }
+
+    @Test func writingIfAbsentLeavesAFileThatAppearedAtThePath() throws {
+        let folder = try emptyFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokenURL = folder.appendingPathComponent("auth-token")
+        try "someone-else\n".write(to: tokenURL, atomically: false, encoding: .utf8)
+
+        #expect(!ComputerUseRuntimeService.writeAuthenticationTokenIfAbsent("fixture-token", to: tokenURL))
+
+        #expect(try String(contentsOf: tokenURL, encoding: .utf8) == "someone-else\n")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["auth-token"])
+    }
 }
