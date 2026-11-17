@@ -97,7 +97,8 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
 }
 
 beforeEach(() => {
-  globalThis.cmuxExperiments = { "jump-up": "on" };
+  // The pair look: `single`, the default, draws no Jump up even with it on.
+  globalThis.cmuxExperiments = { "jump-up": "on", "jump-pair-look": "frosted" };
 });
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;

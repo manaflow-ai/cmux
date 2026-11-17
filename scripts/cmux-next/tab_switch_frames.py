@@ -56,6 +56,7 @@ import argparse
 import importlib.util
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -71,6 +72,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import tab_switch_capture as capture  # noqa: E402
+import tab_switch_foreign as foreign  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
 import tab_switch_settle as settle  # noqa: E402
 
@@ -168,6 +170,18 @@ class Control:
         return [], None
 
 
+RUN_SETTINGS = {"notifications": {"desktop": "never"}, "diagnostics": {"hangReports": False}}
+
+
+def write_run_settings(home):
+    """The run's own cmux-next.json in its private HOME: no macOS notification banners (a banner is another process's
+    window over the app) and no hang-report invitation. Written before the first launch, so nothing is merged."""
+    path = home / ".config" / "cmux" / "cmux-next.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(RUN_SETTINGS, indent=2) + "\n")
+    return path
+
+
 class App:
     """One launch of the app under test: a fresh home, onboarding skipped, its defaults set aside and put back."""
 
@@ -181,10 +195,13 @@ class App:
         from pathlib import Path
         self.aside = self.smoke.DefaultsAside(self.bundle_id, Path(self.root))
         self.aside.__enter__()
-        subprocess.run(["defaults", "write", self.bundle_id, "home.firstRun.historyImportShown", "-bool", "YES"],
-                       capture_output=True, timeout=30)
+        # The one-time "Help Make cmux Faster?" card (sidebar notice, over the app's pixels) is answered for this run's
+        # defaults: the same key the card sets when asked. This run's own domain only; the product default is unchanged.
+        for key in ("home.firstRun.historyImportShown", "cmux.next.hangReports.asked"):
+            subprocess.run(["defaults", "write", self.bundle_id, key, "-bool", "YES"], capture_output=True, timeout=30)
         self.socket_path = os.path.join(self.root, "c.sock")
         env = self.smoke.fresh_env(Path(self.root), Path(self.socket_path), 2)
+        write_run_settings(Path(env["HOME"]))
         self.smoke.login_keychain(env)  # a person's home has one: no Safe Storage Keychain dialog (cmuxterm-hq#11994)
         env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
         env.pop("CMUX_NEXT_NO_ACTIVATE", None)  # the window is in front on the worker's display: the capture reads it
@@ -446,6 +463,7 @@ class Harness:
         self.ids = {}  # tab name -> its tab id (tab.focus by id: a pane with more than nine tabs, the tabs-N load)
         self.chat_note = None  # why the chat scenario is unmeasured, when it is
         self.sidebar = None
+        self.watch = None  # the foreign-window watch (tab_switch_foreign.Watch), once the capture is up
         self.workspace_id = self.pane_id = None
         self.load_tabs = []  # tabs a load added to the measured pane (closed when the load ends)
         self.split_pane = None
@@ -916,6 +934,16 @@ class Harness:
         time.sleep(0.8)  # test script: the extra tabs close
         return out
 
+    def foreign_over(self, label):
+        """The foreign windows that were over the content or sidebar rect at any time from the ambient span before the
+        round's leave flip to just after its end flip ([] when no watch runs or the round has no wall times)."""
+        walls = getattr(self.rec, "walls", None) or {}
+        if getattr(self, "watch", None) is None or f"{label}:leave" not in walls or f"{label}:end" not in walls:
+            return []
+        t0 = walls[f"{label}:leave"] - settle.AMBIENT_S - 0.05
+        t1 = walls[f"{label}:end"] + 0.2
+        return self.watch.log.between(t0, t1, [self.content, self.sidebar])
+
     def settle_block(self, pending, frames, flips):
         """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
         the switch's mark at its mark flip. A return is judged against the shown tab's frame at its leave flip (its last
@@ -928,6 +956,13 @@ class Harness:
                 judged.append((item, {"error": item["error"]}))
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
+            covered = self.foreign_over(label)
+            if covered:
+                # Another process's window was over the content or sidebar: these pixels measure it, not the app.
+                judged.append((item, {"label": label, "foreign_window": "+".join(foreign.owners(covered)),
+                                      "windows": covered}))
+                say(f"  {label}: excluded, a window of {'+'.join(foreign.owners(covered))} covers the app")
+                continue
             window = self.between(frames, leave, end)
             kind = item["kind"]
             strip = self.strip if kind in ("new", "close") or item.get("strip") == "tab" else None
@@ -1117,7 +1152,10 @@ def main(argv=None):
              "rounds": args.rounds, "chat_turns": args.chat_turns, "agents": args.agents,
              "loads": {load: parse_load(load) for load in loads}, "record_s": args.record,
              "settle_quiet_ms": settle.QUIET_MS}
-    app = recorder = None
+    app = recorder = watch = None
+    started = time.time()
+    dialog = foreign.CrashDialogOff()
+    dialog.__enter__()  # no crash dialog over the app for this run; put back in the finally below
     status, rows, hz = 3, [], None
     try:
         from pathlib import Path
@@ -1149,6 +1187,10 @@ def main(argv=None):
                             "permissions": recorder.permissions, "recorder": "CuaDriver"}
         say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
+        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale)
+        if not watch.ready():
+            raise Unmeasurable("the window list (tab-switch-tools windows) gave no sample: foreign windows cannot be ruled out")
+        harness.watch = watch
         harness.chat_note = setup.get("chat")
         harness.long_session = session
         harness.build(session)
@@ -1165,17 +1207,34 @@ def main(argv=None):
         traceback.print_exc()
         extra["error"] = f"{type(error).__name__}: {error}"
     finally:
+        if watch is not None:
+            watch.close()
         if recorder is not None:
             recorder.close()
         if app is not None:
             app.end()
+        dialog.__exit__(None, None, None)
         shutil.rmtree(root, ignore_errors=True)
+    # Which process crashed during the run, if one did (the dialog is off, the report is on disk).
+    reports = foreign.crash_reports(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Logs/DiagnosticReports"), started)
+    extra["crash_reports"] = reports
+    for report in reports:
+        say(f"crash report during the run: {json.dumps(report)}")
+    lost, total, share = foreign.excluded_share(rows)
+    extra["foreign_windows"] = {"excluded": lost, "rounds": total, "share": round(share, 3), "by_owner": foreign.by_owner(rows),
+                                "limit": foreign.MAX_EXCLUDED_SHARE}
     lines = settle.table(rows, baseline=next((x for x in ("L0", "idle") if x in loads), loads[0] if loads else "L0"))
     extra["table"] = lines
     extra["oddity_count"] = sum(len(s.get("oddities") or []) for r in rows for s in r["switches"])
     out = judge.report(args.build, hz, rows, extra)
     if status == 3:
         out["pass"] = False
+    if foreign.too_many(rows):
+        # Not a budget miss: the screen was not the app's, so there is nothing to judge (exit 3, as an unmeasurable run).
+        print(f"TSW-FAIL foreign windows covered the app in {lost} of {total} rounds ({share:.0%}, limit "
+              f"{foreign.MAX_EXCLUDED_SHARE:.0%}): {json.dumps(foreign.by_owner(rows))}", flush=True)
+        out["pass"] = False
+        status = 3
     with open(os.path.join(args.out, "report.json"), "w") as handle:
         json.dump(out, handle, indent=1)
     with open(os.path.join(args.out, "table.md"), "w") as handle:

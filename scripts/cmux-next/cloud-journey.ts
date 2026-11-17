@@ -49,12 +49,12 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
- * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
- * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
- * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
- * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
- * token the step is skipped and the reply fails "Not logged in".
+ * Pass Claude login gives the journey's machine a login of its own (cmux-platform#587): a `claude setup-token`
+ * login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials; a made-up one with --model stub) goes
+ * from the client straight to the machine over the machine routes, never kept by the platform. The app itself
+ * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
+ * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
+ * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
  *
  * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
  * the machine's loopback
@@ -62,6 +62,10 @@
  * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
  * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
  * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
+ *
+ * --seed none|auto sets the create's seed (none: boot from the image even when the person has a machine to copy;
+ * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
+ * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
@@ -116,7 +120,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { answeredPath, DAEMON_CHECK, MachineFailed, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench.ts";
+import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -204,13 +208,34 @@ export function scrub(text: string, secrets: string[] = []): string {
   return out;
 }
 
+/** The steps from asking for a machine to its agent running, in order (cmux#36050). */
+export const READY_STEPS: readonly ((step: string) => boolean)[] = [
+  (s) => s === "create machine",
+  (s) => s === "running (status)",
+  (s) => s === "first exec",
+  (s) => s === "pass Claude login" || s === "pass Codex login",
+  (s) => s.startsWith("start agent ("),
+];
+
+/** Create machine to agent running, in ms: the sum of the READY_STEPS, or null unless each one ran and passed. */
+export function readyMs(steps: Step[]): number | null {
+  let total = 0;
+  for (const is of READY_STEPS) {
+    const s = steps.find((x) => is(x.step));
+    if (s?.status !== "pass") return null;
+    total += s.ms;
+  }
+  return total;
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
 export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
-  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s`;
+  const ready = readyMs(steps);
+  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
@@ -1066,6 +1091,20 @@ export function vmApiOrigin(backend: string): string | null {
   return backend === "staging" ? "https://vm-staging.cmux.dev" : backend === "prod" ? "https://vm.cmux.dev" : null;
 }
 
+/** The VM API tenant for a Stack session: the user's Stack teams and selected team, as a Stack client reads them. */
+async function stackVmTenant(stack: { project: string; clientKey: string }, accessToken: string): Promise<ReturnType<typeof pickVmApiTenant>> {
+  const headers = {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+    "x-stack-access-token": accessToken,
+  };
+  const teams = await http("GET", `${STACK_API}/api/v1/teams?user_id=me`, undefined, headers, 15_000);
+  if (teams.status !== 200) return { team: null, why: `Stack GET /api/v1/teams?user_id=me: HTTP ${teams.status} ${String(teams.body?.code ?? "")}` };
+  const me = await http("GET", `${STACK_API}/api/v1/users/me`, undefined, headers, 15_000).catch(() => null);
+  return pickVmApiTenant(teams.body, me?.status === 200 ? me.body?.selected_team_id ?? me.body?.selected_team?.id : null);
+}
+
 /**
  * --start-bench N (with --preclaim): create-to-first-command, phase by phase, N samples on each start path
  * (cloud-start-bench.ts says which paths and phases). Every machine, VM and snapshot it makes is deleted by exact id.
@@ -1080,6 +1119,8 @@ export async function runStartBench(args: {
   install: { id: string; token: string; team?: string };
   account: string;
   accountTeam: string;
+  /** The Stack project the session belongs to: the VM API's tenant is one of the user's Stack teams there. */
+  stack: { project: string; clientKey: string };
   login: string;
   outDir: string | null;
   privateRowsPath?: string;
@@ -1112,6 +1153,12 @@ export async function runStartBench(args: {
   const platform = clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
   const scope = { platform, team: args.accountTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
   const request = { platform, account: args.account, scope, currentScope: scope };
+  // The platform's kept create trace, read after the timed phases (cmux-platform GET /v1/machines/{id}?include=trace).
+  const platformTrace = async (machine: string) => {
+    const r = await http("GET", `${platform}/v1/machines/${encodeURIComponent(machine)}?include=trace`, undefined, { authorization: `Bearer ${args.api.bearer}`, ...(args.api.team ? { "x-cmux-team": args.api.team } : {}) }, 15_000);
+    if (r.status !== 200) return `HTTP ${r.status}`;
+    return traceFacts(r.body) ?? "no createTrace";
+  };
   const readySpare = async (): Promise<Record<string, unknown>> => {
     const { prepared, wait } = await waitForReadySpare(async () => {
       const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
@@ -1126,12 +1173,26 @@ export async function runStartBench(args: {
   };
   const platformCreate = (asked: "spare" | "cold") => async (run: number) => {
     const answer = await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} ${asked} ${run}`, size }, `${args.tag}-start-${asked}-${run}`);
-    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: spareFields(answer) };
+    const timings = answerTimings(answer);
+    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: { ...spareFields(answer), ...(timings ? { timings } : {}) } };
   };
 
-  // The VM API, as an agent spawning VMs calls it: the account's session and its team.
-  const vmOrigin = vmApiOrigin(args.backend);
-  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": args.accountTeam };
+  // The VM API, as an agent spawning VMs calls it: the account's session and one of its Stack teams. The VM API takes a
+  // session only with X-Cmux-Team-Id naming a Stack team the user is in (workers/cmux-vm/src/auth/middleware.ts
+  // fromSession); the platform's personal_team (accountTeam, team_<hex>) is none, so it answered 403 to every create.
+  let vmOrigin = vmApiOrigin(args.backend);
+  let vmTeam = "";
+  if (vmOrigin) {
+    const tenant = await stackVmTenant(args.stack, args.api.bearer).catch((e: unknown) => ({ team: null, why: `Stack team list failed: ${String((e as Error)?.message ?? e).slice(0, 200)}` }));
+    if (tenant.team === null) {
+      notes.push(`VM API paths skipped: ${tenant.why}`);
+      vmOrigin = null;
+    } else {
+      vmTeam = tenant.team;
+      notes.push(`VM API team: ${tenant.via}`);
+    }
+  }
+  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
   const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
   const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
     const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
@@ -1203,13 +1264,14 @@ export async function runStartBench(args: {
       }
     }
     const targets: StartTarget[] = [
-      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
       // Right after the claim the one-spare pool is empty, so this create takes none (its answer says so).
-      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
       ...(platformSnapshot ? [{ path: "snapshot" as const, create: async (run: number) => {
         const answer = await args.api.op("cloud.snapshot.restore", { snapshot: platformSnapshot, name: `cloud start bench ${args.tag} snapshot ${run}` }, `${args.tag}-start-restore-${run}`);
-        return { machine: machineOf(answer) };
-      }, running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove }] : []),
+        const timings = answerTimings(answer);
+        return { machine: machineOf(answer), ...(timings ? { facts: { timings } } : {}) };
+      }, running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove }] : []),
       ...(vmOrigin ? [{ path: "vm-api-cold" as const, create: vmCreate(null, "vm-api-cold"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
       ...(vmSnapshot ? [{ path: "vm-api-snapshot" as const, create: vmCreate(vmSnapshot, "vm-api-snapshot"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
     ];
@@ -2260,9 +2322,10 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
+  const ready = readyMs(steps);
   const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields, ...spare };
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
@@ -2532,19 +2595,21 @@ export const JOURNEY_STUB_SCRIPT = {
   turns: [countingTurnScript(), feltTurnScript()],
 };
 
-/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
-export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
-
-/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
 /**
- * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
- * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
+ * reach models through the Cloud service's model route), so these programs are the journey's, not the app's.
+ */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("./cloud-journey-login-installer.txt", import.meta.url));
+
+/**
+ * The journey's login programs: the guest check and the installer. `creatorTeamGuest` also allows a team guest, for a
+ * run on a team machine the journey itself created.
  */
 export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   return loginPrograms(installerSwift, "claude", creatorTeamGuest);
 }
 
-/** The same programs for either provider CloudCredentialTransfer copies (claude or codex). */
+/** The same programs for either provider (claude or codex). */
 export function loginPrograms(installerSwift: string, provider: "claude" | "codex", creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
@@ -2579,7 +2644,7 @@ export async function waitPreflight(exec: Exec, program: string, kinds: string, 
   }
 }
 
-/** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
+/** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
   if (provider === "claude") return /^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(value);
@@ -3360,6 +3425,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
+  const seed = argValue("--seed", argv) ?? "auto";
+  if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -3661,7 +3728,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--start-bench must be 1..10");
         if (!cmux) throw new Error("--start-bench needs --cmux PATH for the warm the app sends (the spare path)");
         return await J.step("start bench", async () => {
-          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, stack, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
           const failed = samples.filter((s) => !s.ok).length;
           return { value: 0, detail: `${samples.length} starts, ${failed} failed; table in start-bench.md` };
         });
@@ -3772,7 +3839,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -4049,7 +4116,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     } else {
       probeExtra.login_path = "copy";
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
       // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");

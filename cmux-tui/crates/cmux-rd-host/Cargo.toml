@@ -51,6 +51,8 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 pipewire = { version = "0.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
+# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
+cmux-hub-host = { path = "../cmux-hub-host" }
 # The Windows host uses the stable user32/gdi32 capture path and SendInput.  The
 # DirectX and Media Foundation feature groups are kept here for the phase-3
 # backend seams; the first Windows runner uses GDI readback plus OpenH264 while

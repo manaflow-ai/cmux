@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -20,6 +21,20 @@ public struct AgentShareActions {
     /// How long a create waits for the daemon: the room's 15 s provisioning budget and some margin.
     public static let createDeadline: Duration = .seconds(20)
 
+    /// The owner's consent sheet closes early enough that an Allow at its last second still has the
+    /// daemon's create (``createDeadline``) and a margin inside the caller's person deadline.
+    public static let consentAnswerWithin: Duration = ActionDescriptor.personDeadline - createDeadline - .seconds(10)
+
+    /// The consent sheet's dialog id. Only the person answers it (`DebugDialog.userOnly`): the debug
+    /// socket's press would let the asking script approve its own link.
+    public static let consentDialogIdentifier = "cmux.dialog.agentShareConsent"
+
+    /// Whether the signed-in person owns the Cloud machine `links` reaches (its owner link resolves).
+    public nonisolated static func ownsCloudMachine(_ links: CloudMachineLinks) -> @MainActor @Sendable () async -> Bool {
+        let ownerLink = links.ownerLink
+        return { await ownerLink() != nil }
+    }
+
     let host: any AgentShareHost
 
     public init(host: any AgentShareHost) { self.host = host }
@@ -32,9 +47,10 @@ public struct AgentShareActions {
             case .success(let found): chat = found
             case .failure(let refusal): return Self.refused(refusal, registry)
             }
-            // The owner's install token goes only to this Mac's daemon: another machine's chat is refused
-            // before a token is minted.
-            guard chat.isLocal else { return .refused(AgentShareStrings.notThisMac) }
+            // The owner's install token goes only to this Mac's daemon or to the owner's own Cloud
+            // machine (checked again on its link before a token is minted): any other machine's chat is
+            // refused first.
+            guard chat.shareable else { return .refused(AgentShareStrings.notThisMac) }
             let ttl: UInt64?
             do { ttl = try AgentShareArguments.ttl(invocation["ttl"]?.stringValue) } catch { return .refused(AgentShareStrings.badTTL) }
             if invocation["uses"] != nil, invocation["uses"]?.intValue == nil { return .refused(AgentShareStrings.badUses) }
@@ -57,17 +73,20 @@ public struct AgentShareActions {
         })
         registry.bindEffect(Self.list, effect: { invocation in
             var surface: UInt64?
+            var cloudChat: AgentShareChat?
             if invocation["surface"] != nil || invocation.target != nil {
                 switch Self.chat(invocation, host: host) {
                 // List reads this Mac's shares, so another machine's surface number would name a local chat.
-                case .success(let chat) where !chat.isLocal: return .refused(AgentShareStrings.notThisMac)
-                case .success(let chat): surface = chat.surface
+                case .success(let chat) where !chat.shareable: return .refused(AgentShareStrings.notThisMac)
+                case .success(let chat): surface = chat.surface; cloudChat = chat.isLocal ? nil : chat
                 case .failure(let refusal): return Self.refused(refusal, registry)
                 }
             }
-            let connection = host.shareLocalConnection
+            // A Cloud chat's shares live on its machine's daemon; every other list is this Mac's.
+            let connection = cloudChat?.connection ?? host.shareLocalConnection
             return Self.answer(registry) {
-                AgentShareResults.list(try await Self.connected(connection).request(AgentSessionShareListRequest(surface: surface)))
+                if let cloudChat { try await cloudChat.requireCloudOwner() }
+                return AgentShareResults.list(try await Self.connected(connection).request(AgentSessionShareListRequest(surface: surface)))
             }
         })
         registry.bindEffect(Self.revoke, effect: { invocation in
@@ -97,9 +116,13 @@ public struct AgentShareActions {
     /// A new share of `chat` with the owner's token (asked for only now, after any consent).
     static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil, signedInRole: String? = nil,
                        host: any AgentShareHost) async throws -> AgentSessionShareCreated {
+        try await chat.requireCloudOwner()
         // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
         // say leaves the build's default.
         let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
+        // A Cloud machine whose daemon has no room makes links nobody can open: refused before a
+        // token goes to it.
+        if !chat.isLocal, room?.room == nil { throw AgentShareCloudRoomMissing() }
         let token = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
         // The session pins the chat: the daemon refuses if the surface shows another one by now.
         let createID = UUID().uuidString
@@ -153,8 +176,9 @@ public struct AgentShareActions {
             tab = host.shareFocusedTabID.flatMap(host.shareTab(id:))
         }
         guard let tab, let session = AgentShareChat.session(of: tab) else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
+        let isLocal = host.shareIsOnThisMac(tab)
         return .success(AgentShareChat(surface: tab.surface.rawValue, session: session, connection: host.shareConnection(holding: tab),
-                                       isLocal: host.shareIsOnThisMac(tab), title: tab.titleText))
+                                       isLocal: isLocal, title: tab.titleText, cloudOwner: isLocal ? nil : host.shareCloudOwner(tab)))
     }
 
     /// Whether the owner started the run in this app (palette, menu, key): their gesture is their
@@ -232,6 +256,20 @@ struct AgentShareChat {
     var isLocal = true
     /// The chat's tab title, named in the owner's consent sheet.
     var title = ""
+    /// For a chat on a Cloud machine: whether the signed-in person owns that machine, asked on its
+    /// link at each share call. Nil for this Mac's chats and for any other machine's.
+    var cloudOwner: (@MainActor @Sendable () async -> Bool)?
+
+    /// A chat this app may share: this Mac's, or one on a Cloud machine (its owner is checked on
+    /// the link before anything is sent, ``requireCloudOwner()``).
+    var shareable: Bool { isLocal || cloudOwner != nil }
+
+    /// Throws ``AgentShareNotCloudOwner`` for a Cloud chat whose machine the person does not own
+    /// (a teammate's team machine): its owner shares it. Nothing for this Mac's chats.
+    @MainActor func requireCloudOwner() async throws {
+        guard !isLocal else { return }
+        guard let cloudOwner, await cloudOwner() else { throw AgentShareNotCloudOwner() }
+    }
 
     /// The acpmux session of a started agent chat; nil for every other tab.
     @MainActor static func session(of tab: TabModel) -> String? {
@@ -244,6 +282,12 @@ struct AgentShareChat {
 struct AgentShareDeclined: Error, Equatable {
     var invite = false
 }
+
+/// A Cloud chat on a machine the person does not own: only its owner shares it.
+struct AgentShareNotCloudOwner: Error, Equatable {}
+
+/// A Cloud chat whose machine's daemon names no share room (an older machine image).
+struct AgentShareCloudRoomMissing: Error, Equatable {}
 
 struct AgentShareRefusal: Error, Equatable {
     var reason: String

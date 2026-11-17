@@ -56,6 +56,8 @@ export type StartTarget = {
   exec: (machine: string) => StartExec;
   /** The guest daemon check; absent when this path's image has no agent daemon to check (the VM API's base image). */
   daemon?: boolean;
+  /** After the timed phases, before the remove, untimed: the platform's kept create trace (traceFacts). A failure is no failure. */
+  trace?: (machine: string) => Promise<StartTrace | string | null>;
   remove: (machine: string) => Promise<void>;
 };
 
@@ -122,6 +124,12 @@ export async function timeStart(target: StartTarget, run: number, clock: StartCl
   } catch (error) {
     sample.error = String((error as Error)?.message ?? error).slice(0, 400);
   } finally {
+    if (machine !== null && target.trace) {
+      // A string is why there is none (the read's status), kept so the table says why it is missing.
+      const trace = await target.trace(machine).catch((e) => `read failed: ${String((e as Error)?.name ?? "error")}`);
+      if (typeof trace === "string") sample.facts.trace_missing = trace;
+      else if (trace) sample.facts.trace = trace;
+    }
     if (machine !== null) await target.remove(machine).catch(() => undefined);
   }
   return sample;
@@ -174,6 +182,7 @@ export function startBenchMarkdown(samples: StartSample[], header = "Start bench
     "",
     "</details>",
     "",
+    ...traceStepMarkdown(samples),
   ].join("\n");
 }
 
@@ -186,4 +195,99 @@ export function answeredPath(answer: unknown): "spare" | "cold" | null {
   if (v.claim && typeof v.claim === "object" && !Array.isArray(v.claim)) return "spare";
   if (typeof v.spare_fallback === "string" && v.spare_fallback !== "") return "cold";
   return null;
+}
+
+/**
+ * A platform machine's kept create trace (cmux-platform GET /v1/machines/{id}?include=trace answers `createTrace`, a
+ * PassTrace: attempt, outcome, steps as ms since the submit's entry, totalMs). For a claimed spare the steps are the
+ * claim's (capability, budget, plan_read, ..., adopt). Only finite numbers are kept; no trace reads null.
+ */
+export type StartTrace = { outcome: string | null; attempt: number | null; totalMs: number | null; steps: Record<string, number> };
+export function traceFacts(view: unknown): StartTrace | null {
+  const t = view && typeof view === "object" ? (view as Record<string, unknown>).createTrace : undefined;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return null;
+  const v = t as Record<string, unknown>;
+  const raw = v.steps && typeof v.steps === "object" && !Array.isArray(v.steps) ? (v.steps as Record<string, unknown>) : {};
+  const steps = Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === "number" && Number.isFinite(e[1])));
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  if (!Object.keys(steps).length && num(v.totalMs) === null) return null;
+  return { outcome: typeof v.outcome === "string" ? v.outcome : null, attempt: num(v.attempt), totalMs: num(v.totalMs), steps };
+}
+
+/**
+ * A platform create's own steps from its answer (cmux-platform#1484: value.timings {path, steps, total_ms}, each step the
+ * ms since the request's entry; spare or create path). Kept as a StartTrace under facts.timings; none reads null.
+ */
+export function answerTimings(answer: unknown): StartTrace | null {
+  const t = answer && typeof answer === "object" ? (answer as Record<string, unknown>).timings : undefined;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return null;
+  const v = t as Record<string, unknown>;
+  return traceFacts({ createTrace: { outcome: typeof v.path === "string" ? v.path : null, attempt: null, steps: v.steps, totalMs: v.total_ms } });
+}
+
+/** p50 of each kept trace step per path (steps in the order the samples first show them), and of totalMs. */
+export function traceStepSummary(samples: StartSample[], key: "trace" | "timings" = "trace"): Array<{ path: StartPath; traced: number; steps: Array<{ step: string; p50: number | null }> }> {
+  return START_PATHS.flatMap((path) => {
+    const traces = samples.flatMap((s) => {
+      const t = s.path === path ? (s.facts[key] as StartTrace | undefined) : undefined;
+      return t && typeof t === "object" && t.steps ? [t] : [];
+    });
+    if (!traces.length) return [];
+    const names: string[] = [];
+    for (const t of traces) for (const name of Object.keys(t.steps)) if (!names.includes(name)) names.push(name);
+    const steps = names.map((step) => ({ step, p50: quantile(traces.flatMap((t) => (typeof t.steps[step] === "number" ? [t.steps[step]!] : [])), 0.5) }));
+    steps.push({ step: "totalMs", p50: quantile(traces.flatMap((t) => (t.totalMs === null ? [] : [t.totalMs])), 0.5) });
+    return [{ path, traced: traces.length, steps }];
+  });
+}
+
+/** The extra table under the start bench: per path, the p50 of each create trace step (ms since the submit's entry). */
+export function traceStepMarkdown(samples: StartSample[]): string[] {
+  const table = (key: "trace" | "timings", title: string) => {
+    const rows = traceStepSummary(samples, key);
+    if (!rows.length) return [];
+    return [
+      title,
+      "",
+      "| Path | Traced | Step | p50 |",
+      "|---|---:|---|---:|",
+      ...rows.flatMap((r) => r.steps.map((s) => `| ${r.path} | ${r.traced} | ${s.step} | ${s.p50 === null ? "-" : `${Math.round(s.p50)} ms`} |`)),
+      "",
+    ];
+  };
+  // Why a platform sample kept no trace (the read's HTTP status, or "no createTrace"), counted, so a missing table says why.
+  const missing: Record<string, number> = {};
+  for (const s of samples) if (typeof s.facts.trace_missing === "string") missing[s.facts.trace_missing] = (missing[s.facts.trace_missing] ?? 0) + 1;
+  return [
+    ...table("timings", "Platform create answer's own steps (value.timings), p50 per step in ms since the request's entry:"),
+    ...table("trace", "Platform create trace, p50 per step in ms since the submit's entry (GET /v1/machines/{id}?include=trace; read after the timed phases):"),
+    ...(Object.keys(missing).length ? [`Samples with no create trace: ${Object.entries(missing).map(([why, n]) => `${why} (${n})`).join(", ")}`, ""] : []),
+  ];
+}
+
+/**
+ * The VM API's tenant for a Stack session (workers/cmux-vm/src/auth/middleware.ts fromSession): a Stack team id in
+ * X-Cmux-Team-Id that Stack lists the user in (credentials.ts makeStackTeamMembership). The platform's personal_team
+ * (`team_<hex>`, backend domains/user.ts personalTeamIdFor) is never one, so the VM API answers 403 "You are not a
+ * member of this team" to it. From the user's Stack teams (GET /api/v1/teams?user_id=me): the cmux VM personal tenant
+ * the platform made for this user (client_read_only_metadata.cmuxVmPersonalTenant), else the Stack-selected team,
+ * else the first. None: the VM API paths are skipped with the reason.
+ */
+export function pickVmApiTenant(teams: unknown, selected: unknown): { team: string; via: string } | { team: null; why: string } {
+  const items = Array.isArray((teams as { items?: unknown } | null)?.items) ? ((teams as { items: unknown[] }).items) : null;
+  if (!items) return { team: null, why: "Stack answered no team list for the session" };
+  const ids = items.flatMap((t) => {
+    const row = t && typeof t === "object" ? (t as Record<string, unknown>) : {};
+    const id = row.id;
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return [];
+    const meta = row.client_read_only_metadata;
+    const personal = !!meta && typeof meta === "object" && (meta as Record<string, unknown>).cmuxVmPersonalTenant === true;
+    return [{ id, personal }];
+  });
+  const personal = ids.find((t) => t.personal);
+  if (personal) return { team: personal.id, via: "the user's cmux VM personal tenant" };
+  const chosen = ids.find((t) => t.id === selected);
+  if (chosen) return { team: chosen.id, via: "the user's selected Stack team" };
+  if (ids[0]) return { team: ids[0].id, via: "the user's first Stack team" };
+  return { team: null, why: "the account is in no Stack team, and the VM API takes a session only for a Stack team it is in (workers/cmux-vm/src/auth/middleware.ts fromSession)" };
 }

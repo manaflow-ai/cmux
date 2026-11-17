@@ -379,6 +379,14 @@ pub(super) fn handle_frame(
     if let Some(keep_open) = super::native_owner::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    // A Cloud team member's signed Native dial to a teammate's team machine: its chat verbs
+    // only, stamped with the member the token names (agent_session_member.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) =
+        super::agent_session_attach::member::try_handle(mux, client, message, writer)
+    {
+        return keep_open;
+    }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
