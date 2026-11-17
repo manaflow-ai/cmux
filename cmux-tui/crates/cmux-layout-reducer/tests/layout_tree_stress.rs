@@ -179,15 +179,6 @@ fn run(state: &LayoutState, kind: &LayoutOpKind) -> LayoutState {
     apply(state, &op).unwrap_or_else(|reject| panic!("{kind:?}: {reject}")).0
 }
 
-/// A copy of `state` as the daemon holds its model: alone, with its own
-/// index. A clone shares the index until one of them writes it, so without
-/// this the first command on the copy would pay to copy the index.
-fn owned(state: &LayoutState) -> LayoutState {
-    let mut next = state.clone();
-    next.reindex();
-    next
-}
-
 /// One command as the daemon runs it, on a model it owns: `apply_mut` on `next`.
 fn run_in_place(next: &mut LayoutState, kind: &LayoutOpKind) {
     let op = LayoutOp { key: String::new(), kind: kind.clone() };
@@ -331,13 +322,13 @@ fn layout_tree_stress_sweep() {
     {
         let corpus = corpus(panes, others);
         for (name, kind) in reducer_ops(&corpus) {
-            let mut next = owned(&corpus.state);
+            let mut next = corpus.state.clone();
             let (allocs, ()) = allocations(|| run_in_place(&mut next, &kind));
             drop(next);
             let mut samples = Samples::default();
             for _ in 0..samples_for(panes + others) {
                 // The copy is the caller's; the command is what the daemon pays.
-                let mut next = owned(&corpus.state);
+                let mut next = corpus.state.clone();
                 let start = Instant::now();
                 run_in_place(&mut next, &kind);
                 samples.push(start);
@@ -410,7 +401,7 @@ fn reducer_command_work_does_not_grow_with_untouched_workspaces() {
     let ops_large = reducer_ops(&large);
     let mut report = BTreeMap::new();
     for ((name, kind_small), (_, kind_large)) in ops_small.iter().zip(&ops_large) {
-        let (mut small_next, mut large_next) = (owned(&small.state), owned(&large.state));
+        let (mut small_next, mut large_next) = (small.state.clone(), large.state.clone());
         let (a, ()) = allocations(|| run_in_place(&mut small_next, kind_small));
         let (b, ()) = allocations(|| run_in_place(&mut large_next, kind_large));
         report.insert(*name, (a, b));

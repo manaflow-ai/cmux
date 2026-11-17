@@ -14,7 +14,6 @@
 //! The same region, captured before the op, is what a rejection restores.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use crate::{
     LayoutOpKind, LayoutState, PaneId, TabContent, TabId, Violation, Workspace, WorkspaceId,
@@ -330,53 +329,28 @@ impl Scope {
                 placed.push((pane, workspace.id));
             }
         }
-        // Write only what changed: a reorder changes no entry, so it never
-        // copies an index it shares with another copy of the state.
-        let index = &state.index;
-        let gone_panes = before
-            .panes
-            .iter()
-            .chain(&self.panes)
-            .filter(|pane| {
-                !state.panes.contains_key(pane) && index.pane_workspace.contains_key(pane)
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        let gone_tabs = before
-            .tabs
-            .keys()
-            .chain(&self.tabs)
-            .filter(|tab| !state.tabs.contains_key(tab) && index.tab_pane.contains_key(tab))
-            .copied()
-            .collect::<Vec<_>>();
-        let mut moved_panes = Vec::new();
-        let mut moved_tabs = Vec::new();
+        // Write only what changed: a reorder changes no entry.
+        let index = &mut state.index;
+        for pane in before.panes.iter().chain(&self.panes) {
+            if !state.panes.contains_key(pane) {
+                index.pane_workspace.remove(pane);
+            }
+        }
+        for tab in before.tabs.keys().chain(&self.tabs) {
+            if !state.tabs.contains_key(tab) {
+                index.tab_pane.remove(tab);
+            }
+        }
         for (pane, workspace) in placed {
             if index.pane_workspace.get(&pane) != Some(&workspace) {
-                moved_panes.push((pane, workspace));
+                index.pane_workspace.insert(pane, workspace);
             }
             for tab in state.panes.get(&pane).into_iter().flatten() {
                 if index.tab_pane.get(tab) != Some(&pane) {
-                    moved_tabs.push((*tab, pane));
+                    index.tab_pane.insert(*tab, pane);
                 }
             }
         }
-        if gone_panes.is_empty()
-            && gone_tabs.is_empty()
-            && moved_panes.is_empty()
-            && moved_tabs.is_empty()
-        {
-            return;
-        }
-        let index = Arc::make_mut(&mut state.index);
-        for pane in gone_panes {
-            index.pane_workspace.remove(&pane);
-        }
-        for tab in gone_tabs {
-            index.tab_pane.remove(&tab);
-        }
-        index.pane_workspace.extend(moved_panes);
-        index.tab_pane.extend(moved_tabs);
     }
 
     /// Put back what the op changed: the scope's workspaces (dropping one
