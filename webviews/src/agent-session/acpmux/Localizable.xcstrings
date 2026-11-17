@@ -115453,127 +115453,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد أدوات بعد. تظهر هنا الأدوات التي تثبّتها من App Store."
+            "value": "ثبّت أدوات من App Store."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema widgeta. Ovdje se prikazuju widgeti koje instalirate iz App Storea."
+            "value": "Instalirajte widgete iz App Storea."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen widgets endnu. Widgets, du installerer fra App Store, vises her."
+            "value": "Installer widgets fra App Store."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Widgets. Widgets, die du aus dem App Store installierst, erscheinen hier."
+            "value": "Installiere Widgets aus dem App Store."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No widgets yet. Widgets you install from the App Store show here."
+            "value": "Install widgets from the App Store."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay widgets. Los widgets que instales desde la App Store aparecen aquí."
+            "value": "Instala widgets desde la App Store."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun widget pour l’instant. Les widgets que vous installez depuis l’App Store s’affichent ici."
+            "value": "Installez des widgets depuis l’App Store."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessun widget. I widget che installi dall’App Store compaiono qui."
+            "value": "Installa i widget dall’App Store."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ウィジェットはまだありません。App Storeからインストールしたウィジェットがここに表示されます。"
+            "value": "App Store からウィジェットをインストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានវិដជិតនៅឡើយ។ វិដជិតដែលអ្នកដំឡើងពី App Store បង្ហាញនៅទីនេះ។"
+            "value": "ដំឡើងវិដជិតពី App Store។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 위젯이 없습니다. App Store에서 설치한 위젯이 여기에 표시됩니다."
+            "value": "App Store에서 위젯을 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen widgeter ennå. Widgeter du installerer fra App Store, vises her."
+            "value": "Installer widgeter fra App Store."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie ma jeszcze widżetów. Widżety zainstalowane z App Store pojawią się tutaj."
+            "value": "Zainstaluj widżety z App Store."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ainda não há widgets. Os widgets que você instalar pela App Store aparecem aqui."
+            "value": "Instale widgets pela App Store."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Виджетов пока нет. Здесь появятся виджеты, установленные из App Store."
+            "value": "Установите виджеты из App Store."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีวิดเจ็ต วิดเจ็ตที่คุณติดตั้งจาก App Store จะแสดงที่นี่"
+            "value": "ติดตั้งวิดเจ็ตจาก App Store"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz widget yok. App Store'dan yüklediğiniz widget'lar burada görünür."
+            "value": "App Store'dan widget yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Віджетів ще немає. Тут з’являться віджети, встановлені з App Store."
+            "value": "Установіть віджети з App Store."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có tiện ích. Các tiện ích bạn cài từ App Store sẽ hiện ở đây."
+            "value": "Cài tiện ích từ App Store."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有小组件。从 App Store 安装的小组件会显示在这里。"
+            "value": "从 App Store 安装小组件。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "還沒有小工具。從 App Store 安裝的小工具會顯示在這裡。"
+            "value": "從 App Store 安裝小工具。"
           }
         }
       }
