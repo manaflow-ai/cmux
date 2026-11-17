@@ -184,7 +184,7 @@ for side in dict.fromkeys(r["side"] for r in rows):
                 reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
             elif not prev or "error" in prev:
                 reason = "no front for the launch before"
-            elif (front.get("workspace"), front.get("top_page")) != (prev.get("workspace"), prev.get("top_page")):
+            elif (front.get("workspace"), front.get("page")) != (prev.get("workspace"), prev.get("page")):
                 reason = "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
             else:
                 reopened += 1
