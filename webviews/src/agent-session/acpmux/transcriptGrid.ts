@@ -1,5 +1,6 @@
 // The virtual stack reads the same declarative lengths as the generated CSS grid tokens.
 import grid from "../../../../schemas/layout-grid/layout-grid.json";
+import { INTERFACE_SCALE_EVENT } from "../../ui/interfaceScale";
 
 export const gridLength = (name: string): number => {
   const metric = grid.metrics.find((value) => value.name === name);
@@ -55,11 +56,37 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
 /// per layout pass.
+///
+/// No style pass: the App writes the token inline on <html> (DesignSettings.interfaceScaleScript), so
+/// that is read first. A computed read forced a style recalc each layout pass, in the middle of a
+/// commit that had just changed the DOM: 11 ms of a spare's adopt task at 10 turns (first-load-after-
+/// restart MODE=reopen-spare PROFILE=1, getPropertyValue). With no inline token (the stylesheet's 1,
+/// a page that set none) the computed value is read once per window and again after the App's
+/// `cmux-ui-scale-change`.
 export function gridScale(): number {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
-  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  if (typeof document === "undefined") return 1;
+  const root = document.documentElement;
+  const inline = parseFloat(root?.style?.getPropertyValue?.("--cmux-interface-scale") ?? "");
+  if (Number.isFinite(inline) && inline > 0) return inline;
+  const view = document.defaultView;
+  if (!view || !root || typeof view.getComputedStyle !== "function") return 1;
+  if (computedScale?.view === view && computedScale.root === root) return computedScale.value;
+  if (watchedScaleView !== view) {
+    watchedScaleView?.removeEventListener(INTERFACE_SCALE_EVENT, forgetComputedScale);
+    view.addEventListener(INTERFACE_SCALE_EVENT, forgetComputedScale);
+    watchedScaleView = view;
+  }
+  const raw = parseFloat(view.getComputedStyle(root).getPropertyValue("--cmux-interface-scale"));
+  const value = Number.isFinite(raw) && raw > 0 ? raw : 1;
+  computedScale = { view, root, value };
+  return value;
 }
+/// gridScale's computed read, kept until the App says the scale changed.
+let computedScale: { view: Window; root: Element; value: number } | undefined;
+let watchedScaleView: Window | undefined;
+const forgetComputedScale = () => {
+  computedScale = undefined;
+};
 
 /// What a row is for the gap rules (grid.md 5.5). Kept per row in the layout, so a placement that
 /// skips DOM-empty rows still picks the gap from the neighbours that draw.
