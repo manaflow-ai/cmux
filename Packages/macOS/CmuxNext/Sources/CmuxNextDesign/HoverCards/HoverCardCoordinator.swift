@@ -136,6 +136,7 @@ public final class HoverCardCoordinator {
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+                self?.topWindowCache = nil // a window moved: another may be on top under the pointer now
                 self?.windowGeometryChanged(number, liveResizeEnded: ended)
             })
         }
@@ -149,6 +150,9 @@ public final class HoverCardCoordinator {
             timer.cancel()
         }
     }
+
+    /// A window of this app came front (it became key): the top window cached under the pointer may be under it now.
+    public func windowOrderChanged() { topWindowCache = nil }
 
     // MARK: Sources
 

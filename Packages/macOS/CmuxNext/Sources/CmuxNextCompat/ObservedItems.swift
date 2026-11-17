@@ -11,7 +11,8 @@
 @MainActor public final class ObservedItems<Model: AnyObject & Sendable, Item: Sendable> {
     /// One item's change: its place in the items ``items(for:id:refresh:)`` handed out last, the item handed out
     /// before and the item now. The place is right only while each listed model has its own id, as the workspaces
-    /// of a store do: of two listed models under one id, the later one replaces the observation of the earlier one.
+    /// of a store do: of two listed models under one id, the later one replaces the observation of the earlier one
+    /// (``listsEachIDOnce`` tells an owner when that is so).
     public struct Change: Sendable {
         public let position: Int
         public let old: Item
@@ -26,6 +27,10 @@
         var position: Int
     }
     private var watches: [String: Watch] = [:]
+    /// True while each id of the models listed last has one place in the list. False while 2 listed models have
+    /// one id, or one model is at 2 places: then the place of a ``Change`` is not the only place of its item, and
+    /// an owner that keeps the items passes over its list again.
+    public private(set) var listsEachIDOnce = true
     private let item: @MainActor @Sendable (Model) -> Item?
     private let same: (Item, Item) -> Bool
     private let changed: (Change) -> Void
@@ -42,8 +47,7 @@
     /// list does not grow with the session (one strip's tabs): it reads ``items(for:id:refresh:)`` again after a
     /// change. An owner that joins the items of every workspace takes ``init(item:same:changedItem:fileID:line:)``.
     /// Two owners of a session-sized list still take this one and so still pass over their list after one
-    /// change (2026-11-10): `SidebarSessionTreeFeed` and `AgentPaneLinkPlaces`, and `ObservedItemsFeed` does it
-    /// for its callers. Do not add one.
+    /// change: `SidebarSessionTreeFeed` and `AgentPaneLinkPlaces`. Do not add one.
     public convenience init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,
                             changed: @escaping () -> Void, fileID: StaticString = #fileID, line: UInt = #line) {
         self.init(item: item, same: same, changedItem: { _ in changed() }, fileID: fileID, line: line)
@@ -87,6 +91,7 @@
             return watch.item
         }
         for key in watches.keys.filter({ !listed.contains($0) }) { watches.removeValue(forKey: key)?.task.cancel() }
+        listsEachIDOnce = listed.count == models.count
         return items
     }
 
