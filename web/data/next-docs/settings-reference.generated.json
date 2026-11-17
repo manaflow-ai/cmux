@@ -5752,6 +5752,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.verificationAutofill.accounts",
+          "title": "Email Accounts for Codes",
+          "help": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Passwords"
+        },
+        {
           "key": "browser.verificationAutofill.enabled",
           "title": "Fill Codes from Verification Emails",
           "help": "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
