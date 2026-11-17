@@ -182,7 +182,7 @@ struct ChatTextSize: ViewModifier {
 struct PreviewRowProbe: ViewModifier {
     let id: String
     #if DEBUG
-    nonisolated(unsafe) static var report: ((String, CGRect) -> Void)?
+    @MainActor static var report: (@MainActor (String, CGRect) -> Void)?
     #endif
 
     func body(content: Content) -> some View {

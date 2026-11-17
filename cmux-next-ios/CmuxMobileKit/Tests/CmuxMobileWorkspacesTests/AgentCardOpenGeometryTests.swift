@@ -90,11 +90,11 @@ import UIKit
         }
     }
 
-    final class Harness {
+    @MainActor final class Harness {
         let window: UIWindow
         let host: UIHostingController<AnyView>
         init() {
-            window = UIWindow(frame: UIScreen.main.bounds)
+            window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874)) // iPhone 17 Pro
             host = UIHostingController(rootView: AnyView(EmptyView()))
             window.rootViewController = host
             window.makeKeyAndVisible()
