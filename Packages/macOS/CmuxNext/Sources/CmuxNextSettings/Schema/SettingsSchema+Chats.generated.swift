@@ -47,7 +47,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.discovery", "Discover Chat Folders"),
-                help: SettingsText.keyed("settings.chats.discovery.help", "Find harness chat folders automatically. When off, only the listed folders are used."),
+                help: SettingsText.keyed("settings.chats.discovery.help", "Find agent chat folders automatically. When off, only the listed folders are used."),
                 kind: .toggle,
                 default: .bool(ChatSettings.discoveryDefault),
                 keywords: ["agents", "chats", "discovery", "privacy"]

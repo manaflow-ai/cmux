@@ -198,7 +198,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	set
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.theme.file.invalidName	11	6
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.theme.file.shippedName	9	6
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.worktreeSetup.empty	12	10
-Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsWindow.harnesses.empty	20	10
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsWindow.harnesses.empty	18	10
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsWindow.vmHostHelp	28	25
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsWindow.webUpdates.pending.bundled	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsWindow.webUpdates.refusal.offline	14	12

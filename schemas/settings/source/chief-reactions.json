@@ -38,7 +38,7 @@
           "note": "Empty uses the Chief's Claude route.",
           "title": {
             "key": "settings.chief.reactionClassifier.harness",
-            "text": "Reaction Classifier Harness"
+            "text": "Reaction Classifier Agent"
           },
           "help": {
             "key": "settings.chief.reactionClassifier.harness.help",

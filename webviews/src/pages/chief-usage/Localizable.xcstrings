@@ -269,127 +269,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness"
+            "value": "Agent"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أداة الوكيل"
+            "state": "needs_review",
+            "value": "الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Alat agenta"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentværktøj"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Tool"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Herramienta de agente"
+            "state": "needs_review",
+            "value": "Agente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Outil d’agent"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Strumento agente"
+            "state": "needs_review",
+            "value": "Agente"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "エージェントツール"
+            "state": "needs_review",
+            "value": "エージェント"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ឧបករណ៍ភ្នាក់ងារ"
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 도구"
+            "state": "needs_review",
+            "value": "에이전트"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentverktøy"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Narzędzie agenta"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ferramenta de agente"
+            "state": "needs_review",
+            "value": "Agente"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Инструмент агента"
+            "state": "needs_review",
+            "value": "Агент"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องมือเอเจนต์"
+            "state": "needs_review",
+            "value": "เอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajan aracı"
+            "state": "needs_review",
+            "value": "Ajan"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Інструмент агента"
+            "state": "needs_review",
+            "value": "Агент"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Công cụ tác tử"
+            "state": "needs_review",
+            "value": "Tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "代理工具"
+            "state": "needs_review",
+            "value": "智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "代理工具"
+            "state": "needs_review",
+            "value": "代理"
           }
         }
       }

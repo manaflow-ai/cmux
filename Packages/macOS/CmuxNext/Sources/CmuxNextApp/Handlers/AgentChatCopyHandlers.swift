@@ -157,7 +157,7 @@ enum AgentChatCopyHandlers {
 private enum AgentChatCopyStrings {
     static var notAChat: String { String(localized: "agentChat.copy.notAChat", defaultValue: "Focus a started agent chat first.", table: "Handlers", bundle: .module) }
     static var noName: String { String(localized: "agentChat.copyName.noName", defaultValue: "The focused chat has no agent name yet.", table: "Handlers", bundle: .module) }
-    static var noHarnessSession: String { String(localized: "agentChat.copyHarnessSessionID.noSession", defaultValue: "The focused chat has no harness session ID yet.", table: "Handlers", bundle: .module) }
+    static var noHarnessSession: String { String(localized: "agentChat.copyHarnessSessionID.noSession", defaultValue: "The focused chat has no agent session ID yet.", table: "Handlers", bundle: .module) }
     static var noConversation: String { String(localized: "agentChat.copyConversation.noConversation", defaultValue: "The focused chat has no conversation to copy yet.", table: "Handlers", bundle: .module) }
     static var noDetails: String { String(localized: "agentChat.copySessionDetails.noDetails", defaultValue: "The focused chat has no session details to copy yet.", table: "Handlers", bundle: .module) }
     static var noCWD: String { String(localized: "agentChat.copyWorkingDirectory.noCWD", defaultValue: "The focused chat has no working directory yet.", table: "Handlers", bundle: .module) }

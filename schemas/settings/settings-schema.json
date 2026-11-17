@@ -21624,7 +21624,7 @@
       },
       "help" : {
         "key" : "settings.chats.discovery.help",
-        "text" : "Find harness chat folders automatically. When off, only the listed folders are used."
+        "text" : "Find agent chat folders automatically. When off, only the listed folders are used."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.discovery",
@@ -52997,7 +52997,7 @@
       },
       "title" : {
         "key" : "settings.agentPane.display.harnessPlacement",
-        "text" : "Model Picker Harness Placement"
+        "text" : "Model Picker Agent Placement"
       },
       "validation" : "portable"
     },
@@ -93072,7 +93072,7 @@
       },
       "title" : {
         "key" : "settings.chief.reactionClassifier.harness",
-        "text" : "Reaction Classifier Harness"
+        "text" : "Reaction Classifier Agent"
       },
       "validation" : "portable"
     },
@@ -104260,7 +104260,7 @@
         {
           "title" : {
             "key" : "settings.choice.permissionStandard",
-            "text" : "Harness Default"
+            "text" : "Agent Default"
           },
           "value" : "standard"
         },

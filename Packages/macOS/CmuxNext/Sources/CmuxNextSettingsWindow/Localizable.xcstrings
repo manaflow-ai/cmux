@@ -42922,127 +42922,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harnesses"
+            "value": "Installed Agents"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أدوات الوكلاء"
+            "value": "الوكلاء المثبّتون"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Okruženja agenata"
+            "value": "Instalirani agenti"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentmiljøer"
+            "value": "Installerede agenter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenten-Harnesses"
+            "value": "Installierte Agenten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entornos de agentes"
+            "value": "Agentes instalados"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Environnements d'agents"
+            "value": "Agents installés"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ambienti degli agenti"
+            "value": "Agenti installati"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネス"
+            "state": "needs_review",
+            "value": "インストール済みのエージェント"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្មវិធីភ្នាក់ងារ"
+            "value": "ភ្នាក់ងារដែលបានដំឡើង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스"
+            "value": "설치된 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentmiljøer"
+            "value": "Installerte agenter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Środowiska agentów"
+            "value": "Zainstalowani agenci"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ambientes de agentes"
+            "value": "Agentes instalados"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Среды агентов"
+            "value": "Установленные агенты"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สภาพแวดล้อมเอเจนต์"
+            "value": "เอเจนต์ที่ติดตั้งแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan ortamları"
+            "value": "Yüklü ajanlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Середовища агентів"
+            "value": "Установлені агенти"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Môi trường tác nhân"
+            "value": "Tác nhân đã cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理环境"
+            "value": "已安装的智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理環境"
+            "value": "已安裝的代理程式"
           }
         }
       }
@@ -44494,127 +44494,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build can't list harnesses."
+            "value": "This build can't list agents."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لهذا الإصدار عرض الأدوات."
+            "value": "لا يمكن لهذا الإصدار عرض الوكلاء."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova verzija ne može prikazati harnesse."
+            "value": "Ova verzija ne može prikazati agente."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne build kan ikke vise harnesses."
+            "value": "Denne build kan ikke vise agenter."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Build kann keine Harnesses auflisten."
+            "value": "Dieser Build kann keine Agenten auflisten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta compilación no puede listar harnesses."
+            "value": "Esta compilación no puede listar agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette version ne peut pas lister les harnesses."
+            "value": "Cette version ne peut pas lister les agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa build non può elencare gli harness."
+            "value": "Questa build non può elencare gli agenti."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "このビルドではハーネスを一覧表示できません。"
+            "state": "needs_review",
+            "value": "このビルドではエージェントを一覧表示できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "build នេះមិនអាចបង្ហាញ harness បានទេ។"
+            "value": "build នេះមិនអាចបង្ហាញភ្នាក់ងារបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 빌드는 하네스 목록을 표시할 수 없습니다."
+            "value": "이 빌드는 에이전트 목록을 표시할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne versjonen kan ikke vise harnesser."
+            "value": "Denne versjonen kan ikke vise agenter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta wersja nie może wyświetlić harnessów."
+            "value": "Ta wersja nie może wyświetlić agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versão não consegue listar harnesses."
+            "value": "Esta versão não consegue listar agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Эта сборка не может показать список harness."
+            "value": "Эта сборка не может показать список агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บิลด์นี้แสดงรายการ harness ไม่ได้"
+            "value": "บิลด์นี้แสดงรายการเอเจนต์ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu derleme harness'ları listeleyemez."
+            "value": "Bu derleme ajanları listeleyemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ця збірка не може показати список harness."
+            "value": "Ця збірка не може показати список агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bản dựng này không thể liệt kê harness."
+            "value": "Bản dựng này không thể liệt kê tác nhân."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本无法列出 harness。"
+            "value": "此版本无法列出智能体。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本無法列出 harness。"
+            "value": "此版本無法列出代理程式。"
           }
         }
       }
@@ -44756,127 +44756,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No harness found. Install a coding agent such as Claude Code or Codex, or add one from the ACP Registry."
+            "value": "No agent found. Install one such as Claude Code or Codex, or add one from the ACP Registry."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُعثر على أي أداة. ثبّت وكيل برمجة مثل Claude Code أو Codex، أو أضف واحدًا من سجل ACP."
+            "value": "لم يُعثر على أي وكيل. ثبّت وكيلًا مثل Claude Code أو Codex، أو أضف واحدًا من سجل ACP."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije pronađeno okruženje. Instalirajte agenta za kodiranje poput Claude Code ili Codex, ili dodajte jednog iz ACP registra."
+            "value": "Nije pronađen nijedan agent. Instalirajte jednog poput Claude Code ili Codex, ili dodajte jednog iz ACP registra."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Intet agentmiljø fundet. Installér en kodeagent som Claude Code eller Codex, eller tilføj en fra ACP-registret."
+            "value": "Ingen agent fundet. Installér en som Claude Code eller Codex, eller tilføj en fra ACP-registret."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Harness gefunden. Installieren Sie einen Coding-Agenten wie Claude Code oder Codex oder fügen Sie einen aus der ACP-Registry hinzu."
+            "value": "Kein Agent gefunden. Installieren Sie einen wie Claude Code oder Codex oder fügen Sie einen aus der ACP-Registry hinzu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se encontró ningún entorno. Instala un agente de código como Claude Code o Codex, o añade uno del registro ACP."
+            "value": "No se encontró ningún agente. Instala uno como Claude Code o Codex, o añade uno del registro ACP."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun environnement trouvé. Installez un agent de code comme Claude Code ou Codex, ou ajoutez-en un depuis le registre ACP."
+            "value": "Aucun agent trouvé. Installez-en un comme Claude Code ou Codex, ou ajoutez-en un depuis le registre ACP."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun ambiente trovato. Installa un agente di programmazione come Claude Code o Codex, oppure aggiungine uno dal registro ACP."
+            "value": "Nessun agente trovato. Installane uno come Claude Code o Codex, oppure aggiungine uno dal registro ACP."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネスが見つかりません。Claude Code や Codex などのコーディングエージェントをインストールするか、ACP Registry から追加してください。"
+            "state": "needs_review",
+            "value": "エージェントが見つかりません。Claude Code や Codex などをインストールするか、ACP Registry から追加してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រកមិនឃើញទេ។ ដំឡើងភ្នាក់ងារសរសេរកូដដូចជា Claude Code ឬ Codex ឬបន្ថែមពីបញ្ជី ACP។"
+            "value": "រកមិនឃើញភ្នាក់ងារទេ។ ដំឡើងមួយដូចជា Claude Code ឬ Codex ឬបន្ថែមពីបញ្ជី ACP។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스를 찾지 못했습니다. Claude Code나 Codex 같은 코딩 에이전트를 설치하거나 ACP 레지스트리에서 추가하세요."
+            "value": "에이전트를 찾지 못했습니다. Claude Code나 Codex 같은 에이전트를 설치하거나 ACP 레지스트리에서 추가하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fant ingen agentmiljøer. Installer en kodeagent som Claude Code eller Codex, eller legg til en fra ACP-registeret."
+            "value": "Fant ingen agent. Installer en som Claude Code eller Codex, eller legg til en fra ACP-registeret."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie znaleziono środowiska. Zainstaluj agenta kodującego, np. Claude Code lub Codex, albo dodaj go z rejestru ACP."
+            "value": "Nie znaleziono agenta. Zainstaluj jednego, np. Claude Code lub Codex, albo dodaj go z rejestru ACP."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum ambiente encontrado. Instale um agente de código como Claude Code ou Codex, ou adicione um do registro ACP."
+            "value": "Nenhum agente encontrado. Instale um como Claude Code ou Codex, ou adicione um do registro ACP."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Среды не найдены. Установите агента для кода, например Claude Code или Codex, или добавьте его из реестра ACP."
+            "value": "Агент не найден. Установите одного, например Claude Code или Codex, или добавьте его из реестра ACP."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่พบสภาพแวดล้อม ติดตั้งเอเจนต์เขียนโค้ด เช่น Claude Code หรือ Codex หรือเพิ่มจาก ACP Registry"
+            "value": "ไม่พบเอเจนต์ ติดตั้งสักตัว เช่น Claude Code หรือ Codex หรือเพิ่มจาก ACP Registry"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ortam bulunamadı. Claude Code veya Codex gibi bir kodlama ajanı yükleyin ya da ACP Kayıt Defterinden ekleyin."
+            "value": "Ajan bulunamadı. Claude Code veya Codex gibi birini yükleyin ya da ACP Kayıt Defterinden ekleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Середовищ не знайдено. Установіть агента для коду, наприклад Claude Code чи Codex, або додайте його з реєстру ACP."
+            "value": "Агента не знайдено. Установіть одного, наприклад Claude Code чи Codex, або додайте його з реєстру ACP."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không tìm thấy. Hãy cài một tác nhân lập trình như Claude Code hoặc Codex, hoặc thêm từ ACP Registry."
+            "value": "Không tìm thấy tác nhân. Hãy cài một tác nhân như Claude Code hoặc Codex, hoặc thêm từ ACP Registry."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未找到代理环境。请安装 Claude Code 或 Codex 等编程代理，或从 ACP 注册表添加。"
+            "value": "未找到智能体。请安装 Claude Code 或 Codex 等智能体，或从 ACP 注册表添加。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "找不到代理環境。請安裝 Claude Code 或 Codex 等程式代理，或從 ACP 登錄新增。"
+            "value": "找不到代理程式。請安裝 Claude Code 或 Codex 等代理程式，或從 ACP 登錄新增。"
           }
         }
       }

@@ -1111,7 +1111,7 @@
           "key": "agentPane.display.harnessPlacement",
           "title": {
             "key": "settings.agentPane.display.harnessPlacement",
-            "text": "Model Picker Harness Placement"
+            "text": "Model Picker Agent Placement"
           },
           "kind": "choice",
           "choices": [

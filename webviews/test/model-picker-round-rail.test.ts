@@ -136,7 +136,7 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
         tabs.harnesses.every((tab) => tab.markHeight === undefined || tab.markHeight <= 16),
         "rail marks stay compact",
       ).toBe(true);
-      expect(tabs.add, "the rail keeps an accessible Add harness action").toMatchObject({ name: "Add harness…" });
+      expect(tabs.add, "the rail keeps an accessible Add agent action").toMatchObject({ name: "Add agent…" });
       expect(tabs.add?.corner ?? 0, "the Add harness action is rounded").toBeGreaterThanOrEqual(4);
       expect(
         tabs.harnesses

@@ -8457,127 +8457,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Harness… opens the Harnesses page from the palette or the menu. Automation runs cmux harness guide instead."
+            "value": "Add Agent… opens the Agents page from the palette or the menu. Automation runs cmux harness guide instead."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "「ハーネスを追加…」はパレットまたはメニューからハーネスページを開きます。自動化では代わりに cmux harness guide を実行してください。"
+            "state": "needs_review",
+            "value": "「エージェントを追加…」はパレットまたはメニューからエージェントページを開きます。自動化では代わりに cmux harness guide を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يفتح «إضافة أداة تشغيل…» صفحة أدوات التشغيل من لوحة الأوامر أو القائمة. تشغّل الأتمتة cmux harness guide بدلًا من ذلك."
+            "value": "يفتح «إضافة وكيل…» صفحة الوكلاء من لوحة الأوامر أو القائمة. تشغّل الأتمتة cmux harness guide بدلًا من ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj harness… otvara stranicu harnessa iz palete ili menija. Automatizacija umjesto toga pokreće cmux harness guide."
+            "value": "Dodaj agenta… otvara stranicu Agenti iz palete ili menija. Automatizacija umjesto toga pokreće cmux harness guide."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføj harness… åbner siden Harnesses fra paletten eller menuen. Automatisering kører cmux harness guide i stedet."
+            "value": "Tilføj agent… åbner siden Agenter fra paletten eller menuen. Automatisering kører cmux harness guide i stedet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Harness hinzufügen…“ öffnet die Seite „Harnesses“ aus der Palette oder dem Menü. Automatisierung führt stattdessen cmux harness guide aus."
+            "value": "„Agent hinzufügen…“ öffnet die Seite „Agenten“ aus der Palette oder dem Menü. Automatisierung führt stattdessen cmux harness guide aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir harness… abre la página de harnesses desde la paleta o el menú. La automatización ejecuta cmux harness guide en su lugar."
+            "value": "Añadir agente… abre la página de agentes desde la paleta o el menú. La automatización ejecuta cmux harness guide en su lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter un harness… ouvre la page des harnesses depuis la palette ou le menu. L’automatisation lance plutôt cmux harness guide."
+            "value": "Ajouter un agent… ouvre la page des agents depuis la palette ou le menu. L’automatisation lance plutôt cmux harness guide."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi harness… apre la pagina degli harness dalla palette o dal menu. L’automazione esegue invece cmux harness guide."
+            "value": "Aggiungi agente… apre la pagina degli agenti dalla palette o dal menu. L’automazione esegue invece cmux harness guide."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែម harness… បើកទំព័រ harness ពីផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ ស្វ័យប្រវត្តិកម្មដំណើរការ cmux harness guide ជំនួសវិញ។"
+            "value": "បន្ថែមភ្នាក់ងារ… បើកទំព័រភ្នាក់ងារពីផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ ស្វ័យប្រវត្តិកម្មដំណើរការ cmux harness guide ជំនួសវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스 추가…는 팔레트나 메뉴에서 하네스 페이지를 엽니다. 자동화에서는 대신 cmux harness guide를 실행하세요."
+            "value": "에이전트 추가…는 팔레트나 메뉴에서 에이전트 페이지를 엽니다. 자동화에서는 대신 cmux harness guide를 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til harness… åpner siden Harnesses fra paletten eller menyen. Automatisering kjører cmux harness guide i stedet."
+            "value": "Legg til agent… åpner siden Agenter fra paletten eller menyen. Automatisering kjører cmux harness guide i stedet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj harness… otwiera stronę harnessów z palety lub menu. Automatyzacja uruchamia zamiast tego cmux harness guide."
+            "value": "Dodaj agenta… otwiera stronę agentów z palety lub menu. Automatyzacja uruchamia zamiast tego cmux harness guide."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar harness… abre a página de harnesses pela paleta ou pelo menu. A automação executa cmux harness guide em vez disso."
+            "value": "Adicionar agente… abre a página de agentes pela paleta ou pelo menu. A automação executa cmux harness guide em vez disso."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Добавить харнесс…» открывает страницу харнессов из палитры или меню. Автоматизация вместо этого запускает cmux harness guide."
+            "value": "«Добавить агента…» открывает страницу агентов из палитры или меню. Автоматизация вместо этого запускает cmux harness guide."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่ม harness… จะเปิดหน้า Harnesses จากพาเลตหรือเมนู ระบบอัตโนมัติให้เรียกใช้ cmux harness guide แทน"
+            "value": "เพิ่มเอเจนต์… จะเปิดหน้าเอเจนต์จากพาเลตหรือเมนู ระบบอัตโนมัติให้เรียกใช้ cmux harness guide แทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness ekle… paletten veya menüden Harness'ler sayfasını açar. Otomasyon bunun yerine cmux harness guide çalıştırır."
+            "value": "Ajan ekle… paletten veya menüden Ajanlar sayfasını açar. Otomasyon bunun yerine cmux harness guide çalıştırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Додати харнес…» відкриває сторінку харнесів із палітри або меню. Автоматизація натомість запускає cmux harness guide."
+            "value": "«Додати агента…» відкриває сторінку агентів із палітри або меню. Автоматизація натомість запускає cmux harness guide."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm harness… mở trang Harness từ bảng lệnh hoặc menu. Tự động hóa chạy cmux harness guide thay thế."
+            "value": "Thêm tác tử… mở trang Tác tử từ bảng lệnh hoặc menu. Tự động hóa chạy cmux harness guide thay thế."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“添加 Harness…”从命令面板或菜单打开 Harness 页面。自动化请改为运行 cmux harness guide。"
+            "value": "“添加智能体…”从命令面板或菜单打开智能体页面。自动化请改为运行 cmux harness guide。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「新增 Harness…」會從命令面板或選單開啟 Harness 頁面。自動化請改為執行 cmux harness guide。"
+            "value": "「新增代理…」會從命令面板或選單開啟代理頁面。自動化請改為執行 cmux harness guide。"
           }
         }
       }

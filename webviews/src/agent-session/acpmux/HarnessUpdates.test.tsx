@@ -141,7 +141,7 @@ test("the chat's own offer leads, then the others; each Update runs its own upda
   // acpmux's rows include the chat's own; it is listed once, as the offer.
   const view = await mount([outdated("claude", "2.1.30", "2.1.34"), codex, opencode], offer);
   expect(view.names()).toEqual(["claude", "codex", "opencode"]);
-  expect(view.container.textContent).toContain("Harness updates available");
+  expect(view.container.textContent).toContain("Agent updates available");
   expect(view.rowOf("codex")!.textContent).toContain("Codex");
   expect(view.rowOf("codex")!.textContent).toContain("0.164.0 → 0.167.2");
   expect(view.container.textContent).toContain("New models often need the latest version.");

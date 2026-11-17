@@ -29503,127 +29503,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent harnesses"
+            "value" : "Agents"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "بيئات الوكلاء"
+            "value" : "الوكلاء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Okruženja agenata"
+            "value" : "Agenti"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agentmiljøer"
+            "value" : "Agenter"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agent-Umgebungen"
+            "value" : "Agenten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Entornos de agentes"
+            "value" : "Agentes"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Environnements d'agents"
+            "value" : "Agents"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ambienti degli agenti"
+            "value" : "Agenti"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "エージェントハーネス"
+            "value" : "エージェント"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បរិស្ថានភ្នាក់ងារ"
+            "value" : "ភ្នាក់ងារ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "에이전트 하네스"
+            "value" : "에이전트"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agentmiljøer"
+            "value" : "Agenter"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Środowiska agentów"
+            "value" : "Agenci"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ambientes de agentes"
+            "value" : "Agentes"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Среды агентов"
+            "value" : "Агенты"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "สภาพแวดล้อมของเอเจนต์"
+            "value" : "เอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ajan ortamları"
+            "value" : "Ajanlar"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Середовища агентів"
+            "value" : "Агенти"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Môi trường agent"
+            "value" : "Tác tử"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "代理运行环境"
+            "value" : "智能体"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "代理執行環境"
+            "value" : "代理"
           }
         }
       }
@@ -32647,127 +32647,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pick at least one harness."
+            "value" : "Pick at least one agent."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "اختر بيئة واحدة على الأقل."
+            "value" : "اختر وكيلًا واحدًا على الأقل."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Odaberite barem jedno okruženje."
+            "value" : "Odaberite barem jednog agenta."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vælg mindst ét miljø."
+            "value" : "Vælg mindst én agent."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wähle mindestens eine Umgebung."
+            "value" : "Wähle mindestens einen Agenten."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Elige al menos un entorno."
+            "value" : "Elige al menos un agente."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Choisissez au moins un environnement."
+            "value" : "Choisissez au moins un agent."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Scegli almeno un ambiente."
+            "value" : "Scegli almeno un agente."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ハーネスを 1 つ以上選んでください。"
+            "value" : "エージェントを 1 つ以上選んでください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ជ្រើសបរិស្ថានយ៉ាងហោចណាស់មួយ។"
+            "value" : "ជ្រើសភ្នាក់ងារយ៉ាងហោចណាស់មួយ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "하네스를 하나 이상 고르세요."
+            "value" : "에이전트를 하나 이상 고르세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Velg minst ett miljø."
+            "value" : "Velg minst én agent."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wybierz co najmniej jedno środowisko."
+            "value" : "Wybierz co najmniej jednego agenta."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Escolha pelo menos um ambiente."
+            "value" : "Escolha pelo menos um agente."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Выберите хотя бы одну среду."
+            "value" : "Выберите хотя бы одного агента."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เลือกอย่างน้อยหนึ่งสภาพแวดล้อม"
+            "value" : "เลือกอย่างน้อยหนึ่งเอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "En az bir ortam seçin."
+            "value" : "En az bir ajan seçin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Виберіть принаймні одне середовище."
+            "value" : "Виберіть принаймні одного агента."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chọn ít nhất một môi trường."
+            "value" : "Chọn ít nhất một tác tử."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "请至少选择一个环境。"
+            "value" : "请至少选择一个智能体。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "請至少選擇一個環境。"
+            "value" : "請至少選擇一個代理。"
           }
         }
       }
@@ -41568,127 +41568,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Harnesses"
+            "value" : "Agents"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "بيئات"
+            "value" : "الوكلاء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Okruženja"
+            "value" : "Agenti"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Miljøer"
+            "value" : "Agenter"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Umgebungen"
+            "value" : "Agenten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Entornos"
+            "value" : "Agentes"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Environnements"
+            "value" : "Agents"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ambienti"
+            "value" : "Agenti"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ハーネス"
+            "value" : "エージェント"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បរិស្ថាន"
+            "value" : "ភ្នាក់ងារ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "환경"
+            "value" : "에이전트"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Miljøer"
+            "value" : "Agenter"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Środowiska"
+            "value" : "Agenci"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ambientes"
+            "value" : "Agentes"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Среды"
+            "value" : "Агенты"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "สภาพแวดล้อม"
+            "value" : "เอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ortamlar"
+            "value" : "Ajanlar"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Середовища"
+            "value" : "Агенти"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Môi trường"
+            "value" : "Tác tử"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "环境"
+            "value" : "智能体"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "環境"
+            "value" : "代理"
           }
         }
       }

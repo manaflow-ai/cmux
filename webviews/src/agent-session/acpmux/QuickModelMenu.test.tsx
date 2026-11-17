@@ -283,7 +283,7 @@ for (const newTab of [false, true]) {
     let added = 0;
     await openMenu(newTab, { noMore: true, onAddHarness: () => added++ });
     expect(labels(list())).not.toContain("More models");
-    expect(labels(list())).not.toContain("Add harness…");
+    expect(labels(list())).not.toContain("Add agent…");
     const add = document.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add")!;
     expect(add).not.toBeNull();
     expect(add.parentElement?.lastElementChild).toBe(add);
@@ -295,11 +295,11 @@ for (const newTab of [false, true]) {
 
 test("expanded New Tab More models contains models only and keeps one Add in the rail", async () => {
   await openMenu(true, { onAddHarness() {} });
-  expect(labels(list())).not.toContain("Add harness…");
+  expect(labels(list())).not.toContain("Add agent…");
   await act(async () => disclosure()!.click());
   await settle();
-  expect(labels(list())).not.toContain("Add harness…");
-  expect(document.querySelectorAll('[aria-label="Add harness…"]').length).toBe(1);
+  expect(labels(list())).not.toContain("Add agent…");
+  expect(document.querySelectorAll('[aria-label="Add agent…"]').length).toBe(1);
   const expanded = document.querySelector(".acpmux-quick-more-list")!;
   expect(labels(expanded)).toEqual(["Claude old x", "Claude old y"]);
 });

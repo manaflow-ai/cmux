@@ -63,7 +63,7 @@ function GalleryHarnessUpdates({ own = false, rows, updater = "ok" }: Props) {
 
 export default componentEntry<Props>({
   id: "agent-pane.harness-updates",
-  title: "Harness updates available",
+  title: "Agent updates available",
   area: "Agent pane",
   pane: true,
   height: 260,

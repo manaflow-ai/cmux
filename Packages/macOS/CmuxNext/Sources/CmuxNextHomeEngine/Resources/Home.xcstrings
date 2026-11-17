@@ -7507,127 +7507,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own."
+            "value": "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the agent's own."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "この Mac で動作します（%@）。ツール: zoom、date、spawn、tell とハーネス自身のツール。"
+            "state": "needs_review",
+            "value": "この Mac で動作します（%@）。ツール: zoom、date、spawn、tell とエージェント自身のツール。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يعمل على جهاز Mac هذا (%@). الأدوات: zoom وdate وspawn وtell وأدوات بيئة التشغيل نفسها."
+            "state": "needs_review",
+            "value": "يعمل على جهاز Mac هذا (%@). الأدوات: zoom وdate وspawn وtell وأدوات الوكيل نفسه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Radi na ovom Macu (%@). Alati: zoom, date, spawn, tell i vlastiti alati okvira."
+            "value": "Radi na ovom Macu (%@). Alati: zoom, date, spawn, tell i vlastiti alati agenta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kører på denne Mac (%@). Værktøjer: zoom, date, spawn, tell og harnessens egne."
+            "value": "Kører på denne Mac (%@). Værktøjer: zoom, date, spawn, tell og agentens egne."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Läuft auf diesem Mac (%@). Werkzeuge: zoom, date, spawn, tell und die des Harness."
+            "state": "needs_review",
+            "value": "Läuft auf diesem Mac (%@). Werkzeuge: zoom, date, spawn, tell und die des Agenten."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Se ejecuta en este Mac (%@). Herramientas: zoom, date, spawn, tell y las del harness."
+            "state": "needs_review",
+            "value": "Se ejecuta en este Mac (%@). Herramientas: zoom, date, spawn, tell y las del agente."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "S’exécute sur ce Mac (%@). Outils : zoom, date, spawn, tell et ceux du harness."
+            "state": "needs_review",
+            "value": "S’exécute sur ce Mac (%@). Outils : zoom, date, spawn, tell et ceux de l’agent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viene eseguito su questo Mac (%@). Strumenti: zoom, date, spawn, tell e quelli dell’harness."
+            "value": "Viene eseguito su questo Mac (%@). Strumenti: zoom, date, spawn, tell e quelli dell’agente."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំណើរការលើ Mac នេះ (%@)។ ឧបករណ៍៖ zoom, date, spawn, tell និងឧបករណ៍របស់ harness។"
+            "value": "ដំណើរការលើ Mac នេះ (%@)។ ឧបករណ៍៖ zoom, date, spawn, tell និងឧបករណ៍របស់ភ្នាក់ងារ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac에서 실행됩니다(%@). 도구: zoom, date, spawn, tell 및 하네스 자체 도구."
+            "state": "needs_review",
+            "value": "이 Mac에서 실행됩니다(%@). 도구: zoom, date, spawn, tell 및 에이전트 자체 도구."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kjører på denne Macen (%@). Verktøy: zoom, date, spawn, tell og harnessens egne."
+            "value": "Kjører på denne Macen (%@). Verktøy: zoom, date, spawn, tell og agentens egne."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Działa na tym Macu (%@). Narzędzia: zoom, date, spawn, tell i własne narzędzia harnessu."
+            "value": "Działa na tym Macu (%@). Narzędzia: zoom, date, spawn, tell i własne narzędzia agenta."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Executa neste Mac (%@). Ferramentas: zoom, date, spawn, tell e as do harness."
+            "value": "Executa neste Mac (%@). Ferramentas: zoom, date, spawn, tell e as do agente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Работает на этом Mac (%@). Инструменты: zoom, date, spawn, tell и собственные инструменты харнесса."
+            "value": "Работает на этом Mac (%@). Инструменты: zoom, date, spawn, tell и собственные инструменты агента."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ทำงานบน Mac เครื่องนี้ (%@) เครื่องมือ: zoom, date, spawn, tell และของ harness เอง"
+            "value": "ทำงานบน Mac เครื่องนี้ (%@) เครื่องมือ: zoom, date, spawn, tell และของเอเจนต์เอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac’te çalışır (%@). Araçlar: zoom, date, spawn, tell ve harness’in kendi araçları."
+            "value": "Bu Mac’te çalışır (%@). Araçlar: zoom, date, spawn, tell ve ajanın kendi araçları."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Працює на цьому Mac (%@). Інструменти: zoom, date, spawn, tell і власні інструменти харнеса."
+            "value": "Працює на цьому Mac (%@). Інструменти: zoom, date, spawn, tell і власні інструменти агента."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chạy trên máy Mac này (%@). Công cụ: zoom, date, spawn, tell và công cụ của harness."
+            "value": "Chạy trên máy Mac này (%@). Công cụ: zoom, date, spawn, tell và công cụ của tác nhân."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "在此 Mac 上运行（%@）。工具：zoom、date、spawn、tell 以及 harness 自带的工具。"
+            "state": "needs_review",
+            "value": "在此 Mac 上运行（%@）。工具：zoom、date、spawn、tell 以及智能体自带的工具。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "在此 Mac 上執行（%@）。工具：zoom、date、spawn、tell 以及 harness 自帶的工具。"
+            "state": "needs_review",
+            "value": "在此 Mac 上執行（%@）。工具：zoom、date、spawn、tell 以及代理程式自帶的工具。"
           }
         }
       }
@@ -7900,127 +7900,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness"
+            "value": "Agent"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネス"
+            "state": "needs_review",
+            "value": "エージェント"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "بيئة التشغيل"
+            "state": "needs_review",
+            "value": "الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Okvir"
+            "value": "Agent"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Agent"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "Agente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "Agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Agente"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "ភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "하네스"
+            "state": "needs_review",
+            "value": "에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Agent"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Agent"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Agente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Харнесс"
+            "value": "Агент"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "เอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Ajan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Харнес"
+            "value": "Агент"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness"
+            "value": "Tác nhân"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "代理程式"
           }
         }
       }
@@ -16593,127 +16593,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Classifier Harness"
+            "value": "Classifier Agent"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "分類のハーネス"
+            "state": "needs_review",
+            "value": "分類のエージェント"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "بيئة تشغيل المصنِّف"
+            "state": "needs_review",
+            "value": "وكيل المصنِّف"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness klasifikatora"
+            "value": "Agent klasifikatora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klassifikator-harness"
+            "value": "Klassifikator-agent"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klassifikator-Harness"
+            "state": "needs_review",
+            "value": "Klassifikator-Agent"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness del clasificador"
+            "state": "needs_review",
+            "value": "Agente del clasificador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness du classificateur"
+            "state": "needs_review",
+            "value": "Agent du classificateur"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness del classificatore"
+            "value": "Agente del classificatore"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness ចំណាត់ថ្នាក់"
+            "value": "ភ្នាក់ងារចំណាត់ថ្នាក់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "분류기 하네스"
+            "state": "needs_review",
+            "value": "분류기 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klassifiserer-harness"
+            "value": "Klassifiserer-agent"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness klasyfikatora"
+            "value": "Agent klasyfikatora"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness do classificador"
+            "value": "Agente do classificador"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness классификатора"
+            "value": "Агент классификатора"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness ตัวจำแนก"
+            "value": "เอเจนต์ตัวจำแนก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sınıflandırıcı harness'ı"
+            "value": "Sınıflandırıcı ajanı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness класифікатора"
+            "value": "Агент класифікатора"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness bộ phân loại"
+            "value": "Tác nhân bộ phân loại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "分类器 Harness"
+            "state": "needs_review",
+            "value": "分类器智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "分類器 Harness"
+            "state": "needs_review",
+            "value": "分類器代理程式"
           }
         }
       }

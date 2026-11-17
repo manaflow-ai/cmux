@@ -35,7 +35,7 @@
               "value": "standard",
               "title": {
                 "key": "settings.choice.permissionStandard",
-                "text": "Harness Default"
+                "text": "Agent Default"
               }
             },
             {

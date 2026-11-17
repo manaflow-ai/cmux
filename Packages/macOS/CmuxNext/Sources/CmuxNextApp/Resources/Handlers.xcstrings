@@ -11665,7 +11665,7 @@
     "agentChat.copyHarnessSessionID.noSession": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no harness session ID yet."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no agent session ID yet."}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",

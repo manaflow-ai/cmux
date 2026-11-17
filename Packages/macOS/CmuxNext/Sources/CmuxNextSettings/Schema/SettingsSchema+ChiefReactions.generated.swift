@@ -36,7 +36,7 @@ nonisolated enum ChiefReactionSettingsSchema {
                 ChiefReactionSettings.harnessPath,
                 section: .home,
                 group: group,
-                title: SettingsText.keyed("settings.chief.reactionClassifier.harness", "Reaction Classifier Harness"),
+                title: SettingsText.keyed("settings.chief.reactionClassifier.harness", "Reaction Classifier Agent"),
                 help: SettingsText.keyed("settings.chief.reactionClassifier.harness.help", "The agent that reads reactions, such as claude or codex. Empty uses the Chief's."),
                 kind: .text,
                 default: .string(ChiefReactionSettings.harnessDefault),

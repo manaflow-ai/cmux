@@ -25834,127 +25834,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable harness %@?"
+            "value": "Enable agent %@?"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネス %@ を有効にしますか？"
+            "state": "needs_review",
+            "value": "エージェント %@ を有効にしますか？"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تريد تفعيل أداة التشغيل %@؟"
+            "value": "هل تريد تفعيل الوكيل %@؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Omogućiti harness %@?"
+            "value": "Omogućiti agenta %@?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktivér harness %@?"
+            "value": "Aktivér agent %@?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness %@ aktivieren?"
+            "value": "Agent %@ aktivieren?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Activar el harness %@?"
+            "value": "¿Activar el agente %@?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer le harness %@ ?"
+            "value": "Activer l’agent %@ ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abilitare l’harness %@?"
+            "value": "Abilitare l’agente %@?"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក harness %@ ឬ?"
+            "value": "បើកភ្នាក់ងារ %@ ឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스 %@을(를) 활성화할까요?"
+            "value": "에이전트 %@을(를) 활성화할까요?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktivere harness %@?"
+            "value": "Aktivere agent %@?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Włączyć harness %@?"
+            "value": "Włączyć agenta %@?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativar o harness %@?"
+            "value": "Ativar o agente %@?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Включить харнесс %@?"
+            "value": "Включить агента %@?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดใช้ harness %@ หรือไม่"
+            "value": "เปิดใช้เอเจนต์ %@ หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ harness'ı etkinleştirilsin mi?"
+            "value": "%@ ajanı etkinleştirilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увімкнути харнес %@?"
+            "value": "Увімкнути агента %@?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật harness %@?"
+            "value": "Bật tác nhân %@?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "启用 harness %@？"
+            "value": "启用智能体 %@？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "啟用 harness %@？"
+            "value": "啟用代理程式 %@？"
           }
         }
       }
@@ -27537,127 +27537,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable Harness"
+            "value": "Enable Agent"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネスを有効にする"
+            "state": "needs_review",
+            "value": "エージェントを有効にする"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تفعيل أداة التشغيل"
+            "value": "تفعيل الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Omogući harness"
+            "value": "Omogući agenta"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktivér harness"
+            "value": "Aktivér agent"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness aktivieren"
+            "value": "Agent aktivieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activar harness"
+            "value": "Activar agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer le harness"
+            "value": "Activer l’agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abilita harness"
+            "value": "Abilita agente"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក Harness"
+            "value": "បើកភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스 활성화"
+            "value": "에이전트 활성화"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktiver harness"
+            "value": "Aktiver agent"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Włącz harness"
+            "value": "Włącz agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativar harness"
+            "value": "Ativar agente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Включить харнесс"
+            "value": "Включить агента"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดใช้ Harness"
+            "value": "เปิดใช้เอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness'ı etkinleştir"
+            "value": "Ajanı etkinleştir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увімкнути харнес"
+            "value": "Увімкнути агента"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật harness"
+            "value": "Bật tác nhân"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "启用 Harness"
+            "value": "启用智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "啟用 Harness"
+            "value": "啟用代理程式"
           }
         }
       }
@@ -39011,7 +39011,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model picker harness placement"
+            "value": "Model picker agent placement"
           }
         },
         "ar": {
@@ -39034,8 +39034,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Anordnung der Agent-Umgebungen in der Modellauswahl"
+            "state": "needs_review",
+            "value": "Anordnung der Agenten in der Modellauswahl"
           }
         },
         "es": {
@@ -39142,127 +39142,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Top row of harness symbols"
+            "value": "Top row of agent symbols"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "صف علوي من رموز الحزم"
+            "state": "needs_review",
+            "value": "صف علوي من رموز الوكلاء"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gornji red simbola alata"
+            "state": "needs_review",
+            "value": "Gornji red simbola agenata"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Øverste række med harness-symboler"
+            "state": "needs_review",
+            "value": "Øverste række med agentsymboler"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Obere Reihe mit Harness-Symbolen"
+            "state": "needs_review",
+            "value": "Obere Reihe mit Agentensymbolen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fila superior de símbolos de harness"
+            "state": "needs_review",
+            "value": "Fila superior de símbolos de agentes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Rangée de symboles de harness en haut"
+            "state": "needs_review",
+            "value": "Rangée de symboles d’agents en haut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Riga in alto di simboli degli harness"
+            "state": "needs_review",
+            "value": "Riga in alto di simboli degli agenti"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "上部のハーネス記号の行"
+            "state": "needs_review",
+            "value": "上部のエージェント記号の行"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ជួរខាងលើនៃនិមិត្តសញ្ញា harness"
+            "state": "needs_review",
+            "value": "ជួរខាងលើនៃនិមិត្តសញ្ញាភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "상단 하네스 기호 행"
+            "state": "needs_review",
+            "value": "상단 에이전트 기호 행"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Øverste rad med harness-symboler"
+            "state": "needs_review",
+            "value": "Øverste rad med agentsymboler"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Górny wiersz symboli harnessów"
+            "state": "needs_review",
+            "value": "Górny wiersz symboli agentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Linha superior de símbolos de harness"
+            "state": "needs_review",
+            "value": "Linha superior de símbolos de agentes"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Верхний ряд символов харнессов"
+            "state": "needs_review",
+            "value": "Верхний ряд символов агентов"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "แถวสัญลักษณ์ harness ด้านบน"
+            "state": "needs_review",
+            "value": "แถวสัญลักษณ์เอเจนต์ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness simgelerinden oluşan üst satır"
+            "state": "needs_review",
+            "value": "Ajan simgelerinden oluşan üst satır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Верхній ряд символів харнесів"
+            "state": "needs_review",
+            "value": "Верхній ряд символів агентів"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hàng ký hiệu harness ở trên cùng"
+            "state": "needs_review",
+            "value": "Hàng ký hiệu tác nhân ở trên cùng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "顶部的 harness 图标行"
+            "state": "needs_review",
+            "value": "顶部的智能体图标行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "頂部的 harness 圖示列"
+            "state": "needs_review",
+            "value": "頂部的代理程式圖示列"
           }
         }
       }
