@@ -230,11 +230,11 @@ mod tests {
         let a = stream.update(&screen(&["> hi"]), 0).unwrap();
         let still = stream.still(100);
         assert_eq!((still.frame, still.base), (a.frame + 1, Some(a.frame)));
-        assert_eq!(viewer(&[&a, &still]), screen(&["> hi"]));
+        assert_eq!(viewer(&[&a, &still]).parity(&screen(&["> hi"])), (80, 80));
         let b = stream.update(&screen(&["> hi", "there"]), 200).unwrap();
         assert_eq!(b.base, Some(still.frame));
         let resumed = stream.resume(a.frame, 300).expect("the stream holds frame a");
-        assert_eq!(viewer(&[&a, &resumed]), screen(&["> hi", "there"]));
+        assert_eq!(viewer(&[&a, &resumed]).parity(&screen(&["> hi", "there"])), (80, 80));
     }
 
     #[test]
