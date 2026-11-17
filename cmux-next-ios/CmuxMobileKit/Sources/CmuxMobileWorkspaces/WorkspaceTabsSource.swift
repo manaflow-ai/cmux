@@ -54,6 +54,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
     var terminalChatRefusingMacs: Set<String> = []
     @ObservationIgnored var openingTerminalChats: Set<String> = []
+    /// Settings → Terminal → Terminal and Chat Toggle (off by default); tests set it.
+    @ObservationIgnored var terminalChatToggleOn: @MainActor () -> Bool = { CmuxMobilePreferences.terminalChatToggle() }
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -2326,7 +2328,7 @@ struct WorkspaceTabPage: View {
                 topInset: insets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             // A page built during a zoom or swipe is laid out before its
             // composer is measured; once it settles, a following chat lands
             // on its newest turn above the composer.

@@ -54,16 +54,6 @@ extension CloudOwnerAPIClient {
     /// Cloud machines can use the cmux GitHub App. Never throws: a check that does not answer is
     /// ``CloudGitHubApp/unknown``, and the caller falls back to the machine's own GitHub sign-in.
     public func gitHubApp(team: String) async -> CloudGitHubApp {
-        guard let path = CloudGitHubApp.path(team: team),
-              let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
-              let access = try? await accessToken() else { return .unknown }
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.httpMethod = "GET"
-        // Only Authorization (the Worker's invocation log masks it): the team in the query is no secret.
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        let session = session, prepared = request
-        guard let answer = try? await withDeadline(.seconds(15), label: "GET \(path)", { try await session.data(for: prepared) }),
-              let http = answer.1 as? HTTPURLResponse else { return .unknown }
-        return CloudGitHubApp(status: http.statusCode, body: answer.0)
+        await gitHubAppStatus(team: team).app
     }
 }
