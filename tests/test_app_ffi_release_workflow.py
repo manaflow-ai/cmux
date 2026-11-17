@@ -1318,8 +1318,9 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
 
     def test_build_checkout_is_treeless_with_full_history(self):
-        checkout = self.jobs["build"]["steps"][0]
-        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        # The first checkout: "Drop a reused shallow checkout" runs before it (cmux#44583).
+        checkout = next(step for step in self.jobs["build"]["steps"]
+                        if str(step.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["fetch-depth"], 0)
         self.assertEqual(checkout["with"]["filter"], "tree:0")
 
@@ -1333,6 +1334,93 @@ def load_module(name: str, path: Path):
     sys.modules[name] = module  # dataclasses resolve their module through sys.modules
     spec.loader.exec_module(module)
     return module
+
+
+class WaitingBuildIsReplacedByTheNewestRun(unittest.TestCase):
+    """A build still waiting for a runner never holds the build group against a newer run.
+
+    A build queued for a runner counts as the group's running job. Run 43978720557 (2026-11-16) queued its build
+    on the saturated side-std label for hours while newer FFI runs 43979315440, 43982240915 and 43985437623 each
+    went pending behind it and were replaced by the next: nothing built, and the pin stayed red. Each new push or
+    dispatch's placement now cancels an older run whose build has not started on a runner; a running build is
+    never cancelled (BuildSpeedAndSupersede).
+    """
+
+    OWN = 43993339863
+    BRANCH = "feat-cmux-next"
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.module = load_module("ffi_build_supersede", ROOT / "scripts/ci/ffi_build_supersede.py")
+
+    def play(self, runs: list[dict], jobs: dict[int, list[dict]]) -> tuple[list[int], list[tuple[str, str]]]:
+        calls: list[tuple[str, str]] = []
+
+        def request(method: str, path: str):
+            calls.append((method, path))
+            if method == "GET" and "/workflows/app-ffi-release.yml/runs" in path:
+                return {"workflow_runs": runs}
+            if method == "GET" and path.split("?")[0].endswith("/jobs"):
+                return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
+            if method == "POST" and path.endswith("/cancel"):
+                return {}
+            raise AssertionError(f"unexpected call {method} {path}")
+
+        cancelled = self.module.supersede(request, REPO, self.OWN, self.BRANCH, log=lambda _line: None)
+        return cancelled, calls
+
+    def run_(self, run_id: int, status: str = "queued", branch: str = BRANCH) -> dict:
+        return {"id": run_id, "status": status, "head_branch": branch}
+
+    @staticmethod
+    def build(status: str, runner: str = "") -> list[dict]:
+        return [{"name": "place the build", "status": "completed", "runner_name": "blacksmith-linux"},
+                {"name": "build xcframework", "status": status, "runner_name": runner}]
+
+    def test_an_older_build_queued_for_a_runner_is_cancelled(self):
+        cancelled, calls = self.play([self.run_(self.OWN, "in_progress"), self.run_(43978720557)],
+                                     {43978720557: self.build("queued")})
+        self.assertEqual(cancelled, [43978720557])
+        self.assertIn(("POST", f"/repos/{REPO}/actions/runs/43978720557/cancel"), calls)
+
+    def test_an_older_run_still_placing_is_cancelled_before_its_build_takes_the_group(self):
+        # Two close pushes: the older run's build is not created until its placement ends.
+        placing = [{"name": "place the build", "status": "in_progress", "runner_name": "blacksmith-linux"}]
+        cancelled, _calls = self.play([self.run_(43979315440, "in_progress")], {43979315440: placing})
+        self.assertEqual(cancelled, [43979315440])
+
+    def test_a_running_or_finished_build_is_never_cancelled(self):
+        cancelled, calls = self.play(
+            [self.run_(43978720557, "in_progress"), self.run_(43979315440, "in_progress")],
+            {43978720557: self.build("in_progress", "side-runner-6"),
+             43979315440: self.build("completed", "side-runner-6")})
+        self.assertEqual(cancelled, [])
+        self.assertFalse([call for call in calls if call[0] == "POST"])
+
+    def test_newer_finished_or_other_branch_runs_are_left_alone(self):
+        cancelled, calls = self.play(
+            [self.run_(self.OWN + 1), self.run_(43978720557, "completed"), self.run_(43979315440, branch="main")],
+            {})
+        self.assertEqual(cancelled, [])
+        self.assertEqual([call[0] for call in calls], ["GET"])
+
+    def test_a_failed_call_never_fails_the_placement(self):
+        def broken(_method, _path):
+            raise self.module.urllib.error.URLError("HTTP 502")
+
+        env = {"GH_TOKEN": "t", "GITHUB_REPOSITORY": REPO, "GITHUB_REF_NAME": self.BRANCH,
+               "GITHUB_RUN_ID": str(self.OWN)}
+        with unittest.mock.patch.object(self.module, "github_request", return_value=broken):
+            self.assertEqual(self.module.main(env), 0)
+
+    def test_the_placement_runs_it_with_a_write_token_and_never_fails_on_it(self):
+        placement = self.workflow["jobs"]["placement"]
+        self.assertEqual(placement["permissions"].get("actions"), "write")
+        step = next(step for step in placement["steps"] if "ffi_build_supersede.py" in str(step.get("run", "")))
+        self.assertIs(step.get("continue-on-error"), True)
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        # The build does not wait on it: the placement's outputs come from the place step alone.
+        self.assertNotIn("supersede", json.dumps(placement["outputs"]))
 
 
 class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):

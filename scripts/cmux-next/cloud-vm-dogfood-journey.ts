@@ -274,7 +274,8 @@ const lifecycleVms = new Set<string>();
 const lifecycleSnapshots = new Set<string>();
 const lifecycleAgentKeys = new Set<string>();
 const VM_ID = /^vm_[0-9a-z]{26}$/;
-const LIFECYCLE_FILE = "/tmp/cmux-lifecycle-marker";
+// On the disk, not /tmp: the guest clears /tmp at boot, so a stop and start would lose it whatever the disk keeps.
+const LIFECYCLE_FILE = "/var/tmp/cmux-lifecycle-marker";
 
 async function lifecycleCreate(label: string, body: Record<string, unknown>, token = bearer): Promise<string> {
   const reply = await call(
@@ -467,7 +468,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     return key;
   };
   const source = await timed("cliNew", async () =>
-    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("source")], "new"), "new"));
+    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idempotency-key", cliKey("source")], "new"), "new"));
   await timed("cliRunning", () => waitForState(source, "running", 5 * 60_000));
   await timed("cliExecWrite", async () => {
     const out = await cli(["exec", source, "--", `printf %s ${marker} > ${LIFECYCLE_FILE} && sync`]);
@@ -488,7 +489,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
   await timed("cliStarted", () => waitForState(source, "running", 5 * 60_000));
   proofs["fileAfterStopStart"] = (await cliRead(source)) === marker;
   const fork = await timed("cliFork", async () =>
-    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("fork")], "fork"), "fork"));
+    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idempotency-key", cliKey("fork")], "fork"), "fork"));
   await timed("cliForkRunning", () => waitForState(fork, "running", 5 * 60_000));
   proofs["fileInFork"] = (await cliRead(fork)) === marker;
   await awake(source);
@@ -504,7 +505,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     lifecycleSnapshots.add(snapshotId);
     await cliJson(["snapshot", "get", snapshotId], "snapshot get");
     const fromSnapshot = await timed("cliNewFromSnapshot", async () =>
-      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
+      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
     await timed("cliFromSnapshotRunning", () => waitForState(fromSnapshot, "running", 5 * 60_000));
     proofs["fileInSnapshotVm"] = (await cliRead(fromSnapshot)) === marker;
     await timed("cliSnapshotDelete", async () => {

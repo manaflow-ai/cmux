@@ -196,6 +196,8 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             }
         }))
     });
+    // Per-service byte rates for `cmux device traffic` (traffic.rs).
+    let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
