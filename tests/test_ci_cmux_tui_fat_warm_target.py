@@ -13,7 +13,8 @@ This pins the fat legs' wiring:
   every thin disk (fat and thin objects never mix) and from the other targets;
 - no sticky disk step admits both LTO modes;
 - the rust-cache restore is skipped when the disk is mounted (restore refuses an existing target);
-- both build steps call the warm script's restore before the build and record on exit, with the
+- both build steps call the warm script's restore before the build, and "Stage binary" records once
+  the binaries are staged (a record before that pruned them away), with the
   disk the mount uses;
 - the macOS-on-Linux leg passes a toolchain stamp, and the script empties a disk whose stamp
   differs (link inputs Cargo does not track: clang, lld, zig, the SDK label, the stubs);
@@ -137,13 +138,36 @@ class FatWarmWiring(unittest.TestCase):
         run = str(build["run"])
         disk = str(fat_mount_for(target)["with"]["path"])
         self.assertIn("machine-channel-warm-target.sh", run)
-        restore = re.search(r"warm restore\b", run)
-        record = re.search(r"trap '[^']*warm record\b", run)
-        self.assertTrue(restore and record, f"{build['name']}: restore, then record on EXIT")
+        restore = re.search(r"machine-channel-warm-target\.sh restore\b", run)
+        self.assertTrue(restore, f"{build['name']}: restores the warm target")
         self.assertLess(restore.start(), run.index(before), f"{build['name']}: restore before the build")
-        self.assertLess(record.start(), run.index(before), f"{build['name']}: the trap is set before the build")
+        # Never record here: record prunes, the prune removes whole target triples, and from the
+        # build step's exit trap it deleted the binaries "Stage binary" then could not copy
+        # (every aarch64 machine-channel leg from 2026-11-17 13:54Z, job 134236280020).
+        self.assertNotRegex(run, r"\brecord\b", f"{build['name']}: records only after staging")
         self.assertIn(disk, run, f"{build['name']}: uses the fat disk {disk}")
         return run
+
+    def test_the_warm_target_is_recorded_after_its_binaries_are_staged(self) -> None:
+        stage = step("Stage binary")
+        run = str(stage["run"])
+        record = re.search(r"machine-channel-warm-target\.sh record\b", run)
+        self.assertTrue(record, "Stage binary records the warm target")
+        last_copy = max(m.start() for m in re.finditer(r'\bcp "\$', run))
+        self.assertGreater(record.start(), last_copy, "record after every binary is in dist")
+        self.assertNotRegex(run[: record.start()], r"(?m)^\s*(exit|return)\b|\|\| exit\b", "no early exit skips the record")
+        env = stage.get("env", {})
+        self.assertEqual(env.get("WARM_TARGET"), "${{ matrix.build_target }}")
+        self.assertEqual(env.get("LTO"), "${{ inputs.lto }}")
+        for disk in ("/home/runner/cmux-tui-fat-warm", "/home/runner/machine-channel-warm"):
+            self.assertIn(disk, run)
+        # The record writes the stamp it is given: the darwin build's restore compares against it.
+        build_stamp = str(step("Build the macOS binaries on Linux (no Apple SDK)")["env"]["MACHINE_CHANNEL_WARM_TOOLCHAIN"])
+        stamp = str(env.get("MACHINE_CHANNEL_WARM_TOOLCHAIN", ""))
+        hashes = re.compile(r"hashFiles\([^)]*\)")
+        self.assertIn("matrix.darwin_on_linux", stamp)
+        self.assertIn("steps.darwin-cross.outputs.key", stamp)
+        self.assertEqual(hashes.findall(stamp), hashes.findall(build_stamp))
 
     def test_linux_build_wraps_fat_builds_too(self) -> None:
         build = step("Build cmux-tui (Linux cross)")
