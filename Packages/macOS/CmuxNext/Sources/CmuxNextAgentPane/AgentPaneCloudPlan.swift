@@ -7,13 +7,13 @@ import Foundation
 /// (`cloud_plan_required`, `cloud_size_locked`) and the pricing card's Subscribe (`cloud.plan.subscribe`).
 extension AgentPaneCloudStart {
     /// This start with the size its folder `local` needs (``CloudMoveCLI/StartChatPreflight``) under the page's plan
-    /// (``planMax``, ``CloudChatSize/planned(_:bytes:planMax:)``) and the bytes its copy sends; throws the preflight's
+    /// (``planMax``, ``CloudChatSize/planned(bytes:planMax:)``) and the bytes its copy sends; throws the preflight's
     /// refusal, and `cloud_folder_too_big` for a folder too big for a Cloud machine.
     public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String) throws -> Self {
         var sized = self
         var preflight = preflight
-        if case .passed(let bytes?, let size) = preflight {
-            preflight = .passed(bytes: bytes, size: CloudChatSize.planned(size, bytes: bytes, planMax: planMax))
+        if case .passed(let bytes?, _) = preflight {
+            preflight = .passed(bytes: bytes, size: CloudChatSize.planned(bytes: bytes, planMax: planMax))
         }
         sized.size = try preflight.size(folder: CloudMoveCLI.shownFolder(local))
         if case .passed(let bytes, _) = preflight { sized.folderBytes = bytes }
@@ -33,13 +33,17 @@ extension AgentPaneCloudStart {
             return bytes.overflow ? nil : bytes.partialValue
         }
         let natural = CloudChatSize.forRepository(sizeKb: sizeKb)
-        guard let size = sized.folderBytes.map({ CloudChatSize.planned(natural, bytes: $0, planMax: planMax) }) ?? natural else {
+        guard let size = sized.folderBytes.map({ CloudChatSize.planned(bytes: $0, planMax: planMax) }) ?? natural else {
             throw CloudMoveCLI.StartChatPreflightRefusal(message: "\(repository) is too big for a Cloud machine", folder: repository,
                                                          bytes: sized.folderBytes.map(Double.init))
         }
         sized.size = size
         return sized
     }
+
+    /// The disk in MiB its machine's create asks beyond ``size``'s own (``CloudChatSize/grownDiskMb(_:bytes:planMax:)``,
+    /// the same disk cmux-tui's ensure sends as `disk_gib`); nil: the size's own.
+    public var grownDiskMb: Int? { CloudChatSize.grownDiskMb(size, bytes: folderBytes, planMax: planMax) }
 }
 
 /// The sizes the GitHub repos list gave (`github.repos.list`'s rows, `size_kb`), by `owner/name`: a start in a picked

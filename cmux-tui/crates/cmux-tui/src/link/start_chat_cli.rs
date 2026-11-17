@@ -332,6 +332,10 @@ struct PlanRequest {
     /// and a disk grown past the size's own (`disk_gib`).
     #[serde(default)]
     bytes: Option<u64>,
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`), which caps
+    /// a grown disk (`disk_gib`); none: not known.
+    #[serde(default)]
+    plan_max: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -491,7 +495,11 @@ fn plan_with_calls(
                     .map(|_| request.key.to_lowercase()),
                 size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
                 // Sent only with a size above the chat size (`body`).
-                disk_gib: preflight::grown_disk_gib(request.size.as_deref(), request.bytes),
+                disk_gib: preflight::grown_disk_gib(
+                    request.size.as_deref(),
+                    request.bytes,
+                    request.plan_max.as_deref(),
+                ),
             };
             let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
@@ -780,7 +788,7 @@ pub(super) struct Ensure {
 /// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
 pub(super) const ENSURE_SIZE_FIELD: &str = "size";
 /// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
-/// ignores it and makes the size's own disk, which the room check then refuses).
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve).
 pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {

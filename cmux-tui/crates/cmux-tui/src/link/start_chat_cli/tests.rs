@@ -2109,8 +2109,9 @@ fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
     }
 }
 
-/// A folder past the size's own disk (a plan's largest size) asks that size grown to the folder's needed disk, in GiB
-/// rounded up to 4 (`disk_gib`); a folder the size holds, unknown bytes or the chat size send none.
+/// A size whose own disk is below the folder's needed disk asks it grown, in GiB rounded up to 4 and at most the plan's
+/// largest disk (`plan_max`, 256 GiB when not known) (`disk_gib`); a folder the size holds, unknown bytes or the chat
+/// size send none.
 #[test]
 fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -2124,12 +2125,18 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
     };
     let asks = [
-        (Some("lg"), Some(50 * GIB)),
-        (Some("lg"), Some(40 * GIB)),
-        (Some("lg"), None),
-        (Some("sm"), Some(50 * GIB)),
+        (Some("lg"), Some(50 * GIB), None, Some(76)),
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136.
+        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
+        // No plan known, 100 GiB: `xl` grown to 152.
+        (Some("xl"), Some(100 * GIB), None, Some(152)),
+        // cmux NEXT Pro, 100 GiB: `lg` grown to Pro's 128 at most.
+        (Some("lg"), Some(100 * GIB), Some("lg"), Some(128)),
+        (Some("lg"), Some(40 * GIB), None, None),
+        (Some("lg"), None, Some("lg"), None),
+        (Some("sm"), Some(50 * GIB), None, None),
     ];
-    for (size, bytes) in asks {
+    for (size, bytes, plan_max, _) in asks {
         let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
             "local": folder.to_str().unwrap(), "credential_on_stdin": true});
         if let Some(size) = size {
@@ -2137,6 +2144,9 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         }
         if let Some(bytes) = bytes {
             request["bytes"] = json!(bytes);
+        }
+        if let Some(plan_max) = plan_max {
+            request["plan_max"] = json!(plan_max);
         }
         let answer = super::plan_with_calls(
             &path,
@@ -2148,12 +2158,15 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         assert!(answer["machine"].is_string(), "{answer}");
     }
     let bodies = bodies.borrow();
-    assert_eq!(bodies.len(), 4);
-    // 50 GiB needs 75 GiB, past `lg`'s 64.
-    assert_eq!(bodies[0][super::ENSURE_SIZE_FIELD], "lg", "{}", bodies[0]);
-    assert_eq!(bodies[0][super::ENSURE_DISK_FIELD], 76, "{}", bodies[0]);
-    for body in &bodies[1..] {
-        assert!(body.get(super::ENSURE_DISK_FIELD).is_none(), "{body}");
+    assert_eq!(bodies.len(), asks.len());
+    for ((size, _, _, disk), body) in asks.iter().zip(bodies.iter()) {
+        if *size != Some("sm") {
+            assert_eq!(body[super::ENSURE_SIZE_FIELD], json!(size), "{body}");
+        }
+        match disk {
+            Some(disk) => assert_eq!(body[super::ENSURE_DISK_FIELD], json!(disk), "{body}"),
+            None => assert!(body.get(super::ENSURE_DISK_FIELD).is_none(), "{body}"),
+        }
     }
 }
 
