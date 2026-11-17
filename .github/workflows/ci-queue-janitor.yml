@@ -250,6 +250,11 @@ jobs:
           # runner-state variable; the janitor never lists runners or runs for this.
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           CI_HOSTED_LIGHT_CANDIDATES_DISABLED: ${{ vars.CI_HOSTED_LIGHT_CANDIDATES_DISABLED }}
+          # Not `on`: cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER on every attempt, so the unclaimed-leg
+          # rule never cancels a cmux-next run for a re-run that would rejoin that queue at its back
+          # (owned_pool_rescue.rerun_side_label(), bot_rerun_leaves_owned()).
+          STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on

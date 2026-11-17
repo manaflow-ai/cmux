@@ -3120,7 +3120,7 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
-        past = past_wait_bound(target, looked, now(), seen)
+        past = past_wait_bound(target, looked, now(), seen, side_label=side_label)
         if past:
             log(f"moving past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min): {past}"
                 + (f", though the re-run takes {held}" if held else ""))
@@ -3190,11 +3190,13 @@ def owned_wait(job: Mapping[str, Any], now: dt.datetime, first_seen: dt.datetime
 
 
 def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
-                    first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
+                    first_seen: Mapping[Any, dt.datetime] | None = None, *, side_label: str = "") -> str:
     """The owned jobs of `target` waiting past OWNED_WAIT_BOUND_SECONDS, named for the log, or "" when none is or the
     bound does not apply: a delivery run, or a run whose bot re-run of failed jobs stays on the owned labels
-    (bot_rerun_leaves_owned(); a cmux-next attempt the stall scan moves instead, stall_scan())."""
-    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt):
+    (bot_rerun_leaves_owned(), with `side_label` from rerun_side_label(): while vars.CI_BLACKSMITH_MACOS is off a
+    cmux-next re-run takes that owned label on every attempt; a cmux-next attempt the stall scan moves instead,
+    stall_scan())."""
+    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt, side_label=side_label):
         return ""
     seen = first_seen or {}
     waits = [(str(job.get("name") or job.get("id")), owned_wait(job, now, seen.get(job.get("id")))) for job in jobs]
@@ -3202,7 +3204,7 @@ def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt
                      for name, waited in sorted(waits) if waited >= OWNED_WAIT_BOUND_SECONDS)
 
 
-def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
+def bot_rerun_leaves_owned(path: str, attempt: int, *, side_label: str = "") -> bool:
     """Whether a bot's re-run of failed jobs of `attempt` sends a leg queued on an owned label elsewhere.
 
     queue_janitor.py's unclaimed-leg rule cancels a run whose owned leg no runner claimed within its bound
@@ -3210,7 +3212,12 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     as next_attempt() describes the routes:
     - a side lane other than cmux-next takes its Blacksmith default from attempt 2 on (cmux-tui.yml's
       macOS legs read `github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-...-macos-...'`);
-    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it;
+    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it, but only while
+      vars.CI_BLACKSMITH_MACOS is `on`: `side_label` (rerun_side_label(), "" under `on`) names the owned label its
+      Mac fallbacks (`vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER`) take on every attempt
+      otherwise, so then no attempt leaves (2026-11-17: the switch unset, a bot's attempt 3 and 4 of a job queued
+      on glaeda-side-std-xcode-26.6 rejoined that queue at its back). A caller with no `side_label` judges the
+      switch `on`;
     - ci.yml's re-run of failed jobs reuses attempt 1's placement through LAST_OWNED_ATTEMPT;
     - test-ios.yml, ios-screenshots.yml, iroh-release-gate.yml and cmux-next-dev-daily.yml take their retry
       route from attempt 2;
@@ -3224,7 +3231,7 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     if path in OWNED_EVERY_ATTEMPT_PATHS:
         return False
     if path == CMUX_NEXT_WORKFLOW_PATH:
-        return following > REFUSAL_RESCUE_ATTEMPT
+        return following > REFUSAL_RESCUE_ATTEMPT and not side_label
     if path == CI_WORKFLOW_PATH:
         return following > LAST_OWNED_ATTEMPT
     if path in DISPATCH_WORKFLOW_PATHS:
@@ -3416,9 +3423,10 @@ CMUX_NEXT_SIDE_FALLBACK = "glaeda-side-std-xcode-26.6"
 
 
 def rerun_side_label(env: Mapping[str, str]) -> str:
-    """The owned side label a bot's re-run of a cmux-next.yml run's failed jobs takes through REFUSAL_RESCUE_ATTEMPT,
-    from ci-owned-pool-rescue.yml's SIDE_LANE_RUNNER (vars.CI_SIDE_LANE_RUNNER) and STALL_BLACKSMITH_MACOS
-    (vars.CI_BLACKSMITH_MACOS), or "" while that switch is `on` and the re-run takes RUNNER_POOLS' Blacksmith label.
+    """The owned side label a bot's re-run of a cmux-next.yml run's failed jobs takes on every attempt, from
+    ci-owned-pool-rescue.yml's and ci-queue-janitor.yml's SIDE_LANE_RUNNER (vars.CI_SIDE_LANE_RUNNER) and
+    STALL_BLACKSMITH_MACOS (vars.CI_BLACKSMITH_MACOS), or "" while that switch is `on` and the re-run takes
+    RUNNER_POOLS' Blacksmith label.
     The re-run carries attempt 1's placement, so its Mac jobs fall through to
     `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` whatever label they waited on: run 43718265555's
     daemon tests waited on glaeda-gui-std-xcode-26.6 and attempt 2 took the side label (2026-11-15)."""
@@ -3493,7 +3501,13 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
     if not isinstance(snapshot, Mapping):
         return "busy", ""
     if side_label and target.path == CMUX_NEXT_WORKFLOW_PATH \
-            and not bot_rerun_leaves_owned(target.path, target.attempt):
+            and not bot_rerun_leaves_owned(target.path, target.attempt, side_label=side_label):
+        if side_label in set(sources) and not target.pr_number and not push_tip_failover(target):
+            # The re-run takes the label the job waits on: the cancel only sends it to the back of the same queue.
+            # A pull request run at its head and a push run at its tip move only by the stall-aware failover, which
+            # re-runs the placement (rescue(), open_head_failover()), never the failed jobs alone.
+            return "deeper", (f"{side_label} is the label it waits on, so its re-run would only rejoin that queue "
+                              "at its back")
         deeper = deeper_queue(snapshot, sources, side_label)
         return ("deeper", deeper) if deeper else ("free", "")
     states = blacksmith_states(snapshot, now)
