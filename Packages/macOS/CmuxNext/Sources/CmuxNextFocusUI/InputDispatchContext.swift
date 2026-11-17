@@ -39,6 +39,9 @@ public final class InputDispatchContext {
     private let uptime: () -> TimeInterval
     /// When the last scroll event was dispatched here, on ``uptime``.
     private var lastScroll: TimeInterval?
+    /// The held New Tab key (decision 2026-11-16): it gets each event dispatched here, before the dispatch, so its
+    /// ends (the key-up, Command up, another key) are the events that AppKit gave the application.
+    public let newTabHold = NewTabKeyHold()
 
     /// A context with no event being dispatched.
     ///
@@ -65,6 +68,10 @@ public final class InputDispatchContext {
     /// Whether the innermost event being dispatched is a key-down.
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }
 
+    /// Whether the innermost event being dispatched is a key-down that the system repeats (a held key). The New
+    /// Tab pool gives such a key no prewarmed page (``NewTabKeyHold``).
+    public var isKeyRepeat: Bool { NewTabKeyHold.isRepeat(stack.last?.event) }
+
     /// Whether a scroll is under way: a scroll event (a gesture's, its momentum's, a wheel's notch) was dispatched
     /// here in the last ``scrollGap``. The frames that show a scroll come between its events, when none is in dispatch.
     public var scrollUnderWay: Bool { lastScroll.map { uptime() - $0 < Self.scrollGap } ?? false }
@@ -88,6 +95,7 @@ public final class InputDispatchContext {
             scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp)
             lastScroll = uptime()
         }
+        newTabHold.note(event)
         stack.append(Dispatch(event: event, isScroll: isScroll))
         defer {
             let dispatch = stack.removeLast()
