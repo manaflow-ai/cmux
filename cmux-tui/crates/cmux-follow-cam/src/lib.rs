@@ -28,8 +28,6 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-/// The interface only: the camera never moves (red-first commit).
-const STUB: bool = true;
 /// The motion's fixed step: 240 Hz.
 pub const STEP_US: u64 = 1_000_000 / 240;
 /// After a cut, how long new focus signals still snap instead of pan.
@@ -176,10 +174,20 @@ impl Axis {
             self.vel = 0.0;
             return;
         }
-        let brake = (2.0 * amax * d.abs()).sqrt();
+        // The fastest speed that still stops within `d` when it loses
+        // `dv_max` a step: v^2 / 2a + v dt / 2 = d.
+        let half = dv_max / 2.0;
+        let brake = (half * half + 2.0 * amax * d.abs()).sqrt() - half;
         let want = d.signum() * vmax.min(brake);
         self.vel += (want - self.vel).clamp(-dv_max, dv_max);
-        self.pos += self.vel * dt;
+        let next = self.pos + self.vel * dt;
+        if (goal - next).signum() != d.signum() && self.vel.abs() <= dv_max {
+            // The last, slowest step lands on the goal instead of past it.
+            self.pos = goal;
+            self.vel = 0.0;
+        } else {
+            self.pos = next;
+        }
     }
 }
 
@@ -208,6 +216,16 @@ pub struct Camera {
     damage: VecDeque<(u64, Rect)>,
     /// Signals up to this time snap.
     snap_until_us: Option<u64>,
+    /// The best focus the shot since the last cut has framed.
+    shot: Option<Rank>,
+}
+
+/// How much a focus says about where the person looks, least first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Rank {
+    Window,
+    Damage,
+    Intent,
 }
 
 impl Camera {
@@ -229,6 +247,7 @@ impl Camera {
             pointer_moved_us: None,
             damage: VecDeque::new(),
             snap_until_us: None,
+            shot: None,
         };
         camera.size = camera.zoom_size(config.zoom);
         camera.center_on(source_w / 2.0, source_h / 2.0, true);
@@ -288,13 +307,15 @@ impl Camera {
                 self.cut(t);
             }
             Signal::Pointer { x, y } => {
-                let moved = match self.pointer {
-                    Some((_, px, py)) => (x - px).hypot(y - py) >= POINTER_MOVE_PX,
-                    None => true,
-                };
-                if moved {
-                    self.pointer = Some((t, x, y));
-                    self.pointer_moved_us = Some(t);
+                // The first position says where the pointer rests, not
+                // that anyone moved it.
+                match self.pointer {
+                    Some((_, px, py)) if (x - px).hypot(y - py) < POINTER_MOVE_PX => {}
+                    Some(_) => {
+                        self.pointer = Some((t, x, y));
+                        self.pointer_moved_us = Some(t);
+                    }
+                    None => self.pointer = Some((t, x, y)),
                 }
             }
             Signal::Caret { x, y, w, h } => self.caret = Some((t, Rect::new(x, y, w, h))),
@@ -325,14 +346,20 @@ impl Camera {
     /// focus snaps.
     fn cut(&mut self, t: u64) {
         self.caret = None;
+        self.pointer_moved_us = None;
         self.damage.clear();
         self.snap_until_us = Some(t + CUT_SETTLE_US);
+        self.shot = None;
     }
 
     /// What the camera should look at now: the newest intent (caret or a
     /// moving pointer), else recent damage in the focused window, else the
     /// focused window, else nothing.
     pub fn focus(&self) -> Option<Rect> {
+        self.ranked_focus().map(|(_, rect)| rect)
+    }
+
+    fn ranked_focus(&self) -> Option<(Rank, Rect)> {
         let t = self.now_us;
         let hold = self.config.intent_hold_us;
         let caret = self.caret.filter(|(at, _)| t.saturating_sub(*at) <= hold);
@@ -345,8 +372,8 @@ impl Camera {
             (Some(c), Some(p)) => Some(if p.0 > c.0 { p.1 } else { c.1 }),
             (c, p) => c.or(p).map(|(_, r)| r),
         };
-        if intent.is_some() {
-            return intent;
+        if let Some(intent) = intent {
+            return Some((Rank::Intent, intent));
         }
         let window = self.window.map(|(_, r)| r);
         let damage = self
@@ -358,19 +385,24 @@ impl Camera {
                 None => Some(*r),
             })
             .reduce(|a, b| a.union(&b));
-        damage.or(window)
+        damage.map(|r| (Rank::Damage, r)).or(window.map(|r| (Rank::Window, r)))
     }
 
-    /// Moves the goal when the focus has left the dead zone (or always,
-    /// right after a cut).
+    /// Moves the goal when the focus has left the dead zone. Right after a
+    /// cut the move is a snap, and a better focus than the shot's (the new
+    /// window's caret after its frame) recentres even inside the dead zone.
     fn retarget(&mut self) {
-        if self.mode == Mode::Manual || STUB {
+        if self.mode == Mode::Manual {
             return;
         }
-        let Some(focus) = self.focus() else { return };
+        let Some((rank, focus)) = self.ranked_focus() else { return };
         let (fx, fy) = focus.center();
         let snap = self.snap_until_us.is_some_and(|until| self.now_us <= until);
-        if !snap {
+        let better = snap && self.shot.is_none_or(|shot| rank > shot);
+        if snap {
+            self.shot = self.shot.max(Some(rank));
+        }
+        if !better {
             let (w, h) = self.size;
             let margin_x = w * (1.0 - self.config.dead_zone) / 2.0;
             let margin_y = h * (1.0 - self.config.dead_zone) / 2.0;

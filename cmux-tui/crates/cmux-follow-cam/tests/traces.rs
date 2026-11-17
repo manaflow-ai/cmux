@@ -90,10 +90,13 @@ fn a_window_switch_cuts_to_the_new_caret_with_no_pan_between() {
     assert!((center_x(&at) - new).abs() < 0.01, "the caret of window 2: {at:?}");
     // No frame shows a pan between the two shots: only the old shot, the
     // new window's middle (the 60 ms before its caret) and the new caret.
+    let first_window_middle = 100.0 + 1200.0 / 2.0;
     let window_middle = 1600.0 + 900.0 / 2.0;
     for (t, rect) in &frames {
         let cx = center_x(rect);
-        let known = [old, window_middle, new].iter().any(|shot| (cx - shot).abs() < 20.0);
+        let known = [first_window_middle, old, window_middle, new]
+            .iter()
+            .any(|shot| (cx - shot).abs() < 20.0);
         assert!(known, "frame at {t} sits between shots: {cx}");
     }
     assert_eq!(camera.mode(), Mode::Follow);
@@ -114,7 +117,7 @@ fn a_far_caret_jump_pans_smoothly_and_stops_on_it() {
     let goal_x = 2004.5 - pan[0].1.w / 2.0;
     let overshoot = pan.iter().map(|(_, r)| r.x - goal_x).fold(f64::MIN, f64::max);
     assert!(overshoot <= 1.0, "ran {overshoot} px past the goal");
-    let arrived = pan.iter().find(|(_, r)| (r.x - goal_x).abs() < 0.5).expect("arrives");
+    let arrived = pan.iter().find(|(_, r)| r.x == goal_x).expect("arrives");
     // 1500 px with 9720 px/s^2 and 2430 px/s: under 0.9 s.
     assert!(arrived.0 < 1_900_000, "arrived only at {}", arrived.0);
     assert!(
@@ -193,9 +196,11 @@ fn a_moving_pointer_takes_over_from_an_older_caret() {
         t_us: 10_000,
         signal: Signal::Caret { x: 400.0, y: 700.0, w: 9.0, h: 18.0 },
     });
-    camera.push(Event { t_us: 500_000, signal: Signal::Pointer { x: 2200.0, y: 700.0 } });
+    // Where the pointer rests is not intent; moving it is.
+    camera.push(Event { t_us: 20_000, signal: Signal::Pointer { x: 1200.0, y: 700.0 } });
+    camera.push(Event { t_us: 500_000, signal: Signal::Pointer { x: 2000.0, y: 700.0 } });
     let end = camera.advance(2_000_000);
-    assert!((center_x(&end) - 2200.0).abs() < 1.0, "follows the pointer: {end:?}");
+    assert!((center_x(&end) - 2000.0).abs() < 1.0, "follows the pointer: {end:?}");
 }
 
 #[test]
