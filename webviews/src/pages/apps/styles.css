@@ -247,11 +247,17 @@
   color: var(--page-text-2);
 }
 
-/* Preview and Install wrap as one group, pushed to the end of the footer's last line. */
+/* Preview and Install wrap as one group, pushed to the end of the footer's last line. The group
+   never shrinks: when Installed joins the footer, WebKit would otherwise narrow the action. */
 .apps-card-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
   margin-left: auto;
+}
+
+.apps-card-actions > .apps-button {
+  flex-shrink: 0;
 }
 
 .apps-rows {
@@ -1171,6 +1177,12 @@ code {
 .apps-hero-actions .apps-button.primary {
   background: var(--page-text);
   color: var(--page-elevated);
+  font-weight: 600;
+}
+
+/* Their primary label is heavier, so both labels reserve its width: Install to Remove keeps the size. */
+.apps-listing-actions .apps-action-label-size,
+.apps-hero-actions .apps-action-label-size {
   font-weight: 600;
 }
 
