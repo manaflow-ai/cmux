@@ -103,6 +103,8 @@ test("the start card for a refused open names it, not 'Something went wrong'", (
   const t = (key: Parameters<typeof translate>[0], values?: Record<string, string | number>) => translate(key, values);
   const error = quietly(() => errorMessage(refusal("_acpmux/attach")));
   const view = startFailureView(t, { harness: "codex", name: "Codex", error, code: "transport.intent_invalid" });
-  expect(view.sentence).toBe(translate("switch.failed", { agent: "Codex", reason: translate("transport.intentInvalidOpen") }));
+  expect(view.sentence).toBe(
+    translate("switch.failed", { agent: "Codex", reason: translate("transport.intentInvalidOpen") }),
+  );
   expect(view.sentence).not.toContain(translate("transport.intentInvalid"));
 });
