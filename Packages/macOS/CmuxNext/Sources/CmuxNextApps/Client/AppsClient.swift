@@ -151,6 +151,12 @@ public final class AppsClient {
         }
     }
 
+    /// A key no other call of this client used (an App Store op's `idempotency_key`).
+    func nextIdempotencyKey() -> String {
+        nextKey += 1
+        return "\(keyPrefix)-\(nextKey)"
+    }
+
     public func install(_ app: String) async throws(AppsClientError) { try await set(app, .install(true), origin: .user) }
     public func remove(_ app: String) async throws(AppsClientError) { try await set(app, .install(false), origin: .user) }
 
@@ -196,10 +202,13 @@ public final class AppsClient {
             }
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
-        case .widgetsChanged, .widgetHealth:
-            // The pages that show widgets follow these (AppsPanelsPageProvider); a widget's mount
-            // keeps its scene and status here.
+        case .widgetsChanged:
+            // Each widget area showing the place reads it again (the New Tab page through
+            // AppsPanelsPageProvider, the sidebar through `observeEvents`).
             break
+        case let .widgetHealth(mountID, stale, reason, _):
+            // Let it crash: the tile keeps its last scene, marked stale until a render answers again.
+            mounts[mountID]?.model.staleReason = stale ? (reason ?? AppsStrings.mountFailed) : nil
         }
         eventListeners.removeAll { $0.owner.object == nil }
         for entry in eventListeners { entry.listener(event) }

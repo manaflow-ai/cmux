@@ -19,6 +19,10 @@ final class AppSceneNativeView: NSView {
     let bundleDirectory: URL?
     /// Runs after a redraw that may have changed ``preferredHeight(width:)``.
     var onContentSizeChange: (() -> Void)?
+    /// The root takes the view's whole bounds (a widget tile), not its own height.
+    var fillsBounds = false {
+        didSet { if fillsBounds != oldValue { needsLayout = true } }
+    }
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
     /// The failed or disconnected mount's row (plain words, Copy Error, Details).
@@ -209,8 +213,12 @@ final class AppSceneNativeView: NSView {
             failure.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ceil(failure.height(width: bounds.width)))
         }
         guard let rootView else { return }
-        let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
-        rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        if fillsBounds {
+            rootView.frame = bounds
+        } else {
+            let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
+            rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        }
         if !reloadMarker.isHidden {
             reloadMarker.frame = CGRect(x: 0, y: rootView.frame.maxY, width: bounds.width, height: reloadMarker.height)
         }

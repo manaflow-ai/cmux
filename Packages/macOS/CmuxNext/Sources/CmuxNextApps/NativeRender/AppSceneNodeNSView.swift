@@ -16,6 +16,10 @@ class AppSceneNodeNSView: NSView {
     weak var model: AppSceneModel?
     /// A container's laid-out children, in order (set by the reconciler).
     private(set) var childViews: [AppSceneNodeNSView] = []
+    /// The container drew its children once: a child added after this moves in by its `transition`.
+    private(set) var hasDrawnChildren = false
+    /// The node left its parent and its `transition` moves it out.
+    var isLeaving = false
     /// The app bundle's folder (an `Image` node's `src` is inside it), set by the reconciler.
     var bundleDirectory: URL?
     private var isPressed = false
@@ -62,9 +66,31 @@ class AppSceneNodeNSView: NSView {
     func setChildren(_ views: [AppSceneNodeNSView]) {
         guard views.map(ObjectIdentifier.init) != childViews.map(ObjectIdentifier.init) else { return }
         let keep = Set(views.map(ObjectIdentifier.init))
-        for old in childViews where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost { old.removeFromSuperview() }
-        for view in views where view.superview !== childHost { childHost.addSubview(view) }
+        // After the first frame a child's `transition` moves it in and out (AppSceneNodeNSView+Transition).
+        let transitions = hasDrawnChildren && window != nil
+        for old in childViews where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost {
+            guard transitions, old.sceneTransition != nil else {
+                old.removeFromSuperview()
+                continue
+            }
+            old.transitionOut { [weak self, weak old] in
+                // Back in the tree before its exit ended: it stays.
+                guard let self, let old, !self.childViews.contains(where: { $0 === old }) else { return }
+                old.removeFromSuperview()
+            }
+        }
+        for view in views where view.superview !== childHost || view.isLeaving {
+            if view.superview !== childHost { childHost.addSubview(view) }
+            if transitions, view.sceneTransition != nil {
+                view.transitionIn()
+            } else if view.isLeaving {
+                // Back before its exit ended, with no entrance to run: at rest now, and the exit's
+                // completion finds it no longer leaving.
+                view.settleAtRest()
+            }
+        }
         childViews = views
+        hasDrawnChildren = true
         needsLayout = true
     }
 
