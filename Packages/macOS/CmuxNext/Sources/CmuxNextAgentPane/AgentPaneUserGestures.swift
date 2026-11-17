@@ -310,13 +310,12 @@ import CmuxNextCompat
         return true
     }
 
-    /// Whether `upload` holds a send ticket whose grant still stands (``isGrantStanding(_:)``).
+    /// Whether `upload` holds a send ticket.
     public func holdsTicket(upload: String) -> Bool {
-        tickets.values.contains { $0.uploads[upload] != nil && isGrantStanding($0) }
+        tickets.values.contains { $0.uploads[upload] != nil }
     }
 
-    /// Drops the tickets that expired, and the posted ones whose grant was turned off since they
-    /// were reserved: their uploads stop (``onUploadHoldsEnded``).
+    /// Drops the tickets that expired: their uploads stop (``onUploadHoldsEnded``).
     private func dropEndedHolds() {
         let at = now()
         dropTickets { !$1.isFresh(at) }
