@@ -237,5 +237,11 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
     expect(heights.at(-1), trace).toBe(0);
     // Frames in the middle of the shrink: the row did not go from its height to 0 in one step.
     expect(heights.filter((height) => height > 2 && height < heights[0]! - 2).length, trace).toBeGreaterThanOrEqual(3);
+    // No layout jump: the row under it moves with it, its gaps closing as it shrinks, so no frame
+    // moves it by more than a few pixels (the gaps once dropped all at once when it reached 0: 24 px).
+    const steps = tops.slice(1).map((top, at) => Math.abs(top - tops[at]!));
+    expect(Math.max(...steps), trace).toBeLessThanOrEqual(4);
+    // And it did move up by the line and its gaps (to the gap the footer has with no line at all).
+    expect(tops[0]! - tops.at(-1)!, trace).toBeGreaterThan(20);
   });
 });

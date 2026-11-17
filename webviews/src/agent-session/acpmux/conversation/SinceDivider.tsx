@@ -82,7 +82,11 @@ function unreadMenu(
 ): ContextMenuItem[] {
   return [
     ...extra,
-    { id: "unread.markRead", label: t("since.markRead"), onSelect: () => markUnreadRead(mark) },
+    {
+      id: "unread.markRead",
+      label: t("since.markRead"),
+      onSelect: () => markUnreadRead(mark),
+    },
     mode === "off"
       ? {
           id: "unread.showBanner",
@@ -126,6 +130,8 @@ export function SinceDivider({
       data-look={look}
       data-read={isRead ? "" : undefined}
       data-gone={arm === "fade" ? undefined : arm}
+      // Shrinking to nothing, the rows around it close their gaps with it (model.ts collapsingHeight).
+      data-row-collapsing={arm === "shrink" && !since.recap ? "" : undefined}
       ref={useSinceObserver(since.key)}
     >
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
@@ -152,7 +158,10 @@ export function SinceDivider({
 let clock: Intl.DateTimeFormat | undefined;
 /// 3:42 PM, in the person's locale.
 const clockLabel = (at: number) =>
-  (clock ??= new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })).format(new Date(at));
+  (clock ??= new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })).format(new Date(at));
 
 /// The moving view: in the transcript's top-start zone (VirtualTranscript.tsx places it from
 /// overlayLayout.ts) while the "New" line is out of view and not yet reached. Mounted with the mark

@@ -100,13 +100,16 @@ import {
   type IndexedLayoutGeometry,
   type LayoutGeometry,
 } from "./conversationGeometry";
-import { PlacedHeightIndex } from "./placedHeightIndex";
+import { PASS_MARK, PlacedHeightIndex } from "./placedHeightIndex";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
 export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
-export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
+export type AcpmuxPlanEntry = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+};
 
 /** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
 export type AcpmuxBackgroundTask = {
@@ -166,7 +169,12 @@ export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 /// recap made for the same return (`since` on its record) draws on it instead of on its own row.
 export const SINCE_DIVIDER = "sinceDivider";
 /// `key`: the chat and the seq, which Jump to new follows the line by (seqs repeat across chats).
-export type AcpmuxSince = { key: string; seq: number; turns: number; recap?: AcpmuxRecap };
+export type AcpmuxSince = {
+  key: string;
+  seq: number;
+  turns: number;
+  recap?: AcpmuxRecap;
+};
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
@@ -200,7 +208,11 @@ export type AcpmuxBackgroundTurn = {
 
 /// The task a background turn answered, as its line cites it: the command as typed, and the helper
 /// that ran it when the chat did not (a subagent's or workflow agent's shell).
-export type AcpmuxBackgroundSource = { command?: string; ownerId?: string; ownerTitle?: string };
+export type AcpmuxBackgroundSource = {
+  command?: string;
+  ownerId?: string;
+  ownerTitle?: string;
+};
 
 /// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
 /// worth responding to and not worth responding to"), decided by acpmux from the task's own event
@@ -250,7 +262,10 @@ export type AcpmuxBackgroundRun = {
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
 /// (`ownSettings`); another harness has no mode that asks (`noAskingMode`).
-export type AcpmuxPolicyUnenforced = { policy: string; why: "ownSettings" | "noAskingMode" };
+export type AcpmuxPolicyUnenforced = {
+  policy: string;
+  why: "ownSettings" | "noAskingMode";
+};
 
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };
@@ -555,7 +570,12 @@ export type AcpmuxRow = {
   };
   /// A flattened inbox delivery that came from a queued message. Keep the source queue target
   /// separate from `queuedMessage` so one wrapper prompt does not become every delivery's identity.
-  inboxQueue?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
+  inboxQueue?: {
+    promptId: string;
+    next?: boolean;
+    lead?: boolean;
+    heldByStop?: boolean;
+  };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -814,7 +834,11 @@ export type AcpmuxRow = {
   partial?: boolean;
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
-  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
+  pendingMessages?: {
+    rows: readonly AcpmuxRow[];
+    displayRows?: readonly AcpmuxRow[];
+    flat?: boolean;
+  };
   /// A received row expanded from an inbox notice; used to keep its waiting run flat.
   inboxDelivery?: true;
   /// The id of the inbox notice row a delivery was expanded from (laneNoticeBatches.ts
@@ -924,7 +948,11 @@ export type AcpmuxFileDiff = {
 };
 
 /// A file a tool call names (ACP `locations`), with its canonical path as for `AcpmuxFileDiff`.
-export type AcpmuxLocation = { path: string; line?: number; canonical?: string };
+export type AcpmuxLocation = {
+  path: string;
+  line?: number;
+  canonical?: string;
+};
 
 /// What tells two tool call paths apart: the canonical path acpmux recorded, absolute with links,
 /// `.`, `..` and the volume's letter case resolved, so `./notes.txt`, a folder link's path and
@@ -988,10 +1016,17 @@ export type AcpmuxSessionOffer = {
 
 /// The `_meta.provenance` acpmux puts on the prompt that brings a started offer's result back to
 /// the chat that offered it (cx-lo9yf).
-export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title: string };
+export type AcpmuxOfferResult = {
+  offerId: string;
+  childSessionId: string;
+  title: string;
+};
 
 /** The concrete app, resource, or working directory an approval covers. */
-export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
+export type AcpmuxPermissionScope = {
+  kind: "app" | "resource" | "directory";
+  value: string;
+};
 
 /** A daemon-owned OS access block. Approving retries one retained operation, never grants OS rights. */
 export type ExternalAccess = {
@@ -1088,7 +1123,12 @@ export type SubsessionLimits = {
 export type AcpmuxContextBreakdown = {
   /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
   /// one; `name` is its display name.
-  categories: { id?: string; name: string; tokens: number; kind: "used" | "free" | "buffer" | "deferred" }[];
+  categories: {
+    id?: string;
+    name: string;
+    tokens: number;
+    kind: "used" | "free" | "buffer" | "deferred";
+  }[];
   memoryFiles: { path: string; type: string; tokens: number }[];
   mcpTools: { name: string; serverName: string; tokens: number }[];
   /// Only when skills take context.
@@ -1104,7 +1144,12 @@ export type AcpmuxContextBreakdown = {
 /// when Codex named it. `plan` (Codex's `planType`, such as `pro`) and `credits` (the balance, or
 /// unlimited) only when the harness reported them; Claude Code names neither.
 export type AcpmuxUsageLimits = {
-  windows: { id: string; usedPercent: number; resetsAt?: number; windowMins?: number }[];
+  windows: {
+    id: string;
+    usedPercent: number;
+    resetsAt?: number;
+    windowMins?: number;
+  }[];
   plan?: string;
   credits?: { balance?: string; unlimited?: boolean };
 };
@@ -1116,7 +1161,12 @@ export type AcpmuxWorkflowWire = {
   title: string;
   state: "pending" | "running" | "paused" | "completed" | "failed";
   phase?: string;
-  phases?: { id: string; name: string; state: "pending" | "running" | "completed" | "failed"; agentIds?: string[] }[];
+  phases?: {
+    id: string;
+    name: string;
+    state: "pending" | "running" | "completed" | "failed";
+    agentIds?: string[];
+  }[];
   agents?: {
     id: string;
     name: string;
@@ -1191,7 +1241,16 @@ export type AcpmuxSnapshot = {
   /// rescanning every agent on a token update.
   subagentProgress?: Record<
     string,
-    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+    {
+      agents?: {
+        done: number;
+        started: number;
+        failed?: number;
+        queued?: number;
+      };
+      tokens?: number;
+      toolUses?: number;
+    }
   >;
   /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
   subagentStructureVersion?: number;
@@ -1304,7 +1363,13 @@ export type AcpmuxSnapshot = {
     status?: string;
     /** Existing daemon silence signal; no client-side threshold or timer. */
     stalledSince?: number;
-    loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
+    loopEpisode?: {
+      episodeId: number;
+      since: number;
+      count: number;
+      diagnosis: string;
+      hint: string;
+    };
     enforcement?: Enforcement;
     modes?: {
       availableModes: { id: string; name?: string; description?: string }[];
@@ -1460,7 +1525,12 @@ export type AcpmuxSnapshot = {
     iconSpec?: HarnessIconSpec;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
-    start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };
+    start?: {
+      model?: string;
+      effort?: string;
+      modelSource?: StartSource;
+      effortSource?: StartSource;
+    };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */
@@ -1964,12 +2034,19 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): PlainEditLabe
     const mark = failed ? { failed: true as const } : {};
     const files = diffs.length
       ? diffs.filter(contentsUnknown)
-      : editedPaths(tool).map((path) => ({ path, canonical: toolCanonical(tool, path) }));
+      : editedPaths(tool).map((path) => ({
+          path,
+          canonical: toolCanonical(tool, path),
+        }));
     if (!diffs.length && !files.length) out.push({ key: `unknown-${tool.id}-${index}`, ...mark });
     for (const file of files) {
       const key = pathKey(file);
       const listed = at.get(key);
-      const entry = { key: `path-${key}`, path: file.path, ...(file.canonical ? { canonical: file.canonical } : {}) };
+      const entry = {
+        key: `path-${key}`,
+        path: file.path,
+        ...(file.canonical ? { canonical: file.canonical } : {}),
+      };
       if (listed === undefined) {
         at.set(key, out.length);
         out.push({ ...entry, ...mark });
@@ -1980,7 +2057,12 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): PlainEditLabe
 }
 
 /// An edited-files card entry without counts (`plainEditLabels`): `key` is its React key.
-export type PlainEditLabel = { key: string; path?: string; canonical?: string; failed?: true };
+export type PlainEditLabel = {
+  key: string;
+  path?: string;
+  canonical?: string;
+  failed?: true;
+};
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: the message gap for messages,
@@ -2522,7 +2604,15 @@ export const PREPARED_ROWS = 256;
 function preparedRow(cache: Map<string, PreparedRow>, id: string): PreparedRow {
   let entry = cache.get(id);
   if (entry) cache.delete(id);
-  else entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
+  else
+    entry = {
+      text: "",
+      blocks: [],
+      closedBlocks: [],
+      closedEnd: 0,
+      lexedLength: 0,
+      prepared: new Map(),
+    };
   cache.set(id, entry);
   if (cache.size > 2 * PREPARED_ROWS) {
     const oldest = cache.keys().next().value;
@@ -3004,7 +3094,13 @@ function measuredRowHeight(
 export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };
 /// A sent file's chip (composerAttachments.css `.acpmux-file-chip`): 32px tall, at most 340px wide,
 /// 8px each side of its 16px glyph, its name and its size, 6px apart.
-export const INLINE_FILE_CHIP = { height: 32, maxWidth: 340, side: 8, glyph: 16, gap: 6 };
+export const INLINE_FILE_CHIP = {
+  height: 32,
+  maxWidth: 340,
+  side: 8,
+  glyph: 16,
+  gap: 6,
+};
 /// An inspector pick's chip in a sent message (composerAttachments.css `.cv-user__chip`): a block of
 /// its own, its face two control rows tall, 4px above and below. Closed: an opened one is measured.
 export const SENT_UI_PICK_CHIP = { height: 48, marginY: 4 };
@@ -3021,7 +3117,9 @@ function preparedLines(
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
-      measured = prepareWithSegments(text, metrics().measureFont, { whiteSpace: "pre-wrap" });
+      measured = prepareWithSegments(text, metrics().measureFont, {
+        whiteSpace: "pre-wrap",
+      });
       notePreparedText(text.length);
     } catch {
       measured = null;
@@ -3103,11 +3201,18 @@ function attachmentBox(
   const thumbnail = (size: { width: number; height: number }) => {
     // `max-width: calc(100% - 8px)`: a narrow bubble scales it down whole.
     const shown = Math.min(size.width, Math.max(1, width - 2 * marginX));
-    return { width: shown + 2 * marginX, height: (size.height * shown) / size.width + 2 * marginY };
+    return {
+      width: shown + 2 * marginX,
+      height: (size.height * shown) / size.width + 2 * marginY,
+    };
   };
   if (part.kind === "image") return thumbnail(sentImageSize(part));
   const video = part.kind === "file" ? sentVideoOf(part, videos) : undefined;
-  if (video) return thumbnail({ width: sentImageWidth(video), height: SENT_IMAGE_HEIGHT });
+  if (video)
+    return thumbnail({
+      width: sentImageWidth(video),
+      height: SENT_IMAGE_HEIGHT,
+    });
   const chip = INLINE_FILE_CHIP;
   const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
   const content =
@@ -3116,7 +3221,10 @@ function attachmentBox(
     chip.gap +
     lineWidth(part.name, prepared, used) +
     (size ? chip.gap + lineWidth(size, prepared, used) : 0);
-  return { width: Math.min(chip.maxWidth, content) + 2 * marginX, height: chip.height + 2 * marginY };
+  return {
+    width: Math.min(chip.maxWidth, content) + 2 * marginX,
+    height: chip.height + 2 * marginY,
+  };
 }
 
 /// The row of attachments above a prompt's bubble (UserBubble.tsx `.cv-user__inline-strip`, a
@@ -3270,7 +3378,12 @@ export function layoutConversation(
   /// object keeps its height from that layout until the resize settles and a full layout runs. A drag
   /// frame then costs the rows in view, not the whole chat (Leo, 2026-11-11: "the dragging
   /// responsiveness is slow for agent chat but fast for browser hmmm").
-  resizing?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number },
+  resizing?: {
+    rows: readonly AcpmuxRow[];
+    layout: ConversationLayout;
+    from: number;
+    to: number;
+  },
   /// The rows around the view `[from, to)`. Every other row whose prepared text the cache no longer
   /// holds (PREPARED_ROWS) and that was measured at another width, at this scale and edge, keeps that
   /// height (`known`) instead of being lexed and prepared again: a new width costs the rows near the
@@ -3472,7 +3585,12 @@ export function withOrigin(layout: ConversationLayout, origin: number): Conversa
   const tops = new Float64Array(layout.tops.length);
   for (let index = 0; index < tops.length; index += 1) tops[index] = layout.tops[index]! + by;
   const { origin: _, ...rest } = layout;
-  return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
+  return {
+    ...rest,
+    tops,
+    totalHeight: layout.totalHeight + by,
+    ...(origin ? { origin } : {}),
+  };
 }
 
 /// A transcript placed by drawn heights: its rows' geometry (an immutable gap-aware index once
@@ -3524,7 +3642,53 @@ export function placedWithOrigin(layout: PlacedLayout, origin: number): PlacedLa
         upperBoundTop: (target) => geometry.upperBoundTop(target - by),
         scan: (from, to, visit) => geometry.scan(from, to, (at, top, height) => visit(at, top + by, height)),
       };
-  return { ...layout, geometry: moved, totalHeight: layout.totalHeight + by, origin: origin || undefined };
+  return {
+    ...layout,
+    geometry: moved,
+    totalHeight: layout.totalHeight + by,
+    origin: origin || undefined,
+  };
+}
+
+/// How far a collapsing row looks for the drawn rows on either side of it (rows that draw nothing
+/// between are bookkeeping, a handful at most).
+const COLLAPSE_REACH = 64;
+
+/// A row collapsing to nothing (a read "New since you looked" line shrinking on the motion step;
+/// Leo, 2026-11-17: "in the periods here"), placed so the rows under it move with it and nothing
+/// steps when it reaches 0. Drawn, it sits between the drawn rows `k` above and `n` below with the
+/// gaps A (k to it) and B (it to n); gone, k and n are C apart. At `f`, its drawn height over its
+/// estimate (0 to 1), it is placed as a pass row (placedHeightIndex.ts PASS_MARK: no gap of its own,
+/// so k and n gap as if it were not there) of height `h + f * (A + B - C)`: k to n is
+/// `f * (A + h0 + B) + (1 - f) * C`, the drawn layout at 1 and the gone one at 0. Generic: any row
+/// that marks itself collapsing.
+export function collapsingHeight(
+  index: number,
+  height: number,
+  estimate: ConversationLayout,
+  marks: Uint8Array,
+  drawnAt: (index: number) => number,
+  between: (before: number, next: number) => number,
+): { height: number; mark: number } {
+  const full = estimate.heights[index]!;
+  const f = full > 0 ? Math.min(1, Math.max(0, height / full)) : 1;
+  let above = -1;
+  for (let at = index - 1; at >= 0 && at >= index - COLLAPSE_REACH; at -= 1)
+    if (drawnAt(at) > 0) {
+      above = at;
+      break;
+    }
+  let below = -1;
+  for (let at = index + 1; at < marks.length && at <= index + COLLAPSE_REACH; at += 1)
+    if (drawnAt(at) > 0) {
+      below = at;
+      break;
+    }
+  const mark = marks[index]!;
+  const a = above >= 0 ? between(marks[above]!, mark) : 0;
+  const b = below >= 0 ? between(mark, marks[below]!) : 0;
+  const c = above >= 0 && below >= 0 ? between(marks[above]!, marks[below]!) : 0;
+  return { height: Math.max(0, height + f * (a + b - c)), mark: PASS_MARK };
 }
 
 /// What a placement may skip: rows from `kept` up to `from` are the last placement's except
@@ -3549,14 +3713,36 @@ export function placeRowsIndexed(
   previous?: PlacedReuse,
   /// Where the first row starts (ConversationLayout.origin). Kept rows keep their places only at it.
   origin = 0,
+  /// Whether a row with a drawn height is collapsing to nothing (VirtualTranscript.tsx: a row that
+  /// holds `[data-row-collapsing]`): its gaps shrink with it (`collapsingHeight`).
+  collapsingAt?: (index: number) => boolean,
 ): PlacedLayout {
   const count = estimate.heights.length;
   const scale = gridScale();
   const marks = estimate.marks;
-  const resolve = (index: number) => {
+  const between = (before: number, next: number) => transcriptGap(before, next) * scale;
+  const drawnAt = (index: number) => {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     return known !== undefined && known >= 0 ? known : estimate.heights[index]!;
+  };
+  /// Rows collapsing now, by index, with the height and mark they are placed at.
+  const collapsing = new Map<number, { height: number; mark: number }>();
+  const resolve = (index: number) => {
+    const height = drawnAt(index);
+    if (!marks || !collapsingAt || !(height > 0) || !collapsingAt(index)) return height;
+    const placed = collapsingHeight(index, height, estimate, marks, drawnAt, between);
+    collapsing.set(index, placed);
+    return placed.height;
+  };
+  const markAt = (index: number) => collapsing.get(index)?.mark ?? marks?.[index];
+  /// `marks` from `from` to `to`, with the collapsing rows' marks among them.
+  const marksIn = (from: number, to: number) => {
+    if (!marks) return undefined;
+    let out: Uint8Array | undefined;
+    for (const [at, placed] of collapsing)
+      if (at >= from && at < to) (out ??= marks.slice(from, to))[at - from] = placed.mark;
+    return out ?? marks.subarray(from, to);
   };
   const prior = previous?.layout.geometry;
   const reusable =
@@ -3573,23 +3759,20 @@ export function placeRowsIndexed(
   if (!reusable || kept === 0) {
     const heights = new Float64Array(count);
     for (let at = 0; at < count; at += 1) heights[at] = resolve(at);
-    index = PlacedHeightIndex.fromRows(heights, marks, marks ? undefined : estimate.gaps, {
-      between: marks ? (before, next) => transcriptGap(before, next) * scale : undefined,
+    index = PlacedHeightIndex.fromRows(heights, marksIn(0, count), marks ? undefined : estimate.gaps, {
+      between: marks ? between : undefined,
     });
   } else {
     index = reusable;
     const from = Math.max(kept, Math.min(previous!.from ?? kept, reusable.count, count));
     for (const at of previous!.changed ?? [])
-      if (at >= kept && at < from)
-        index = index.update(at, resolve(at), marks?.[at], marks ? undefined : estimate.gaps?.[at]);
+      if (at >= kept && at < from) {
+        const height = resolve(at);
+        index = index.update(at, height, markAt(at), marks ? undefined : estimate.gaps?.[at]);
+      }
     const tail = new Float64Array(count - from);
     for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
-    index = index.splice(
-      from,
-      tail,
-      marks?.subarray(from, count),
-      marks ? undefined : estimate.gaps?.subarray(from, count),
-    );
+    index = index.splice(from, tail, marksIn(from, count), marks ? undefined : estimate.gaps?.subarray(from, count));
   }
   const geometry = geometryFromIndex(index, origin);
   // A turn footer that draws nothing after the last drawn row (transcriptGrid.ts footerAfter):
