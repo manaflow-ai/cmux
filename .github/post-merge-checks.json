@@ -77,10 +77,6 @@
       "kind": "publish",
       "why": "a bot that heals package dependency pins on the base"
     },
-    "cmux-next-payload-advisories.yml": {
-      "kind": "publish",
-      "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
-    },
     "cmux-next-terminal.yml": {
       "kind": "check",
       "why": "the Rust and Swift terminal suites run on every push and on no pull request"

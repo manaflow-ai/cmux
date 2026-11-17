@@ -14699,7 +14699,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
-            "cmux-next-tab-switch.yml"),
+            "cmux-next-tab-switch.yml",
+            # Payload advisories: fails when a pin in the tree (uBlock Origin) sits inside a published advisory.
+            "cmux-next-payload-advisories.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
