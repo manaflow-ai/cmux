@@ -335,7 +335,11 @@ def main(argv: list[str]) -> int:
         print(f"{len(passed_again)} of the flaky passed again when re-run alone on the head")
     if unknown:
         print(f"{len(unknown)} {label.lower()} steps have no base result (deferred to the merge gate)")
-    return 1 if new else 0
+    # An unresolved base replay is a failed comparison, even though it is not a
+    # change red.  Keeping the job failed is what makes the merge gate read the
+    # guard job and resolve its `unknown` lines against the base branch's own
+    # run; returning success would let a cut replay pass without that evidence.
+    return 1 if new or unknown else 0
 
 
 if __name__ == "__main__":

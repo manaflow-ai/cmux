@@ -200,7 +200,7 @@ class NewReds(unittest.TestCase):
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
             if first == "unreadable":
-                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
                 self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
             else:
                 self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
@@ -256,7 +256,7 @@ class NewReds(unittest.TestCase):
     def test_a_step_with_no_base_result_is_unknown_not_new(self):
         # Detector for the cut-pass class: an absent base entry must never become a `new` line.
         done = self.run_it({"cut step": False}, None)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("guard red step (unknown): cut step", done.stdout)
         self.assertNotIn("guard red step (new): cut step", done.stdout)
         self.assertIn("0 guard steps red on this change", done.stdout)
@@ -275,7 +275,7 @@ class NewReds(unittest.TestCase):
 
     def test_no_base_results_are_deferred_to_the_merge_gate(self):
         done = self.run_it({"lint": False}, None)
-        self.assertEqual(done.returncode, 0)
+        self.assertEqual(done.returncode, 1)
         self.assertIn("no base results", done.stdout)
         self.assertIn("guard red step (unknown): lint", done.stdout)
 
