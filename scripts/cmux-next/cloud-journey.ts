@@ -438,6 +438,10 @@ export class Api {
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
     return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
   }
+  /** A route on another origin (client-config's platform_origin) with the same bearer and team. */
+  async rawAt(origin: string, method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
+    return http(method, `${origin}${route}`, body, this.headers(), timeoutMs);
+  }
 }
 
 export type PreclaimClaimSplit = {
@@ -2343,6 +2347,8 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy";
+  /** The platform's trace of the create (createTraceFields): a spare claim's server-side split; null when unread. */
+  create_trace?: CreateTrace | null;
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -2390,6 +2396,43 @@ export function spareFields(value: unknown): { spare_fallback: string | null; sp
 export function spareNotice(backend: string, phase: string, fields: ReturnType<typeof spareFields>): string {
   const skips = JSON.stringify(fields.spare_skips);
   return `::notice title=Cloud journey spare::backend=${backend} phase=${phase || "-"} fallback=${fields.spare_fallback} behind=${fields.claimed_behind} skips=${skips}`;
+}
+
+/**
+ * The platform's trace of a machine's latest create pass (cmux-platform MachineCreateTrace, on
+ * GET /v1/machines/{id}?include=trace): `outcome` (`ok`, an error code, or `spare_claim` for a create that claimed a
+ * spare), each step's end in ms from the create's arrival (a spare claim's budget, plan_read, entitlements, rate_limit,
+ * needs_rule, scaler, adopt, spare_claim; a cold create's driver, edge, ensure, ...), and `totalMs`. Tokens and
+ * whole ms only, as probe.json; null when the record has no trace.
+ */
+export type CreateTrace = { attempt: number | null; outcome: string | null; steps: Record<string, number>; totalMs: number | null };
+export function createTraceFields(machine: unknown): CreateTrace | null {
+  const raw = (machine as { createTrace?: unknown } | null)?.createTrace;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const t = raw as Record<string, unknown>;
+  const ms = (v: unknown): number | null => (Number.isSafeInteger(v) && (v as number) >= 0 ? (v as number) : null);
+  const steps: Record<string, number> = {};
+  if (t.steps && typeof t.steps === "object" && !Array.isArray(t.steps)) {
+    for (const [k, v] of Object.entries(t.steps as Record<string, unknown>)) {
+      const n = ms(v);
+      if (TOKEN.test(k) && !ID_SHAPE.test(k) && n !== null) steps[k] = n;
+    }
+  }
+  const attempt = ms(t.attempt);
+  return { attempt: attempt && attempt >= 1 ? attempt : null, outcome: publicToken(t.outcome), steps, totalMs: ms(t.totalMs) };
+}
+
+/** The trace as one line: the outcome, the total and each step's end in the order they ended. */
+export function createTraceDetail(trace: CreateTrace): string {
+  const steps = Object.entries(trace.steps).sort((a, b) => a[1] - b[1]).map(([k, v]) => `${k} ${v}`).join(", ");
+  return `${trace.outcome ?? "?"} in ${trace.totalMs ?? "?"} ms (attempt ${trace.attempt ?? "?"}): ${steps || "no steps"}`;
+}
+
+/** One workflow notice per run with the create's trace (or why there is none), as spareNotice does for the claim. */
+export function createTraceNotice(backend: string, phase: string, trace: CreateTrace | null, reason = ""): string {
+  const head = `::notice title=Cloud journey create trace::backend=${backend} phase=${phase || "-"}`;
+  if (!trace) return `${head} outcome=none reason=${publicError(reason).slice(0, 200)}`;
+  return `${head} outcome=${trace.outcome} total_ms=${trace.totalMs} steps=${JSON.stringify(trace.steps)}`;
 }
 
 /** A cloud.machine.get answer's public facts: its status, readiness, versions and updater/flip state. No id or host. */
@@ -2467,7 +2510,7 @@ export function namesUnavailableFirstExec(exec: Exec): Exec {
 const FACTS_READ_MS = 10_000;
 
 /** The checks only the journey runs, never part of a person's chat: they run after the reply, outside J.firstText. */
-export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "machine facts", "GitHub on the machine (stub)", "GitHub on the machine (live)"] as const;
+export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "create trace", "machine facts","GitHub on the machine (stub)", "GitHub on the machine (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -3886,6 +3929,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
+      // The platform's own split of this create (a spare claim's budget, plan_read, ..., adopt, spare_claim; a cold
+      // create's driver, edge, ...), which no client sees otherwise: GET /v1/machines/{id}?include=trace. cloud-api does
+      // not forward /v1/machines (backend/apps/api/src/platform-forward.ts), so it goes to client-config's
+      // platform_origin, as the preclaim warm does, with the install token: the platform's machine routes take only a
+      // cmux access token with a team claim (cmux-platform machines/Auth.ts) and answered the Stack session 401
+      // (run 43829279269). Read here, after the reply, so the read is
+      // outside the first-text window; the record's trace is written after the create answers, so an absent one is
+      // read again twice. Never fails the journey.
+      const traceAt = Date.now();
+      try {
+        const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+        let trace: CreateTrace | null = null;
+        for (let read = 1; ; read++) {
+          const r = await installApi.rawAt(platform, "GET", `/v1/machines/${encodeURIComponent(created.id)}?include=trace`, undefined, 30_000);
+          if (r.status !== 200) throw new Error(`GET /v1/machines/${created.id}?include=trace: HTTP ${r.status} ${short(r.body?.error ?? r.body).slice(0, 200)}`);
+          trace = createTraceFields(r.body);
+          if (trace || read >= 3) break;
+          await sleep(1000);
+        }
+        if (!trace) throw new Error("the machine's record has no createTrace (3 reads)");
+        probeExtra.create_trace = trace;
+        if (process.env.GITHUB_ACTIONS === "true") console.log(createTraceNotice(backendName, process.env.JOURNEY_PHASE ?? "", trace));
+        J.record({ step: "create trace", status: "pass", ms: Date.now() - traceAt, detail: createTraceDetail(trace) });
+      } catch (e) {
+        const reason = String((e as Error)?.message ?? e);
+        probeExtra.create_trace = null;
+        if (process.env.GITHUB_ACTIONS === "true") console.log(createTraceNotice(backendName, process.env.JOURNEY_PHASE ?? "", null, reason));
+        J.record({ step: "create trace", status: "skip", ms: Date.now() - traceAt, detail: publicError(reason, J.secrets).slice(0, 300) });
+      }
       // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
       // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
       // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which

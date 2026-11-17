@@ -16,6 +16,11 @@ export type JourneyFixture = {
   preclaim?: { receipt: boolean };
   /** CLAUDE_CODE_OAUTH_TOKEN; without one the login step is skipped. */
   login?: string;
+  /**
+   * The platform's machine record (GET /v1/machines/{id}?include=trace at client-config's platform_origin): `spare` a
+   * spare claim's trace, `absent` a record with none yet, `none` (the default) a client-config with no platform_origin.
+   */
+  trace?: "spare" | "absent" | "none";
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
@@ -45,7 +50,7 @@ export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any
       args.push("--preclaim-login", cmux);
     }
     writeFileSync(script, `import { main } from ${JSON.stringify(join(import.meta.dir, "cloud-journey.ts"))};
-const fixture = ${JSON.stringify({ spare: "report", exec: "ok", ...fixture })};
+const fixture = ${JSON.stringify({ spare: "report", exec: "ok", trace: "none", ...fixture })};
 const MACHINE = ${JSON.stringify(FIXTURE_MACHINE)};
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 const log = (line: string) => console.log("@@fake " + line);
@@ -87,6 +92,16 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     return json({ ok: false, error: { code: "not_found" } }, 404);
   }
   if (route.endsWith("/carrier")) return json({ ok: true, value: { relay: "relay+do://relay.fixture.invalid", slot: "slot1", ticket: "ticket", expires_at: Math.floor(Date.now() / 1000) + 600, grant: "grant", daemon_key: Buffer.alloc(32, 7).toString("base64url") } });
+  if (route === "/v1/client-config") return fixture.trace === "none" ? json({ error: "not found" }, 404) : json({ platform_origin: "https://platform.fixture.invalid" });
+  if (url.origin === "https://platform.fixture.invalid" && route === "/v1/machines/" + MACHINE && url.searchParams.get("include") === "trace") {
+    // The platform's machine routes take only a cmux access token with a team claim (cmux-platform machines/Auth.ts):
+    // the install token, never the Stack session (staging answered 401 to it, run 43829279269).
+    const auth = new Headers(init.headers).get("authorization");
+    if (auth !== "Bearer fake-install-token") return json({ _tag: "MachineUnauthorized", code: "machine.unauthorized", message: "a cmux access token with a team claim is required" }, 401);
+    log("platform trace read");
+    const createTrace = { attempt: 1, outcome: "spare_claim", steps: { capability: 1, budget: 3, plan_read: 12, entitlements: 14, rate_limit: 15, needs_rule: 16, scaler: 20, adopt: 40, spare_claim: 55 }, totalMs: 61 };
+    return json({ id: MACHINE, state: "running", ...(fixture.trace === "spare" ? { createTrace } : {}) });
+  }
   if (route === "/v1/handoffs") return json({ error: "not found" }, 404);
   const op = body.op;
   if (op === "user.teams.list") return json({ ok: true, value: { teams: [{ id: "team_personal", kind: "personal" }] } });

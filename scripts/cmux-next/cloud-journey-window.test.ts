@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { createTraceDetail, createTraceFields, createTraceNotice, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -56,6 +56,48 @@ describe("probe.json says whether the row was a spare hit", () => {
     expect(spareFields({ spare_fallback: null, spare_skips: {} })).toEqual({ spare_fallback: null, spare_skips: {}, claimed_behind: null });
     expect(publicMachineFacts({ id: "vm_x", host: "h.internal", status: "running", ready: false, team: "team_1", image: { daemon_version: "0.9.1", id: "img_1" }, updater: { flip: "pending", target: "vm_y" } }))
       .toEqual({ status: "running", ready: false, daemon_version: "0.9.1", updater_flip: "pending" });
+  });
+});
+
+describe("probe.json carries the platform's create trace (a spare claim's server-side split)", () => {
+  const claim = { attempt: 1, outcome: "spare_claim", steps: { capability: 1, budget: 3, plan_read: 12, entitlements: 14, rate_limit: 15, needs_rule: 16, scaler: 20, adopt: 40, spare_claim: 55 }, totalMs: 61 };
+
+  test("createTraceFields keeps the outcome token, attempt, totalMs and each step's ms; nothing else gets through", () => {
+    expect(createTraceFields({ id: "vm_01JABCDEF9", host: "h.internal", createTrace: claim })).toEqual(claim);
+    expect(createTraceFields({ createTrace: { ...claim, steps: { budget: 3, vm_01JABCDEF9: 2, "a b": 1, neg: -1, frac: 1.5, str: "4" } } })?.steps).toEqual({ budget: 3 });
+    expect(createTraceFields({ createTrace: { outcome: "vm_01JABCDEF9 failed", steps: [], totalMs: -3 } })).toEqual({ attempt: null, outcome: null, steps: {}, totalMs: null });
+    expect(createTraceFields({ id: "vm_x" })).toBeNull();
+    expect(createTraceFields(null)).toBeNull();
+    expect(createTraceFields({ createTrace: "ok" })).toBeNull();
+  });
+
+  test("the step detail lists the steps in the order they ended, and the notice every run writes", () => {
+    expect(createTraceDetail(claim)).toBe("spare_claim in 61 ms (attempt 1): capability 1, budget 3, plan_read 12, entitlements 14, rate_limit 15, needs_rule 16, scaler 20, adopt 40, spare_claim 55");
+    expect(createTraceNotice("staging", "after", claim)).toBe('::notice title=Cloud journey create trace::backend=staging phase=after outcome=spare_claim total_ms=61 steps={"capability":1,"budget":3,"plan_read":12,"entitlements":14,"rate_limit":15,"needs_rule":16,"scaler":20,"adopt":40,"spare_claim":55}');
+    expect(createTraceNotice("prod", "", null, "GET /v1/machines/vm_01JABCDEF9: HTTP 404")).toBe("::notice title=Cloud journey create trace::backend=prod phase=- outcome=none reason=GET /v1/machines/<id>: HTTP 404");
+  });
+
+  test("the journey reads it at client-config's platform origin after the reply, never inside the first-text window", () => {
+    const { steps, probe, log } = runJourney({ spare: "report", exec: "ok", trace: "spare" });
+    const step = steps.find((s) => s.step === "create trace");
+    expect(step?.status).toBe("pass");
+    expect(step?.detail).toContain("spare_claim in 61 ms");
+    expect(steps.indexOf(step!)).toBeGreaterThan(steps.findIndex((s) => s.step === "reply"));
+    expect(JOURNEY_ONLY_STEPS as readonly string[]).toContain("create trace");
+    expect(log).toContain("platform trace read");
+    expect(probe.create_trace).toEqual(claim);
+    expect(probe.outcome).toBe("ok");
+  });
+
+  test("no trace on the record, or no platform origin: a skip with the reason, a null row field, the journey still passes", () => {
+    for (const trace of ["absent", "none"] as const) {
+      const { steps, probe } = runJourney({ spare: "report", exec: "ok", trace });
+      const step = steps.find((s) => s.step === "create trace");
+      expect(step?.status).toBe("skip");
+      expect(step?.detail).toContain(trace === "absent" ? "no createTrace" : "platform_origin");
+      expect(probe).toHaveProperty("create_trace", null);
+      expect(probe.outcome).toBe("ok");
+    }
   });
 });
 
