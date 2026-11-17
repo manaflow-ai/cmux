@@ -172,6 +172,12 @@ final class ShellModel {
                 }
             }
         }
+        // Mock mode keeps Toggle Terminal and Chat's pairings and faces in the file a signed-in
+        // account keeps, under the mock account, so a relaunch reads them as a live one does.
+        if mockMode {
+            mock.keeping = AccountKeptTerminalChats(kept: AgentTranscriptCache.standard.terminalChats,
+                                                    account: auth.user?.id ?? "mock")
+        }
         // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
         if mockMode { mock.onTaskSent = { [weak store] task, workspace in
             guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
