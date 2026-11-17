@@ -349,6 +349,36 @@ describe("sync across two devices", () => {
     expect(texts(restarted.host, "w")).toContain("Buy milk")
   })
 
+  test("quick changes to one item are stored newest last, even when storage answers out of order", async () => {
+    const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10) }))
+    mount(d, "w", "medium")
+    await d.host.settle(10)
+    // Storage that applies each write when it answers, and answers whenever the test says.
+    const held: Array<() => void> = []
+    d.host.handlers["app.storage.set"] = (p) =>
+      new Promise((resolve) =>
+        held.push(() => {
+          d.storage.data.set(p.key, structuredClone(p.value))
+          resolve({ ok: true, body: { value: null } })
+        })
+      )
+    const row = () => rowOf(d.host, "w", "Call the dentist")
+    d.host.dispatch("w", row(), "tap") // check
+    await d.host.settle(10)
+    d.host.dispatch("w", row(), "tap") // un-check while settling
+    await d.host.settle(10)
+    // Answer every write held so far, newest first, until none is left.
+    while (held.length > 0) {
+      for (const answer of held.splice(0).reverse()) answer()
+      await d.host.settle(10)
+    }
+    expect(d.storage.data.get("item:a")).toMatchObject({ done: false })
+    const restarted = launch(source, d.storage)
+    mount(restarted, "w", "medium")
+    await restarted.host.settle(10)
+    expect(texts(restarted.host, "w")).toContain("1")
+  })
+
   test("Clear removes only the Completed section, not an item checked a moment ago", async () => {
     const d = launch(source, new Storage({ "item:a": item("a", "Send the invoice", 10, true), "item:b": item("b", "Call the dentist", 11) }))
     mount(d, "w", "large")

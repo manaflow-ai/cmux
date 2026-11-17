@@ -37,7 +37,8 @@ if (import.meta.main) {
   const target = join(import.meta.dir, "..", "..", "..", "webviews", "src", "apps", "scene", "fixtures", "todo-widget-scenes.json")
   const text = await buildScenes()
   if (process.argv.includes("--check")) {
-    if (readFileSync(target, "utf8") !== text) {
+    // As data: the web formatter re-indents the committed copy, which changes nothing it holds.
+    if (JSON.stringify(JSON.parse(readFileSync(target, "utf8"))) !== JSON.stringify(JSON.parse(text))) {
       console.error(`${target} is stale: run bun first-party-apps/widget-todo/preview/build.ts`)
       process.exit(1)
     }

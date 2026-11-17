@@ -106,17 +106,38 @@ export function start() {
   }
 }
 
+/** The newest version of each item still to be written, and the items with a write in flight. */
+const pending = new Map<string, Item>()
+const writing = new Set<string>()
+
+/**
+ * Saves `item`. Writes to one item go one at a time, newest version only: a second change made while
+ * a write is in flight waits for it, so two writes can never land out of order and leave the older
+ * version stored. The warning for an item clears only when its newest version is saved.
+ */
 function save(item: Item) {
-  cmux.storage.set(itemKey(item.id), item).then(
+  pending.set(item.id, item)
+  if (!writing.has(item.id)) flush(item.id)
+}
+
+function flush(id: string) {
+  const item = pending.get(id)
+  if (!item) return
+  pending.delete(id)
+  writing.add(id)
+  cmux.storage.set(itemKey(id), item).then(
     () => {
-      failed.delete(item.id)
+      if (!pending.has(id)) failed.delete(id)
       if (failed.size === 0) setProblem(null)
     },
     (error: unknown) => {
-      failed.add(item.id)
+      failed.add(id)
       setProblem(message(error))
     }
-  )
+  ).finally(() => {
+    writing.delete(id)
+    flush(id)
+  })
 }
 
 /** Shows `next` at once, then saves it. */

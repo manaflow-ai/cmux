@@ -2531,14 +2531,30 @@
       cmux.events.on("app.storage.changed", () => void reload());
     } catch {}
   }
+  var pending = new Map;
+  var writing = new Set;
   function save(item) {
-    cmux.storage.set(itemKey(item.id), item).then(() => {
-      failed.delete(item.id);
+    pending.set(item.id, item);
+    if (!writing.has(item.id))
+      flush(item.id);
+  }
+  function flush(id) {
+    const item = pending.get(id);
+    if (!item)
+      return;
+    pending.delete(id);
+    writing.add(id);
+    cmux.storage.set(itemKey(id), item).then(() => {
+      if (!pending.has(id))
+        failed.delete(id);
       if (failed.size === 0)
         setProblem(null);
     }, (error) => {
-      failed.add(item.id);
+      failed.add(id);
       setProblem(message(error));
+    }).finally(() => {
+      writing.delete(id);
+      flush(id);
     });
   }
   function put(next) {
