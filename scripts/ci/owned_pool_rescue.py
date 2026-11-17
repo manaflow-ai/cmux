@@ -715,8 +715,8 @@ LAST_OWNED_ATTEMPT = 2
 # outputs), or is placed afresh after a placement re-run (long_owned_wait()); either way a lend drain can refuse it too, and before 2026-10-07
 # nothing re-ran it (#18147's scheme compile, 02:23Z). It is watched for
 # refusals only: when every failed job of it was refused, its failed jobs are
-# re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
-# still holds for attempts 1 to 3, and no attempt past 3 is watched.
+# re-run as attempt 4. Minis-first still holds for attempts 1 to 3; the sweeper watches no bot attempt past 3,
+# and a long owned wait on attempt 3 is placed again once (places_again()).
 REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
 # The bot's re-runs: the workflow token's, and cmux-bot's since ci-owned-pool-rescue.yml mints that App's
 # token for its mutations. A re-run by anyone else is a person's (owned_rerun()). Run 40444295785, a DEV
@@ -735,8 +735,8 @@ UNSTARTED_STALL_SECONDS = 180
 OPEN_HEAD_FAILOVER = "open-head failover"
 # How long a cmux-next Mac job waits on an owned label, busy or not, before the open-head failover places its run
 # again (long_owned_wait()); next_macos_cascade.OWNED_REPLACE_MINUTES is the same figure. Only a placement re-run
-# moves it, so the placement reads the routes afresh, and only through the last attempt the bot's placement runs on
-# (CMUX_NEXT_LAST_PLACED_ATTEMPT): at most two re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
+# moves it, so the placement reads the routes afresh, through the bot's attempt 3, and on any attempt a dispatch
+# names (places_again()): at most three automatic re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
 # was placed on its attempt 2 at 17:32Z while Blacksmith 6 vCPU was stalled, so its fast tier and generated files
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
 # attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
@@ -757,7 +757,8 @@ STD_SIDE_LABEL = re.compile(r"glaeda-side-std-(xcode-[0-9]+(?:\.[0-9]+)*)")
 LIGHT_RERUN_CLAUSE = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
                                 r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
                                 r"' ([A-Za-z0-9_-]+) '\)")
-# The last attempt cmux-next.yml's macos-placement runs on for a rescue bot (next_macos_cascade.LAST_PLACED_ATTEMPT).
+# The last attempt a bounded head's macos-placement runs on for a rescue bot (CMUX_NEXT_ATTEMPT_3_PLACEMENT); a head
+# with CMUX_NEXT_BOT_PLACEMENT places every bot attempt.
 CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
 # What the head's macos-placement `if` says when it runs on the bot's attempt 3: without it a re-run of attempt 2
 # would carry the old placement, so the failover gives attempt 2 no placement re-run.
@@ -2766,7 +2767,9 @@ def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
     agent's ask about this run now. Before 2026-11-17 it answered "not watched: attempt N; its first attempt's
     watch follows it", which no watch did: five cmux-next runs sat 5 to 7 hours on their bot attempt 3 on
     glaeda-side-std-xcode-26.6 (cmux#44757's run 44018861106 among them) and a dispatch for each was a no-op. A
-    nightly, DEV or promote build past attempt 1 keeps the rules the sweeper resumes it by (sweep_target())."""
+    nightly, DEV or promote build past attempt 1 keeps the rules the sweeper resumes it by (sweep_target()). The
+    run_attempt input is not read: the run's live attempt is watched, and a sweeper's watch of the same attempt stands
+    down at its cancel, which re-reads the attempt first."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return target_from_event({"workflow_run": run}, repository)
