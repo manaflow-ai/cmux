@@ -53,8 +53,7 @@ extension CloudService {
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
                          persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
-        let pinned = creation?.request ?? request
-        let identity = installIdentity
+        let pinned = creation?.request ?? request, identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now. A Retry
         // stays with the first send's team, and is refused if the token now bills another one.
@@ -64,11 +63,11 @@ extension CloudService {
             creation?.markRequestSent(team: team)
             await onSent()
         }
-        let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps), creation: creation)
-        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
-        // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
-        // Every attempt asks with its own key: a same-key retry would replay a failed ensure.
-        _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user)
+        var flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps), creation: creation)
+        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker deployment
+        // refuses for a user it has none of: the machine would stay provisioning. `user.ensure` (idempotent; its own key each attempt, as
+        // a same-key retry would replay a failed one) goes beside the create's held first call, done before the answer lets the op run.
+        flow.beside = { [appOps] in _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user) }
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
         do {
@@ -154,8 +153,7 @@ extension CloudService {
     /// person's native confirmation. Never on the relay path.
     private func sessionCall() -> CloudApprovalAnswer.Call {
         let base = FeedService.apiBaseURL(auth: auth)
-        let auth = auth
-        let session = Self.sessionTransport
+        let auth = auth, session = Self.sessionTransport
         return { path, body in
             var request = URLRequest(url: base.appendingPathComponent(path))
             request.httpMethod = "POST"
