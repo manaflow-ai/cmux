@@ -533,16 +533,8 @@ fn a_full_screen_shell_attaches_with_its_bytes() {
 /// frames, and only its full-screen part falls back to PTY bytes.
 #[test]
 fn any_program_reaches_a_lines_viewer_as_frames_and_falls_back_only_when_full_screen() {
+    // `exec sleep 600`: neither a shell nor an agent CLI.
     let (mux, surface) = terminal("hybrid-any-program", None);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let program = surface.process_id().and_then(crate::platform::process_executable);
-        if program.as_deref().is_some_and(|program| program.ends_with("sleep")) {
-            break;
-        }
-        assert!(Instant::now() < deadline, "sleep did not start: {program:?}");
-        std::thread::sleep(Duration::from_millis(5));
-    }
     surface.inject_output_for_test(b"build: 1/3\r\nbuild: 2/3\r\n");
     let viewer = declaring(&mux, SHELL_LINES);
     viewer.attach(&mux, &surface, json!({}));
