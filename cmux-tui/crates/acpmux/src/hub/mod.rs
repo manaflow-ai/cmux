@@ -70,7 +70,8 @@ mod ephemeral;
 mod first_work_tests;
 mod fork;
 pub use fork::Retarget;
-#[cfg(test)]
+// Counts allocations with the Linux-only test allocator (`peer_snapshot::thread_allocations`).
+#[cfg(all(test, target_os = "linux"))]
 mod approvals_stress_tests;
 #[cfg(test)]
 mod forum_held_turn_tests;
