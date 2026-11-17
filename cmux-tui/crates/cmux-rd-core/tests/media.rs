@@ -594,6 +594,46 @@ fn a_hold_shorter_than_the_outage_threshold_completes_the_frame_without_recovery
     assert_eq!(released.len(), 1, "the frame in flight completes after the hold");
 }
 
+/// The reorder grace counts from when a gap is first seen, not from the
+/// frame's first shard. A shard overtaken late in a frame's arrival (a burst
+/// after a hold, released out of order) and arriving within the grace is never
+/// requested; a shard really lost is requested once its own grace has passed.
+/// Before, a gap first seen more than 5 ms into the frame was requested at once:
+/// on wifi-away, about 1,660 more NACKed shards a run than the base and the
+/// host resending shards the viewer then received anyway.
+#[test]
+fn a_reordered_shard_inside_its_grace_is_never_nacked_and_a_real_loss_is() {
+    use cmux_rd_core::reassembly::NACK_AFTER_US;
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_path_rtt_us(Some(8_000));
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 2_400, true), 0).expect("packetize");
+    let d: Vec<_> =
+        out.datagrams.iter().map(|d| DatagramHeader::decode(d).expect("decode")).collect();
+    assert!(d.len() >= 8, "{} shards", d.len());
+    let push = |r: &mut Reassembler, i: usize, at: u64| {
+        let (h, payload) = &d[i];
+        r.push(h, payload, at)
+    };
+    push(&mut r, 0, 0);
+    push(&mut r, 1, 0);
+    // Shard 3 overtakes shard 2, 10 ms into the frame: gap 2 is first seen now.
+    push(&mut r, 3, 10_000);
+    assert!(r.take_nacks(10_000).is_empty(), "a gap just seen was requested at once");
+    assert_eq!(r.next_nack_us(), Some(10_000 + NACK_AFTER_US));
+    // The overtaken shard arrives inside its grace: it is never requested.
+    push(&mut r, 2, 12_000);
+    assert!(r.take_nacks(12_000).is_empty());
+    // Shard 5 is lost: shard 6 shows the gap at 20 ms, and 5 never comes.
+    push(&mut r, 4, 20_000);
+    push(&mut r, 6, 20_000);
+    assert!(r.take_nacks(20_000 + NACK_AFTER_US - 1).is_empty(), "requested inside its grace");
+    let nacks = r.take_nacks(20_000 + NACK_AFTER_US);
+    assert_eq!(nacks.len(), 1);
+    assert_eq!(nacks[0].indexes.first(), Some(&5), "the lost shard, after its own grace");
+    assert!(!nacks[0].indexes.contains(&2), "the overtaken shard was requested");
+}
+
 /// Real loss still gives a frame up within the outage threshold, not the
 /// 200 ms deadline: the link stays live, the shard never comes.
 #[test]
@@ -651,8 +691,12 @@ fn a_gap_exposed_after_the_frames_first_nack_is_requested_without_the_retry_wait
         let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
         r.push(&h, payload, at(i));
         if at(i) == 5_000 {
-            // The first NACK, due 5 ms after the first shard, carries the early gap.
-            let first = r.take_nacks(5_000);
+            // Gap 3 was seen at 2 ms (shard 4): its grace runs to 7 ms.
+            assert!(r.take_nacks(5_000).is_empty());
+        }
+        if at(i) == 7_000 {
+            // The first NACK, 5 ms after the gap was seen, carries the early gap.
+            let first = r.take_nacks(7_000);
             assert_eq!(first.len(), 1);
             assert_eq!(first[0].indexes, vec![3]);
         }
