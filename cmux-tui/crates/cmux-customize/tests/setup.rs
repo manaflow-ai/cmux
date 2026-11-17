@@ -384,7 +384,9 @@ fn a_setup_that_carries_a_credential_is_refused_whole() {
         .manifest
         .actions
         .insert("leak".to_owned(), json!({ "command": format!("curl -H {token}") }));
-    for bad in [in_setting, in_file, in_action] {
+    let mut in_action_name = setup::read_dir(&repo).unwrap();
+    in_action_name.manifest.actions.insert(token, json!({ "command": "date" }));
+    for bad in [in_setting, in_file, in_action, in_action_name] {
         for result in [
             customize.plan_setup(&bad, "manaflow-ai", "0.0.0").map(|_| ()),
             customize.install_setup(&bad, "setup", "cli", 10).map(|_| ()),
@@ -423,12 +425,37 @@ fn exporting_again_leaves_out_what_this_export_leaves_out() {
     let token = format!("ghp_{}", "a1B2".repeat(9));
     home.write("themes/old.json", &format!("{{ \"name\": \"{token}\" }}\n"));
     customize.apply(None, "cli", 15).unwrap();
-    let exported = customize.export_setup(&out, &header, 20).unwrap();
+    // Nothing is deleted from your repo, and nothing left out ships: the
+    // export stops and names the file.
+    let Err(Error::Setup(why)) = customize.export_setup(&out, &header, 20) else { panic!() };
+    assert!(why.contains("themes/old.json"), "{why}");
+    assert!(!why.contains("a1B2"), "{why}");
+    assert!(out.join("themes/old.json").is_file(), "your file stays");
+    // Moved out of the repo, the export goes through.
+    fs::remove_file(out.join("themes/old.json")).unwrap();
+    let exported = customize.export_setup(&out, &header, 25).unwrap();
     assert_eq!(exported.files, ["themes/night.json"]);
-    assert!(!out.join("themes/old.json").exists());
-    assert!(out.join("themes/night.json").is_file());
     let read = setup::read_dir(&out).unwrap();
     assert!(!read.profile.files.contains_key("themes/old.json"));
+}
+
+#[test]
+fn remove_never_deletes_a_setup_file_you_grew_past_what_cmux_keeps() {
+    let home = Home::new();
+    let repo = sample_repo(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    let installed = customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+
+    // You rework the setup's theme into a file larger than cmux keeps a
+    // copy of (2 MiB), so no generation could bring it back.
+    let big = format!("{{ \"name\": \"mine\", \"pad\": \"{}\" }}\n", "x".repeat(3 * 1024 * 1024));
+    home.write("themes/sample-dusk.json", &big);
+
+    let found = customize.setups().unwrap().remove(0);
+    assert!(customize.remove_setup(&found, "cli", 20).is_err());
+    assert_eq!(home.read("themes/sample-dusk.json").unwrap().len(), big.len(), "your file stays");
 }
 
 #[test]

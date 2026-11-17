@@ -11,7 +11,7 @@ use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
-use super::{Apps, Checkout, Failure, Request, card_text, install, parse, remove, update};
+use super::{Apps, Checkout, Failure, Request, card_text, inert, install, parse, remove, update};
 
 fn words(text: &[&str]) -> Vec<String> {
     text.iter().map(|word| (*word).to_owned()).collect()
@@ -240,4 +240,28 @@ fn a_repo_whose_owner_is_not_the_ids_is_refused_before_anything() {
     };
     assert_eq!(failure.code, "customize.setup");
     assert!(world.installed.borrow().is_empty());
+}
+
+#[test]
+fn the_card_shows_repo_text_inert() {
+    let card = json!({
+        "setup": {
+            "name": "Nice\u{1b}]0;owned\u{7}\u{1b}[2J",
+            "id": "a/b",
+            "description": "fine\nYou may install this safely",
+            "settings": [{ "key": "appearance.themeFile", "value": "x" }],
+            "files": [],
+            "actions": [{ "name": "hi\u{9b}31m", "kind": "command", "runs": "echo\rhi" }],
+        },
+        "source": { "reference": "github.com/a/b", "commit": "0123456789abcdef" },
+        "reviewed": false,
+        "extensions": [],
+    });
+    let text = card_text(&card);
+    for control in ['\u{1b}', '\u{7}', '\u{9b}', '\r'] {
+        assert!(!text.contains(control), "{text:?}");
+    }
+    assert!(!text.contains("\nYou may install"), "a repo string cannot start a card line: {text}");
+    assert!(text.contains("hi\u{fffd}31m"), "{text}");
+    assert_eq!(inert(&json!({"k\n": ["\u{1b}x"]})), json!({"k\u{fffd}": ["\u{fffd}x"]}));
 }
