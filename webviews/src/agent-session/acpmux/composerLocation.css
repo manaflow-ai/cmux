@@ -1275,6 +1275,32 @@
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 
+/* A new Cloud chat's GitHub part (FolderPopover `github`, githubRepos.ts): its repositories under the
+   folders, headed GitHub as the Computer menu heads its sections (`data-section`, below), each with
+   the GitHub mark in the badge column and a quiet lock for a private one. */
+.acpmux-location-lock { display: inline-flex; flex: none; align-items: center; margin-left: auto; color: var(--agent-muted); }
+.acpmux-location-lock + .acpmux-location-check { margin-left: 0; }
+.acpmux-github-error { display: flex; align-items: center; gap: var(--ds-space-2); }
+.acpmux-github-error-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The install card in place of the list: centered, the mark, a title, one line, one full-width button. */
+.acpmux-github-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-4) var(--ds-space-3) var(--ds-space-3);
+  text-align: center;
+}
+.acpmux-github-card-back { position: absolute; top: var(--ds-space-1); left: var(--ds-space-1); color: var(--agent-muted); }
+.acpmux-github-card-mark { display: inline-flex; margin-bottom: var(--ds-space-1); color: var(--agent-text); }
+.acpmux-github-card-mark .acpmux-icon { width: 24px; height: 24px; }
+.acpmux-github-card-title { margin: 0; color: var(--agent-text); font-weight: 600; }
+.acpmux-github-card-subtitle { margin: 0 0 var(--ds-space-2); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-github-card .acpmux-github-card-install { align-self: stretch; }
+.acpmux-github-card-waiting { display: flex; margin: 0; min-height: var(--ds-control-row); align-items: center; color: var(--agent-muted); }
+.acpmux-github-card-error { margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+
 /* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
    drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted
    ink, the soft pill only on hover or keyboard focus. On, the glyph takes the theme accent; nothing
@@ -1806,9 +1832,11 @@
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
-.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]),
+.acpmux-location-menu .acpmux-menu-item:has(> [data-github][data-section]) { position: relative; margin-top: 20px; }
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
-.acpmux-location-name[data-section]::before {
+.acpmux-location-name[data-section]::before,
+.acpmux-location-row[data-github][data-section]::before {
   content: attr(data-section);
   position: absolute;
   top: -17px;

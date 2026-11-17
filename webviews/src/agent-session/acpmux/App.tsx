@@ -125,6 +125,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
+import { githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -1869,10 +1870,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [blockedHarness, setBlockedHarness] = useState<HarnessBlock | undefined>();
   // The chat's folder on this Mac, whose own harness profiles the catalog then lists too; while a
   // folder harness waits for Enable or Trust (a new chat without a session), that harness's folder.
-  const catalogCwd =
+  // A GitHub repository picked for a Cloud chat (githubRepos.ts) is no folder of this Mac's.
+  const catalogFolder =
     clientSnapshot.summary?.hostKind !== "cloud" && !clientSnapshot.summary?.host
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
+  const catalogCwd = githubFolderRepo(catalogFolder) ? undefined : catalogFolder;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
   // A Cmd-T adoption reads the folder's harnesses again (the parked spare's read had no tab's roots); the
   // catalog keeps drawing until the new answer lands.
@@ -4891,7 +4894,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
       const folder = composerCloudStartFolder(composerSnapshot.summary);
-      if ("cwd" in folder)
+      // A GitHub repository (githubRepos.ts) is cloned on the machine: no folder of this Mac to grant.
+      if ("cwd" in folder && !githubFolderRepo(folder.cwd))
         cloudFolderGrant.granting(
           folder.cwd,
           pickFolder(callNative, folder.cwd, () => undefined),
@@ -7667,6 +7671,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
+      // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
+      // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
+      if (!peer && githubFolderRepo(cwd)) {
+        if (freshRef.current) setProjectDraft(cwd);
+        accepted?.(cwd);
+        return Promise.resolve();
+      }
       // Another computer's folder is that computer's to check.
       if (peer) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);

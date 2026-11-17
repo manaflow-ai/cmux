@@ -47,6 +47,8 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
+import { GitHubMark } from "./GitHubInstallCard";
+import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
   addExtraFolder,
@@ -197,6 +199,7 @@ export function ComposerContext({
   unavailableGroup,
   unavailableExpanded,
   cloudStartOut = false,
+  github: githubSeam,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -331,6 +334,9 @@ export function ComposerContext({
   /// A Cloud start this page sent is out (App.tsx `cloudStarting`): the folder went with it, so the
   /// folder chip is a plain label until the start ends (folderlessCloud.ts `folderMenu`).
   cloudStartOut?: boolean;
+  /// Gallery and test seam: the folder menu's GitHub part (githubRepos.ts); the page's store when omitted.
+  /// Only a new chat with Cloud picked shows it.
+  github?: GitHubPicker;
 }) {
   acpmuxPerf.render("composer:context");
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
@@ -346,6 +352,8 @@ export function ComposerContext({
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const accountTeam = useCloudTeam();
+  const pageGitHub = useGitHubPicker();
+  const github = githubSeam ?? pageGitHub;
   // The team Cloud runs in, named wherever Cloud is the pick (Leo, 2026-11-09: "i guess is team?
   // it's kinda hard to realize tho"); none while signed out.
   const cloudTeam = cloudSignedIn === false ? undefined : (cloudTeamSeam ?? accountTeam);
@@ -568,7 +576,9 @@ export function ComposerContext({
   const liveEnvironment = useCloudEnvironmentControl(
     cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments === true,
     currentFolder,
-    currentFolder ? folders.find((folder) => folder.id === currentFolder)?.repo?.github : undefined,
+    currentFolder
+      ? (folders.find((folder) => folder.id === currentFolder)?.repo?.github ?? githubFolderRepo(currentFolder))
+      : undefined,
     runMode?.environment,
   );
   const environmentControl = cloudEnvironmentSeam ?? liveEnvironment;
@@ -615,6 +625,8 @@ export function ComposerContext({
       })
     : undefined;
   const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  // A GitHub repository picked for a new Cloud chat (`github:owner/name`) reads `owner/name`.
+  const currentGitHub = githubFolderRepo(currentFolder);
   const place = !currentLocation
     ? undefined
     : branch
@@ -622,13 +634,15 @@ export function ComposerContext({
       : isMainCheckout(currentLocation)
         ? undefined
         : worktreeName(currentLocation);
-  const currentName = currentLocation
-    ? currentRepo
-      ? place && place !== currentRepo.name
-        ? `${currentRepo.name} · ${place}`
-        : currentRepo.name
-      : projectLabel(currentLocation.id)
-    : undefined;
+  const currentName = currentGitHub
+    ? currentGitHub
+    : currentLocation
+      ? currentRepo
+        ? place && place !== currentRepo.name
+          ? `${currentRepo.name} · ${place}`
+          : currentRepo.name
+        : projectLabel(currentLocation.id)
+      : undefined;
   // A started chat's Add folder…: the host's folder panel, then a new chat there.
   const browseNewChat =
     onBrowseFolder && onNewChat
@@ -980,7 +994,9 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={
-                    currentLocation ? (
+                    currentGitHub ? (
+                      <GitHubMark />
+                    ) : currentLocation ? (
                       <ProjectBadge
                         project={{
                           cwd: currentLocation.id,
@@ -1021,6 +1037,8 @@ export function ComposerContext({
               {...(onNewProject ? { onNewProject } : {})}
               {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
+              // A new chat with Cloud picked also offers the person's GitHub repositories.
+              {...(cloudSide && !sandboxPicked && !readOnly ? { github } : {})}
             />
           ) : (
             <LocationPicker
