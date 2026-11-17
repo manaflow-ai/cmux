@@ -62,7 +62,7 @@ struct AcpmuxChatRowsFollowUpTests {
 
     @Test("a pane hidden from its open (a covered window) draws its chat: the first window goes at once, its rows go on (cmux#44964)")
     func hiddenPaneDrawsItsChat() async throws {
-        let fed = FedChatRowsHost()
+        let fed = FedChatRowsHost(hiddenInterval: 0.05)
         // A New Tab chat in a window behind another app's: hidden before its first open.
         fed.host.setHidden(true)
         #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
