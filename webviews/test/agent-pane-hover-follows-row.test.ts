@@ -340,7 +340,11 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
           const still = await at('button.cv-tool[data-tool-id="a4"]');
           await page.mouse.move(still.x, still.y);
           for (let n = 0; n < 4; n++) {
-            for (const step of call(`late${n}`, "read", `Read /tmp/late/${n}.md`, { file_path: `/tmp/late/${n}.md` }))
+            // Searches, which open; a read is a plain row since 2026-11-17 (readPath.ts).
+            for (const step of call(`late${n}`, "search", `Search the late notes ${n}`, {
+              pattern: `late ${n}`,
+              path: "/tmp/late",
+            }))
               pane.record(step[1], step[2], step[0]);
             pane.record(
               "agent_message_chunk",
