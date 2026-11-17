@@ -320,17 +320,21 @@ test("a new chat whose sub is refused while its hold is out: the open resolves t
       };
     }
   }
+  let socket: any;
+  let rows: unknown[] = [];
   const client = (await AcpmuxDirectClient.connect(
     { ...mockHost, sessionId: a },
-    () => {},
+    (snapshot) => {
+      rows = snapshot.rows;
+    },
     undefined,
-    () => new Held() as unknown as WebSocket,
+    () => (socket = new Held()) as unknown as WebSocket,
   )) as any;
   const feed = (changes: string[]) =>
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
-    started = (await client.startSession("claude")) as string;
+    started =(await client.startSession("claude")) as string;
     expect(started).toBeTruthy();
     const opening: Promise<string | undefined> = client.select(started);
     await settle(() =>
@@ -348,8 +352,86 @@ test("a new chat whose sub is refused while its hold is out: the open resolves t
     expect(got).toBe(started);
     expect(client.selectedSessionId).toBe(started);
     expect(await client.shownAndAttached(started)).toBe(true);
+    // The fallen chat is v1's: its prompt and the agent's answer, streamed live, are drawn.
+    socket.emit(started, { mux: "user_message", msg: { text: "reply with just the word pong" } });
+    socket.emit(started, { mux: "turn_started" });
+    socket.emit(started, { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } } });
+    const drawn = () => JSON.stringify(rows);
+    await settle(() => drawn().includes("pong"));
+    expect(drawn()).toContain("reply with just the word pong");
   } finally {
     release();
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+// The dogfood of issue 44964: the daemon refuses a brand-new chat's sub before the host answers its
+// `chat.rows.open`, so the page has the chatError while its open is still out. That fall is the
+// chat's: it opens as v1, draws its prompt and the answer streamed live, and opening it again draws
+// them again. It used to be dropped, leaving the chat on a sid the store had let go: "Thinking"
+// forever, and 0 rows on a reselect.
+test("a new chat whose sub is refused before its open is answered: it draws as v1", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { mockSessions } = await import("./mockFixture");
+  const { setNativeHost } = await import("./native");
+  const { resetChatRowsState } = await import("./rows/chatSource");
+  resetChatRowsState();
+  const a = mockSessions[0]!.sessionId;
+  const asked: { to: string; method: string; params: any }[] = [];
+  let started = "";
+  const receive = (changes: string[]) =>
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+  setNativeHost(async (method, params) => {
+    asked.push({ to: "host", method, params });
+    if (method !== "chat.rows.open") return null;
+    if (params.chat === started)
+      receive([JSON.stringify({ kind: "chatError", sid: params.sid, method: "sub", id: null, code: "invalid_request" })]);
+    return { sid: params.sid };
+  });
+  class Held extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        asked.push({ to: "daemon", method, params });
+        if (method !== "_acpmux/attach" || params.hold !== true) return answer(method, params);
+        const page = (await answer(method, { sessionId: params.sessionId })) as any;
+        return { session: page.session, lastSeq: page.lastSeq, presence: {}, readThrough: null, hold: true };
+      };
+    }
+  }
+  let socket: any;
+  let rows: unknown[] = [];
+  const client = (await AcpmuxDirectClient.connect(
+    { ...mockHost, sessionId: a },
+    (snapshot) => {
+      rows = snapshot.rows;
+    },
+    undefined,
+    () => (socket = new Held()) as unknown as WebSocket,
+  )) as any;
+  const drawn = () => JSON.stringify(rows);
+  try {
+    await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
+    started = (await client.startSession("claude")) as string;
+    expect(await client.select(started)).toBe(started);
+    await settle(() =>
+      asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === started && !ask.params.hold),
+    );
+    socket.emit(started, { mux: "user_message", msg: { text: "reply with just the word pong" } });
+    socket.emit(started, { mux: "turn_started" });
+    socket.emit(started, { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } } });
+    socket.emit(started, { mux: "turn_result", msg: { status: "completed" } });
+    await settle(() => drawn().includes("pong"));
+    expect(drawn()).toContain("reply with just the word pong");
+    // Opened again, it draws from v1 again: the prompt and the answer stay.
+    expect(await client.select(started)).toBe(started);
+    await settle(() => drawn().includes("pong"));
+    expect(drawn()).toContain("reply with just the word pong");
+  } finally {
     client.close?.();
     resetChatRowsReceiver();
   }
