@@ -309,6 +309,17 @@ fn app_store_changes_need_the_user_and_first_party_apps_are_hide_only() {
         "{tool}"
     );
 
+    // Discover lists the default first-party apps; a package from the apps
+    // directories is an SDK example, offered only to a developer.
+    assert_eq!((fp["shelf"].clone(), tool["shelf"].clone()), (json!("store"), json!("example")));
+    assert_eq!(catalog["examples"], json!(false), "{catalog}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "shelf": "store" }), "cli");
+    let ids: Vec<&Value> =
+        ok(&reply)["listings"].as_array().unwrap().iter().map(|r| &r["app"]).collect();
+    assert_eq!(ids, [&json!("cmux/fp"), &json!("cmux/quiet")], "{reply}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "developer": true }), "cli");
+    assert_eq!(ok(&reply)["examples"], json!(true), "{reply}");
+
     // An agent connection changes nothing, whatever origin it claims.
     for (key, field) in [("a1", "enabled"), ("a2", "hidden")] {
         let args = json!({ "app": "cmux/fp", field: field == "hidden", "idempotency_key": key });
@@ -1731,4 +1742,86 @@ fn a_command_only_store_listing_has_nothing_to_open_after_install() {
     let nothing: Vec<&String> =
         results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
     assert_eq!(nothing, [&"manaflow-ai/standup".to_string()], "{results:?}");
+}
+
+/// The App Store page's listing (appstore-look): a row carries the app's
+/// one-line tagline (absent when the manifest has none); `catalog.get` adds
+/// its screenshots and where the app shows up, derived from what it
+/// implements and its palette commands; `asset.get` serves a listed
+/// screenshot past the icon's size limit, and nothing else that large.
+#[test]
+fn a_listing_has_its_tagline_screenshots_and_where_it_shows_up() {
+    let apps = Apps::new("listing-look");
+    copy_shipped_first_party(&apps.dir.join("first-party"));
+    let bundled = apps.dir.join("bundled");
+    write_app(
+        &bundled,
+        "acme",
+        "shots",
+        json!({
+            "tagline": { "en": "See your builds at a glance", "ja": "ビルドをひと目で確認" },
+            "screenshots": ["shots/one.png"],
+        }),
+    );
+    write_app(&bundled, "acme", "plain", json!({}));
+    let shots = bundled.join("shots");
+    std::fs::create_dir_all(shots.join("shots")).unwrap();
+    // Past the 512 KiB icon limit, inside the screenshot one.
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(600 * 1024, 0);
+    std::fs::write(shots.join("shots/one.png"), &png).unwrap();
+    std::fs::write(shots.join("shots/unlisted.png"), &png).unwrap();
+    apps.start();
+    let mut agent = apps.agent();
+
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "limit": 200 }), "cli");
+    let catalog = ok(&reply);
+    assert_eq!(listing(catalog, "acme/shots")["tagline"], "See your builds at a glance");
+    assert!(listing(catalog, "acme/plain").get("tagline").is_none(), "{reply}");
+
+    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "acme/shots"}), "cli");
+    let detail = ok(&reply);
+    assert_eq!(detail["tagline"], "See your builds at a glance", "{reply}");
+    assert_eq!(detail["screenshots"], json!(["shots/one.png"]), "{reply}");
+    assert_eq!(detail["contributes"], json!([]), "{reply}");
+
+    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "cmux/coderouter"}), "cli");
+    let detail = ok(&reply);
+    assert_eq!(detail["screenshots"], json!([]), "{reply}");
+    assert_eq!(
+        detail["contributes"],
+        json!([
+            { "kind": "section", "title": "CodeRouter" },
+            { "kind": "statusItem", "title": "CodeRouter Health" },
+            { "kind": "pane", "title": "CodeRouter" },
+            { "kind": "command", "title": "Open CodeRouter" },
+            { "kind": "command", "title": "Connect Account to CodeRouter" },
+            { "kind": "command", "title": "Create CodeRouter API Key" },
+            { "kind": "command", "title": "Test CodeRouter" },
+            { "kind": "command", "title": "Set Up CodeRouter" },
+        ]),
+        "{reply}"
+    );
+    eprintln!("coderouter catalog.get: {reply}");
+
+    let reply = agent.store(
+        "cmux.apps.asset.get",
+        json!({"app": "acme/shots", "path": "shots/one.png"}),
+        "cli",
+    );
+    let url = ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
+    assert!(url.starts_with("data:image/png;base64,"), "{reply}");
+    let reply = agent.store(
+        "cmux.apps.asset.get",
+        json!({"app": "acme/shots", "path": "shots/unlisted.png"}),
+        "cli",
+    );
+    assert_eq!(error_code(&reply), "apps.asset.too_large", "{reply}");
+    let reply = agent.store(
+        "cmux.apps.asset.get",
+        json!({"app": "cmux/coderouter", "path": "assets/icon.svg"}),
+        "cli",
+    );
+    let url = ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
+    assert!(url.starts_with("data:image/svg+xml;base64,"), "{reply}");
 }

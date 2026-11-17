@@ -7479,5 +7479,124 @@
         ]
       }
     }
+  },
+  "store.scope.coderouter": {
+    "source": "CodeRouter",
+    "class": "brand"
+  },
+  "store.detail.version": {
+    "source": "Version",
+    "identityLocales": {
+      "da": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "de": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "fr": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      }
+    }
+  },
+  "store.scope.network": {
+    "source": "Internet",
+    "identityLocales": {
+      "bs": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "da": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "de": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "es": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "fr": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "it": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pl": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "vi": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      }
+    }
+  },
+  "store.scope.notifications": {
+    "source": "Notifications",
+    "identityLocales": {
+      "fr": {
+        "reason": "Notifications is the standard French plural noun for app notifications.",
+        "values": [
+          "Notifications"
+        ]
+      }
+    }
+  },
+  "store.scope.terminal": {
+    "source": "Terminals",
+    "identityLocales": {
+      "de": {
+        "reason": "Terminals is the standard German plural of Terminal.",
+        "values": [
+          "Terminals"
+        ]
+      }
+    }
+  },
+  "store.detail.screenshot": {
+    "source": "Screenshot %@",
+    "identityLocales": {
+      "it": {
+        "reason": "Screenshot is the standard Italian word for a screen capture.",
+        "values": [
+          "Screenshot %@"
+        ]
+      }
+    }
   }
 }
