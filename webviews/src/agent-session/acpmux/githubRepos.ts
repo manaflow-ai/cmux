@@ -192,9 +192,8 @@ export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
 
-/// Outside the hook: the React Compiler cannot lower `??=`.
 function pagePicker(): GitHubPickerStore {
-  pageStore ??= createGitHubPicker();
+  if (!pageStore) pageStore = createGitHubPicker();
   return pageStore;
 }
 

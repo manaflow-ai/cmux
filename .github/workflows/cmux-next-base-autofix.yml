@@ -355,7 +355,7 @@ jobs:
     # gui label waits for the owned-pool rescue, which cancels a superseded push run without a
     # re-run, so with the office minis dark on 2026-11-10 every export was cancelled in its queue
     # and feat-cmux-next's settings export stayed stale from 14:21Z.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.pushed-exports.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.pushed-exports.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     # One action regeneration and up to three settings regenerations on a moving tip
     # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
     timeout-minutes: 90
@@ -371,7 +371,11 @@ jobs:
       # Skipped (that area did not change) counts as current.
       verified: ${{ steps.actions.outcome != 'failure' }}
       settings_verified: ${{ steps.settings.outcome != 'failure' }}
+    # NEXT's cache writer (feat-cmux-next only): the fresh action exports go to cmux-ci-cache-next for
+    # the pull requests on the commit they were made at (judge-action-exports.sh --publish).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -462,6 +466,22 @@ jobs:
           if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # A pull request on the commit they were made at (or any commit with the same generator inputs)
+      # reads them from R2 instead of building that commit to judge its stale exports
+      # (scripts/cmux-next/judge-action-exports.sh): that base build was 16 to 32 min of daemon-test
+      # in 28 of 68 pull request runs (2026-11-16..17). They hold the exports that differ from the
+      # run's commit; the rest are its own. Only this feat-cmux-next push job writes; pull requests read.
+      - name: Keep the fresh action exports for pull requests on that commit
+        if: steps.actions.outcome == 'success' && steps.actions.outputs.made_at != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          MADE_AT: ${{ steps.actions.outputs.made_at }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: scripts/cmux-next/judge-action-exports.sh --publish "$MADE_AT" "$RUNNER_TEMP/action-exports" "$GITHUB_SHA"
 
       # The settings exports, into the same artifact. A push that
       # moves their inputs meanwhile would hold them at the push (base-autofix-push.sh), and one

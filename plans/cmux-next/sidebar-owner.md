@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-17 (chief-group-rail): Sidebar-Look: Lawrence, 2026-11-17: "chief workspaces group missing left rail". The
+  host makes "Chief's workspaces" with no color, and a group with no color drew only its block (`sidebar.noColorGroup`)
+  with a fully clear line, so it had no left rail while each colored group beside it had one. Every open group now draws
+  its rail by one rule (`SidebarGroupLine.lines`, `railFrame`): the same x, top, width and bottom as a colored group's
+  over the same rows. A group with no color draws it inside its block (`SidebarGroupLine.rail`, clipped by the block so
+  it follows a fold) in the palette's neutral grey (`GroupTint.railTint`); the plain look draws the same grey rail.
+  The block itself is unchanged. Regression: `ChiefGroupRailTests`.
+
 - 2026-11-16 (ask-035c65b611): Sidebar-Look: no workspace row draws a screen button, on any machine kind. Leo, on the
   Share icon every row drew: "WHY CANT IT JUST BE REVERTED". This reverts the row screen slot #43516 added (b16877b72ce
   had dropped only This Mac's rows); Share and View screen stay on machine headers and in the palette. The 2026-11-13
