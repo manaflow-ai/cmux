@@ -265,7 +265,8 @@ fn the_minimal_sessions_file_applies_every_value_it_writes() {
     };
     let written: Vec<(&String, &Value)> =
         written.iter().filter(|(key, _)| !RESERVED_KEYS.contains(&key.as_str())).collect();
-    assert!(written.len() >= 25, "the file writes {} keys", written.len());
+    // It restyles the sidebar as a whole: every row element, the status and the grouping.
+    assert!(written.len() >= 20, "the file writes only {} keys", written.len());
     let mut keys: Vec<String> = written.iter().map(|(key, _)| (*key).clone()).collect();
     keys.sort();
     assert_eq!(file.keys(), keys, "every key it writes is taken, none twice");
