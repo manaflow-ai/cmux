@@ -4,7 +4,8 @@
 The workflow holds the repo's dev stack account and adds an OS user, so these
 hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else (no job-level grants); the stack
-secrets reach exactly one step, through `env`; no `set -x`; the platform origin
+secrets (the account and the share's guest account) reach exactly one step,
+through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
@@ -83,8 +84,11 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
 
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 4)
+        self.assertEqual(
+            workflow_jobs.secret_names(load()),
+            {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"},
+        )
         for name, job in load()["jobs"].items():
             outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
@@ -93,8 +97,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         mint = holders[0]
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
+        # The share's second account (cloud-capture-provision.yml's guest, sealed to the same environment):
+        # it must not see the joined machine, and the hub must refuse its request for it.
+        self.assertEqual(mint["env"]["CMUX_UITEST_GUEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}")
+        self.assertEqual(mint["env"]["CMUX_UITEST_GUEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}")
         self.assertNotIn("secrets", mint["run"])
         self.assertNotIn("CMUX_UITEST_STACK", mint["run"])
+        self.assertNotIn("CMUX_UITEST_GUEST", mint["run"])
 
     def test_no_xtrace(self) -> None:
         for s in steps():
@@ -223,6 +232,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertLess(prep.index('sudo loginctl enable-linger "$JOIN_USER"'), prep.index('systemctl start "$manager"'))
         self.assertIn('private="/run/user/$JOIN_UID/systemd/private"', prep)
         self.assertNotIn("linux-host", prep)
+        # Nothing of the share runs on the joined machine: the daemon sets the host up itself, so no step
+        # (and not the harness) runs `linux-host enable` or hands cmux-rd an ACPMUX_HOME.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("linux-host enable", text)
+        self.assertNotIn("ACPMUX_HOME", text)
+        self.assertNotIn('"linux-host", "enable"', script := SCRIPT.read_text(encoding="utf-8"))
+        self.assertNotIn("ACPMUX_HOME=", script)
         # /run/user/UID is the joined user's (0700): the runner's own `[ -S ]` never sees inside it (run
         # 44039047306 read "no" with the socket there), so every test of it runs as root. The manager is judged
         # by is-active, not by its start's exit status (1 there, with the manager up).
