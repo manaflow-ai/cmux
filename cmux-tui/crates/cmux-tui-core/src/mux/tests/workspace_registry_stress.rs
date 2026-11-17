@@ -8,11 +8,12 @@
 //! workspaces each hold [`TABS`] running terminals (placeholders: no terminal host).
 //!
 //! COUNT form (ungated, no clock): [`a_single_workspace_change_costs_the_same_in_a_bigger_session`]
-//! renames one workspace, selects another, and moves one a single step, at [`SMALL`] and at
-//! [`LARGE`] workspaces, and asserts per operation: the SELECT statements the registry prepares,
-//! the rows it writes, the bytes of the journal changes it appends, the workspace upserts in them,
-//! and the surfaces the tree-decoration walk visits do not grow with the session (beyond a small
-//! fixed slack). A cost linear in the workspaces fails it by a factor of ten.
+//! renames one workspace, selects another, moves one a single step and creates an empty one, at
+//! [`SMALL`] and at [`LARGE`] workspaces, and asserts per operation: the SELECT statements the
+//! registry prepares, the rows it writes, the bytes of the journal changes it appends, the
+//! workspace upserts in them, and the surfaces the tree-decoration walk visits do not grow with
+//! the session (beyond a small fixed slack). A cost linear in the workspaces fails it by a factor
+//! of ten.
 //!
 //! TIME form (gated): `CMUX_STRESS=1`, or a plain `cargo test` filter naming
 //! `registry_stress_bench` (as `apps/supervisor_load_tests.rs`). It prints one
@@ -285,6 +286,27 @@ fn single_change_costs(n: usize) -> BTreeMap<&'static str, Cost> {
     costs.insert("rename", counted(mux, || rename(mux, middle, 1)));
     costs.insert("select", counted(mux, || select(mux, middle - 1)));
     costs.insert("move_one", counted(mux, || move_to(mux, middle, middle + 2)));
+    for round in 0..2 {
+        // The first create and close warm their statements; the second is counted.
+        let key = format!("018f6e21-7b70-7e70-9000-{round:012}");
+        let create = || {
+            mux.create_empty_workspace(
+                Some(format!("ws extra{round:04}")),
+                Some(key.clone()),
+                None,
+            )
+            .unwrap();
+        };
+        if round == 1 {
+            costs.insert("create_empty", counted(mux, create));
+        } else {
+            without_crosscheck(create);
+        }
+        without_crosscheck(|| {
+            mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation("close"))
+                .unwrap();
+        });
+    }
     for (operation, cost) in &costs {
         eprintln!("registry stress {operation} at {n}: {cost:?}");
     }
