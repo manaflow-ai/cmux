@@ -2286,10 +2286,12 @@ The rules:
   after `a` still launches; a `move-tab` puts `c` at index 1. The strip is
   then `[a, new, c, b]`. The same requests applied one by one give
   `[a, c, new, b]`.
-- A creation writes the record of the active tab, and so does a close of the
-  active tab: a select or a move between a request and its tab does not. The
-  tab that comes later takes the active tab if no later create request with
-  a slot took it.
+- A creation writes the record of the active tab. A select or a move between
+  a create request and its tab does not: the tab that comes later takes the
+  active tab if no later create request with a slot took it, also from a tab
+  that a person selected after the request. For a person: a new tab that the
+  person asked for is the active tab when it comes, also if the person
+  selected another tab while it launched.
 - A close of the active tab while a tab still launches follows the rule of
   the requests applied one by one too. One by one, the close gives the
   active tab to the next entry of the strip, or to the entry before when no
@@ -2300,14 +2302,54 @@ The rules:
   with `place: {after_creation}` of that `transaction` comes and is the
   active tab; the page closes. `a` is the active tab until the terminal's
   tab comes, and the terminal's tab is the active tab after that. A close of
-  a tab that is not the active tab gives the active tab to no tab.
-- A limit of that rule. A close request of the active tab can fail (the
-  daemon refuses it by a rule of its session), and the tab stays. When the
-  entry that the close gives the active tab to is the slot of a tab that
-  still launches, and the tab that stays moves to another pane before the
-  new tab comes, the daemon reads the move as the close: the new tab takes
-  the active tab of the pane when it comes, also when a later create request
-  took the active tab before.
+  a tab that is not the active tab gives the active tab to no tab. A close
+  of the tab that the first close made active keeps the turn of the new tab:
+  one by one, that close is not a close of the active tab.
+- The close gives the active tab to the new tab only while the active tab of
+  the pane is where a close left it. A request that changes the active tab
+  of the pane after the close is the later change, and the close then gives
+  the new tab nothing: a select of a tab (also a select of another tab and
+  then of the same tab again), and a new tab that takes the active tab. The
+  new tab then has only the rule of its own request, as with no close: it
+  does not take the active tab when a later create request with a slot took
+  it. Example: the strip is `[a, b]`; a `new-tab` with a `transaction` after
+  `b` still launches; a page with `place: {after_creation}` of that
+  `transaction` comes, is the active tab, and closes; `b` is the active tab.
+  A person selects `a`. The terminal's tab comes and `a` stays the active
+  tab.
+- The limits of the rule after a close. The daemon does not keep the order of
+  each request: it reads the stamp of the last change of the pane's active
+  tab, and the tabs that a close made active. In each limit, the late tab is
+  the tab of a request that does not take the active tab by itself (a later
+  create request with a slot took it, or the request does not ask for it).
+  - With no such later request, the late tab takes the active tab by its own
+    request, also from a tab that a person selected after the close: the
+    rule of a select between a request and its tab, above.
+  - Each request that writes a new stamp ends the turn of the new tab, also
+    when it leaves the active tab where it was: a focus of the pane (also a
+    focus that comes back from another pane), and a move of a tab that
+    writes a stamp. The late tab does not take the active tab, where one by
+    one it is the active tab from the close.
+  - A launch that fails after a close gave the active tab to its slot. One by
+    one, a request that makes no tab leaves no entry, and the close gives
+    the active tab to the entry next to that slot, which can be the slot of
+    another tab that still launches. The daemon does not pick a second
+    time: the late tab does not take the active tab.
+  - A move that makes a tab the active tab and writes no stamp (a
+    `terminal.move` to an index of the same pane). When the moved tab is a
+    tab that a close made active while the new tab launched, the late tab
+    takes the active tab when it comes, where one by one the moved tab
+    keeps it.
+  - A close request of the active tab can fail (the daemon refuses it by a
+    rule of its session), and the tab stays: the close gives the new tab
+    nothing then. When the tab that stays moves to another pane before the
+    new tab comes, the daemon reads the move as the close: the late tab
+    takes the active tab of the pane when it comes, if the move left the
+    active tab on the tab that the refused close gave it to and wrote no
+    stamp.
+- The cost of the rule at a close: a pane with no create request that took a
+  slot, and a close of a tab that is not the active tab while no close gave
+  the active tab to a slot, read nothing of the list.
 - A retry of a create request with an `idempotency_key` sends the same
   `place` and `transaction` as the first request: both are part of the
   request that the key names.
