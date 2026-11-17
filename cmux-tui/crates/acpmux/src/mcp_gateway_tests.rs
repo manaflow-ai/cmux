@@ -154,12 +154,16 @@ async fn an_idle_chats_server_stops_and_its_next_call_starts_one_that_was_initia
 async fn thirty_chats_hold_no_process_while_idle() {
     let home = tempfile::tempdir().unwrap();
     let g = gateway(home.path(), Duration::from_millis(200)).await;
+    // Each chat's call starts its server; on a slow host the first ones may
+    // already be idle and stopped before the last call, so count the answers.
     for n in 0..30 {
         let id = format!("chat-{n}");
         g.keep(&id, launch(home.path())).unwrap();
-        rpc(&g, &id, call(1)).await;
+        let answer = rpc(&g, &id, call(1)).await;
+        assert_eq!(answer["id"], json!(1), "{answer}");
+        assert!(!text(&answer).is_empty(), "{answer}");
     }
-    assert_eq!(g.running(), 30);
+    assert!(g.running() >= 1);
     until("every idle server stops", async || g.running() == 0).await;
 }
 
