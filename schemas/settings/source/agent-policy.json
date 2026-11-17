@@ -1633,7 +1633,8 @@
       "agent": "privacy",
       "why": "The person decides whether cmux reads verification emails.",
       "keys": [
-        "browser.verificationAutofill.enabled"
+        "browser.verificationAutofill.enabled",
+        "browser.verificationAutofill.accounts"
       ]
     }
   ]

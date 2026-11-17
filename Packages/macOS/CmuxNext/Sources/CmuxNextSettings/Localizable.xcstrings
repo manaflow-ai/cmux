@@ -1321,6 +1321,138 @@
         }
       }
     },
+    "settings.choice.fontSmoothingAuto": {
+      "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "settings.choice.backgroundFollowAppearance": {
       "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
       "extractionState": "manual",
@@ -116838,7 +116970,7 @@
     }
   },
     "settings.tabs.toolbarButtons.splitRight": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -116970,7 +117102,7 @@
       }
     },
     "settings.tabs.toolbarButtons.splitDown": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -117102,7 +117234,7 @@
       }
     },
     "settings.tabs.toolbarButtons.diffViewer": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -117234,7 +117366,7 @@
       }
     },
     "settings.tabs.toolbarButtons.openFile": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -117366,7 +117498,7 @@
       }
     },
     "settings.tabs.toolbarButtons.searchChats": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -117498,7 +117630,7 @@
       }
     },
     "settings.tabs.toolbarButtons.paneZoom": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -117762,133 +117894,133 @@
       }
     },
     "settings.tabs.toolbarButtons.help": {
-      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons at a pane's tab bar trailing end.",
+      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons next to a pane's tab bar More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+            "value": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإجراءات المعروضة كأزرار في نهاية شريط علامات التبويب. ثبّت أيًّا منها أو ألغِ تثبيته من «إظهار في شريط علامات التبويب» في قائمة النقر بزر الماوس الأيمن على شريط علامات التبويب."
+            "value": "الإجراءات المعروضة كأزرار بجوار زر «المزيد» في شريط علامات التبويب. البقية في قائمة «المزيد»، حيث يثبّتها «إظهار في شريط علامات التبويب» مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcije prikazane kao dugmad na kraju trake kartica. Prikačite ili otkačite neku iz stavke Prikaži na traci kartica u meniju desnog klika na traci kartica."
+            "value": "Akcije prikazane kao dugmad pored dugmeta Više na traci kartica. Ostale su u meniju Više, gdje ih Prikaži na traci kartica ponovo prikačuje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger vist som knapper i slutningen af fanelinjen. Fastgør eller frigør en fra Vis på fanelinjen i fanelinjens højreklikmenu."
+            "value": "Handlinger vist som knapper ved siden af fanelinjens Mere-knap. Resten er i menuen Mere, hvor Vis på fanelinjen fastgør dem igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktionen, die als Tasten am Ende der Tableiste erscheinen. Über „In der Tableiste anzeigen“ im Kontextmenü der Tableiste heftest du eine an oder löst sie."
+            "value": "Aktionen, die als Tasten neben der Mehr-Taste der Tableiste erscheinen. Die übrigen stehen im Menü „Mehr“, wo „In der Tableiste anzeigen“ sie wieder anheftet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acciones que se muestran como botones al final de la barra de pestañas. Fija o quita una desde Mostrar en la barra de pestañas, en el menú contextual de la barra de pestañas."
+            "value": "Acciones que se muestran como botones junto al botón Más de la barra de pestañas. El resto está en el menú Más, donde Mostrar en la barra de pestañas vuelve a fijarlas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions affichées comme boutons au bout de la barre d’onglets. Épinglez-en une ou retirez-la depuis Afficher dans la barre d’onglets, dans le menu contextuel de la barre d’onglets."
+            "value": "Actions affichées comme boutons à côté du bouton Plus de la barre d’onglets. Les autres sont dans le menu Plus, où Afficher dans la barre d’onglets les épingle à nouveau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Azioni mostrate come pulsanti alla fine della barra dei pannelli. Fissane o rimuovine una da Mostra nella barra dei pannelli, nel menu contestuale della barra dei pannelli."
+            "value": "Azioni mostrate come pulsanti accanto al pulsante Altro della barra dei pannelli. Le altre sono nel menu Altro, dove Mostra nella barra dei pannelli le fissa di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブバーの末尾にボタンとして表示するアクション。タブバーの右クリックメニューの「タブバーに表示」で固定または固定解除できます。"
+            "value": "タブバーの「その他」ボタンの横にボタンとして表示するアクション。それ以外は「その他」メニューにあり、「タブバーに表示」で再び固定できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅចុងរបារផ្ទាំង។ ខ្ទាស់ ឬដោះខ្ទាស់មួយពី បង្ហាញក្នុងរបារផ្ទាំង ក្នុងម៉ឺនុយចុចខាងស្ដាំរបស់របារផ្ទាំង។"
+            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅជាប់ប៊ូតុង ច្រើនទៀត របស់របារផ្ទាំង។ សកម្មភាពផ្សេងទៀតនៅក្នុងម៉ឺនុយ ច្រើនទៀត ដែល បង្ហាញក្នុងរបារផ្ទាំង ខ្ទាស់វាវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 막대 끝에 버튼으로 표시할 동작입니다. 탭 막대의 오른쪽 클릭 메뉴에 있는 탭 막대에 표시에서 고정하거나 고정 해제할 수 있습니다."
+            "value": "탭 막대의 더 보기 버튼 옆에 버튼으로 표시할 동작입니다. 나머지는 더 보기 메뉴에 있으며, 탭 막대에 표시로 다시 고정할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger som vises som knapper på slutten av fanelinjen. Fest eller løsne en fra Vis i fanelinjen i fanelinjens høyreklikkmeny."
+            "value": "Handlinger som vises som knapper ved siden av fanelinjens Mer-knapp. Resten er i Mer-menyen, der Vis i fanelinjen fester dem igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcje wyświetlane jako przyciski na końcu paska kart. Przypnij lub odepnij akcję w pozycji Pokaż na pasku kart w menu kontekstowym paska kart."
+            "value": "Akcje wyświetlane jako przyciski obok przycisku Więcej na pasku kart. Pozostałe są w menu Więcej, gdzie Pokaż na pasku kart przypina je z powrotem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ações mostradas como botões no fim da barra de abas. Fixe ou desafixe uma em Mostrar na barra de abas, no menu de clique direito da barra de abas."
+            "value": "Ações mostradas como botões ao lado do botão Mais da barra de abas. As demais ficam no menu Mais, onde Mostrar na barra de abas as fixa de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Действия, показанные кнопками в конце панели вкладок. Закрепите или открепите действие пунктом «Показывать на панели вкладок» в контекстном меню панели вкладок."
+            "value": "Действия, показанные кнопками рядом с кнопкой «Ещё» на панели вкладок. Остальные — в меню «Ещё», где пункт «Показывать на панели вкладок» снова закрепляет их."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การทำงานที่แสดงเป็นปุ่มที่ท้ายแถบแท็บ ปักหมุดหรือเลิกปักหมุดได้จาก แสดงในแถบแท็บ ในเมนูคลิกขวาของแถบแท็บ"
+            "value": "การทำงานที่แสดงเป็นปุ่มข้างปุ่ม เพิ่มเติม ของแถบแท็บ ส่วนที่เหลืออยู่ในเมนู เพิ่มเติม ซึ่ง แสดงในแถบแท็บ จะปักหมุดกลับมา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekme çubuğunun sonunda düğme olarak gösterilen eylemler. Sekme çubuğunun sağ tık menüsündeki Sekme Çubuğunda Göster ile birini sabitleyin veya sabitlemesini kaldırın."
+            "value": "Sekme çubuğunun Daha Fazla düğmesinin yanında düğme olarak gösterilen eylemler. Diğerleri Daha Fazla menüsündedir; Sekme Çubuğunda Göster onları yeniden sabitler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дії, показані кнопками в кінці панелі вкладок. Закріпіть або відкріпіть дію пунктом «Показувати на панелі вкладок» у контекстному меню панелі вкладок."
+            "value": "Дії, показані кнопками поруч із кнопкою «Більше» на панелі вкладок. Решта — в меню «Більше», де пункт «Показувати на панелі вкладок» знову закріплює їх."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các hành động hiển thị thành nút ở cuối thanh tab. Ghim hoặc bỏ ghim từ Hiển thị trên thanh tab trong menu chuột phải của thanh tab."
+            "value": "Các hành động hiển thị thành nút cạnh nút Thêm của thanh tab. Phần còn lại nằm trong menu Thêm, nơi Hiển thị trên thanh tab ghim lại chúng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在标签栏末尾显示为按钮的操作。可在标签栏右键菜单的“在标签栏中显示”中固定或取消固定。"
+            "value": "在标签栏“更多”按钮旁显示为按钮的操作。其余操作位于“更多”菜单中，可通过“在标签栏中显示”重新固定。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在標籤列末端顯示為按鈕的動作。可在標籤列右鍵選單的「在標籤列中顯示」中固定或取消固定。"
+            "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
           }
         }
       }
@@ -219097,6 +219229,399 @@
         }
       }
     },
+    "settings.browser.verificationAutofill.accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email Accounts for Codes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حسابات البريد للرموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mail računi za kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mailkonti til koder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-Mail-Konten für Codes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuentas de correo para códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comptes e-mail pour les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Account email per i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードを読むメールアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនីអ៊ីមែលសម្រាប់លេខកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드용 이메일 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-postkontoer for koder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konta e-mail dla kodów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contas de e-mail para códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Почтовые ящики для кодов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชีอีเมลสำหรับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar için e-posta hesapları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поштові скриньки для кодів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tài khoản email cho mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用于验证码的邮箱账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用於驗證碼的郵件帳號"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تأتي الرموز من هذه العناوين فقط: حسابات Gmail التي سجّلت الدخول إليها في هذا المتصفح، والحسابات في تطبيق البريد. تُقرأ الرسائل على هذا الـ Mac ولا تُخزَّن ولا تُرسَل أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodovi dolaze samo s ovih adresa: Gmail računi na koje ste prijavljeni u ovom pregledniku i računi u aplikaciji Mail. Pošta se čita na ovom Macu i nikad se ne pohranjuje niti šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer kun fra disse adresser: Gmail-konti, du er logget ind på i denne browser, og konti i Mail-appen. Mail læses på denne Mac og bliver aldrig gemt eller sendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codes kommen nur von diesen Adressen: Gmail-Konten, bei denen du in diesem Browser angemeldet bist, und Konten in der Mail-App. Mails werden auf diesem Mac gelesen und nie gespeichert oder gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los códigos solo provienen de estas direcciones: cuentas de Gmail con sesión iniciada en este navegador y cuentas de la app Mail. El correo se lee en este Mac y nunca se guarda ni se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les codes viennent uniquement de ces adresses : les comptes Gmail connectés dans ce navigateur et les comptes de l'app Mail. Les e-mails sont lus sur ce Mac, jamais enregistrés ni envoyés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I codici arrivano solo da questi indirizzi: account Gmail con cui hai effettuato l'accesso in questo browser e account nell'app Mail. La posta viene letta su questo Mac e non viene mai salvata né inviata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードはこれらのアドレスからのみ読み取ります: このブラウザでサインインしている Gmail アカウントと、メールアプリのアカウントです。メールはこの Mac 上で読み取り、保存も送信もしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លេខកូដមកពីអាសយដ្ឋានទាំងនេះតែប៉ុណ្ណោះ៖ គណនី Gmail ដែលអ្នកបានចូលក្នុងកម្មវិធីរុករកនេះ និងគណនីក្នុងកម្មវិធី Mail។ អ៊ីមែលត្រូវបានអាននៅលើ Mac នេះ ហើយមិនដែលរក្សាទុក ឬផ្ញើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드는 이 주소에서만 가져옵니다: 이 브라우저에 로그인한 Gmail 계정과 Mail 앱의 계정. 메일은 이 Mac에서 읽으며 저장하거나 전송하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer bare fra disse adressene: Gmail-kontoer du er logget på i denne nettleseren, og kontoer i Mail-appen. E-post leses på denne Macen og blir aldri lagret eller sendt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kody pochodzą tylko z tych adresów: kont Gmail, na które logujesz się w tej przeglądarce, i kont w aplikacji Mail. Poczta jest czytana na tym Macu i nigdy nie jest zapisywana ani wysyłana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os códigos vêm apenas destes endereços: contas do Gmail em que você está conectado neste navegador e contas do app Mail. Os e-mails são lidos neste Mac e nunca são guardados nem enviados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коды берутся только с этих адресов: аккаунты Gmail, в которые вы вошли в этом браузере, и ящики в приложении «Почта». Почта читается на этом Mac и никогда не сохраняется и не отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสมาจากที่อยู่เหล่านี้เท่านั้น: บัญชี Gmail ที่คุณลงชื่อเข้าใช้ในเบราว์เซอร์นี้ และบัญชีในแอป Mail อีเมลถูกอ่านบน Mac เครื่องนี้ และไม่ถูกเก็บหรือส่งไปที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar yalnızca bu adreslerden gelir: bu tarayıcıda oturum açtığınız Gmail hesapları ve Mail uygulamasındaki hesaplar. E-postalar bu Mac'te okunur, asla saklanmaz veya gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коди беруться лише з цих адрес: облікові записи Gmail, у які ви ввійшли в цьому браузері, і скриньки в програмі «Пошта». Пошта читається на цьому Mac і ніколи не зберігається й не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã chỉ lấy từ các địa chỉ này: tài khoản Gmail bạn đã đăng nhập trong trình duyệt này và tài khoản trong ứng dụng Mail. Thư được đọc trên máy Mac này, không bao giờ được lưu hay gửi đi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "验证码只来自这些地址：在此浏览器中登录的 Gmail 账户，以及“邮件”App 中的账户。邮件只在这台 Mac 上读取，从不保存或发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "驗證碼只來自這些地址：在此瀏覽器中登入的 Gmail 帳號，以及「郵件」App 中的帳號。郵件只在這台 Mac 上讀取，從不儲存或傳送。"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Addresses cmux may read codes from"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العناوين التي يمكن لـ cmux قراءة الرموز منها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adrese s kojih cmux smije čitati kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser, cmux må læse koder fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adressen, aus denen cmux Codes lesen darf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direcciones de las que cmux puede leer códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresses où cmux peut lire les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzi da cui cmux può leggere i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がコードを読み取れるアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានដែល cmux អាចអានលេខកូដបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 코드를 읽을 수 있는 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser cmux kan lese koder fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresy, z których cmux może czytać kody"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereços dos quais o cmux pode ler códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса, из которых cmux может читать коды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ที่ cmux อ่านรหัสได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kod okuyabileceği adresler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреси, з яких cmux може читати коди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các địa chỉ cmux được đọc mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可读取验证码的地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可讀取驗證碼的地址"
+          }
+        }
+      }
+    },
     "settings.appearance.fontSmoothing": {
       "comment": "Settings row title: how heavy cmux's own text draws (font smoothing).",
       "extractionState": "manual",
@@ -219230,133 +219755,133 @@
       }
     },
     "settings.appearance.fontSmoothing.help": {
-      "comment": "Help under Text Smoothing. Thin and System are the choice names; translate them as in settings.choice.fontSmoothingThin and settings.choice.fontSmoothingSystem.",
+      "comment": "Help under Text Smoothing. Auto, Thin and Smooth are the choice names; translate them as in settings.choice.fontSmoothingAuto, settings.choice.fontSmoothingThin and settings.choice.fontSmoothingSmooth.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يرسم الخيار رفيع علامات التبويب والشريط الجانبي وعناصر التحكم الأخرى بخطوط أخف، مثل دردشة cmux وصفحات الويب. يستخدم الخيار النظام إعداد macOS الافتراضي الأثقل. يحتفظ نص الطرفية بإعداده الخاص. يسري بعد إعادة تشغيل cmux."
+            "value": "كيفية رسم النص. يحتفظ الخيار تلقائي بتنعيم Mac الخاص لعلامات التبويب والشريط الجانبي وعناصر التحكم الأخرى، وبنمط كل صفحة. يرسم الخيار رفيع خطوطًا أخف في كل مكان. يرسم الخيار ناعم تنعيم macOS الأثقل في كل مكان. تتغير الصفحات فورًا؛ ويتغير النص الآخر بعد إعادة تشغيل cmux. يحتفظ نص الطرفية بإعداده الخاص."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tanko crta kartice, bočnu traku i druge kontrole lakšim potezima, kao cmux chat i web stranice. Sistemski koristi teži macOS zadani izgled. Tekst terminala zadržava vlastitu postavku. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+            "value": "Kako se tekst crta. Automatski zadržava vlastito zaglađivanje Maca za kartice, bočnu traku i druge kontrole, te vlastiti stil svake stranice. Tanko svuda crta lakše poteze. Glatko svuda crta teže macOS zaglađivanje. Stranice se mijenjaju odmah; ostali tekst nakon ponovnog pokretanja cmuxa. Tekst terminala zadržava vlastitu postavku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tynd tegner faner, sidepanelet og andre kontroller med lettere streger, som cmux' chat og websider. System bruger den tungere macOS-standard. Terminaltekst beholder sin egen indstilling. Træder i kraft, når cmux genstartes."
+            "value": "Hvordan tekst tegnes. Automatisk beholder Mac'ens egen udglatning for faner, sidepanelet og andre kontroller og hver sides egen stil. Tynd tegner lettere streger overalt. Udglattet tegner den kraftigere macOS-udglatning overalt. Sider skifter med det samme; anden tekst skifter, når cmux genstartes. Terminaltekst beholder sin egen indstilling."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dünn zeichnet Tabs, die Seitenleiste und andere Bedienelemente mit leichteren Strichen, wie der Chat von cmux und Webseiten. System verwendet die kräftigere macOS-Standarddarstellung. Terminaltext behält seine eigene Einstellung. Wirkt nach einem Neustart von cmux."
+            "value": "Wie Text gezeichnet wird. Automatisch behält die Glättung des Mac für Tabs, Seitenleiste und andere Bedienelemente und den eigenen Stil jeder Seite. Dünn zeichnet überall leichtere Striche. Geglättet zeichnet überall die kräftigere macOS-Glättung. Seiten ändern sich sofort, anderer Text nach einem Neustart von cmux. Terminaltext behält seine eigene Einstellung."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+            "value": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino dibuja las pestañas, la barra lateral y otros controles con trazos más ligeros, como el chat de cmux y las páginas web. Sistema usa el valor predeterminado de macOS, más grueso. El texto de la terminal conserva su propio ajuste. Se aplica al reiniciar cmux."
+            "value": "Cómo se dibuja el texto. Automático mantiene el suavizado propio del Mac en pestañas, barra lateral y otros controles, y el estilo propio de cada página. Fino dibuja trazos más ligeros en todas partes. Suavizado dibuja el suavizado de macOS, más grueso, en todas partes. Las páginas cambian al instante; el resto del texto, al reiniciar cmux. El texto de la terminal conserva su propio ajuste."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fin dessine les onglets, la barre latérale et les autres contrôles avec des traits plus légers, comme le chat de cmux et les pages web. Système utilise le rendu macOS par défaut, plus épais. Le texte du terminal garde son propre réglage. Prend effet au redémarrage de cmux."
+            "value": "Comment le texte est dessiné. Automatique garde le lissage du Mac pour les onglets, la barre latérale et les autres contrôles, et le style propre à chaque page. Fin dessine des traits plus légers partout. Lissé dessine partout le lissage macOS, plus épais. Les pages changent aussitôt ; le reste du texte au redémarrage de cmux. Le texte du terminal garde son propre réglage."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sottile disegna schede, barra laterale e altri controlli con tratti più leggeri, come la chat di cmux e le pagine web. Sistema usa il predefinito di macOS, più marcato. Il testo del terminale mantiene la propria impostazione. Ha effetto dopo il riavvio di cmux."
+            "value": "Come viene disegnato il testo. Automatico mantiene la smussatura del Mac per schede, barra laterale e altri controlli, e lo stile proprio di ogni pagina. Sottile disegna tratti più leggeri ovunque. Smussato disegna ovunque la smussatura di macOS, più marcata. Le pagine cambiano subito; il resto del testo dopo il riavvio di cmux. Il testo del terminale mantiene la propria impostazione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「細い」は、タブ、サイドバー、その他のコントロールを cmux のチャットや Web ページのように細い線で描きます。「システム」は macOS 標準の太めの描画を使います。ターミナルの文字は独自の設定のままです。cmux の再起動後に反映されます。"
+            "value": "文字の描画方法です。「自動」は、タブ、サイドバー、その他のコントロールで Mac 自体のスムージングを使い、各ページは独自のスタイルのままにします。「細い」はすべてを細い線で描きます。「滑らか」はすべてを macOS の太めのスムージングで描きます。ページはすぐに変わり、その他の文字は cmux の再起動後に変わります。ターミナルの文字は独自の設定のままです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្តើង គូរផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀតដោយខ្សែស្រាលជាង ដូចការជជែករបស់ cmux និងទំព័រវិប។ ប្រព័ន្ធ ប្រើលំនាំដើម macOS ដែលធ្ងន់ជាង។ អត្ថបទទែមីណាល់រក្សាការកំណត់ផ្ទាល់ខ្លួន។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្តើម cmux ឡើងវិញ។"
+            "value": "របៀបគូរអក្សរ។ ស្វ័យប្រវត្តិ រក្សាការធ្វើឲ្យរលោងផ្ទាល់របស់ Mac សម្រាប់ផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀត ព្រមទាំងរចនាប័ទ្មផ្ទាល់របស់ទំព័រនីមួយៗ។ ស្តើង គូរខ្សែស្រាលជាងនៅគ្រប់ទីកន្លែង។ រលោង គូរការធ្វើឲ្យរលោងរបស់ macOS ដែលធ្ងន់ជាងនៅគ្រប់ទីកន្លែង។ ទំព័រផ្លាស់ប្តូរភ្លាមៗ អត្ថបទផ្សេងទៀតផ្លាស់ប្តូរបន្ទាប់ពីចាប់ផ្តើម cmux ឡើងវិញ។ អត្ថបទទែមីណាល់រក្សាការកំណត់ផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "얇게는 탭, 사이드바 및 기타 컨트롤을 cmux 채팅과 웹 페이지처럼 가는 획으로 그립니다. 시스템은 더 굵은 macOS 기본값을 사용합니다. 터미널 텍스트는 자체 설정을 유지합니다. cmux를 다시 시작하면 적용됩니다."
+            "value": "텍스트를 그리는 방식입니다. 자동은 탭, 사이드바 및 기타 컨트롤에 Mac 자체의 다듬기를, 각 페이지에는 페이지 고유의 스타일을 유지합니다. 얇게는 모든 곳을 가는 획으로 그립니다. 부드럽게는 모든 곳을 더 굵은 macOS 다듬기로 그립니다. 페이지는 즉시 바뀌고, 그 밖의 텍스트는 cmux를 다시 시작하면 바뀝니다. 터미널 텍스트는 자체 설정을 유지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tynn tegner faner, sidepanelet og andre kontroller med lettere streker, som cmux-chatten og nettsider. System bruker den tyngre macOS-standarden. Terminaltekst beholder sin egen innstilling. Trer i kraft når cmux startes på nytt."
+            "value": "Hvordan tekst tegnes. Automatisk beholder Macens egen utjevning for faner, sidepanelet og andre kontroller, og hver sides egen stil. Tynn tegner lettere streker overalt. Utjevnet tegner den tyngre macOS-utjevningen overalt. Sider endres med en gang; annen tekst når cmux startes på nytt. Terminaltekst beholder sin egen innstilling."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cienkie rysuje karty, pasek boczny i inne kontrolki lżejszymi pociągnięciami, jak czat cmux i strony internetowe. Systemowe używa grubszego domyślnego wyglądu macOS. Tekst terminala zachowuje własne ustawienie. Działa po ponownym uruchomieniu cmux."
+            "value": "Sposób rysowania tekstu. Automatyczne zachowuje własne wygładzanie Maca dla kart, paska bocznego i innych kontrolek oraz własny styl każdej strony. Cienkie rysuje wszędzie lżejsze pociągnięcia. Wygładzone rysuje wszędzie grubsze wygładzanie macOS. Strony zmieniają się od razu; pozostały tekst po ponownym uruchomieniu cmux. Tekst terminala zachowuje własne ustawienie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino desenha abas, a barra lateral e outros controles com traços mais leves, como o chat do cmux e as páginas web. Sistema usa o padrão do macOS, mais grosso. O texto do terminal mantém sua própria configuração. Entra em vigor após reiniciar o cmux."
+            "value": "Como o texto é desenhado. Automático mantém a suavização do próprio Mac em abas, barra lateral e outros controles, e o estilo próprio de cada página. Fino desenha traços mais leves em todo lugar. Suavizado desenha a suavização do macOS, mais grossa, em todo lugar. As páginas mudam na hora; o restante do texto, após reiniciar o cmux. O texto do terminal mantém sua própria configuração."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Тонкое» рисует вкладки, боковую панель и другие элементы более тонкими штрихами, как чат cmux и веб-страницы. «Системное» использует более плотное отображение macOS по умолчанию. Текст терминала сохраняет собственную настройку. Вступает в силу после перезапуска cmux."
+            "value": "Как рисуется текст. «Авто» оставляет собственное сглаживание Mac для вкладок, боковой панели и других элементов и собственный стиль каждой страницы. «Тонкое» везде рисует более тонкие штрихи. «Сглаженное» везде рисует более плотное сглаживание macOS. Страницы меняются сразу, остальной текст — после перезапуска cmux. Текст терминала сохраняет собственную настройку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บาง จะวาดแท็บ แถบด้านข้าง และตัวควบคุมอื่นๆ ด้วยเส้นที่บางลง เหมือนแชตของ cmux และหน้าเว็บ ระบบ ใช้ค่าเริ่มต้นของ macOS ที่หนากว่า ข้อความในเทอร์มินัลใช้การตั้งค่าของตัวเอง มีผลหลังจากเริ่ม cmux ใหม่"
+            "value": "วิธีวาดข้อความ อัตโนมัติ ใช้การปรับให้เรียบของ Mac เองกับแท็บ แถบด้านข้าง และตัวควบคุมอื่นๆ และใช้สไตล์ของแต่ละหน้าเอง บาง วาดเส้นที่บางลงทุกที่ เรียบ วาดการปรับให้เรียบของ macOS ที่หนากว่าทุกที่ หน้าเว็บเปลี่ยนทันที ข้อความอื่นเปลี่ยนหลังจากเริ่ม cmux ใหม่ ข้อความในเทอร์มินัลใช้การตั้งค่าของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İnce; sekmeleri, kenar çubuğunu ve diğer denetimleri cmux sohbeti ve web sayfaları gibi daha hafif çizgilerle çizer. Sistem, daha kalın macOS varsayılanını kullanır. Terminal metni kendi ayarını korur. cmux yeniden başlatıldıktan sonra geçerli olur."
+            "value": "Metnin nasıl çizileceği. Otomatik; sekmeler, kenar çubuğu ve diğer denetimler için Mac'in kendi yumuşatmasını ve her sayfanın kendi stilini korur. İnce her yerde daha hafif çizgiler çizer. Yumuşak her yerde daha kalın macOS yumuşatmasını çizer. Sayfalar hemen değişir; diğer metin cmux yeniden başlatıldıktan sonra değişir. Terminal metni kendi ayarını korur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Тонке» малює вкладки, бічну панель та інші елементи тоншими штрихами, як чат cmux і вебсторінки. «Системне» використовує щільніше стандартне відображення macOS. Текст термінала зберігає власне налаштування. Діє після перезапуску cmux."
+            "value": "Як малюється текст. «Авто» залишає власне згладжування Mac для вкладок, бічної панелі та інших елементів і власний стиль кожної сторінки. «Тонке» всюди малює тонші штрихи. «Згладжене» всюди малює щільніше згладжування macOS. Сторінки змінюються одразу, інший текст — після перезапуску cmux. Текст термінала зберігає власне налаштування."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mảnh vẽ thẻ, thanh bên và các điều khiển khác bằng nét nhẹ hơn, giống khung trò chuyện của cmux và các trang web. Hệ thống dùng mặc định đậm hơn của macOS. Chữ trong terminal giữ cài đặt riêng. Có hiệu lực sau khi khởi động lại cmux."
+            "value": "Cách vẽ chữ. Tự động giữ cách làm mượt riêng của Mac cho thẻ, thanh bên và các điều khiển khác, cùng kiểu riêng của từng trang. Mảnh vẽ nét nhẹ hơn ở mọi nơi. Mượt vẽ kiểu làm mượt đậm hơn của macOS ở mọi nơi. Trang thay đổi ngay; chữ khác thay đổi sau khi khởi động lại cmux. Chữ trong terminal giữ cài đặt riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“细”会以更细的笔画绘制标签页、边栏和其他控件，与 cmux 的聊天和网页一致。“系统”使用 macOS 默认的较粗效果。终端文字保留其自身设置。重新启动 cmux 后生效。"
+            "value": "文字的绘制方式。“自动”在标签页、边栏和其他控件上沿用 Mac 自身的平滑效果，并保留各页面自身的样式。“细”在所有地方以更细的笔画绘制。“平滑”在所有地方使用较粗的 macOS 平滑效果。页面会立即变化；其他文字在重新启动 cmux 后变化。终端文字保留其自身设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「細」會以更細的筆畫繪製分頁、側邊欄和其他控制項，與 cmux 的聊天和網頁一致。「系統」使用 macOS 預設的較粗效果。終端機文字保留其自身設定。重新啟動 cmux 後生效。"
+            "value": "文字的繪製方式。「自動」在分頁、側邊欄和其他控制項上沿用 Mac 本身的平滑效果，並保留各頁面本身的樣式。「細」在所有地方以更細的筆畫繪製。「平滑」在所有地方使用較粗的 macOS 平滑效果。頁面會立即變更；其他文字在重新啟動 cmux 後變更。終端機文字保留其本身設定。"
           }
         }
       }
@@ -219493,134 +220018,134 @@
         }
       }
     },
-    "settings.choice.fontSmoothingSystem": {
-      "comment": "Text Smoothing choice: the macOS default font smoothing.",
+    "settings.choice.fontSmoothingSmooth": {
+      "comment": "Text Smoothing choice: the macOS font smoothing turned on everywhere (CSS subpixel-antialiased).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "النظام"
+            "value": "ناعم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistemski"
+            "value": "Glatko"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Udglattet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Geglättet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Smooth"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Suavizado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Système"
+            "value": "Lissé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Smussato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム"
+            "value": "滑らか"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រព័ន្ធ"
+            "value": "រលោង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시스템"
+            "value": "부드럽게"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Utjevnet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Systemowe"
+            "value": "Wygładzone"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Suavizado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Системное"
+            "value": "Сглаженное"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ระบบ"
+            "value": "เรียบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistem"
+            "value": "Yumuşak"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Системне"
+            "value": "Згладжене"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hệ thống"
+            "value": "Mượt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "系统"
+            "value": "平滑"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "系統"
+            "value": "平滑"
           }
         }
       }

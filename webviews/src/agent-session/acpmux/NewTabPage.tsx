@@ -9,7 +9,6 @@ import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
-import { useComposerLook } from "./composerLook";
 import { ComposerFoot } from "./ComposerFoot";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
@@ -597,14 +596,11 @@ export function NewTabPage({
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
-  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
-  const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
+  useRowFit(foot, `${kind}:${plainFooter}`);
 
   return (
-    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
+    <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
