@@ -10,9 +10,9 @@
 //! and keeps a receipt. `remove` undoes it; `update` moves it to the newest
 //! commit of the ref it was installed from. Every verb takes `--json`.
 
+use cmux_process::Command;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use cmux_customize::setup::{
     self, ExportHeader, ExtensionReceipt, Plan, Receipt, Reference, SETUP_FILE, TOPIC,

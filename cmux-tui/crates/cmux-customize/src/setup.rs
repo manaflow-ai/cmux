@@ -283,7 +283,7 @@ pub fn engine_ok(required: Option<&str>, running: &str) -> Result<(), Error> {
         return Ok(());
     }
     Err(Error::Setup(format!(
-        "this setup requires cmux {}.{}.{} or later; this is {running}. Update cmux first",
+        "this setup requires cmux {}.{}.{} or later; this is {running}",
         min.0, min.1, min.2
     )))
 }
