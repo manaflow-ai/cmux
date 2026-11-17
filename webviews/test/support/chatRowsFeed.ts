@@ -3,12 +3,7 @@
 // and answers `taken` with `post`. The receiver is the document's, so each feed starts it over with
 // this one host client in it, on lanes that run each batch before `receiveChatRows` returns.
 import type { ChatRowsHost, ChatRowsPost } from "../../src/agent-session/acpmux/rows/host";
-import {
-  addChatRowsHost,
-  listenForChatRows,
-  receiveChatRows,
-  resetChatRowsReceiver,
-} from "../../src/agent-session/acpmux/rows/receiver";
+import { addChatRowsHost, receiveChatRows, resetChatRowsReceiver } from "../../src/agent-session/acpmux/rows/receiver";
 import type { Lanes } from "../../src/agent-session/acpmux/schedule";
 
 /// Lanes that run a frame task at once, in the receiving task: for tests and benches about where
@@ -25,16 +20,11 @@ export function syncLanes(): Lanes {
   };
 }
 
-/// Starts the document's receiver over with `host` alone in it, on `syncLanes()`.
-export function feedOnly(host: ChatRowsHost, post: ChatRowsPost): void {
-  resetChatRowsReceiver();
-  listenForChatRows(syncLanes());
-  addChatRowsHost(host, post);
-}
-
 /// Hands `host` each batch of change strings, numbered from 1.
 export function chatRowsFeed(host: ChatRowsHost, post: ChatRowsPost): (changes: readonly string[]) => void {
-  feedOnly(host, post);
+  resetChatRowsReceiver();
+  addChatRowsHost(host, post);
+  const lanes = syncLanes();
   let batch = 0;
-  return (changes) => receiveChatRows({ batch: ++batch, changes });
+  return (changes) => receiveChatRows({ batch: ++batch, changes }, lanes);
 }
