@@ -1248,6 +1248,10 @@ jobs:
       # 'true' only after the appcast passed tip_feed.py check and the handoff
       # uploaded: tip publishes nothing without it.
       ready: ${{ steps.ready.outputs.ready }}
+      # Candidate mode: the staged (not yet verified) DMG's artifact and the
+      # name the candidate job gives it once verify passed.
+      candidate_staged: ${{ steps.candidate.outputs.staged }}
+      candidate_name: ${{ steps.candidate.outputs.name }}
       # The archive and delta names of this attempt, which tip uploads; a
       # re-run of tip alone reads them here instead of making its own.
       run_tag: ${{ steps.appcast.outputs.run_tag }}
@@ -1331,8 +1335,9 @@ jobs:
       # adds them once tip has published this item). The script refuses an
       # app whose build is not TIP_BUILD or whose SUPublicEDKey is not the
       # feed key's public half, and checks the signature with openssl.
-      # Candidate mode: the stapled DMG is this run's artifact and nothing
-      # else. No appcast is made, so tip (which needs ready) publishes nothing.
+      # Candidate mode: the stapled DMG is staged for the candidate job, which
+      # names it the candidate only after verify passed (F1 of #44972). No
+      # appcast is made, so tip (which needs ready) publishes nothing.
       - name: Keep the candidate DMG as this run's artifact
         id: candidate
         if: inputs.pr_head_sha != ''
@@ -1346,18 +1351,20 @@ jobs:
           mkdir -p candidate-out
           cp "tip-unsigned/$TIP_DMG_NAME" "candidate-out/cmux-NEXT-DEV-candidate-pr$PR_NUMBER-${PR_HEAD_SHA:0:12}.dmg"
           cp "signed-handoff/$APP_ARCHIVE_NAME.sha256" candidate-out/built-from.sha256
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "Candidate DMG for #$PR_NUMBER at $PR_HEAD_SHA: artifact $name" | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo "name=$name"
+            echo "staged=cmux-next-candidate-staged-$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Upload the candidate DMG
-        if: steps.candidate.outputs.name != ''
+      - name: Stage the candidate DMG for the candidate job
+        if: steps.candidate.outputs.staged != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.candidate.outputs.name }}
+          name: ${{ steps.candidate.outputs.staged }}
           path: candidate-out/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Generate the full-DMG tip appcast
         id: appcast
@@ -1401,6 +1408,50 @@ jobs:
         id: ready
         if: steps.appcast.outputs.handoff != ''
         run: echo "ready=true" >> "$GITHUB_OUTPUT"
+
+  # Candidate mode only (pr_head_sha): the notarized DMG becomes the artifact
+  # cmux-next-candidate-pr<N>-<sha> only after verify ran Apple's codesign on
+  # the same signed archive (F1 of #44972), checked by digest as tip checks it.
+  # No secrets and no publishing: an artifact upload is all it writes.
+  candidate:
+    name: Keep the verified candidate DMG
+    needs: [sign, verify, tip-dmg]
+    if: ${{ !cancelled() && inputs.pr_head_sha != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' && needs.tip-dmg.outputs.candidate_staged != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Download the staged candidate DMG
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.tip-dmg.outputs.candidate_staged }}
+          path: candidate-out
+
+      - name: Download the tested digest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-dev-daily-tested
+          path: candidate-tested
+
+      - name: Require the archive verify tested
+        run: |
+          set -euo pipefail
+          cmp -s candidate-out/built-from.sha256 candidate-tested/tested.sha256 \
+            || { echo "the candidate DMG holds an archive verify did not test" >&2; exit 1; }
+
+      - name: Upload the candidate DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.tip-dmg.outputs.candidate_name }}
+          path: candidate-out/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Name the candidate DMG
+        env:
+          NAME: ${{ needs.tip-dmg.outputs.candidate_name }}
+        run: echo "Candidate DMG (verified, notarized, stapled) is artifact $NAME" | tee -a "$GITHUB_STEP_SUMMARY"
 
   tip:
     name: Publish the cmux NEXT DEV tip feed
