@@ -40,7 +40,7 @@ Variants:
           shown terminal connected, restoring or reconnecting), and the turn must finish;
   daemon-stop  the daemon is frozen (SIGSTOP) instead, as a wedged owner: the app must notice
           (its heartbeat), offer Restart cmux-tui, and Restart (`debug.daemon {action: restart}`,
-          the button's path after its confirm) must bring a new daemon and every view back. The
+          the button's path) must bring a new daemon and every view back. The
           stopped process is ended at the end if it is still there;
   reboot  the quit path, then every process the app's bundle started is killed with all its
           children (daemon, terminal hosts and their programs, acpmux, agent hosts), as a
