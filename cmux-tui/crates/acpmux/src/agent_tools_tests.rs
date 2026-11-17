@@ -716,3 +716,70 @@ fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session
     assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Each chat ran its own `acpmux tools-mcp` under its `cmux mcp serve` (Leo's NIGHTLY,
+/// 2026-11-17). With the daemon's gateway, each of acpmux's own upstream specs names the
+/// gateway's tool endpoint for the chat (`http`) beside its launch, and the `cmux` server the
+/// gateway keeps is the one with them.
+#[tokio::test]
+async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-gw-tools-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe, vec!["acp".into()])),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let home = root.join("home");
+    let gateway = crate::mcp_gateway::bind(
+        &home,
+        crate::mcp_gateway::IDLE_STOP,
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let upstreams = |tools: &super::AgentTools| -> Vec<serde_json::Value> {
+        let cmux = tools.servers.iter().find(|s| s.name == "cmux").unwrap();
+        let specs = &cmux.env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+        serde_json::from_str(specs).unwrap()
+    };
+    let plain = resolve(&inputs).for_session("s-gw").folded();
+    assert!(upstreams(&plain).iter().all(|s| s.get("http").is_none()), "no gateway, no http");
+    let tools =
+        resolve(&inputs).for_session("s-gw").folded().via_gateway_on(Some(&gateway), "s-gw", &root);
+    let endpoint = gateway.tools_endpoint("s-gw");
+    assert!(endpoint.url.ends_with("/mcp/s-gw/tools"), "{}", endpoint.url);
+    let want = serde_json::json!({"url": endpoint.url, "headers": {"Authorization": endpoint.authorization}});
+    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let specs = upstreams(&tools);
+    for spec in &specs {
+        let name = spec["name"].as_str().unwrap();
+        if own.contains(&name) {
+            assert_eq!(spec["http"], want, "{name}");
+            // An older `cmux` that does not read `http` starts it as before.
+            assert!(spec.get("shared").is_some() && spec.get("command").is_some(), "{spec}");
+        } else {
+            assert!(spec.get("http").is_none(), "{name} is not acpmux's: {spec}");
+        }
+    }
+    assert_eq!(specs.iter().filter(|s| s.get("http").is_some()).count(), own.len());
+    // The harness gets the gateway, and the gateway keeps the launch with the same upstreams.
+    assert!(tools.http.contains_key("cmux"));
+    let kept: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(crate::mcp_gateway::launch_path(&home, "s-gw")).unwrap(),
+    )
+    .unwrap();
+    let kept_env: Vec<(String, String)> =
+        serde_json::from_value(kept["launch"]["env"].clone()).unwrap();
+    let cmux = tools.servers.iter().find(|s| s.name == "cmux").unwrap();
+    assert_eq!(kept_env, cmux.env);
+    let _ = std::fs::remove_dir_all(&root);
+}

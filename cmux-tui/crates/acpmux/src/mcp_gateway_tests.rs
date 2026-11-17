@@ -243,6 +243,190 @@ async fn a_closed_chats_server_ends_with_it() {
     until("the closed chat's server ends", async || gone(pid)).await;
 }
 
+/// The specs acpmux gives a chat's `cmux` server for its own five servers (`agent_tools.rs`
+/// `for_session`, `folded`): each its own command and env, the acpmux server's with `allow`
+/// as its tool allowlist when set.
+fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
+    let socket = socket.to_string_lossy().into_owned();
+    let base = |session_env: &str| json!({session_env: session, "ACPMUX_SOCKET": socket, "ACPMUX_HOME": "/nonexistent"});
+    let caller = |mut env: Value| {
+        // What the daemon that registered the chat gave it: this gateway puts its own run's
+        // token in its place.
+        env["ACPMUX_SESSION_TOKEN"] = json!("a-token-of-an-earlier-daemon-run");
+        env["ACPMUX_SESSION_TOKEN_SOCKET"] = json!(socket);
+        env
+    };
+    let mut acpmux = caller(base("ACPMUX_SESSION_ID"));
+    if let Some(allow) = allow {
+        acpmux[crate::agent_tools::MCP_TOOLS_ENV] = json!(allow);
+    }
+    let spec = |name: &str, word: &str, env: Value| json!({"name": name, "command": "/bin/acpmux", "args": ["acp", word], "env": env});
+    vec![
+        spec("cmux-secrets", "secret-mcp", base("ACPMUX_SECRET_SESSION")),
+        spec("cmux-sessions", "offer-mcp", base("ACPMUX_OFFER_SESSION")),
+        spec("cmux-subsessions", "subsession-mcp", caller(base("ACPMUX_SESSION_ID"))),
+        spec("cmux-forum", "forum-mcp", caller(base("ACPMUX_SESSION_ID"))),
+        spec("acpmux", "acpmux-mcp", acpmux),
+    ]
+}
+
+fn tools_launch(dir: &Path, specs: &[Value]) -> Launch {
+    Launch {
+        command: "/bin/cmux".into(),
+        args: vec!["mcp".into(), "serve".into()],
+        env: vec![
+            ("CMUX_AGENT_SESSION".into(), "x".into()),
+            (crate::agent_tools::UPSTREAMS_ENV.into(), Value::Array(specs.to_vec()).to_string()),
+        ],
+        cwd: Some(dir.to_owned()),
+    }
+}
+
+/// A daemon on `socket` that answers each connection's `initialize` with the caller it proved
+/// (the session its caller token names, as the daemon checks it) and any other request with
+/// `{"rules": [], "caller": ..., "token": ...}`: the session and token that connection said.
+fn fake_daemon(socket: &Path, scope: Arc<cmux_scope::Scope>) {
+    let listener = tokio::net::UnixListener::bind(socket).expect("binds the fake daemon");
+    let tasks = scope.clone();
+    scope.spawn_named("fake daemon", async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tasks.spawn_named("fake daemon connection", async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let mut caller = Value::Null;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let Ok(m) = serde_json::from_str::<Value>(&line) else { continue };
+                    let Some(id) = m.get("id").cloned() else { continue };
+                    let result = if m["method"] == "initialize" {
+                        caller = m.pointer("/params/_meta/acpmux/callerSession").cloned().unwrap_or_default();
+                        let proven = caller["token"]
+                            .as_str()
+                            .zip(caller["sessionId"].as_str())
+                            .filter(|(t, s)| *t == crate::person_tokens::caller_token(s))
+                            .map(|(_, s)| s.to_owned());
+                        json!({"protocolVersion": 1, "_meta": {"acpmux": {"callerSessionId": proven}}})
+                    } else {
+                        json!({"rules": [], "caller": caller["sessionId"], "token": caller["token"]})
+                    };
+                    let line = json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string();
+                    if write.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+}
+
+async fn tools_rpc(g: &Gateway, session: &str, token_of: &str, message: Value) -> (String, Value) {
+    let auth = g.endpoint(token_of).authorization;
+    let (status, body) = request(
+        g.port(),
+        "POST",
+        &format!("/mcp/{session}/tools"),
+        &[("authorization", &auth), ("content-type", "application/json")],
+        &message.to_string(),
+    )
+    .await;
+    (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+}
+
+fn for_server(server: &str, method: &str, params: Value) -> Value {
+    let mut params = params;
+    params["_meta"] = json!({crate::tools_mcp::SERVER_META: server});
+    json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+}
+
+/// What a server's own `acpmux *-mcp` process (and `tools-mcp`, which runs the same makers over
+/// the same env) serves today: the server made in its spec's env alone.
+fn stdio_served(spec: &Value) -> crate::tools_mcp::Served {
+    let env: HashMap<String, String> = spec["env"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+        .collect();
+    let name = spec["name"].as_str().unwrap();
+    let at = crate::tools_mcp::SERVERS.iter().position(|(n, _)| *n == name).unwrap();
+    crate::tool_env::sync_scope(env, || {
+        crate::tools_mcp::MAKERS[at](&Arc::default()).expect("its own process serves it")
+    })
+}
+
+#[tokio::test]
+async fn each_of_acpmux_s_own_servers_answers_at_the_tool_endpoint_as_its_own_process_does() {
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("d.sock");
+    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    // One chat with an allowlist on the acpmux server, one without: each answers by its own.
+    let narrow = tool_specs("chat-t", &socket, Some("acpmux_ls,acpmux_send"));
+    let wide = tool_specs("chat-u", &socket, None);
+    g.keep("chat-t", tools_launch(home.path(), &narrow)).unwrap();
+    g.keep("chat-u", tools_launch(home.path(), &wide)).unwrap();
+    for (session, specs) in [("chat-t", &narrow), ("chat-u", &wide)] {
+        for spec in specs.iter() {
+            let name = spec["name"].as_str().unwrap();
+            let own = stdio_served(spec);
+            let init = json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "cmux"}});
+            let (status, answer) =
+                tools_rpc(&g, session, session, for_server(name, "initialize", init)).await;
+            assert!(status.contains("200"), "{status}");
+            assert_eq!(answer.pointer("/result/serverInfo/name"), Some(&json!(name)), "{answer}");
+            assert_eq!(
+                answer.pointer("/result/instructions").and_then(Value::as_str),
+                own.instructions.as_deref(),
+                "{name}"
+            );
+            let (_, answer) =
+                tools_rpc(&g, session, session, for_server(name, "tools/list", json!({}))).await;
+            assert_eq!(
+                answer["result"]["tools"].to_string(),
+                own.tools.to_string(),
+                "{session} {name}: the same tools, byte for byte"
+            );
+        }
+    }
+    let names = |session: &str| {
+        let g = &g;
+        let session = session.to_owned();
+        async move {
+            let (_, answer) =
+                tools_rpc(g, &session, &session, for_server("acpmux", "tools/list", json!({})))
+                    .await;
+            answer["result"]["tools"].as_array().unwrap().len()
+        }
+    };
+    assert_eq!(names("chat-t").await, 2, "the chat's own allowlist");
+    assert!(names("chat-u").await > 2, "another chat's server is not narrowed by it");
+}
+
+#[tokio::test]
+async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("d.sock");
+    let scope = Arc::new(cmux_scope::Scope::new("fake daemon"));
+    fake_daemon(&socket, scope.clone());
+    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    for session in ["chat-v", "chat-w"] {
+        g.keep(session, tools_launch(home.path(), &tool_specs(session, &socket, None))).unwrap();
+    }
+    for session in ["chat-v", "chat-w"] {
+        let call =
+            for_server("cmux-forum", "tools/call", json!({"name": "rules", "arguments": {}}));
+        let (status, answer) = tools_rpc(&g, session, session, call).await;
+        assert!(status.contains("200"), "{status}");
+        let said = &answer["result"]["structuredContent"];
+        assert_eq!(said["caller"], json!(session), "{answer}");
+        assert_eq!(said["token"], json!(crate::person_tokens::caller_token(session)), "{answer}");
+        assert_eq!(answer["result"]["isError"], json!(false), "{answer}");
+    }
+    let call = for_server("cmux-forum", "tools/call", json!({"name": "rules", "arguments": {}}));
+    let (status, _) = tools_rpc(&g, "chat-v", "chat-w", call.clone()).await;
+    assert!(status.contains("401"), "another chat's token: {status}");
+    let (status, _) = tools_rpc(&g, "chat-none", "chat-none", call).await;
+    assert!(status.contains("404"), "a chat the daemon never registered: {status}");
+}
+
 #[test]
 fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
     let home = tempfile::tempdir().unwrap();
