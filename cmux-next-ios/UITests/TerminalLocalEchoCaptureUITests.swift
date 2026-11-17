@@ -28,8 +28,14 @@ final class TerminalLocalEchoCaptureUITests: XCTestCase {
         XCTAssertTrue(keyboardKey.waitForExistence(timeout: 20), "keyboard key\n\(app.debugDescription)")
         // The mock shell's intro (ls, git log, a build) runs first.
         Self.pause(20)
-        keyboardKey.tap()
+        // A tap on the terminal gives it the keyboard: keys go to the shell,
+        // not to the composer field.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "terminal keyboard\n\(app.debugDescription)")
+        let field = app.textViews["terminal.composer.field"]
+        if field.exists, (field.value(forKey: "hasKeyboardFocus") as? Bool) == true {
+            XCTFail("the composer has the keyboard, not the terminal\n\(app.debugDescription)")
+        }
         attach(app, "1-prompt")
 
         // A first command: two echoes arm the engine, which learns the prompt.
@@ -40,6 +46,9 @@ final class TerminalLocalEchoCaptureUITests: XCTestCase {
         attach(app, "2-after-ls")
 
         // The first key of the next command, at the prompt the shell printed.
+        if field.exists, let draft = field.value as? String, draft.contains("ls") {
+            XCTFail("typing went to the composer: \(draft)")
+        }
         app.typeText("e")
         attach(app, "3-first-key-before-echo")
         Self.pause(Double(Self.roundTripMs) / 1000 + 1)
