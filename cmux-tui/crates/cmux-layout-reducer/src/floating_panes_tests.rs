@@ -186,6 +186,62 @@ fn a_list_that_breaks_the_rules_is_restored_before_an_act() {
     assert_eq!(raised(&[1u8, 2, 3], &list, &2), vec![entry(1, first)]);
 }
 
+/// The frame that four fractions give, as four fractions.
+fn made(x: f64, y: f64, w: f64, h: f64) -> [f64; 4] {
+    FloatFrame::from_fractions(x, y, w, h).unwrap().fractions()
+}
+
+#[test]
+fn a_corner_outside_the_area_is_kept() {
+    // Left of and above the pane area, then right of and below it: a floating pane beside the window.
+    assert_eq!(made(-0.25, -1.5, 0.5, 0.5), [-0.25, -1.5, 0.5, 0.5]);
+    assert_eq!(made(1.25, 3.0, 0.5, 0.5), [1.25, 3.0, 0.5, 0.5]);
+    // A frame that reaches past the right edge and the low edge keeps its corner.
+    assert_eq!(made(0.9, 0.95, 0.3, 0.2), [0.9, 0.95, 0.3, 0.2]);
+}
+
+#[test]
+fn a_size_outside_the_area_is_kept() {
+    assert_eq!(made(0.0, 0.0, 2.5, 1.0), [0.0, 0.0, 2.5, 1.0]);
+    assert_eq!(made(-1.0, 0.5, 8.0, 0.15), [-1.0, 0.5, 8.0, 0.15]);
+}
+
+#[test]
+fn a_frame_outside_the_area_stops_at_the_ends() {
+    assert_eq!(made(-16.0, 16.0, 8.0, 8.0), [-16.0, 16.0, 8.0, 8.0]);
+    assert_eq!(made(-16.5, 400.0, 9.0, 1.0e12), [-16.0, 16.0, 8.0, 8.0]);
+    assert_eq!(made(-1.0e300, 1.0e300, 0.0, 0.01), [-16.0, 16.0, 0.15, 0.15]);
+}
+
+#[test]
+fn a_frame_outside_the_area_keeps_its_corner_in_the_list() {
+    let panes = [1u8, 2, 3];
+    let beside = FloatFrame::from_fractions(-0.5, 1.2, 0.4, 0.4);
+    let list = place(&panes, &[], &1, FloatMode::On, beside).unwrap();
+    assert_eq!(list[0].frame.fractions(), [-0.5, 1.2, 0.4, 0.4]);
+    assert!(is_normal(&panes, &list), "the list of the rules keeps the corner");
+    // A move of the same pane to the other side.
+    let moved = FloatFrame::from_fractions(1.5, -0.3, 0.4, 0.4);
+    let list = place(&panes, &list, &1, FloatMode::On, moved).unwrap();
+    assert_eq!(list[0].frame.fractions(), [1.5, -0.3, 0.4, 0.4]);
+}
+
+#[test]
+fn a_new_pane_with_no_frame_is_not_outside_the_area() {
+    let panes: Vec<u8> = (0..12).collect();
+    // One floating pane has its corner outside the area: it holds no place of a new pane.
+    let beside = FloatFrame::from_fractions(1.2, 1.2, 0.6, 0.6);
+    let mut list = place(&panes, &[], &9, FloatMode::On, beside).unwrap();
+    for pane in 1..=8u8 {
+        list = place(&panes, &list, &pane, FloatMode::On, None).unwrap();
+        let [x, y, w, h] = list.last().unwrap().frame.fractions();
+        assert!(
+            x >= 0.0 && y >= 0.0 && x + w <= 1.0 && y + h <= 1.0,
+            "pane {pane}: {x} {y} {w} {h}"
+        );
+    }
+}
+
 /// One act of the property test. `pane` picks a pane of the screen by index; one index past the end names a pane
 /// that is not on the screen.
 #[derive(Clone, Debug)]
