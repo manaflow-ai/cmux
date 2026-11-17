@@ -85,6 +85,74 @@ public struct NewTabPlaces {
         return (tabs, others, folders)
     }
 
+    /// One workspace's part of the bar's lists, as values (decision of 2026-11-16): made when that workspace
+    /// changes, and read by each New Tab page after it, so a page's open maps no workspace.
+    public nonisolated struct Rows: Equatable, Sendable {
+        /// The workspace's id.
+        public var id: String
+        /// Its name as the sidebar shows it.
+        public var name: String
+        /// A row for each of its tabs that is a place, in order; no tab is left out here.
+        public var tabs: [AgentPaneOmnibar.Tab]
+        /// The line under the workspace's own row.
+        public var detail: String?
+        /// Its tabs' folders that are not the home folder, each once, in order.
+        public var folders: [String]
+    }
+
+    /// `workspace`'s rows: what ``places(_:current:excluding:icon:)`` makes of it before it leaves out the page's
+    /// own tab and the shown workspace.
+    /// - Parameters:
+    ///   - workspace: One workspace.
+    ///   - icon: A browser tab's favicon as a `data:` URL.
+    public func rows(_ workspace: Source, icon: (TabModel) -> String? = { _ in nil }) -> Rows {
+        var folders: [String] = []
+        for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
+        let tabs = workspace.tabs.compactMap { tab in
+            place(tab).map { place in
+                AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail,
+                                     workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
+            }
+        }
+        let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map(abbreviated)
+        return Rows(id: workspace.id, name: workspace.name, tabs: tabs, detail: detail, folders: folders)
+    }
+
+    /// The bar's tab rows and workspace rows from kept rows: the lists of ``places(_:current:excluding:icon:)``
+    /// for the same workspaces, or the first `limit` rows of each. It makes no row. With a limit it stops at the
+    /// workspace that fills both lists, so its work does not grow with the session where the lists fill.
+    /// - Parameters:
+    ///   - kept: Every workspace's rows, in the sidebar's order.
+    ///   - current: The workspace the page's window shows; it is not suggested.
+    ///   - selectedID: The page's own tab, never suggested.
+    ///   - limit: The most rows of each list; nil for every row.
+    public static func listed(_ kept: [Rows], current: String?, excluding selectedID: String?, limit: Int? = nil)
+        -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace]) {
+        var tabs: [AgentPaneOmnibar.Tab] = []
+        var others: [AgentPaneOmnibar.Workspace] = []
+        let limit = limit ?? Int.max
+        for workspace in kept {
+            if tabs.count >= limit, others.count >= limit { break }
+            let rows = workspace.tabs.filter { $0.id != selectedID }
+            tabs += rows.prefix(limit - tabs.count)
+            // Another workspace's only place is that tab's row (Switch to tab lands on it), not the workspace's.
+            guard workspace.id != current, rows.count != 1, others.count < limit else { continue }
+            others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: workspace.detail))
+        }
+        return (tabs, others)
+    }
+
+    /// The folders of every kept workspace, each once, in order: the folders of ``places(_:current:excluding:icon:)``.
+    /// - Parameter kept: Every workspace's rows, in the sidebar's order.
+    public static func folders(_ kept: [Rows]) -> [String] {
+        var folders: [String] = []
+        var seen: Set<String> = []
+        for workspace in kept {
+            for folder in workspace.folders where seen.insert(folder).inserted { folders.append(folder) }
+        }
+        return folders
+    }
+
     /// `tab` as a bar row; nil for no place (a New Tab page, a blank browser, a page tab).
     public func place(_ tab: TabModel) -> Place? {
         let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)

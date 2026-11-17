@@ -84,14 +84,26 @@ enum NewTabPage {
         BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
-    /// ``NewTabPlaces/places(_:current:excluding:icon:)`` over every machine's workspaces; `current` is
-    /// the workspace the page's window shows (the active window's when nil).
+    /// The bar's places from the rows that the places feed keeps (decision of 2026-11-16: a page's open maps no
+    /// workspace); before the feed's first rows, from one walk of every machine's workspaces. `current` is the
+    /// workspace the page's window shows (the active window's when nil). The web page lists the first rows of
+    /// each list only; the native page ranks every row itself, so it gets them all.
     static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
-        let sources = services.machines.allWorkspaces.map { workspace, _ in services.newTabPlaceSource(workspace) }
         let current = current ?? services.windows.active?.state.workspaceID
-        return NewTabPlaces(home: NSHomeDirectory()).places(sources, current: current, excluding: selectedID) {
-            AppServices.dataURL(services.tabFavicon($0))
+        let limit = services.settings?.snapshot.nativeNewTabPage == true ? nil : AgentPaneOmnibar.maximumEntries
+        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit) {
+            services.machines.allWorkspaces.map { workspace, _ in rows(services, workspace) }
+        }
+    }
+
+    /// One workspace's rows for the bar, favicons included (``NewTabPlacesFeed`` keeps them). Each read is this workspace's own,
+    /// as a sidebar row's: no lookup of a tab's key in the store's tab list, which each new tab moves for every reader.
+    static func rows(_ services: AppServices, _ workspace: WorkspaceModel) -> NewTabPlaces.Rows {
+        NewTabPlaces(home: NSHomeDirectory()).rows(services.newTabPlaceSource(workspace)) { tab in
+            let incognito = services.windows.isIncognito(workspace: workspace)
+            let image = services.browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, known: (tab, incognito))
+            return image.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
         }
     }
 

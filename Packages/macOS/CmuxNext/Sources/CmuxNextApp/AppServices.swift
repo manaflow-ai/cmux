@@ -73,6 +73,8 @@ final class AppServices {
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// One workspace as a New Tab page's bar reads it (`NewTabPage.places`); a test passes one that counts its calls.
     let newTabPlaceSource: @MainActor (WorkspaceModel) -> NewTabPlaces.Source
+    /// Every workspace's rows for a New Tab page's bar, as the places feed gave them last.
+    let newTabPlaces = NewTabPlacesKept()
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
