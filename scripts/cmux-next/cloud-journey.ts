@@ -905,6 +905,68 @@ export function warmSpareRefusal(result: { code: number; stdout: string; stderr:
   return `warm-spare refused (exit ${result.code})${said ? `: ${said.slice(0, 300)}` : ""}`;
 }
 
+/** What the "sync store" step learned: skip names why the store was not checked (off on this backend). */
+export type SyncStoreProbe = { skip?: string; detail: string };
+
+/**
+ * The content-addressed store (the platform's /v1/sync, what a Cloud folder copy goes through) as the agent test
+ * account's install token sees it: a random blob is missing, PUT, then no longer missing; a read grant reads it back;
+ * a tree blob naming it is PUT and registered as the GC root of the pair `journey-<tag>`; GET /v1/sync/usage gives
+ * the step its usedBytes, limitBytes, roots and gc.mode. A store this backend does not serve (404 sync.not_found)
+ * is a skip, never a failure, so a deploy before the platform's store lands stays green.
+ */
+export async function syncStoreProbe(platform: string, token: string, tag: string, fetcher: typeof fetch = fetch): Promise<SyncStoreProbe> {
+  const auth = (bearer: string) => ({ authorization: `Bearer ${bearer}` });
+  const call = async (method: string, route: string, init: { body?: BodyInit; type?: string; bearer?: string } = {}) => {
+    const res = await fetcher(`${platform}${route}`, {
+      method,
+      headers: { ...auth(init.bearer ?? token), ...(init.type ? { "content-type": init.type } : {}) },
+      body: init.body,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let json: any = null;
+    try { json = JSON.parse(new TextDecoder().decode(bytes)); } catch {}
+    return { status: res.status, bytes, json };
+  };
+  const json = (method: string, route: string, body: unknown) => call(method, route, { body: JSON.stringify(body), type: "application/json" });
+  const fail = (what: string, r: { status: number; json: any }) => new Error(`${what}: HTTP ${r.status} ${short(r.json?.code ?? r.json)}`);
+  const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+  const blob = new Uint8Array(randomBytes(4096));
+  const hash = sha(blob);
+
+  const before = await json("POST", "/v1/sync/blobs/missing", { sha256: [hash] });
+  if (before.status === 404 && before.json?.code === "sync.not_found") return { skip: "store off on this backend", detail: `${platform} answered 404 sync.not_found` };
+  if (before.status !== 200 || !Array.isArray(before.json?.missing) || !before.json.missing.includes(hash)) throw fail("missing (before)", before);
+  const put = await call("PUT", `/v1/sync/blobs/${hash}`, { body: blob, type: "application/octet-stream" });
+  if (put.status !== 200) throw fail("PUT blob", put);
+  const after = await json("POST", "/v1/sync/blobs/missing", { sha256: [hash] });
+  if (after.status !== 200 || !Array.isArray(after.json?.missing) || after.json.missing.length !== 0) throw fail("missing (after PUT)", after);
+  const granted = await json("POST", "/v1/sync/grants", {});
+  const grant = granted.json?.grant;
+  if (granted.status !== 200 || typeof grant !== "string" || !grant.startsWith("csg_")) throw fail("grant", granted);
+  const read = await call("GET", `/v1/sync/blobs/${hash}`, { bearer: grant });
+  if (read.status !== 200) throw fail("GET with the grant", read);
+  if (sha(read.bytes) !== hash) throw new Error(`GET with the grant: ${read.bytes.length} bytes that are not the blob PUT`);
+  const tree = new TextEncoder().encode(`cmux-sync-tree 1\n${hash}\n`);
+  const treeHash = sha(tree);
+  const treePut = await call("PUT", `/v1/sync/blobs/${treeHash}`, { body: tree, type: "application/octet-stream" });
+  if (treePut.status !== 200) throw fail("PUT tree", treePut);
+  const pair = `journey-${tag}`;
+  // A store from before GC roots (no /v1/sync/roots or /v1/sync/usage route) checked the blob path only: a skip of
+  // the rest, so a backend one deploy behind the platform's store stays green. A root naming a missing blob fails.
+  const older = (r: { status: number; json: any }) => r.status === 404 && r.json?.code !== "sync.blob_not_found";
+  const blobsOnly = (route: string) => ({ skip: `this store serves no ${route} yet`, detail: `${platform}: blob PUT and read back with a grant; ${route} answered 404` });
+  const root = await json("POST", "/v1/sync/roots", { pair, tree: treeHash });
+  if (older(root)) return blobsOnly("/v1/sync/roots");
+  if (root.status !== 200) throw fail("POST roots", root);
+  const usage = await call("GET", "/v1/sync/usage");
+  if (older(usage)) return blobsOnly("/v1/sync/usage");
+  if (usage.status !== 200) throw fail("usage", usage);
+  const u = usage.json ?? {};
+  return { detail: `${platform}: blob PUT, read back with a grant, root ${pair} registered; usedBytes ${u.usedBytes ?? "?"}, limitBytes ${u.limitBytes ?? "?"}, roots ${u.roots ?? "?"}, gc.mode ${u.gc?.mode ?? "?"}` };
+}
+
 /** The platform origin a backend's client-config names (`platform_origin`, an https origin), as the app reads it. */
 export function clientPlatformOrigin(body: unknown): string {
   const raw = (body as { platform_origin?: unknown } | null)?.platform_origin;
@@ -3764,6 +3826,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value, detail: `claims ${preclaimClaims}` };
       });
       return status;
+    }
+
+    // The store a Cloud folder copy goes through, with this run's install token (the app's own credential for it), at
+    // the platform origin client-config names. Off on this backend is a skip. Not fatal: the machine's steps still run.
+    // The link-socket half (`cmux link sync push --store`) needs a local link socket to the machine, which the journey
+    // has none of (its carrier dial is stdio), so it is not run here.
+    {
+      const t0 = Date.now();
+      try {
+        const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+        const probe = await syncStoreProbe(platform, install.token, tag);
+        J.record({ step: "sync store", status: probe.skip ? "skip" : "pass", ms: Date.now() - t0, detail: probe.skip ? `${probe.skip}: ${probe.detail}` : probe.detail });
+      } catch (error) {
+        J.record({ step: "sync store", status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
+      }
     }
 
     if (gatewayAny) {
