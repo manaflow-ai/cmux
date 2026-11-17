@@ -95,6 +95,13 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// A fling, for the rail's list: FLING_MOVES band moves in a row, each with the transcript going at
+/// least FLING_SPEED px a ms (200 px a 60 Hz frame, past reading speed) and each within FLING_REST_MS
+/// of the last. One jump, a wheel read line by line or a key's step is none. The fling is at rest
+/// once the band has held FLING_REST_MS.
+const FLING_SPEED = 12;
+const FLING_MOVES = 3;
+const FLING_REST_MS = 120;
 /// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
 /// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
@@ -470,6 +477,7 @@ export function ThreadMinimap({
     marks,
     viewportHeight,
     onScreen,
+    top,
     sessionId,
     shown,
     hovered,
@@ -485,6 +493,7 @@ export function ThreadMinimap({
       marks,
       viewportHeight,
       onScreen,
+      top,
       sessionId,
       shown,
       hovered,
@@ -1037,6 +1046,20 @@ export function ThreadMinimap({
     },
     [rowPitch],
   );
+  /// The band's last move, and how many fast moves ran into it (FLING_SPEED): a fling.
+  const bandMotion = useRef<
+    { first: number; last: number; top: number; at: number; fast: number; sessionId?: string } | undefined
+  >(undefined);
+  /// The one timer that places the list once a fling is at rest (FLING_REST_MS), and the render it asks
+  /// for. Each fling frame moves it later; the unmount clears it.
+  const restTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [rested, setRested] = useState(0);
+  useEffect(
+    () => () => {
+      if (restTimer.current !== undefined) clearTimeout(restTimer.current);
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const node = list.current;
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
@@ -1060,6 +1083,34 @@ export function ThreadMinimap({
     // The commit that added older turns placed the list itself, around the band.
     if (scrubbing || holding.current || (railBrowsing.current && railBrowsing.current.sessionId === sessionId)) return;
     railBrowsing.current = undefined;
+    // While the chat flings, the list stays where it is: its offset write here was the frame's first
+    // forced layout after the transcript mounted its new rows, so it paid their style and layout inside
+    // this effect, on every fling frame (bench/transcript-scroll-up.bench.ts: 95 s of a 222 s profile).
+    // Nothing here writes or reads the list's geometry then (followPointer reads a rect); the band
+    // still lights its ticks, and the list catches up once, at rest, where railScrollTop puts it.
+    const was = bandMotion.current;
+    if (!was || was.sessionId !== sessionId || was.first !== onScreen.first || was.last !== onScreen.last) {
+      const now = performance.now();
+      const reader = live.current.top;
+      const since = was && was.sessionId === sessionId ? now - was.at : Infinity;
+      const fast =
+        was && since < FLING_REST_MS && Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
+          ? was.fast + 1
+          : 0;
+      bandMotion.current = { first: onScreen.first, last: onScreen.last, top: reader, at: now, fast, sessionId };
+      if (fast >= FLING_MOVES) {
+        if (restTimer.current !== undefined) clearTimeout(restTimer.current);
+        restTimer.current = setTimeout(() => {
+          restTimer.current = undefined;
+          setRested((count) => count + 1);
+        }, FLING_REST_MS);
+        return;
+      }
+    }
+    if (restTimer.current !== undefined) {
+      clearTimeout(restTimer.current);
+      restTimer.current = undefined;
+    }
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
     if (Math.abs(next - current) < 0.5) return;
@@ -1079,6 +1130,7 @@ export function ThreadMinimap({
     followPointer,
     sessionId,
     rowPitch,
+    rested,
   ]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
