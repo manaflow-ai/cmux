@@ -101,6 +101,7 @@ fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
             skips: Skips::new(&top),
             git: false,
             cap: None,
+            left: None,
         };
         // As the walk descends into a name it listed as a folder.
         let _ = walk_plain(&mut set, Rules::Copy, &|_| true, &top, &dir);
@@ -134,6 +135,7 @@ fn an_entry_of_an_open_folder_swapped_away_is_read_through_its_descriptor() {
         skips: Skips::new(&top),
         git: false,
         cap: None,
+        left: None,
     };
     let path = top.join("a/link");
     entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link).unwrap();

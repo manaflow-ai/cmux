@@ -76,6 +76,7 @@
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
     "cloud.handoffTurn": "cloud.handoffTurn",
+    "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
     "cloud.releaseReservation": "cloud.releaseReservation",
     "cloud.repickChat": "cloud.repickChat",
