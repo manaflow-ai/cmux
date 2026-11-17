@@ -2820,12 +2820,14 @@ describe("preclaim burst: the warm and the claim ask one team", () => {
     try {
       const cmux = join(dir, "cmux");
       writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\necho '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}'\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
       const claimTeams: Array<string | undefined> = [];
       const api: any = {
         origin: "https://cloud-api-staging.cmux.dev",
         bearer: "session-token",
-        raw: async (_method: string, route: string) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
-          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: "@@exit 0" } } }
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
         read: async () => ({ status: "running", host: "host-1" }),
         op: async function (this: any) { claimTeams.push(this.team); return { machine: { id: "vm_Taken0123456789", status: "running" }, claim: { behind: false } }; },
@@ -2839,6 +2841,7 @@ describe("preclaim burst: the warm and the claim ask one team", () => {
         fetchJson: (async () => ({ status: 200, body: { ok: true } })) as never,
       });
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
       expect(claimTeams).toEqual([shared]);
       expect(written.rows[0]).toMatchObject({ warm_team_matches_claim: false, lease_hit: true });
       expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("- warm's team was the claim's default team: no (claims sent in the warm's team)");
