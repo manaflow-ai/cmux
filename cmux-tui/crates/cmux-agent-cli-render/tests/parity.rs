@@ -802,6 +802,8 @@ struct BenchStream {
     sent: vt::Cursor,
     cols: u16,
     rows: u16,
+    /// The screen the viewer's terminal was told it is on (the alternate one or not).
+    alternate: bool,
 }
 
 impl BenchStream {
@@ -827,6 +829,28 @@ impl BenchStream {
         self.sent = cursor;
         self.cursor = cursor;
         self.shown = mac.viewport_text().unwrap();
+    }
+
+    /// After a write: a switch of screens reaches an agent CLI's viewer as the daemon's
+    /// `HybridViewer::follow_modes` sends it (#44052 F1), the switch as `output` bytes, then a
+    /// keyframe of the screen switched to. True when it switched (the held frame goes: the
+    /// keyframe has it).
+    fn follow_screen(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) -> bool {
+        let alternate = mac.active_screen() == ghostty_vt::Screen::Alternate;
+        if alternate == self.alternate {
+            return false;
+        }
+        self.alternate = alternate;
+        let switch: &[u8] = if alternate { b"\x1b[?1049h" } else { b"\x1b[?1049l" };
+        self.frames.push(json!([at_ms, {"event": "output", "surface": 1, "data": b64(switch)}]));
+        let (real, cursor) = live_screen(mac);
+        self.hybrid.update(&real, at_ms);
+        let key = self.hybrid.keyframe(at_ms);
+        self.frames.push(json!([at_ms, sized_frame_event(&key, cursor, self.cols, self.rows)]));
+        self.sent = cursor;
+        self.cursor = cursor;
+        self.shown = mac.viewport_text().unwrap();
+        true
     }
 }
 
@@ -861,6 +885,7 @@ fn export(session: &Session) -> Value {
         sent: vt::Cursor::default(),
         cols: COLS,
         rows: ROWS,
+        alternate: false,
     };
     let first = stream.hybrid.keyframe(0);
     stream.frames.push(json!([0, frame_event(&first, vt::Cursor::default())]));
@@ -884,10 +909,13 @@ fn export(session: &Session) -> Value {
                     .replay
                     .into_self_contained_bytes();
                 let key = stream.hybrid.keyframe(moment - start);
+                // On the alternate screen the switch goes first, as the daemon's
+                // `HybridViewer::screen_before_first_frame` sends it.
+                let before = stream.alternate.then(|| b64(b"\x1b[?1049h"));
                 attached = Some(json!({
                     "t_ms": moment - start, "pty": b64(&replay), "text": text,
                     "hybrid": sized_frame_event(&key, stream.cursor, stream.cols, stream.rows),
-                    "shown": stream.shown,
+                    "shown": stream.shown, "before": before,
                 }));
             }
             next_moment += 1;
@@ -914,6 +942,9 @@ fn export(session: &Session) -> Value {
                 mac.vt_write(bytes);
                 pty.push(json!([t - start, b64(bytes)]));
                 pacer.wrote(at(t));
+                if stream.follow_screen(&mut mac, t - start) {
+                    pacer = FramePacer::default();
+                }
             }
             None => {
                 mac.resize(cols, rows, 8, 16).unwrap();
@@ -954,12 +985,23 @@ fn export(session: &Session) -> Value {
         json!({"event": "agent-cli-lean", "surface": 1, "f": b64(&f)})
     };
     let attach_frame = attached["hybrid"]["frame"].as_u64().unwrap();
+    let attach_ms = attached["t_ms"].as_u64().unwrap();
     let lean_attach = lean(&attached["hybrid"]);
+    // A switch of screens (`output`) reaches a lean viewer as it is.
     let lean_frames: Vec<Value> = stream
         .frames
         .iter()
-        .filter(|entry| entry[1]["frame"].as_u64().unwrap() > attach_frame)
-        .map(|entry| json!([entry[0], lean(&entry[1])]))
+        .filter(|entry| match entry[1]["frame"].as_u64() {
+            Some(frame) => frame > attach_frame,
+            None => entry[0].as_u64().unwrap() > attach_ms,
+        })
+        .map(|entry| {
+            if entry[1]["event"] == "output" {
+                entry.clone()
+            } else {
+                json!([entry[0], lean(&entry[1])])
+            }
+        })
         .collect();
     let mut attached = attached;
     attached["lean"] = lean_attach;

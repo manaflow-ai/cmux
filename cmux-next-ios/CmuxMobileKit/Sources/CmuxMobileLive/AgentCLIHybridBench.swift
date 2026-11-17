@@ -344,6 +344,9 @@ struct BenchSession {
     /// frame (``attachLean``) and the rest.
     let leanFrames: [(atMs: Int, event: [String: Any])]
     let attachLean: [String: Any]
+    /// The bytes an agent CLI's viewer gets before the attach's keyframe: the switch to the
+    /// alternate screen when the session is on it then.
+    let attachBefore: Data?
     let attachShown: String
     let moments: [Moment]
 
@@ -384,6 +387,7 @@ struct BenchSession {
             guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
             return (at, event)
         }
+        attachBefore = (attach["before"] as? String).flatMap { Data(base64Encoded: $0) }
         attachShown = attach["shown"] as? String ?? ""
         self.moments = moments.compactMap { object in
             guard let name = object["name"] as? String, let at = object["t_ms"] as? Int else { return nil }
@@ -439,7 +443,10 @@ final class HybridBenchDaemon: @unchecked Sendable {
         if let session {
             let attachFrame = session.attachFrame["frame"] as? Int ?? 0
             nextPTY = session.pty.firstIndex { $0.atMs > session.attachMs } ?? session.pty.count
-            nextFrame = lean ? 0 : session.frames.firstIndex { ($0.event["frame"] as? Int ?? 0) > attachFrame } ?? session.frames.count
+            // Frames after the attach's; a switch of screens (`output`, no frame) after its moment.
+            nextFrame = lean ? 0 : session.frames.firstIndex { entry in
+                (entry.event["frame"] as? Int).map { $0 > attachFrame } ?? (entry.atMs > session.attachMs)
+            } ?? session.frames.count
         }
     }
 
@@ -487,7 +494,9 @@ final class HybridBenchDaemon: @unchecked Sendable {
                 _attachAt = CACurrentMediaTime()
                 _attachBytes = first.count
             }
-            channel.push([first, reply])
+            // On the alternate screen the daemon tells an agent CLI's viewer the switch first.
+            let before = hybrid ? session.attachBefore.map(Self.outputLine) : nil
+            channel.push((before.map { [$0] } ?? []) + [first, reply])
         default:
             channel.push([reply])
         }
