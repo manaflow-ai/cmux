@@ -63,6 +63,9 @@ enum SidebarDensityTokens {
     static var contentInset: CGFloat { SidebarRowTuning.contentInset.value }
     /// ``contentInset`` as the density and the title font derive it (`sidebarRows.contentInset`'s default).
     static var derivedContentInset: CGFloat {
+        // A browser density's `sidebarContentInset`: its tab's icon inset, so a row's icon sits where its tab's does
+        // (Lucas 2026-11-14: sidebar items and tabs match 1:1). The compact densities keep their grid.
+        if let inset = Metrics.densityToken("sidebarContentInset") { return inset }
         if matchesCodex { return Metrics.space4 }
         let row = Metrics.sidebarRowHeight + (isComfortable ? Metrics.space2 : 0) + textSize.rowStep
         return ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2

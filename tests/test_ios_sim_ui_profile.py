@@ -185,6 +185,8 @@ class ProfileRouteTests(unittest.TestCase):
             'device_type="test-device"; runtime="test-runtime"\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
             'keep_test_logs() { :; }\n'
+            # The script's own sim_create (stock here: no worker helper in the env).
+            + script[script.index("# sim_create NAME"):script.index("# --- end sim_create")]
             + parse + script[start:end]
             + 'if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi\n'
             + script[script.index('if [[ "${profile_status:-0}"'):].split("\n", 1)[0] + "\n"

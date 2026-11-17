@@ -261,7 +261,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
         let unlisted = services.windows.registry.unlisted(parked.keys, in: state.id) // O(parked), never the window's whole list
-        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        let guests = services.windows.registry.value.window(state.id)?.guests ?? [] // a guest that became this window's own, or the reverse, is built again
+        if let content, content.isGuestView != guests.contains(content.workspace.id) { self.content = nil; content.teardown() }
+        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace || controller.isGuestView != guests.contains(id) {
             parked[id] = nil
             controller.teardown()
         }

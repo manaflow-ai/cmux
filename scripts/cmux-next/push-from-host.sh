@@ -2,6 +2,7 @@
 # Push a commit to manaflow-ai/cmux from another Mac, with that Mac's pre-push hook as the gate.
 #
 #   scripts/cmux-next/push-from-host.sh [--host HOST]... [--sha REV] [--rebase] BRANCH
+#   scripts/cmux-next/push-from-host.sh [--host HOST]... --delete scratch/NAME   # a plain delete push, from HOST
 #   scripts/cmux-next/push-from-host.sh --rebase feat-cmux-next   # HEAD, rebased on the branch there, -> origin
 #
 # For a Mac too loaded to finish its own gate. On 2026-11-10 this Mac's load average was 300-770 with about
@@ -38,6 +39,9 @@
 # that answers neither free nor reserved skips the host too (fail closed). A Mac without the reader (no
 # leo-workspace checkout) is warned once and not checked. On 2026-11-12 a helper pushed through a perf lead's mini
 # from this list; a hardcoded list can't know who holds a host today.
+# --delete deletes BRANCH, which must be under scratch/, with a plain `git push origin :refs/heads/BRANCH` from HOST's
+# clone: the same hook gates it, never --no-verify (2026-11-16: an agent's scratch branches stayed because a delete
+# from a loaded Mac runs that Mac's hook). Any other branch is refused before SSH.
 # --which-host prints the host and repo it would use (`HOST REPO`) and exits 0, before anything is sent.
 #
 # Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
@@ -70,6 +74,7 @@ DEFAULT_HOSTS=()
 HOSTS=()
 WHICH_HOST=0
 REBASE=0
+DELETE=0
 HOST_REPO="${CMUX_PUSH_HOST_REPO:-fun/cmux}"
 REV="HEAD"
 BRANCH=""
@@ -77,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --host) HOSTS+=("${2:?--host needs a value}"); shift ;;
         --rebase) REBASE=1 ;;
+        --delete) DELETE=1 ;;
         --which-host) WHICH_HOST=1 ;;
         --sha) REV="${2:?--sha needs a value}"; shift ;;
         -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
@@ -88,6 +94,14 @@ done
 BRANCH="${BRANCH#refs/heads/}"
 if [[ -z "$BRANCH" ]] || ! git check-ref-format "refs/heads/$BRANCH" || [[ ! "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     echo "push-from-host: give the branch to push to, for example: $0 feat-cmux-next" >&2
+    exit 2
+fi
+if (( DELETE )) && [[ "$BRANCH" != scratch/?* || "$BRANCH" == *..* ]]; then
+    echo "push-from-host: --delete deletes only a scratch/ branch (got $BRANCH); nothing was sent." >&2
+    exit 2
+fi
+if (( DELETE && REBASE )); then
+    echo "push-from-host: --delete takes no --rebase" >&2
     exit 2
 fi
 # Read once before any SSH, including explicit overrides. Missing or malformed policy cannot authorize a host.
@@ -215,6 +229,46 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST")
+if (( DELETE )); then
+    WORK="$(mktemp -d "${TMPDIR:-/tmp}/push-from-host.XXXXXX")"
+    trap 'rm -rf "$WORK"' EXIT
+    RDIR="$("${SSH[@]}" "mktemp -d /tmp/push-from-host-delete-XXXXXX")" || RDIR=""
+    if [[ ! "$RDIR" =~ ^/tmp/push-from-host-delete-[A-Za-z0-9]+$ ]]; then
+        echo "push-from-host: could not make a private folder on $HOST; nothing was deleted." >&2
+        exit 2
+    fi
+    # HOST's step: its clone's own hook gates the delete; the token is stdin's only line, as for a push.
+    {
+        echo 'set -euo pipefail'
+        echo 'REPO="$HOME/$1" BRANCH="$2" RDIR="$3"'
+        echo 'trap '"'"'rm -rf "$RDIR"'"'"' EXIT'
+        echo 'IFS= read -r CMUX_PUSH_TOKEN'
+        echo 'cd "$REPO"'
+        sed -n '/^# BEGIN gate_hook_runs$/,/^# END gate_hook_runs$/p' "${BASH_SOURCE[0]}"
+        cat <<'REMOTE'
+if ! gate_hook_runs; then
+    echo "push-from-host: $HOSTNAME's clone would run no cmux pre-push gate; nothing was deleted." >&2
+    exit 2
+fi
+STATUS=0
+CMUX_PUSH_TOKEN="$CMUX_PUSH_TOKEN" GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+    GIT_CONFIG_KEY_1=credential.helper \
+    GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$CMUX_PUSH_TOKEN"; }; f' \
+    git push -q origin ":refs/heads/$BRANCH" >&2 || STATUS=$?
+unset CMUX_PUSH_TOKEN
+if [[ -n "$(git ls-remote origin "refs/heads/$BRANCH")" ]]; then
+    echo "push-from-host: not deleted (git push exit $STATUS): $BRANCH is still on the remote." >&2
+    exit 1
+fi
+echo "push-from-host: deleted: $BRANCH (gate ran on $HOSTNAME)." >&2
+REMOTE
+    } > "$WORK/delete.sh"
+    "${SSH[@]}" "cat > '$RDIR/delete.sh'" < "$WORK/delete.sh"
+    STATUS=0
+    printf '%s\n' "$TOKEN" | "${SSH[@]}" bash "$RDIR/delete.sh" "$HOST_REPO" "$BRANCH" "$RDIR" || STATUS=$?
+    exit "$STATUS"
+fi
 NAME="push-from-host-${SHA:0:12}-$$"
 
 # What HOST already has: its remote-tracking feat-cmux-next and BRANCH after a fetch. The bundle leaves those out.

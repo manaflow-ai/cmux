@@ -50,7 +50,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], []),
+        // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
+        // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // schemas/agent-pane/attach-params.json lists every key the page sends here.
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -92,7 +95,10 @@ nonisolated extension AcpmuxPaneMethods {
         // New project (direct.ts newProject): the folder's name only, never a path or a root.
         "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
-        "_acpmux/harnesses": (["cwd"], []),
+        // `_meta.acpmux.peer`: a new chat bound for another of the person's machines reads that
+        // machine's agents (Austin, 2026-11-12; webviews machineHarnesses.ts). acpmux forwards it to
+        // that peer with no caller params, from local and app connections only. One non-empty name.
+        "_acpmux/harnesses": (["cwd", "_meta"], ["peer"]),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
@@ -225,6 +231,9 @@ nonisolated extension AcpmuxPaneMethods {
         guard let rawAcpmux = meta["acpmux"] else { return false }
         guard let acpmux = rawAcpmux as? [String: Any] else { return true }
         if acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) }) { return true }
+        if method == "_acpmux/harnesses", let peer = acpmux["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return true }
+        }
         // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
         // argv or env): one model id, never a flag or anything else.
         if method == "session/new", let model = acpmux["model"] { return !isModelID(model) }

@@ -60,10 +60,13 @@ last the ones whose tour already failed with the same spec (publish-auto's whats
 clip-auto-ROLE.failed.json marker), at most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
 new tip's app (the clip) and, for an improvement, on the app of the commit before its highlight (its
 before): the previous tip's for the ones the tip adds, and for the earlier ones one older app they all
-share, the parent of the oldest of their highlight commits, which predates every one of their changes
-(PLAN_EXTRA_BEFORES: one extra app a tour). `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
+share, the newest nightly-next tip a nightly built at or before the parent of the oldest of their
+highlight commits (nightly_tips; the parent itself when none is found), which predates every one of their
+changes and is known to build (PLAN_EXTRA_BEFORES: one extra app a tour). A row with only a before to
+record on a Mac app costs one short tour on an app the tour builds anyway, so it counts against
+PLAN_BEFORE_ONLY, not PLAN_LIMIT. `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
 and puts it at whats-new/ID/clip-auto-ROLE.webp, where release-notes.py finds it with no write back
-to the highlight. Those publish after the nightly is cut, so the highlight rides along with the
+to the highlight; a role whose tour never ran (its app did not build) gets no failure marker. Those publish after the nightly is cut, so the highlight rides along with the
 next one (release-notes.py late_pictures).
 
 An iPhone highlight has no Mac window to tour: its spec says `"app": "iphone"` and its scene is the
@@ -134,6 +137,14 @@ CLIP_REANNOUNCE_DAYS = 7
 # At most this many apps other than the previous tip's a tour builds for befores: 1 is the one older app every
 # waiting before shares (shared_before), 0 leaves the waiting befores for later.
 PLAN_EXTRA_BEFORES = 1
+# At most this many Mac rows with only a before to record a tour plans besides its PLAN_LIMIT rows: each is
+# one tour of about 20 s on an app the tour builds anyway (the previous tip's, or the one shared older app).
+# Counted in PLAN_LIMIT, three waiting befores took three of its four slots on 2026-11-16 and three others
+# waited behind them.
+PLAN_BEFORE_ONLY = 8
+# A nightly-next tip's nightly.yml push run starts within minutes of the commit; runs created up to this
+# long after the oldest waiting highlight's parent are read for the newest tip at or before it.
+NIGHTLY_TIP_LAG = 6 * 3600
 AUTO_ROLES = ("after", "before")
 # Spec step keys only `cmux-ci capture` reads: `clip` marks the clip's steps, `record` where its video starts.
 CAPTURE_ONLY_STEP_KEYS = {"clip", "record"}
@@ -549,9 +560,31 @@ def highlight_rows(base: str, head: str, root: Path = ROOT, days: int = CLIP_REA
     return rows
 
 
+def nightly_tips(until: int, get=None) -> list[str]:
+    """The nightly-next tips a nightly built, newest first: the head commits of nightly.yml's successful push
+    runs on nightly-next created up to UNTIL (seconds since the epoch), one page of 100 (about a day and a
+    half of tips). GET (a REST path to its JSON) defaults to `gh api`; a failed read gives none."""
+    import time
+    if get is None:
+        def get(path):
+            return json.loads(run(["gh", "api", path], text=True).stdout)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
+    path = (f"repos/{REPO}/actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status=success"
+            f"&per_page=100&created=%3C%3D{stamp}")
+    try:
+        runs = get(path).get("workflow_runs") or []
+    except Exception as error:  # ClipError, no gh, a JSON or network error: the parent is used as before
+        print(f"::warning title=What's New clip::no nightly tips read ({type(error).__name__}); "
+              "the waiting befores use the oldest one's parent")
+        return []
+    runs = sorted((r for r in runs if isinstance(r, dict) and isinstance(r.get("head_sha"), str)),
+                  key=lambda r: r.get("created_at") or "", reverse=True)
+    return list(dict.fromkeys(r["head_sha"] for r in runs if re.fullmatch(r"[0-9a-f]{40}", r["head_sha"])))
+
+
 def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
          root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES,
-         app: str | None = None, marker=None) -> list[dict]:
+         app: str | None = None, marker=None, tips=None, before_only: int = PLAN_BEFORE_ONLY) -> list[dict]:
     """With APP, only the specs that record that app (the media workflow plans "mac", the iPhone clips
     workflow "iphone"; each has its own LIMIT). The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
     a role whose clip is not on pr-media yet; an Improved one with a `clip:` line records its before alone (the
@@ -563,7 +596,11 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
     MARKER (failure_marker; None reads none) reads a role's failure marker (failed_url): a row whose tour
     already failed with this same spec goes after every row not yet tried, in the same order, so a spec that
     keeps failing never holds a slot a newer highlight needs (four failing specs took all four slots for
-    the 7 days, and a highlight added after them shipped with no clip). It still records when slots are left."""
+    the 7 days, and a highlight added after them shipped with no clip). It still records when slots are left.
+
+    A Mac row with only its before to record takes one of BEFORE_ONLY slots, not one of LIMIT: it is one short
+    tour on an app the tour builds anyway. TIPS (nightly_tips; None reads none) lists the nightly-next tips a
+    nightly built, for shared_before."""
     git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
     validate = tour_module().load_tour
     specs = root / "release-notes/next/clips"
@@ -598,7 +635,7 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
         (tried if failed else fresh).append((order, clip_id, category, before, spec, meta, roles))
     if tried:
         print(f"::notice title=What's New clip::{len(tried)} whose tour already failed with the same spec go last")
-    rows, earlier, waiting = [], [], 0
+    rows, earlier, waiting, counted, befores = [], [], 0, 0, 0
     for order, clip_id, category, before, spec, meta, roles in fresh + tried:
         iphone = is_iphone(spec)
         # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
@@ -606,7 +643,8 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             roles = [role for role in roles if role != "before"]  # no extra app this tour; a later tour records it
         if not roles:
             continue
-        if len(rows) >= limit:
+        cheap = not iphone and roles == ["before"]
+        if (befores >= before_only) if cheap else (counted >= limit):
             waiting += 1
             continue
         if not iphone:
@@ -627,23 +665,42 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             if before != base and not iphone:
                 earlier.append((order, row))
         rows.append(row)
+        if cheap:
+            befores += 1
+        else:
+            counted += 1
     if waiting:
         print(f"::notice title=What's New clip::{waiting} more wait for the next nightly")
-    shared_before(earlier)
+    shared_before(earlier, root, tips)
     return rows
 
 
-def shared_before(earlier: list[tuple[int, dict]]) -> None:
+def shared_before(earlier: list[tuple[int, dict]], root: Path = ROOT, tips=None) -> None:
     """Records every earlier Mac row's before (EARLIER: (its place in highlight_rows, oldest first on the
-    first-parent line), row)) on one app: the parent of the oldest highlight commit among them, which
-    predates every one of their changes, so each before shows the app as people had it before that change,
-    and the tour builds one extra app for all of them. One app per before commit drained them at one a
-    nightly while several landed a day, and a highlight aged out of the window with no before (5 befores
-    waited on 2026-11-16)."""
-    if earlier:
-        before = min(earlier, key=lambda item: item[0])[1]["before"]
-        for _, row in earlier:
-            row["before"] = before
+    first-parent line), row)) on one app: the newest nightly-next tip a nightly built (TIPS(until), newest
+    first) at or before the parent of the oldest highlight commit among them, else that parent. It predates
+    every one of their changes, so each before shows the app as people had it before that change, and the
+    tour builds one extra app for all of them. One app per before commit drained them at one a nightly while
+    several landed a day, and a highlight aged out of the window with no before (5 befores waited on
+    2026-11-16). The bare parent can be a commit that never built: 62da55823d7 failed to compile
+    (SetupCardRoute.swift: no JSONValue) on two tours of 2026-11-16 and lost every before both planned."""
+    if not earlier:
+        return
+    before = min(earlier, key=lambda item: item[0])[1]["before"]
+    if tips is not None:
+        git = lambda *a: subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True)
+        stamp = git("show", "-s", "--format=%ct", before)
+        if stamp.returncode == 0 and stamp.stdout.strip().isdigit():
+            for tip in tips(int(stamp.stdout.strip()) + NIGHTLY_TIP_LAG):
+                # A tip outside this checkout's history (past its shallow boundary) is no answer.
+                if tip == before or git("merge-base", "--is-ancestor", tip, before).returncode == 0:
+                    before = tip
+                    break
+            else:
+                print(f"::notice title=What's New clip::no nightly tip at or before {before[:12]}; "
+                      "the waiting befores use it as it is")
+    for _, row in earlier:
+        row["before"] = before
 
 
 def write_tours(rows: list[dict], tours: Path, root: Path = ROOT) -> list[dict]:
@@ -829,8 +886,15 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", 
         for role in row["roles"]:
             local = scratch / f"{row['id']}-{role}.webp"
             pictures = scratch / f"{row['id']}-{role}-frames"
+            tour_dir = results / role / folder(row["id"])
+            if not tour_dir.is_dir():
+                # The tour never ran: its app did not build ("no app at SHA; its befores wait") or the step
+                # ran out of time. Nothing says the spec fails, so no marker: markers put the befores of a
+                # commit that does not compile behind every other row, past PLAN_LIMIT (2026-11-16).
+                problems.append(f"{row['id']} {role}: its tour did not run (no app); it waits for the next tour")
+                continue
             try:
-                render_tour(row["id"], results / role / folder(row["id"]), local, pictures)
+                render_tour(row["id"], tour_dir, local, pictures)
                 frames = sorted(pictures.glob("*.png"))
                 if not frames:
                     raise ClipError("the encoder kept no frames to check")
@@ -953,7 +1017,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
             return 0
         if a.command == "plan":
-            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app, marker=failure_marker)
+            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app, marker=failure_marker, tips=nightly_tips)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0

@@ -14,24 +14,24 @@ import Testing
 /// know which chat shows the session, so it spun on "Opening chat…", then fell back to the terminal
 /// when the request failed.
 ///
+/// The pairing is read from the real file the live backend keeps (`KeptTerminalChats`), off the main
+/// thread, so a tap on Chat can come before the read lands: it waits for the read, never asks the
+/// unreachable Mac and falls back to the terminal (#44251 follow-up).
+///
 /// Prints `OFFLINECHAT cold_launch_to_first_kept_turn_ms=<ms>` (or `=never`): from the tab source's
 /// creation on a fresh cache and an unlinked hub to the store holding the first kept turn.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct TerminalChatOfflineRelaunchTests {
-    /// What this phone keeps across launches for the pairing, as the live backend keeps it on disk.
-    @MainActor final class Disk {
-        var chats: [String: String] = [:]
-    }
-
     /// A Mac's terminal chat backend: online it lists `listings`; offline it lists nothing and every
-    /// request fails, as the live backend does with the link down.
+    /// request fails, as the live backend does with the link down. The pairing is kept as the live
+    /// backend keeps it: in `kept`, a file on disk, keyed by account and Mac.
     @MainActor final class Backend: WorkspaceCreationBackend, TerminalChatBackend {
-        let disk: Disk
+        let kept: KeptTerminalChats
         let listings: [TerminalChatListing]
         let online: Bool
         var asked = 0
-        init(disk: Disk, online: Bool, listings: [TerminalChatListing] = []) {
-            self.disk = disk
+        init(kept: KeptTerminalChats, online: Bool, listings: [TerminalChatListing] = []) {
+            self.kept = kept
             self.online = online
             self.listings = listings
         }
@@ -45,11 +45,14 @@ struct TerminalChatOfflineRelaunchTests {
         }
         func terminalChatListedWhole(on macID: String) -> Bool { online }
         func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
-            disk.chats["\(macID)|\(harness)|\(session)"]
+            KeptTerminalChats.key("acct", macID, harness, session).flatMap { kept.chat($0) }
         }
         func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
-            disk.chats["\(macID)|\(harness)|\(session)"] = chat
+            guard let key = KeptTerminalChats.key("acct", macID, harness, session) else { return }
+            kept.keepChat(chat, for: key)
         }
+        var keptTerminalChatsLoaded: Bool { kept.isLoaded }
+        func loadKeptTerminalChats() async { await kept.load() }
     }
 
     static func terminal(_ id: String, agent: String, session: String) -> WorkspaceTab {
@@ -106,35 +109,51 @@ struct TerminalChatOfflineRelaunchTests {
         return true
     }
 
-    @Test func aRelaunchWithTheLinkDownOpensTheAgentTabOnItsKeptTurns() async throws {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "terminal-chat-offline-\(UUID().uuidString)",
-                                                                      directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let disk = Disk()
+    static func folder() -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "terminal-chat-offline-\(UUID().uuidString)",
+                                                         directoryHint: .isDirectory)
+    }
 
-        // An earlier launch, online: the Mac's View Only chat a-1 shows terminal s1's session, and
-        // the chat's turns were kept on disk.
-        do {
-            let watch = TerminalChatListing(sessionID: "a-1", harness: "claude", agentSessionID: "h-1", watching: true, status: "idle")
-            let backend = Backend(disk: disk, online: true, listings: [watch])
-            let source = Self.source(backend, sessions: AgentSessionDirectory())
-            let workspace = try #require(source.workspace)
-            let tab = try #require(source.workspaceTab("s1"))
-            #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
-            source.openTerminalChatIfNeeded("s1")
-            let cache = AgentTranscriptCache(directory: folder, writeDelay: .milliseconds(0))
-            let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac", tabID: "s1#chat:a-1"))
-            let entry = try Self.kept(3, chat: "a-1")
-            #expect(entry.records.count == 12)
-            cache.save(key, sessionID: entry.sessionID, earlier: entry.earlier, records: entry.records)
-            cache.flush()
+    static func cache(_ folder: URL) -> AgentTranscriptCache {
+        AgentTranscriptCache(directory: folder, writeDelay: .milliseconds(0))
+    }
+
+    /// An earlier launch, online: the Mac's View Only chat a-1 shows terminal s1's session; the pairing
+    /// and the chat's turns were kept on disk.
+    static func keepEarlierLaunch(in folder: URL) async throws {
+        let cache = Self.cache(folder)
+        let watch = TerminalChatListing(sessionID: "a-1", harness: "claude", agentSessionID: "h-1", watching: true, status: "idle")
+        let backend = Backend(kept: cache.terminalChats, online: true, listings: [watch])
+        let source = Self.source(backend, sessions: AgentSessionDirectory())
+        let workspace = try #require(source.workspace)
+        let tab = try #require(source.workspaceTab("s1"))
+        #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
+        source.openTerminalChatIfNeeded("s1")
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac", tabID: "s1#chat:a-1"))
+        let entry = try Self.kept(3, chat: "a-1")
+        #expect(entry.records.count == 12)
+        cache.save(key, sessionID: entry.sessionID, earlier: entry.earlier, records: entry.records)
+        cache.flush()
+        await cache.terminalChats.flush()
+        let pairing = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h-1"))
+        #expect(cache.terminalChats.chat(pairing) == "a-1", "the earlier launch kept the pairing on disk")
+    }
+
+    @Test func aRelaunchWithTheLinkDownOpensTheAgentTabOnItsKeptTurns() async throws {
+        let folder = Self.folder()
+        let pairings = Self.cache(folder).terminalChats.file
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: pairings)
         }
+        try await Self.keepEarlierLaunch(in: folder)
 
         // Relaunch with the link down: a fresh cache reads the disk, the hub has no link.
         let started = ContinuousClock.now
         let hub = AcpmuxHub()
-        hub.transcriptCache = AgentTranscriptCache(directory: folder, writeDelay: .milliseconds(0))
-        let backend = Backend(disk: disk, online: false)
+        hub.transcriptCache = Self.cache(folder)
+        let kept = Self.cache(folder).terminalChats
+        let backend = Backend(kept: kept, online: false)
         let source = Self.source(backend, sessions: Self.directory(hub))
         let workspace = try #require(source.workspace)
         let tab = try #require(source.workspaceTab("s1"))
@@ -143,10 +162,10 @@ struct TerminalChatOfflineRelaunchTests {
         #expect(!source.showsChatFace(tab, in: workspace), "a terminal opens on its terminal")
         // The person opens the chat face: it shows the kept chat, with nothing to ask the Mac.
         source.swapTerminalChat("s1", to: .chat)
-        #expect(source.showsChatFace(tab, in: workspace))
-        let chat = source.terminalChatSessionID(tab, in: workspace)
         source.openTerminalChatIfNeeded("s1")
-        guard let chat else {
+        _ = await Self.waitUntil { kept.isLoaded && source.terminalChatSessionID(tab, in: workspace) != nil }
+        #expect(source.showsChatFace(tab, in: workspace))
+        guard let chat = source.terminalChatSessionID(tab, in: workspace) else {
             print("OFFLINECHAT cold_launch_to_first_kept_turn_ms=never")
             Issue.record("offline, the terminal's chat face has no chat to show: it spins on \"Opening chat…\"")
             return
@@ -165,6 +184,47 @@ struct TerminalChatOfflineRelaunchTests {
         #expect(store.turns.map(\.id) == ["t0", "t1", "t2"])
         // Read-only and offline: the store says so (the chat face takes no prompt).
         #expect(store.isOffline)
+        #expect(backend.asked == 0)
+        #expect(source.showsChatFace(tab, in: workspace))
+    }
+
+    /// The pairing file is read off the main thread at launch. A tap on Chat before that read lands
+    /// waits for it: the chat face opens on the kept chat. Before, the tab asked the unreachable Mac
+    /// for a new chat at once, the request failed, and the tab fell back to its terminal.
+    @Test func chatTappedBeforeThePairingIsReadOpensTheKeptChat() async throws {
+        let folder = Self.folder()
+        let pairings = Self.cache(folder).terminalChats.file
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: pairings)
+        }
+        try await Self.keepEarlierLaunch(in: folder)
+
+        // Relaunch with the link down, on a disk that holds the pairing file's read until released.
+        let disk = DispatchQueue(label: "terminal-chat-offline-slow-disk")
+        disk.suspend()
+        let kept = KeptTerminalChats(file: pairings, queue: disk)
+        let hub = AcpmuxHub()
+        hub.transcriptCache = Self.cache(folder)
+        let backend = Backend(kept: kept, online: false)
+        let source = Self.source(backend, sessions: Self.directory(hub))
+        let workspace = try #require(source.workspace)
+        let tab = try #require(source.workspaceTab("s1"))
+        source.swapTerminalChat("s1", to: .chat)
+        source.openTerminalChatIfNeeded("s1")
+        // The read has not landed: nothing may ask the Mac in the meantime.
+        let askedEarly = await Self.waitUntil(.milliseconds(300)) { backend.asked > 0 }
+        let loadedEarly = kept.isLoaded
+        disk.resume()
+        #expect(!loadedEarly, "the pairing read is held on the disk")
+        #expect(!askedEarly, "a tap on Chat before the pairing read asked the unreachable Mac")
+
+        let paired = await Self.waitUntil { kept.isLoaded && source.terminalChatSessionID(tab, in: workspace) != nil }
+        #expect(paired)
+        // Any request the tap started has run by now.
+        _ = await Self.waitUntil(.milliseconds(100)) { backend.asked > 0 }
+        #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
+        #expect(source.showsChatFace(tab, in: workspace), "the tab fell back to its terminal")
         #expect(backend.asked == 0)
     }
 }

@@ -35,6 +35,8 @@ final class CEFRuntime {
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+    /// This turn's window resize fences (fork API 32), one set for every hosted page of the process.
+    let resizeFences = CEFResizeFences()
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
@@ -67,11 +69,7 @@ final class CEFRuntime {
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        heapUsed: { [weak self] browser in
-            guard let tab = self?.tabsByBrowser[browser],
-                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
-            return CEFPageRendererGC.usedSize(reply)
-        },
+        heapUsed: { [weak self] browser in await self?.rendererHeapUsed(browser) },
         collect: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
@@ -162,9 +160,11 @@ final class CEFRuntime {
     weak var initializeAfter: FirstFrameGate?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
-    private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
-        self?.isPlacedDevToolsWindow(window) ?? false
-    }
+    private(set) lazy var windowGuard: ChromiumWindowGuard = {
+        let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
+        guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        return guard_
+    }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
@@ -180,6 +180,8 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
+    private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -191,6 +193,8 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
+    /// Gives the keys back from a parked agent page's window (``AgentRenderKeyReturn``), told by ``windowGuard``.
+    let keyReturn = AgentRenderKeyReturn()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 
@@ -217,6 +221,22 @@ final class CEFRuntime {
     }
 
     /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    /// Prepares cmux's own Safe Storage item before `CefInitialize` (``CEFKeychainMigration``): never a prompt, and
+    /// nothing at all in a build on the mock keychain or with memory-only stores.
+    private func beginKeychainStep(environment: [String: String]) -> Task<CEFKeychainMigration.Outcome?, Never> {
+        let bundle = Bundle.main.bundleIdentifier
+        let item = CEFKeychainItem.forApplication(bundleIdentifier: bundle)
+        let mock = CEFSwitches.current(forkAPIVersion: 0, bundleIdentifier: bundle, environment: environment).useMockKeychain
+        let root = storage.root
+        let loginKeychain = stores.loginKeychain
+        let task = Task.detached(priority: .userInitiated) { () -> CEFKeychainMigration.Outcome? in
+            guard !mock, let loginKeychain else { return nil }
+            return CEFKeychainMigration.prepare(item: item, profileRoot: root, keychain: CEFLoginKeychainAccess(loginKeychain: loginKeychain))
+        }
+        keychainTask = task
+        return task
+    }
+
     private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
         if let early = earlyLoad?.task(for: candidate) { return early }
         return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
@@ -308,9 +328,11 @@ final class CEFRuntime {
             task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
+        let keychain = keychainTask ?? beginKeychainStep(environment: environment)
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
@@ -470,6 +492,22 @@ final class CEFRuntime {
         }
     }
 
+    /// Gives Chromium cmux's own keychain item (`setKeychainItem`, the shim's `cmux_shim_set_keychain_item`) and
+    /// returns whether it took it. Chromium never reads the real keychain without it: when the shim or fork has no
+    /// such call, or refuses the item, `switches` turns to the mock keychain, because the shared default item is
+    /// another app's whenever another Chromium made it first, and reading it shows macOS's keychain prompt. A build
+    /// already on the mock keychain (development bundles) sets nothing.
+    nonisolated static func applyKeychainItem(
+        _ item: CEFKeychainItem, to switches: inout CEFSwitches,
+        set: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
+    ) -> Bool {
+        guard !switches.useMockKeychain else { return false }
+        let accepted = !CEFKeychainItem.isShared(service: item.service, account: item.account)
+            && set.map { set in item.service.withCString { service in item.account.withCString { set(service, $0) } } } == 1
+        if !accepted { switches.useMockKeychain = true }
+        return accepted
+    }
+
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
     private func initialize(_ library: CEFLoadedLibrary, environment: [String: String]) throws(BootError) {
         let shim = library.shim
@@ -491,7 +529,7 @@ final class CEFRuntime {
         storage.prepareForLaunch()
         let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
-        let switchSet = CEFSwitches.current(
+        var switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
@@ -501,6 +539,11 @@ final class CEFRuntime {
             asyncLiveResize: true,
             initialProfileDirectory: storage.initialProfileDirectory
         )
+        // Chromium's key in cmux's own keychain item, never the shared "Chromium Safe Storage" one (CEFKeychainItem).
+        let keychainItem = CEFKeychainItem.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+        if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
+            logger.error("keychain item refused")
+        }
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
@@ -576,6 +619,15 @@ final class CEFRuntime {
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
         }
+    }
+
+    /// The used heap of the renderer behind `browser`, for ``pageRendererGC``: one `Runtime.getHeapUsage` call,
+    /// its reply decoded off the main actor (`CEFPageRendererGC.usedSize`). A method, not code in the lazy
+    /// initializer, which may not reference both main-actor and nonisolated declarations.
+    private func rendererHeapUsed(_ browser: Int32) async -> Int? {
+        guard let tab = tabsByBrowser[browser],
+              let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+        return await CEFPageRendererGC.usedSize(reply)
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).

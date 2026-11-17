@@ -20,7 +20,6 @@ import { E } from "./strings";
 /** The editor's own texts (its string table, pages/editor/strings.ts `EMPTY`). */
 export interface EditorEmptyTexts {
   title: string;
-  subtitle: string;
   choose: string;
   drop: string;
   recentsEmpty: string;
@@ -83,14 +82,7 @@ export function EditorEmptyState({ client, strings, texts, open, now }: EditorEm
 
   return (
     <div ref={mountRef} className="ve-root">
-      <EmptyState
-        kind="editor"
-        title={texts.title}
-        subtitle={texts.subtitle}
-        dropText={texts.drop}
-        onDrop={onDrop}
-        error={error}
-      >
+      <EmptyState kind="editor" title={texts.title} dropText={texts.drop} onDrop={onDrop} error={error}>
         <div className="ve-actions">
           <button
             type="button"

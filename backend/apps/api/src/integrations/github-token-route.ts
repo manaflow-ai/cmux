@@ -12,7 +12,8 @@ import { platformCloud } from "../platform-cloud.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
- * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=. Callers:
+ * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=,
+ * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
  * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
@@ -21,6 +22,9 @@ export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-to
 
 const TOKEN_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon", "cli", "mac"])
 const NO_STORE = { "cache-control": "no-store" }
+/** Upstream pages (100 repositories each) one repository listing walks, and the matches that end it early. */
+const REPO_PAGES_PER_ANSWER = 10
+const REPOS_PER_ANSWER = 100
 
 type Fail = { status: number; code: string; message: string; retry_after?: number }
 const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
@@ -72,20 +76,35 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
-  // Repository enumeration and the machine-only seam are development surfaces until the hosted
-  // connector rollout. Existing token/status/revoke routes retain their normal environments.
-  if ((sub === "repos" || sub === "machine-token") && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
+  // The machine-only seam is a development surface until the hosted connector rollout. Repository
+  // enumeration answers a signed-in person (a session or their own install) in every environment; a
+  // machine's listing stays on development as before.
+  if (sub === "machine-token" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const url = new URL(request.url)
     const raw = url.searchParams.get("team") ?? undefined
     const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
     if (isFail(team)) return failed(team)
+    const asked = url.searchParams.get("query")
+    if (asked !== null && (asked.length > 256 || /\p{Cc}/u.test(asked))) return failed(no(400, "request.invalid", "query is at most 256 characters of text"))
     const who = await caller(request, env, team)
     if (isFail(who)) return failed(who)
-    const query = { ...(url.searchParams.get("query") === null ? {} : { query: url.searchParams.get("query")! }), ...(url.searchParams.get("cursor") === null ? {} : { cursor: url.searchParams.get("cursor")! }) }
-    const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
-    return listed === null ? failed(unreachable("the team's GitHub repositories")) : listed.ok ? Response.json(listed.value, { headers: NO_STORE }) : failed(listed)
+    if (who.p.kind === "install" && who.p.install_kind === "vm" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
+    // One answer walks a few upstream pages, so a filter finds a repository past the first hundred;
+    // `truncated` says more remain, and `cursor` continues from there.
+    const repos: Array<{ full_name: string; private: boolean; default_branch: string | null }> = []
+    let cursor = url.searchParams.get("cursor")
+    for (let page = 0; page < REPO_PAGES_PER_ANSWER && repos.length < REPOS_PER_ANSWER; page++) {
+      const query = { ...(asked === null ? {} : { query: asked }), ...(cursor === null ? {} : { cursor }) }
+      const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
+      if (listed === null) return failed(unreachable("the team's GitHub repositories"))
+      if (!listed.ok) return failed(listed)
+      for (const repo of listed.value.repos) repos.push({ full_name: repo.full_name, private: repo.private, default_branch: repo.default_branch ?? null })
+      cursor = listed.value.cursor
+      if (cursor === null) break
+    }
+    return Response.json({ repos, truncated: cursor !== null, cursor }, { headers: NO_STORE })
   }
   if (sub === "status") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))

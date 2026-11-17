@@ -302,6 +302,16 @@ fi
 # checking out a fork branch, so resolving a driver or helper from that branch
 # would execute untrusted code with the contributor's credentials.
 MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
+# leo-workspace's wt runs only this section, from the MERGE_DRIVER_DIR= line
+# down, into every worktree mirror it makes. The driver commands below name
+# merge_python.sh, so the section installs it (and the picker it sources)
+# itself: without them it stopped at an unset TRUSTED_HOOK_DIR, and those
+# clones merged generated files by line (tests/test_install_git_hooks.py,
+# test_the_merge_driver_section_runs_alone).
+TRUSTED_HOOK_DIR="${TRUSTED_HOOK_DIR:-$GIT_COMMON_DIR/cmux-git-hooks}"
+mkdir -p "$TRUSTED_HOOK_DIR"
+install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
+install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
@@ -342,12 +352,12 @@ echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.d
 git config merge.cmux-insertions-v1.name "Lists and logs both sides inserted into (trusted union of insertions)"
 git config merge.cmux-insertions-v1.driver "$INSERTIONS_DRIVER"
 echo "==> insertions merge driver installed (merge.cmux-insertions-v1.driver)."
-# Generated web bundles keep the current branch's copy and are rebuilt by
-# scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
+# Generated files keep the current branch's copy and are rebuilt by
+# scripts/cmux-next/generated_merge.py regenerate. `true` is a git no-op, not a
 # checkout path, so this driver needs no trusted copy.
-git config merge.cmux-generated-v1.name "Generated web bundle (keep ours, then regenerate)"
+git config merge.cmux-generated-v1.name "Generated file (keep ours, then regenerate)"
 git config merge.cmux-generated-v1.driver true
-echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.driver)."
+echo "==> generated file merge driver installed (merge.cmux-generated-v1.driver)."
 
 # Last, so a failure here never leaves the hooks half installed: remove every checks copy nobody holds. Only an
 # install removes copies, and installs run one at a time (the install lock), so each tree has one remover: not

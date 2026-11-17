@@ -35,7 +35,7 @@ pub mod mediafoundation;
 /// The encoder trait's name from before VP9 and AV1 (every H.264 source still uses it).
 pub use codec::VideoEncoder as H264Encoder;
 pub use codec::{Codec, VideoDecoder, VideoEncoder, annexb_nals, av1_obus};
-pub use picture::{I420, bgrx_rect_to_i420};
+pub use picture::{I420, bgrx_rect_to_i420, convert_threads};
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

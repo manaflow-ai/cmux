@@ -383,6 +383,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    // `cmux device setup|start` for this Mac's own app only: it reaches the person's other Macs
+    // over ssh, never for a device on the owner link.
+    "device-setup",
     "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
@@ -438,6 +441,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-begin",
     "feed-local-handoff-done",
     "feed-local-list",
+    "float-pane",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
