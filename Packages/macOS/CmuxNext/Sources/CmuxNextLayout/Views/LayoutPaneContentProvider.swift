@@ -54,6 +54,8 @@ final class LayoutViewContext {
     private(set) var hosts: [PaneID: PaneHostView] = [:]
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
+    /// The panels of the floating panes: each floating pane that shows is in a child window of the layout's window.
+    let floatingPanels = FloatingPanelSet()
     var requestFrames: () -> Void = {}
     /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
     /// sync wait for the frame's one pass, after its springs step.

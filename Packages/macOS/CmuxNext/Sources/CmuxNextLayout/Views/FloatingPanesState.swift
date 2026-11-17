@@ -25,6 +25,13 @@ struct FloatingPanesState {
         return taken == list ? .none : .frames
     }
 
+    /// The place of each floating pane for a focus move by a direction: its fractions of a view of `size`.
+    func navigationFrames(in size: CGSize, scale: CGFloat) -> [PaneID: CGRect] {
+        var frames: [PaneID: CGRect] = [:]
+        for entry in list { frames[entry.pane] = LayoutFloatingPane.paneRect(inCard: entry.rect(in: size, scale: scale)) }
+        return frames
+    }
+
     /// The list to place: the model's, with the frame a pointer's drag shows.
     var shown: [LayoutFloatingPane] {
         guard let drag else { return list }

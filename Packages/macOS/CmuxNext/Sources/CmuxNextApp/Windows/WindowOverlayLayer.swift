@@ -301,7 +301,7 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        let wanted: Placement = window.isVisible && (window.childWindows ?? []).contains { (Self.isContent($0) || $0 is PanePanel) && $0.isVisible } ? .overlayWindow : .inWindow
         if wanted != placement {
             placement = wanted
             switch wanted {

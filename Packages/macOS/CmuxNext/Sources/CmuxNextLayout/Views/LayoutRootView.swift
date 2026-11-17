@@ -638,12 +638,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving { reportInteractiveRects() }
     }
 
-    func updateVisibility() {
+    func updateVisibility(inLayout: Bool = false) {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        let reads = model.layoutPassReads
+        let reads = model.layoutPassReads, floats = context.floatingPanels.follow(self, inLayout: inLayout)
         if isLive, let active = reads.activeScreenID, let view = screenViews[active] {
-            visible = view.visiblePanes()
+            visible = view.visiblePanes().union(floats) // a floating pane that shows is in a panel of the window
             keepAlive = view.keepAlivePanes().union(visible)
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
@@ -681,7 +681,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.layout()
         Self.layoutPasses &+= 1
         fitScreensToBounds()
-        updateVisibility()
+        updateVisibility(inLayout: true)
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)

@@ -42,11 +42,11 @@ extension ScreenContentView {
         return covers
     }
 
-    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
-    /// and the panes in front of it (`above`, from `panesAbove()`).
+    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane, the panes in front of it
+    /// (`above`, from `panesAbove()`) and the floating panes' panels (windows above this view; the rings can be above them).
     /// The zooming pane is above the docks (`rank`): they hide none of it.
     func ringCovers(of host: PaneHostView, docks: [CGRect], above: [ObjectIdentifier: [CGRect]]) -> [CGRect] {
-        (isStripHost(host) && host.pane != zoomMotion.pane ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
+        (isStripHost(host) && host.pane != zoomMotion.pane ? docks : []) + (above[ObjectIdentifier(host)] ?? []) + context.floatingPanels.covers(in: self)
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -232,7 +232,7 @@ extension ScreenContentView {
     /// Top and bottom docks keep their height and stretch across the strip.
     var navigationFrames: [PaneID: CGRect] {
         let gap = context.style.stripGap
-        var result: [PaneID: CGRect] = [:]
+        var result = floatState.navigationFrames(in: bounds.size, scale: scale) // a floating pane is in a panel, not in `geometry`
         for (pane, shown) in geometry.panes {
             // In a scroll area: x mapped into the area's window, whatever its offset (K1); y as
             // shown (a row's vertical offset applies).

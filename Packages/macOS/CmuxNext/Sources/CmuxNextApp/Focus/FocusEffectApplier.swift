@@ -77,7 +77,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             case .revealPane(let pane):
                 content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
             case .moveResponder(let resolved):
-                moveResponder(resolved, state: state)
+                moveResponder(resolved, state: state); PanePanel.moveKeys(in: controller.window, toPane: resolved.pane)
                 publish(state.context) // the new target's own facts (a web view, the address bar), once per batch: see `publish`
             case .publishContext(let context):
                 if !effects.contains(where: { if case .moveResponder = $0 { true } else { false } }) { publish(context) }
@@ -106,8 +106,8 @@ final class FocusEffectApplier: FocusEffectApplying {
                 return
             }
             blurChildWindowPage()
-            let view = entry.session.surfaceView
-            if window.firstResponder !== view { FocusRoute(.system, "focus model: pane content").moveKeyboard(in: window, to: view) }
+            let view = entry.session.surfaceView, home = view.window as? PanePanel ?? window // a floating pane's panel
+            if home.firstResponder !== view { FocusRoute(.system, "focus model: pane content").moveKeyboard(in: home, to: view) }
         case .browserPage(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             focusPage(entry.tab, in: window)
@@ -316,7 +316,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         publish(controller.focus.state.context)
         // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
-        guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
+        guard owned is NSPanel, !(owned is OverlayHostPanel), !(owned is PanePanel), owned.sheetParent == nil, !services.palette.owns(owned),
               overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
@@ -336,7 +336,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// Chromium page window, its docked DevTools, or a popup over a page.
     /// Only a click into a page is the user's choice.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
-        guard let window = controller.window, child !== window else { return }
+        guard let window = controller.window, child !== window, !(child is PanePanel) else { return }
         let devTools = paneShowingDevTools(window: child)
         let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
         let pane = paneShowingChildWindowPage(at: child.frame)

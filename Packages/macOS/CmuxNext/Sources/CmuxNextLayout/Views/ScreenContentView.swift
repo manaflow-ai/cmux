@@ -274,7 +274,7 @@ final class ScreenContentView: NSView {
         reconcilePasses += 1
         applyCamera()
         reconciledScale = scale
-        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale).placingFloating(floatState.shown, scale: scale)
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale) // a floating pane is in a panel (`FloatingPanelSet`)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.

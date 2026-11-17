@@ -256,8 +256,8 @@ public final class WindowOverlayHost {
         onPanelChange?()
     }
 
-    /// Child order, bottom to top: page windows, the windows that take the mouse for the window's content
-    /// (``UnderOverlayWindow``: the divider catchers), this panel, then app panels at the panel's level that are not
+    /// Child order, bottom to top: page windows, the windows under the overlays (``UnderOverlayWindow``: the divider
+    /// catchers, then the floating panes' panels), this panel, then app panels at the panel's level that are not
     /// on the host yet. Where an overlay takes the mouse (a toast), nothing under it gets the pointer.
     /// `order(_:relativeTo:)` has no effect on child windows, so reordering re-adds them.
     public func reassertOrder() {
@@ -270,10 +270,10 @@ public final class WindowOverlayHost {
         guard children.contains(where: { $0 === panel }) else { return }
         // The rank of each child in the wanted order; nil: a window above the panel's level, which stays where it is.
         let rank: (NSWindow) -> Int? = { [panel] child in
-            if child === panel { return 2 }
+            if child === panel { return 3 }
             if Self.isPageWindow(child) { return 0 }
-            if child is any UnderOverlayWindow { return 1 }
-            return child.level <= panel.level ? 3 : nil
+            if child is any UnderOverlayWindow { return child is PanePanel ? 2 : 1 }
+            return child.level <= panel.level ? 4 : nil
         }
         let ranks = children.filter { $0.isVisible || $0 === panel }.compactMap(rank)
         // The lowest rank that sits under a higher one: re-adding that rank and the ranks above it, in rank order,
@@ -287,7 +287,7 @@ public final class WindowOverlayHost {
         guard let lowest else { return }
         reorderCount += 1
         autoreleasepool {
-            for wanted in max(1, lowest)...3 {
+            for wanted in max(1, lowest)...4 {
                 for child in children where rank(child) == wanted {
                     window.removeChildWindow(child)
                     window.addChildWindow(child, ordered: .above)

@@ -35,6 +35,8 @@ public struct ChildWindowPolicy {
         if child is OverlayHostPanel { return true }
         // The shared native popups (omnibar and toolbar) are child panels above the page by design.
         if child is NativePopupPanel { return true }
+        // A floating pane's panel is content of the window: the host panel is above it (`reassertOrder`).
+        if child is PanePanel { return true }
         return legacyPanels.contains(String(describing: type(of: child)))
     }
 

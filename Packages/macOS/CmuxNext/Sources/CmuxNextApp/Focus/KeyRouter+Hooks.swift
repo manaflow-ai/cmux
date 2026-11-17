@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextFocus
 
 // The places a key can reach after the dispatcher: the window hook, the
@@ -124,12 +125,11 @@ extension KeyRouter {
             return (controllers.first { $0.window === opener }, .textPanel)
         }
         let owner = window.parent ?? window.sheetParent
-        // A Chromium page window in a panel: the panel's window gates
-        // menu chords like a panel (content chords stay with the page).
-        if let panel = owner as? NSPanel, let grand = panel.parent,
-           let controller = controllers.first(where: { $0.window === grand }) { return (controller, .textPanel) }
+        // A Chromium page window in a panel: the panel's window gates menu chords like a panel (content chords
+        // stay with the page). A floating pane's panel (`PanePanel`), and a page window in it, is content.
+        if let panel = owner as? NSPanel, let grand = panel.parent, let controller = controllers.first(where: { $0.window === grand }) { return (controller, panel is PanePanel ? .content : .textPanel) }
         guard let controller = controllers.first(where: { $0.window === owner }) else { return (nil, .other) }
-        return (controller, window is NSPanel || window.sheetParent != nil ? .textPanel : .content)
+        return (controller, (window is NSPanel && !(window is PanePanel)) || window.sheetParent != nil ? .textPanel : .content)
     }
 
     // MARK: BrowserKeyRouting (CEF page window is key)

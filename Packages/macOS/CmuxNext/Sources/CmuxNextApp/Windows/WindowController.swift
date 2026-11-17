@@ -525,7 +525,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
-        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        if WindowOverlayLayer.isContent(childWin) || childWin is PanePanel { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
