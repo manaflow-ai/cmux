@@ -26,14 +26,28 @@ def secs(stamp):
 def parse(path):
     events = []
     try:
-        for line in open(path, errors="replace"):
-            m = LINE.match(line.rstrip())
-            if m:
-                events.append({"t": secs(m.group(1)), "body": m.group(2), "elapsed": float(m.group(3)),
-                               "proc": m.group(4).strip()})
+        with open(path, errors="replace") as f:
+            lines = f.read().splitlines()
     except OSError:
-        pass
+        return events
+    for line in lines:
+        m = LINE.match(line.rstrip())
+        if m:
+            events.append({"t": secs(m.group(1)), "body": m.group(2), "elapsed": float(m.group(3)),
+                           "proc": m.group(4).strip()})
     return events
+
+
+def top_files(checks, bundle, n=12):
+    """The files inside the bundle the checkers spent the most call time on: [path in the bundle, calls, ms]."""
+    per = {}
+    for e in checks:
+        m = re.search(re.escape(bundle) + r"(/\S*(?: \S+)*?)(?:\s+\S+=|$)", e["body"])
+        path = m.group(1) if m else "?"
+        calls, secs_ = per.get(path, (0, 0.0))
+        per[path] = (calls + 1, secs_ + e["elapsed"])
+    ranked = sorted(per.items(), key=lambda kv: -kv[1][1])[:n]
+    return [[path, calls, round(s * 1000, 1)] for path, (calls, s) in ranked]
 
 
 def reduce(events, log_lines, app, run):
@@ -68,6 +82,7 @@ def reduce(events, log_lines, app, run):
             out["checker_last_read"] = ms(checks[-1]["t"])
             out["checker_reads_before_spawn"] = sum(1 for e in checks if e["t"] < base)
             out["checker_reads_after_first_call"] = sum(1 for e in checks if mine and e["t"] > mine[0]["t"])
+        out["checker_files"] = top_files(checks, bundle)
     out["log_lines"] = len(log_lines)
     out["log_scan_lines"] = sum(1 for line in log_lines if re.search(r"(?i)xprotect|scan|assess|gatekeeper", line))
     return out
