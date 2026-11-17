@@ -3,13 +3,13 @@ public import CmuxNextDesign
 
 /// Persists the selected background: bundled art, a macOS system wallpaper (`system:<path>`), the
 /// person's own image (`file:<path>`), the desktop picture (`desktop`), the paintings shuffled
-/// (`daily`), the pictures of a folder shuffled (`folder:<absolute path>`), or `none`. Unset is
+/// (`daily`), the pictures of a folder and its subfolders shuffled (`folder:<absolute path>`), or `none`. Unset is
 /// ``defaultSelection``. A shuffle turns as often as `appearance.backgroundRotation` says.
 public struct BackdropSelectionSetting: Sendable {
     /// Shuffle Paintings: the art set's work of the period (``BackdropArt/shuffled(on:every:calendar:)``).
     /// The id keeps its first name, from when it turned only daily.
     public static let dailyID = "daily"
-    /// Shuffle a folder: `folder:<absolute path>` turns through the pictures in it.
+    /// Shuffle a folder: `folder:<absolute path>` turns through the pictures in it and its subfolders.
     public static let folderPrefix = "folder:"
 
     /// Creates the setting parser.
@@ -105,7 +105,8 @@ public struct BackdropShuffle: Equatable, Sendable {
     public enum Source: Equatable, Sendable {
         /// The paintings (``BackdropArt/dailyRotation``).
         case paintings
-        /// The pictures directly in the folder at this absolute path, by name.
+        /// The pictures in the folder at this absolute path and its subfolders, by relative path
+        /// (``BackdropFolderPictures``).
         case folder(String)
     }
 
@@ -122,15 +123,19 @@ public struct BackdropShuffle: Equatable, Sendable {
         (pick(on: date, calendar: calendar), max(1, rotation.nextTurn(after: date, calendar: calendar).timeIntervalSince(date) + 1))
     }
 
+    /// Lists a shuffled folder's pictures (``BackdropSwitchClock`` reuses one listing between its
+    /// prewarm and the turn).
+    public typealias PicturesReader = (URL) -> [BackdropSelection]
+
     /// The picture that shows at `date`; nil for a folder with no pictures.
-    public func pick(on date: Date, calendar: Calendar, fileManager: FileManager = .default) -> BackdropSelection? {
+    public func pick(on date: Date, calendar: Calendar,
+                     pictures read: PicturesReader = { BackdropFolderPictures(folder: $0).list() }) -> BackdropSelection? {
         switch source {
         case .paintings:
             return .art(BackdropArt.shuffled(on: date, every: rotation, calendar: calendar))
         case .folder(let path):
-            // By name, so a picture keeps its turn when others are added.
-            let pictures = BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list(fileManager: fileManager)
-                .sorted { $0.id < $1.id }
+            // By relative path, so a picture keeps its turn when others are added.
+            let pictures = read(URL(fileURLWithPath: path, isDirectory: true))
             return rotation.index(count: pictures.count, on: date, calendar: calendar).map { pictures[$0] }
         }
     }
