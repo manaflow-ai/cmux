@@ -589,6 +589,10 @@ mod tests {
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
         assert!(FAMILIES.contains(&family_of("agent_chat.list")));
         assert_eq!(family_of("system_calendar.request_access"), "system_calendar");
+        assert!(
+            WAITS_FOR_USER.contains(&"system_calendar.request_access"),
+            "the macOS prompt gets the user deadline, not a read's"
+        );
         assert!(FAMILIES.contains(&family_of("system_calendar.events")));
         assert!(
             !FAMILIES.contains(&family_of("calendar.events.list")),
