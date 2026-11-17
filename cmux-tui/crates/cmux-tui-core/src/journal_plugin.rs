@@ -401,6 +401,13 @@ impl JournalPluginRuntime {
         state.child.as_ref().map(|child| child.process_group_id).filter(|group| *group > 0)
     }
 
+    /// Whether supervision has started (`start`): the plugin's process runs, or will once configured.
+    #[cfg(test)]
+    pub(crate) fn has_started(&self) -> bool {
+        let (lock, _) = &*self.state;
+        lock.lock().unwrap_or_else(|error| error.into_inner()).started
+    }
+
     /// Starts supervision after the local socket has been bound. This ordering
     /// gives the plugin an authoritative socket path and avoids a startup race.
     pub fn start(&self, socket: PathBuf, session: String) {

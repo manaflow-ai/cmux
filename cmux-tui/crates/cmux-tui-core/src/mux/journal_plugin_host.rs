@@ -11,8 +11,43 @@ impl Mux {
         self.journal_plugin.configure(options);
     }
 
-    /// Start the configured journal plugin against the bound local socket.
-    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
+    /// Start the configured journal plugin against the bound local socket once the daemon holds a
+    /// terminal. The plugin (the bundled agent screen detection) reads terminals, so a daemon with
+    /// none (the Chief's before its first terminal) does not run its process (CMUX-571, goal
+    /// ram-baseline). A daemon that restores terminals starts it at once. Otherwise one thread waits
+    /// for the terminal topology to change, and it ends once it has started the plugin.
+    pub fn start_journal_plugin(self: &Arc<Self>, socket: std::path::PathBuf) {
+        if self.holds_a_terminal() {
+            self.start_journal_plugin_now(socket);
+            return;
+        }
+        let events = self.subscribe_terminal_lifecycle();
+        // Read again after subscribing: a terminal made between the first read and the
+        // subscription sent its event before this receiver existed.
+        if self.holds_a_terminal() {
+            self.start_journal_plugin_now(socket);
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let gate_socket = socket.clone();
+        let spawned = std::thread::Builder::new()
+            .name("cmux-journal-plugin-gate".into())
+            .spawn(move || wait_for_first_terminal(&weak, events, gate_socket));
+        if let Err(error) = spawned {
+            // The gate is only a saving: without it the plugin starts as it did before.
+            eprintln!(
+                "cmux-tui: journal plugin gate did not start, starting the plugin now: {error}"
+            );
+            self.start_journal_plugin_now(socket);
+        }
+    }
+
+    /// Whether the terminal catalog holds any terminal (launching, running or restored).
+    fn holds_a_terminal(&self) -> bool {
+        self.with_state(|state| !state.terminal_catalog.is_empty())
+    }
+
+    fn start_journal_plugin_now(&self, socket: std::path::PathBuf) {
         let generation = match self.workspace_registry.lock() {
             Ok(registry) => registry.reserve_journal_plugin_generation(),
             Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
@@ -67,3 +102,37 @@ impl Mux {
         }
     }
 }
+
+/// The gate thread of [`Mux::start_journal_plugin`]: waits for the first terminal, starts the
+/// plugin, and ends. It never holds the mux across a wait, so it does not keep a stopped daemon's mux
+/// alive, and it starts nothing once the daemon is shutting down.
+fn wait_for_first_terminal(
+    mux: &std::sync::Weak<Mux>,
+    mut events: crate::event_bus::MuxEventReceiver,
+    socket: std::path::PathBuf,
+) {
+    loop {
+        let Some(live) = mux.upgrade() else { return };
+        if live.shutting_down.load(Ordering::Acquire) {
+            return;
+        }
+        if live.holds_a_terminal() {
+            live.start_journal_plugin_now(socket);
+            return;
+        }
+        drop(live);
+        if events.recv().is_err() {
+            // The mailbox overflowed or the bus closed: subscribe again, then read the catalog
+            // again before the next wait.
+            let Some(live) = mux.upgrade() else { return };
+            events = live.subscribe_terminal_lifecycle();
+        } else {
+            // A burst of topology events needs one read of the catalog.
+            while events.try_recv().is_ok() {}
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "journal_plugin_host_tests.rs"]
+mod tests;
