@@ -12842,6 +12842,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The list opened: the machines' status and the chat's moves are read again.
             onRefreshMachines={() => {
               void directClient.current?.refreshPeers();
+              void directClient.current?.refreshPlacement();
               refreshTabState();
             }}
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
@@ -13433,7 +13434,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                     : {})}
                   onConnect={connectMachine}
-                  onRefreshMachines={() => void directClient.current?.refreshPeers()}
+                  onRefreshMachines={() => {
+                    void directClient.current?.refreshPeers();
+                    void directClient.current?.refreshPlacement();
+                  }}
                   onNewProject={(name) => {
                     const client = directClient.current;
                     return client?.newProjectSupported

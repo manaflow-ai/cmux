@@ -117,6 +117,7 @@ export function EnvironmentPicker({
   digits = true,
   setupMenu = true,
   onAnother,
+  auto,
   openRequest,
   ownOnly = false,
   runDetails,
@@ -178,6 +179,9 @@ export function EnvironmentPicker({
   setupMenu?: boolean;
   /// `where`: Remote was picked; the strip shows and opens its machine control.
   onAnother?(): void;
+  /// `where`: the Auto row, before Remote (placement.ts `autoChoice`): its words, which name
+  /// placement's pick and its room, and the pick that starts the chat there. None, no row.
+  auto?: { text: string; onPick(): void };
   /// Each new value opens the list (the strip opens the machine control after Remote).
   openRequest?: number;
   /// `machines`: only the person's own machines (SSH), not Cloud machines (Cloud is one pick; its machines are behind Machines…).
@@ -414,6 +418,9 @@ export function EnvironmentPicker({
     listRows === "where" && onAnother
       ? { value: ANOTHER, text: t("composer.anotherMachine"), kind: "local", run: onAnother }
       : undefined;
+  // Where: Auto, placement's pick and its reason ("Auto · gcp-3 · room for 5"), before Remote.
+  const autoRow: Action | undefined =
+    listRows === "where" && auto ? { value: AUTO, text: auto.text, kind: "local", run: auto.onPick } : undefined;
   const addMachine: Action | undefined =
     listRows === "machines" && onConnect
       ? {
@@ -427,6 +434,7 @@ export function EnvironmentPicker({
     ...(move ? [move] : []),
     ...targetActions,
     ...(cloud ? [cloud] : []),
+    ...(autoRow ? [autoRow] : []),
     ...(another ? [another] : []),
     ...(addMachine ? [addMachine] : []),
   ];
@@ -520,6 +528,7 @@ export function EnvironmentPicker({
   const where = [
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
+    ...(autoRow ? [autoRow.value] : []),
     ...(another ? [another.value] : []),
   ];
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest
@@ -648,8 +657,8 @@ export function EnvironmentPicker({
       focusPrompt();
       return;
     }
-    // A machine, Remote, or Cloud's New Cloud Machine flow: Persistent again.
-    if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER) persistent();
+    // A machine, Auto, Remote, or Cloud's New Cloud Machine flow: Persistent again.
+    if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER || value === AUTO) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
     else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();
@@ -733,13 +742,15 @@ export function EnvironmentPicker({
           data-action={
             action === another
               ? "another"
-              : action === addMachine
-                ? "addMachine"
-                : value === MOVE_MENU
-                  ? "moveTo"
-                  : value.startsWith(MOVE_TO)
-                    ? "moveTarget"
-                    : undefined
+              : action === autoRow
+                ? "auto"
+                : action === addMachine
+                  ? "addMachine"
+                  : value === MOVE_MENU
+                    ? "moveTo"
+                    : value.startsWith(MOVE_TO)
+                      ? "moveTarget"
+                      : undefined
           }
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
@@ -748,6 +759,8 @@ export function EnvironmentPicker({
         >
           {action === another ? (
             <AnotherMachineIcon />
+          ) : action === autoRow ? (
+            <AutoPlaceIcon />
           ) : value === MOVE_MENU ? (
             <MoveIcon />
           ) : value.startsWith(MOVE_TO) ? (
@@ -937,6 +950,8 @@ export function EnvironmentPicker({
 const ACTION = "\u0000action:";
 /// Where's Remote row.
 const ANOTHER = ACTION + "another";
+/// Where's Auto row (placement's pick).
+const AUTO = ACTION + "auto";
 /// A started chat's Move to… row, which opens its targets.
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
@@ -1035,6 +1050,28 @@ export function AnotherMachineIcon() {
     >
       <circle cx="8" cy="8" r="5.75" />
       <path d="M2.25 8h11.5M8 2.25c1.6 1.6 2.4 3.5 2.4 5.75S9.6 12.15 8 13.75M8 2.25C6.4 3.85 5.6 5.75 5.6 8s.8 4.15 2.4 5.75" />
+    </svg>
+  );
+}
+
+/// Where's Auto row: a spark, placement choosing the machine.
+export function AutoPlaceIcon() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      data-kind="auto"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M8 2.25 9.3 6.7 13.75 8 9.3 9.3 8 13.75 6.7 9.3 2.25 8 6.7 6.7Z" />
     </svg>
   );
 }

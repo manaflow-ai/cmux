@@ -89,6 +89,7 @@ import {
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
+import { placementFromReply, type Placement } from "./placement";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
 import { noteReplaced } from "./sessionIndex";
@@ -3640,6 +3641,9 @@ export class AcpmuxDirectClient {
   /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
   private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
+  /// Where a new chat should go (placement.ts), as `_acpmux/place` last said; none before it
+  /// answered or from a daemon or host without it.
+  private placement?: Placement;
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -4265,6 +4269,8 @@ export class AcpmuxDirectClient {
           this.readPeers(status, peersSince);
           if (!this.opening && !this.snapshotHold) this.emit();
         });
+      // Where a new chat should go, beside the machines: the composer's Auto row and busy chip.
+      void this.refreshPlacement();
       const listRead = this.sessionPages.first();
       // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
@@ -11184,6 +11190,7 @@ export class AcpmuxDirectClient {
       peerStates: this.peerStates,
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
+      ...(this.placement ? { placement: this.placement } : {}),
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: this.publishedSummary(summary, effort, limits),
       connection,
@@ -14880,6 +14887,26 @@ export class AcpmuxDirectClient {
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
     if (!this.snapshotHold) this.emit();
+  }
+  /// Reads where a new chat should go (`_acpmux/place`; placement.ts): as the connection opens and as
+  /// the environment picker opens, never on a timer of its own. acpmux asks no machine for it (each
+  /// peer's last reading), so a read is one local round trip. A daemon or host without the method
+  /// leaves none, and the Auto row and busy chip stay away.
+  async refreshPlacement(): Promise<void> {
+    let reply: unknown;
+    try {
+      reply = await this.request("_acpmux/place", { work: "agent" });
+    } catch (error) {
+      // A refusal (a daemon or host without the method) has no placement; a dropped or slow socket
+      // keeps the last one, so the Auto row and busy chip do not blink out while it reconnects.
+      if (this.closed || !(error && typeof error === "object" && "code" in error)) return;
+      reply = undefined;
+    }
+    if (this.closed) return;
+    const next = placementFromReply(reply);
+    const same = JSON.stringify(next) === JSON.stringify(this.placement);
+    this.placement = next;
+    if (!same && !this.opening && !this.snapshotHold) this.emit();
   }
   private async refreshPeerStates(): Promise<boolean> {
     const read = this.peerEvents.readStarted();

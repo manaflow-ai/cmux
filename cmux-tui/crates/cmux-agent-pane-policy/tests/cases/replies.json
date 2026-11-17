@@ -814,5 +814,52 @@
     ]
    }
   }
+ },
+ {
+  "name": "place keeps the pick, its room and this machine's verdict, never the hosts' numbers",
+  "method": "_acpmux/place",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "pick": "gcp-3",
+    "local": false,
+    "overloaded": false,
+    "why": "gcp-3: 60 GB RAM free, 1.0/16 cores busy, room for 5",
+    "room": 5,
+    "localOver": "over its budget (load1 29.8 >= 15)",
+    "work": "agent",
+    "tier": null,
+    "hosts": [{"name": "gcp-3", "room": 5, "why": "60 GB RAM free"}],
+    "shadow": {"site": "place"}
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "pick": "gcp-3",
+    "local": false,
+    "overloaded": false,
+    "room": 5,
+    "localOver": "over its budget (load1 29.8 >= 15)"
+   }
+  }
+ },
+ {
+  "name": "place with no pick keeps nulls out",
+  "method": "_acpmux/place",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {"pick": null, "local": false, "overloaded": false, "room": null, "localOver": null, "hosts": []}
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {"local": false, "overloaded": false}
+  }
  }
 ]

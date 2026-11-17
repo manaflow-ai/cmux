@@ -47,6 +47,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
+        // Where a new chat should go (EnvironmentPicker's Auto row, the busy-Mac chip; acpmux
+        // server/place.rs): read-only, answered on this machine's socket only, and its reply cut
+        // to the pick, its room and this machine's own verdict (``replyShapes``).
+        "_acpmux/place",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):

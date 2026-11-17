@@ -31,6 +31,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/peers": .object(["peers": .list(.object([
             "name": .string, "state": .string, "lastSeen": .number, "error": .string,
         ]))]),
+        // Where a new chat should go: the pick (a machine `_acpmux/status` already names), whether
+        // it is this machine, whether every host was full, its room in lanes, and this machine's
+        // own over-budget verdict. Never `why` or `hosts`, which carry every machine's numbers.
+        "_acpmux/place": .object([
+            "pick": .string, "local": .bool, "overloaded": .bool, "room": .number, "localOver": .string,
+        ]),
         "_acpmux/status": .object([
             // What kind of device this machine is (`mac-mini`; cmux-device-kind): the glyph
             // This Mac draws. One word from a fixed list, nothing that names the host.

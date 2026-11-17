@@ -24,6 +24,7 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
+import type { Placement } from "./placement";
 import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
@@ -1216,6 +1217,9 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
+  /// Where a new chat should go, as acpmux placement last said (placement.ts): the Where menu's Auto
+  /// row and the busy-Mac chip.
+  placement?: Placement;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {

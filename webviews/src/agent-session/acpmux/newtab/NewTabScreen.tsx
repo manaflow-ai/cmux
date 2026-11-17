@@ -2042,6 +2042,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+        {...(snapshot.placement ? { placement: snapshot.placement } : {})}
         {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
