@@ -12,6 +12,7 @@ import type {
   Domains,
   HarnessesState,
   HostLists,
+  ModelsState,
   ListRow,
   ManagedInfo,
   SnapshotResult,
@@ -27,6 +28,7 @@ export const settingsKeys = {
   accounts: ["settings", "accounts"] as const,
   harnesses: ["settings", "harnesses"] as const,
   devices: ["settings", "devices"] as const,
+  models: ["settings", "models"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };
@@ -46,6 +48,7 @@ export type HostData = HostLists;
 export type AccountsData = AccountsState;
 export type HarnessesData = HarnessesState;
 export type DevicesData = DevicesState;
+export type ModelsData = ModelsState;
 export type ThemeColorsData = ReadonlyMap<string, GhosttyTheme>;
 
 export function createSettingsQueryClient(): QueryClient {
