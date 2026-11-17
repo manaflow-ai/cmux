@@ -842,6 +842,13 @@ impl MediaEngine {
         now_us.saturating_sub(self.last_feedback_us)
     }
 
+    /// Whether D12 has classified the feedback path as Away. While frozen, the
+    /// host keeps its bitrate and lets the bounded media queue apply newest-wins
+    /// replacement instead of holding the encoder behind stale queue depth.
+    pub fn outage_frozen(&self) -> bool {
+        self.cc.frozen()
+    }
+
     pub fn stats(&self) -> EngineStats {
         EngineStats {
             frames: self.frames,

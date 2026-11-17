@@ -525,7 +525,7 @@ impl MediaSession {
         if encoded_frame_waits_for_queues(
             carrier,
             self.pacer.as_ref(),
-            self.send_newest_after_outage,
+            self.send_newest_after_outage || self.engine.outage_frozen(),
         ) {
             return Ok(());
         }
