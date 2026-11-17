@@ -307,7 +307,8 @@ extension SidebarDocStore {
     /// moves `version`, a batch `records` too. One mirror call per change.
     public func placesItem(with ref: LayoutItemRef) -> Bool {
         _ = version
-        guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
+        // The live list `show` sent: the mirror holds it, so the call sends none again.
+        guard let rows = rows(SidebarViewRequest(live: projectionCache?.live ?? Array(lastLive))) else { return false }
         return rows.contains { row in
             guard let id = row.item else { return false }
             return (records.items[id].map { SidebarDocProjection.ref($0.body, id: id) } ?? Self.pendingRef(id)) == ref

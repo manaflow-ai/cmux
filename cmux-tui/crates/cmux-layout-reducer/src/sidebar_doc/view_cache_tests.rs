@@ -12,6 +12,7 @@ use super::reduce::apply_in_place;
 use super::scale_tests::sidebar;
 use super::view::{LiveWorkspace, ViewRequest, take_rows_built, view};
 use super::view_cache::ViewCache;
+use super::view_splice::{Kept, Sent};
 use super::*;
 
 /// A small deterministic generator (no dependency).
@@ -182,14 +183,32 @@ fn run(seed: u64, steps: usize, workspaces: usize, sections: usize, group: usize
     let mut request = ViewRequest { collapsed: Some(vec![]), ..Default::default() };
     let mut cache = ViewCache::default();
     let mut rng = Rng(seed);
+    let mut sent = Sent::default();
+    let mut kept = Kept::default();
+    let mut sent_live: Option<Vec<LiveWorkspace>> = None;
     for n in 0..steps {
         if n > 0 {
             step(&mut rng, &mut doc, &mut live, &mut request, n);
         }
         request.live = live.clone();
         let touched = doc.take_touched();
-        cache.refresh(&doc, request.clone(), touched);
+        // As the app asks: no live list when it is the one last sent.
+        let mut asked = request.clone();
+        if sent_live.as_ref() == Some(&live) {
+            asked.live = Vec::new();
+            asked.live_same = true;
+        }
+        sent_live = Some(live.clone());
+        cache.refresh(&doc, asked, touched);
         let rows = view(&doc, &request);
+        let answer: Value =
+            serde_json::from_str(&cache.answer(&doc, &mut sent, n == 0)).expect("answer");
+        kept.apply(&answer);
+        assert_eq!(
+            kept.projection(),
+            serde_json::to_value(project(&doc, &rows)).expect("projection"),
+            "seed {seed} step {n}: spliced projection"
+        );
         assert_eq!(cache.rows(), rows, "seed {seed} step {n}: rows");
         let full = project(&doc, &rows);
         assert_eq!(

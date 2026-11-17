@@ -37,6 +37,8 @@ pub struct Part {
     pub band_groups: Vec<Group>,
     pub items: Vec<Member>,
     pub archived: Vec<ItemId>,
+    /// Each list's elements as JSON, made once when a splice first sends them.
+    pub(super) json: std::cell::OnceCell<super::view_splice::PartJson>,
 }
 
 impl Part {
@@ -58,6 +60,7 @@ impl Part {
             band_groups: out.band_groups,
             items: out.items,
             archived: out.archived,
+            json: std::cell::OnceCell::new(),
         }
     }
 }
@@ -70,6 +73,8 @@ pub struct Block {
     /// Every item of its tree (the cache's index).
     members: Vec<ItemId>,
     pub part: Part,
+    /// Unique per build of this block: what a splice names it by.
+    pub version: u64,
 }
 
 /// One shown section.
@@ -80,6 +85,8 @@ pub struct SectionView {
     pub blocks: Vec<Block>,
     /// A machine section's unplaced live workspaces: (place in live order, row).
     pub unplaced: Vec<(usize, Row)>,
+    /// Unique per change of `unplaced`.
+    pub unplaced_version: u64,
 }
 
 impl SectionView {
@@ -120,11 +127,11 @@ impl SectionView {
 
 /// The group settings of every item (the projection's document-wide fields).
 #[derive(Debug, Clone, Default)]
-struct Settings {
-    sorts: BTreeMap<ItemId, String>,
-    row_limits: BTreeMap<ItemId, u32>,
-    revealed: BTreeMap<ItemId, u32>,
-    pinned_in_group: BTreeSet<ItemId>,
+pub(super) struct Settings {
+    pub(super) sorts: BTreeMap<ItemId, String>,
+    pub(super) row_limits: BTreeMap<ItemId, u32>,
+    pub(super) revealed: BTreeMap<ItemId, u32>,
+    pub(super) pinned_in_group: BTreeSet<ItemId>,
 }
 
 impl Settings {
@@ -167,6 +174,12 @@ fn shows_session(window: &WindowFilter, session: &str) -> bool {
     window.sessions.as_ref().is_none_or(|sessions| sessions.iter().any(|s| s == session))
 }
 
+/// A new splice id (unique in the process).
+fn fresh_version() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 fn make_block(doc: &Doc, context: &Context<'_>, section: &Section, item: &Item) -> Block {
     let rows = view::block_rows(doc, context, section, item);
     let mut members = vec![item.id.clone()];
@@ -174,7 +187,7 @@ fn make_block(doc: &Doc, context: &Context<'_>, section: &Section, item: &Item) 
         members.extend(doc.descendants(item).into_iter().map(|child| child.id.clone()));
     }
     let part = Part::of(doc, &rows);
-    Block { key: item.id.clone(), rows, members, part }
+    Block { key: item.id.clone(), rows, members, part, version: fresh_version() }
 }
 
 impl ViewCache {
@@ -187,9 +200,45 @@ impl ViewCache {
         &self.sections
     }
 
+    pub(super) fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub(super) fn host_groups(&self) -> &[SectionId] {
+        &self.host_groups
+    }
+
     /// Bring the view up to `doc` for `request`; `touched` is what changed
     /// in `doc` since the last refresh.
     pub fn refresh(&mut self, doc: &Doc, mut request: ViewRequest, touched: Touched) {
+        if request.live_same {
+            // The kept live set stands; only a rebuild needs it as a list.
+            request.live_same = false;
+            if !self.built || touched.sections || has_needle(&request) {
+                request.live = self.live.list().to_vec();
+            } else {
+                request.live = Vec::new();
+                return self.refresh_kept_live(doc, request, touched);
+            }
+        }
+        self.refresh_with_live(doc, request, touched);
+    }
+
+    /// `refresh` with the live set as kept (no list compared or copied).
+    fn refresh_kept_live(&mut self, doc: &Doc, request: ViewRequest, touched: Touched) {
+        let same_shape = request.window == self.request.window
+            && request.filter == self.request.filter
+            && request.collapsed == self.request.collapsed;
+        if !same_shape {
+            let mut request = request;
+            request.live = self.live.list().to_vec();
+            return self.rebuild(doc, request);
+        }
+        self.patch(doc, touched.items, touched.refs, false);
+    }
+
+    fn refresh_with_live(&mut self, doc: &Doc, mut request: ViewRequest, touched: Touched) {
+        request.fresh = false;
         let same_shape = self.built
             && request.window == self.request.window
             && request.filter == self.request.filter
@@ -213,6 +262,18 @@ impl ViewCache {
             self.live = LiveIndex::new(std::mem::take(&mut request.live));
             every_unplaced = true;
         }
+        self.patch(doc, items, refs, every_unplaced);
+    }
+
+    /// Rebuild the blocks holding `items` and follow the unplaced rows of
+    /// `refs`, on the kept request and live set.
+    fn patch(
+        &mut self,
+        doc: &Doc,
+        items: HashSet<ItemId>,
+        refs: HashSet<(String, String)>,
+        every_unplaced: bool,
+    ) {
         // The blocks to rebuild, by section; `true`: re-place them (a
         // top-level item itself changed).
         let mut dirty: HashMap<SectionId, (bool, HashSet<ItemId>)> = HashMap::new();
@@ -232,8 +293,8 @@ impl ViewCache {
             }
         }
         if !self.patch_unplaced(doc, &refs, every_unplaced) {
-            let live = std::mem::take(&mut self.live);
-            request.live = live.list().to_vec();
+            let mut request = self.request.clone();
+            request.live = std::mem::take(&mut self.live).list().to_vec();
             return self.rebuild(doc, request);
         }
         let context = Context::new(Live::Kept(&self.live), &self.request);
@@ -274,6 +335,7 @@ impl ViewCache {
                             rows: Vec::new(),
                             members: Vec::new(),
                             part: Part::default(),
+                            version: 0,
                         },
                     );
                 }
@@ -340,6 +402,7 @@ impl ViewCache {
                 if doc.section(&section.section.id).is_none() && now.is_empty() {
                     return false;
                 }
+                section.unplaced_version = fresh_version();
                 section.unplaced = list
                     .map(|(_, list)| {
                         list.iter()
@@ -371,12 +434,14 @@ impl ViewCache {
             };
             match (section.unplaced.binary_search_by_key(&at, |(place, _)| *place), unplaced) {
                 (Err(place), true) => {
+                    section.unplaced_version = fresh_version();
                     let live = &self.live.list()[at];
                     section
                         .unplaced
                         .insert(place, (at, view::unplaced_row(&section.section, live)));
                 }
                 (Ok(place), false) => {
+                    section.unplaced_version = fresh_version();
                     section.unplaced.remove(place);
                     if section.unplaced.is_empty() && doc.section(&section.section.id).is_none() {
                         return false;
@@ -425,7 +490,13 @@ impl ViewCache {
             }
             let body_empty = rows.is_empty() && blocks.iter().all(|b| b.rows.is_empty());
             let header = view::header_row(&section, &context, machine_count, body_empty);
-            views.push(SectionView { section, header, blocks, unplaced: rows });
+            views.push(SectionView {
+                section,
+                header,
+                blocks,
+                unplaced: rows,
+                unplaced_version: fresh_version(),
+            });
         }
         self.sections = views;
         self.settings = Settings::default();

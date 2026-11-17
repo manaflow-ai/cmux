@@ -675,8 +675,8 @@ mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
 );
-/// The sections a view request's rows draw (`sidebar_doc::project`), from
-/// the mirror's kept view, serialized with no JSON value tree.
+/// The sections a view request's rows draw (`sidebar_doc::project`), as
+/// splices of what the caller holds from the last answer (`sidebar_doc::view_splice`).
 ///
 /// # Safety
 ///

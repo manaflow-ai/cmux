@@ -120,3 +120,115 @@ extension SidebarDocWire.Group {
         return group
     }
 }
+
+/// The mirror's `project` answer as splices (cmux-layout-reducer `sidebar_doc::view_splice`): per list of the
+/// projection, the element ranges to replace since the last answer, applied in order; the small fields only when
+/// they changed. Swift only applies them: which rows show, and where, stays the reducer's.
+extension SidebarDocWire {
+    nonisolated struct Splice<Element: Decodable>: Decodable {
+        var at: Int
+        var remove: Int
+        var insert: [Element]
+    }
+
+    nonisolated struct SpliceFields: Decodable {
+        /// The section shapes; a band section's items are its `bands` list.
+        var sections: [ProjectedSection]?
+        var machineSections: [String: String]?
+        var machineOrder: [String]?
+        var hostGroups: [String]?
+        var groupSorts: [String: String]?
+        var pinnedInGroup: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case sections
+            case machineSections = "machine_sections"
+            case machineOrder = "machine_order"
+            case hostGroups = "host_groups"
+            case groupSorts = "group_sorts"
+            case pinnedInGroup = "pinned_in_group"
+        }
+    }
+
+    nonisolated struct SpliceAnswer: Decodable {
+        var reset: Bool?
+        var items: [Splice<Member>]?
+        var archived: [Splice<String>]?
+        var bandGroups: [Splice<Group>]?
+        var unplaced: [Splice<SidebarDocWorkspaceRef>]?
+        var machines: [String: [Splice<Node>]]?
+        var bands: [String: [Splice<BandItem>]]?
+        var fields: SpliceFields
+
+        enum CodingKeys: String, CodingKey {
+            case reset, items, archived, unplaced, machines, bands, fields
+            case bandGroups = "band_groups"
+        }
+    }
+
+    /// The projection the app holds, kept up to date by applying each answer.
+    nonisolated struct KeptProjection {
+        var items: [Member] = []
+        var archived: [String] = []
+        var bandGroups: [Group] = []
+        var unplaced: [SidebarDocWorkspaceRef] = []
+        var machines: [String: [Node]] = [:]
+        var bands: [String: [BandItem]] = [:]
+        var fields = Fields()
+
+        nonisolated struct Fields {
+            var sections: [ProjectedSection] = []
+            var machineSections: [String: String] = [:]
+            var machineOrder: [String] = []
+            var hostGroups: [String] = []
+            var groupSorts: [String: String] = [:]
+            var pinnedInGroup: [String] = []
+        }
+
+        /// Applies one answer; false when a splice does not fit what is held (the caller asks afresh).
+        mutating func apply(_ answer: SpliceAnswer) -> Bool {
+            if answer.reset == true { self = KeptProjection() }
+            func splice<T>(_ list: inout [T], _ changes: [Splice<T>]?) -> Bool {
+                for change in changes ?? [] {
+                    guard change.at >= 0, change.remove >= 0, change.at + change.remove <= list.count else { return false }
+                    list.replaceSubrange(change.at ..< change.at + change.remove, with: change.insert)
+                }
+                return true
+            }
+            guard splice(&items, answer.items), splice(&archived, answer.archived), splice(&bandGroups, answer.bandGroups),
+                  splice(&unplaced, answer.unplaced) else { return false }
+            for (session, changes) in answer.machines ?? [:] {
+                var nodes = machines[session] ?? []
+                guard splice(&nodes, changes) else { return false }
+                machines[session] = nodes.isEmpty ? nil : nodes
+            }
+            for (section, changes) in answer.bands ?? [:] {
+                var list = bands[section] ?? []
+                guard splice(&list, changes) else { return false }
+                bands[section] = list
+            }
+            let new = answer.fields
+            if let value = new.sections { fields.sections = value }
+            if let value = new.machineSections { fields.machineSections = value }
+            if let value = new.machineOrder { fields.machineOrder = value }
+            if let value = new.hostGroups { fields.hostGroups = value }
+            if let value = new.groupSorts { fields.groupSorts = value }
+            if let value = new.pinnedInGroup { fields.pinnedInGroup = value }
+            return true
+        }
+
+        /// The held projection in the full answer's form (`sidebar_doc::project`).
+        var projection: Projection {
+            let sections = fields.sections.map { shape -> ProjectedSection in
+                guard let section = shape.section else { return shape }
+                var band = shape
+                band.items = bands[section.id] ?? []
+                return band
+            }
+            return Projection(sections: sections, machines: machines, items: items, machineSections: fields.machineSections,
+                              machineOrder: fields.machineOrder, unplaced: unplaced, bandGroups: bandGroups,
+                              hostGroups: fields.hostGroups, archived: archived, groupSorts: fields.groupSorts,
+                              pinnedInGroup: fields.pinnedInGroup)
+        }
+    }
+}

@@ -43,6 +43,7 @@ use cmux_layout_reducer::sidebar_doc::{
     reduce,
     view::{Row, ViewRequest},
     view_cache::ViewCache,
+    view_splice::Sent,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -70,6 +71,8 @@ pub struct Mirror {
     local_prefix: String,
     /// The window's view, patched per change (`sidebar_doc::view_cache`).
     cache: ViewCache,
+    /// What the app holds of the last `project_json` answer.
+    sent: Sent,
     /// Its rows, flattened when a call needs them all (`view`, `drag_begin`).
     rows: Option<Vec<Row>>,
     /// The buffers of the last typed replies (`*_typed`).
@@ -322,8 +325,9 @@ impl Mirror {
     /// Reads a view request and brings the kept view up to the shown
     /// document: only the blocks the changes since the last view touched
     /// are rebuilt. Its rows are the next `drag_begin`'s.
-    fn view_rows(&mut self, input: &[u8]) -> Result<(), Value> {
+    fn view_rows(&mut self, input: &[u8]) -> Result<bool, Value> {
         let request: ViewRequest = serde_json::from_slice(input).map_err(error)?;
+        let fresh = request.fresh;
         if !self.loaded {
             // Before `load` the shown document records nothing.
             self.cache.invalidate();
@@ -331,7 +335,7 @@ impl Mirror {
         let touched = self.shown.take_touched();
         self.cache.refresh(&self.shown, request, touched);
         self.rows = None;
-        Ok(())
+        Ok(fresh)
     }
 
     /// The last view's rows, flattened once per view.
@@ -341,20 +345,29 @@ impl Mirror {
 
     pub fn view(&mut self, input: &[u8]) -> Value {
         match self.view_rows(input) {
-            Ok(()) => json!(self.rows()),
+            Ok(_) => json!(self.rows()),
             Err(e) => e,
         }
     }
 
+    /// The full projection of a view request (`sidebar_doc::project`), as
+    /// JSON (tests and tools; the app reads `project_json`'s splices).
     pub fn project(&mut self, input: &[u8]) -> Value {
-        serde_json::from_str(&self.project_json(input)).unwrap_or_else(error)
+        match self.view_rows(input) {
+            Ok(_) => {
+                serde_json::from_str(&self.cache.projection_json(&self.shown)).unwrap_or_else(error)
+            }
+            Err(e) => e,
+        }
     }
 
-    /// `project`'s answer as the FFI hands it over: serialized straight from
-    /// the kept view (no JSON value tree, no copy of the rows' records).
+    /// `project`'s answer as the FFI hands it over (`cmux_sidebar_mirror_project`):
+    /// splices of the projection the caller holds from the last answer
+    /// (`sidebar_doc::view_splice`), all of it for a `fresh` request. The
+    /// request may say `live_same` instead of sending the live list again.
     pub fn project_json(&mut self, input: &[u8]) -> String {
         match self.view_rows(input) {
-            Ok(()) => self.cache.projection_json(&self.shown),
+            Ok(fresh) => self.cache.answer(&self.shown, &mut self.sent, fresh),
             Err(e) => e.to_string(),
         }
     }

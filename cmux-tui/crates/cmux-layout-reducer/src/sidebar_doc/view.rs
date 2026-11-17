@@ -59,6 +59,14 @@ pub struct ViewRequest {
     /// group's stored `collapsed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<Vec<String>>,
+    /// The live set is the one the last request to this view sent (the
+    /// mirror keeps it), so a change sends no live list; `live` is ignored.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub live_same: bool,
+    /// The caller holds nothing of the last answer: send all of it
+    /// (`sidebar_doc::view_splice`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fresh: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

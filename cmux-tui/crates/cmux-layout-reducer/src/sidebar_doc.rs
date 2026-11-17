@@ -57,6 +57,7 @@ pub mod view;
 pub mod view_cache;
 #[cfg(test)]
 mod view_cache_tests;
+pub mod view_splice;
 
 #[cfg(test)]
 mod host_group_tests;
