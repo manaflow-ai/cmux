@@ -7,6 +7,6 @@
   "source_commit": "54508d0636c12ff1468355bd9b770735c988a762",
   "crate_tree": "97fe88b6716fd00a11aa76560f91229bbda0a410",
   "cef_version": "cef-157.0.0-cmux.52",
-  "cef_sha256": "ea0124be30aa3b370718c2680d35f7e492ee8e249038e7114d2ed817b73094d1",
+  "cef_sha256": "6a57e488cef291a86be8109bb5a00e74a9be4ac77d4f258a42ca7122aea45627",
   "build_step": "https://github.com/manaflow-ai/cmux/actions/runs/43861701793"
 }

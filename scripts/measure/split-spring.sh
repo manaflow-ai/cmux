@@ -47,31 +47,9 @@ for arg in "$@"; do
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
-    --cef-artifact=*) cef_artifact="${arg#--cef-artifact=}" ;;
     *) args+=("$arg") ;;
   esac
 done
-# Bench ref only (lane/chat-draw-on-demand-bench): --cef-artifact=sha256:HEX builds the app against an unreleased
-# fork build, the cef.tar a `cmux-ci build cef` job left in the controller store, through ensure-cef.sh's
-# CMUX_CEF_PATH. The app cache key takes the digest, so it never reuses an app of another engine.
-cef_key=""
-if [[ -n "${cef_artifact:-}" ]]; then
-  [[ "$cef_artifact" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "split-spring: bad --cef-artifact $cef_artifact" >&2; exit 2; }
-  cef_dir="${CI_SHARED_CACHE_DIR:-$HOME/.cache}/split-spring-cef/${cef_artifact#sha256:}"
-  if [[ ! -f "$cef_dir/ok" ]]; then
-    rm -rf "$cef_dir"; mkdir -p "$cef_dir"
-    cef_url="$(curl -fsS --max-time 30 -A cmux-ensure-cef "http://100.89.225.106:18765/v1/artifacts/$cef_artifact/url" |
-      /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
-    curl -fsS --retry 3 --max-time 1800 -A cmux-ensure-cef -o "$cef_dir/cef.tar" "$cef_url"
-    echo "${cef_artifact#sha256:}  $cef_dir/cef.tar" | shasum -a 256 -c - >&2
-    tar -xf "$cef_dir/cef.tar" -C "$cef_dir" && rm -f "$cef_dir/cef.tar"
-    touch "$cef_dir/ok"
-  fi
-  CMUX_CEF_PATH="$(dirname "$(find "$cef_dir" -maxdepth 2 -name 'Chromium Embedded Framework.framework' | head -1)")"
-  export CMUX_CEF_PATH
-  echo "split-spring: CEF from $cef_artifact at $CMUX_CEF_PATH"
-  cef_key="-cef-${cef_artifact:7:16}"
-fi
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
@@ -82,7 +60,6 @@ key="$( { git ls-tree HEAD | grep -v $'\tscripts$'; git ls-tree HEAD:scripts | g
   | git hash-object --stdin)"
 # A bench build (--config=bench) is cached apart from the default Debug build of the same sources.
 [[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$key-${reload_config[1]}"
-key="$key$cef_key"
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
