@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -911,7 +912,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
@@ -1763,6 +1764,19 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
