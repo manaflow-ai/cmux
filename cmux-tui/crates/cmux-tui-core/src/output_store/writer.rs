@@ -329,7 +329,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                 Pass::Write { trim } => {
                     if trim {
                         let pending = &mux.output_store.prune_pending;
-                        pending.store(true, std::sync::atomic::Ordering::Release);
+                        pending.store(true, Ordering::Release);
                     }
                     write_pass(&mux, &mux.output_store);
                 }
