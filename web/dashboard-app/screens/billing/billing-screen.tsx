@@ -4,6 +4,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 
 import { PricingView } from "@/app/components/pricing-checkout";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "@/services/billing/apple/config";
 import type { PersonalBillingJson } from "@/services/billing/dashboardBilling";
 import { localeHref } from "../../lib/locale-href";
 import { dashboardBillingQuery } from "../../queries/billing";
@@ -54,10 +55,10 @@ function PersonalBilling({ data, change }: { data: PersonalBillingJson; change?:
   // Stripe checkout here would bill them twice for one plan. A Stripe
   // subscription that still bills them alongside it keeps its controls, so it
   // can be cancelled or its payment fixed here.
-  if (data.planStatus.billingSource === "apple") {
+  if (data.planStatus.billingSource === "apple" || data.planStatus.appStoreSubscription) {
     return (
       <>
-        <AppStoreBilling manageUrl={data.planStatus.manageUrl} />
+        <AppStoreBilling manageUrl={data.planStatus.manageUrl ?? APPLE_MANAGE_SUBSCRIPTIONS_URL} />
         {data.planStatus.billingManagement === "stripe" ? (
           <div className="mt-3">
             <StripePersonalBilling data={data} change={change} />

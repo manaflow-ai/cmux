@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { stripeCustomers, stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeCustomers, stripeSubscriptions } from "../db/schema";
 
 // Capture real implementations BY VALUE: bun's mock.module can mutate an
 // already-loaded namespace in place, so calling through a captured namespace
@@ -50,6 +50,7 @@ const insertedStripeCustomers: Record<string, unknown>[] = [];
 let stripeCustomerRows: { id: string }[] = [];
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeActiveSubscriptionRows: Array<Record<string, unknown>> = [];
+let appleSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSessionResponse: { readonly id?: string; readonly url?: string } = {
   id: CHECKOUT_SESSION_ID,
   url: "https://checkout.stripe.com/c/session",
@@ -90,7 +91,7 @@ mock.module("../db/client", () => ({
       ? ({
           select: () => ({
             from: (table: unknown) => ({
-              where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeActiveSubscriptionRows : stripeCustomerRows), {
+              where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeActiveSubscriptionRows : table === appleSubscriptions ? appleSubscriptionRows : stripeCustomerRows), {
                 limit: table === stripeCustomers
                   ? mock(async () => stripeCustomerRows)
                   : table === stripeSubscriptions
@@ -236,6 +237,7 @@ describe("billing checkout route", () => {
     stripeCustomerRows = [];
     stripeSubscriptionRows = [];
     stripeActiveSubscriptionRows = [];
+    appleSubscriptionRows = [];
     stripeSessionResponse = {
       id: CHECKOUT_SESSION_ID,
       url: "https://checkout.stripe.com/c/session",
@@ -1136,5 +1138,80 @@ describe("billing checkout route", () => {
     );
     expect(getUser).not.toHaveBeenCalled();
     expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  describe("an App Store subscription that can still charge", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const appleRow = (overrides: Record<string, unknown> = {}) => ({
+      originalTransactionId: "2000000000000777",
+      planId: "pro",
+      status: "billing_retry",
+      environment: "Production",
+      bundleId: "com.cmux.app",
+      // Billing retry past its grace period: grants nothing right now.
+      expiresAt: new Date(Date.now() - 10 * DAY),
+      gracePeriodExpiresAt: new Date(Date.now() - 4 * DAY),
+      autoRenewEnabled: true,
+      purchaseDate: new Date(Date.now() - 40 * DAY),
+      ...overrides,
+    });
+
+    test.each(["pro", "max"])("blocks personal %s checkout and sends the buyer to App Store billing", async (plan) => {
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow()];
+      userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+      const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}`));
+      expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+      expect(createStripeSession).not.toHaveBeenCalled();
+    });
+
+    test("blocks an active App Store plan with auto-renew off while its paid period runs", async () => {
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow({ status: "active", expiresAt: new Date(Date.now() + 5 * DAY), gracePeriodExpiresAt: null, autoRenewEnabled: false })];
+      userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+      const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
+      expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+      expect(createStripeSession).not.toHaveBeenCalled();
+    });
+
+    test("CLI checkout answers the dashboard flow and creates no Stripe session", async () => {
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow()];
+      userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+      const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", {
+        method: "POST", headers: { authorization: "Bearer app-access", "x-stack-refresh-token": "app-refresh", "content-type": "application/json" },
+        body: JSON.stringify({ plan: "max" }),
+      }));
+      expect(await response.json()).toMatchObject({ url: "https://cmux.test/dashboard/billing", flow: "dashboard" });
+      expect(createStripeSession).not.toHaveBeenCalled();
+    });
+
+    test("sends an App Store subscriber with a lapsed Stripe subscription to App Store billing, not the portal", async () => {
+      // The portal would let the unpaid Stripe subscription be paid next to the App Store one.
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow()];
+      stripeCustomerRows = [{ id: "cus_unpaid" }];
+      stripeSubscriptionRows = [{ id: "sub_unpaid", status: "unpaid", cancelAtPeriodEnd: false }];
+      const user = { ...signedInUser, clientReadOnlyMetadata: {} };
+      userResponses = [user, user];
+      const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro"));
+      expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+      expect(createStripeSession).not.toHaveBeenCalled();
+    });
+
+    test.each<[string, Record<string, unknown>]>([
+      ["a Sandbox row (free, never charges)", { environment: "Sandbox" }],
+      ["billing retry with auto-renew off (Apple stops retrying)", { autoRenewEnabled: false }],
+      ["billing retry past Apple's 60-day retry window (a missed EXPIRED)", { expiresAt: new Date(Date.now() - 61 * DAY) }],
+      ["an expired row", { status: "expired" }],
+      ["a revoked row", { status: "revoked" }],
+    ])("still sells Stripe checkout next to %s", async (_label, overrides) => {
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow(overrides)];
+      userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+      const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro"));
+      expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+      expect(createStripeSession).toHaveBeenCalledTimes(1);
+    });
   });
 });

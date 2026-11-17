@@ -93,7 +93,7 @@ export function AppPricingContent({
   const appStorePaymentGated = isAppStoreDistributionMode(params);
   // An App Store subscriber manages personal plans in the App Store, never
   // through Stripe checkout or a portal plan switch it has no customer for.
-  const appStoreManaged = snapshot.billingSource === "apple" && !appStorePaymentGated;
+  const appStoreManaged = (snapshot.billingSource === "apple" || snapshot.appStoreSubscription === true) && !appStorePaymentGated;
   const proAction = personalPlanActionState({
     isCurrent: isProCurrent,
     appStorePaymentGated,
@@ -461,6 +461,8 @@ export type AppPlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** An App Store subscription that can still charge, even if it grants nothing now; checkout refuses it. */
+  appStoreSubscription?: boolean;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
   /** The Stripe subscription has a failed payment to fix before a switch. */
