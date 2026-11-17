@@ -18,8 +18,8 @@ build that waits for an older build in its concurrency group as queued too (2026
 waits in the group on the Blacksmith route instead, and a rescued run never rescues again, so there is no loop. The
 watch ends after WATCH_MINUTES whatever it saw.
 
-Only BLACKSMITH_SWITCH (vars.CI_BLACKSMITH_MACOS) `pr-rescue` or `on` rescues; anything else (off) only watches and
-reports. A rescued run never rescues again (the workflow's `rescue` job is skipped when inputs.rescue is set).
+Only BLACKSMITH_SWITCH (vars.CI_BLACKSMITH_MACOS) `on` rescues; anything else, `pr-rescue` included, only watches and
+reports: `pr-rescue` moves cmux-next.yml's pull-request jobs alone, and release workflows read it as off (#43860). A rescued run never rescues again (the workflow's `rescue` job is skipped when inputs.rescue is set).
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ BUILD_JOB = "build xcframework"
 RESCUE_MINUTES = 20.0  # coordinator (claude-sr2-coord), 2026-11-17: "If still unplaced after 20 min, it goes to Blacksmith"
 WATCH_MINUTES = 100.0  # the build's own wait in its concurrency group plus RESCUE_MINUTES, bounded
 POLL_S = 120.0  # at most WATCH_MINUTES * 60 / POLL_S (50) reads of one jobs page per run
-RESCUE_SWITCHES = ("pr-rescue", "on")
+RESCUE_SWITCHES = ("on",)
 RESCUE_INPUT = "blacksmith"
 WORKFLOW_FILE = "app-ffi-release.yml"
 API = "https://api.github.com"

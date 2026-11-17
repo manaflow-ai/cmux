@@ -182,9 +182,10 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
-          # Unset is off here, as in cmux-next.yml: the cascade places nothing on Blacksmith macOS.
-          # A rescued run (inputs.rescue) places on Blacksmith macOS: its build's runs-on reads the 12 vCPU pick.
-          CI_BLACKSMITH_MACOS: ${{ inputs.rescue == 'blacksmith' && 'on' || vars.CI_BLACKSMITH_MACOS }}
+          # Unset is off here, as in cmux-next.yml: the cascade places nothing on Blacksmith macOS. A rescued run
+          # (inputs.rescue) is dispatched only while the switch is `on`, so it places as `on` and its build's
+          # runs-on reads the 12 vCPU pick.
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
           JOBS: app-ffi-build
@@ -222,12 +223,14 @@ jobs:
     # as a nightly job does (the queue janitor's reserved_queued,
     # queue_janitor.RESERVED_POOL_WORKFLOW).
     # RESCUE (hq#3690): a run the `rescue` job dispatched takes Blacksmith macOS first, 12 vCPU when its
-    # placement saw a free slot, else 6 vCPU.
+    # placement saw a free slot, else 6 vCPU, while vars.CI_BLACKSMITH_MACOS is `on`. With the switch off
+    # (Leo's off switch, cmux#43103) or the PR-only rescue value (cmux-next.yml pull requests, #43860) it takes the
+    # ordinary routes below.
     # FFI_POOL: vars.CI_FFI_RELEASE_POOL, when set, is this build's own owned pool (one trusted runner that
     # refuses PR jobs: glaeda-promote-trusted-light-xcode-26.6), every attempt, push or dispatch. Only this
     # workflow reads it, so cmux-next.yml's push Release compile keeps vars.CI_NEXT_PROMOTE_POOL. Unset keeps
     # the routes below.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && (contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && vars.CI_BLACKSMITH_MACOS == 'on' && (contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
     # cancels it; a still newer one replaces it while it waits. A build that has
@@ -418,13 +421,15 @@ jobs:
   # The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
   # 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to 02:38Z with no runner. This job
   # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, with
-  # vars.CI_BLACKSMITH_MACOS `pr-rescue` or `on`, it dispatches this workflow on the same ref with rescue=blacksmith
-  # (that run's build takes Blacksmith macOS; the build holds no secret) and cancels this run. A rescued run never
-  # rescues again. Nothing needs this job, so its result never gates the publish or the re-pin.
+  # vars.CI_BLACKSMITH_MACOS `on`, it dispatches this workflow on the same ref with rescue=blacksmith (that run's
+  # build takes Blacksmith macOS; the build holds no secret) and cancels this run. The PR-only rescue value is off here: it
+  # moves only cmux-next.yml's pull-request jobs, and this release workflow reads the switch only as == / != 'on'
+  # (#43860, tests/test_ci_next_macos_cascade.py BlacksmithPrRescue). A rescued run never rescues again. Nothing
+  # needs this job, so its result never gates the publish or the re-pin.
   rescue:
     name: rescue a build no runner took
     needs: placement
-    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && inputs.rescue != 'blacksmith' && (vars.CI_BLACKSMITH_MACOS == 'pr-rescue' || vars.CI_BLACKSMITH_MACOS == 'on') }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && inputs.rescue != 'blacksmith' && vars.CI_BLACKSMITH_MACOS == 'on' }}
     runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 110
     permissions:

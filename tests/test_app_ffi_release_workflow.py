@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -1494,7 +1495,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
 
-    def runner(self, rescue: str, twelve: bool = False, switch: str = "pr-rescue") -> str:
+    def runner(self, rescue: str, twelve: bool = False, switch: str = "on") -> str:
         build = self.workflow["jobs"]["build"]
         return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
@@ -1507,20 +1508,30 @@ class BuildRescueToBlacksmith(unittest.TestCase):
     def test_a_rescued_run_takes_blacksmith_ahead_of_every_owned_route(self):
         self.assertEqual(self.runner("blacksmith"), self.SMALL)
         self.assertEqual(self.runner("blacksmith", twelve=True), self.LARGE)
-        self.assertEqual(self.runner("blacksmith", switch="off"), self.SMALL)
+
+    def test_a_rescued_run_with_the_switch_not_on_keeps_the_owned_route(self):
+        """Leo's off switch (cmux#43103) and #43860's pr-rescue scope: a release build names no Blacksmith macOS
+        label unless vars.CI_BLACKSMITH_MACOS is `on`, a rescued run's included."""
+        for switch in ("", "off", "pr-rescue"):
+            with self.subTest(switch=switch):
+                self.assertEqual(self.runner("blacksmith", switch=switch), self.SIDE)
+                self.assertEqual(self.runner("blacksmith", twelve=True, switch=switch), self.SIDE)
 
     def test_an_ordinary_run_keeps_its_owned_route(self):
-        self.assertEqual(self.runner(""), self.SIDE)
-        self.assertEqual(self.runner("something-else"), self.SIDE)
+        for switch in ("", "pr-rescue"):
+            with self.subTest(switch=switch):
+                self.assertEqual(self.runner("", switch=switch), self.SIDE)
+                self.assertEqual(self.runner("something-else", switch=switch), self.SIDE)
 
     POOL = "glaeda-promote-trusted-light-xcode-26.6"
 
-    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1) -> str:
+    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1,
+                    switch: str = "on") -> str:
         build = self.workflow["jobs"]["build"]
         return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "inputs": {"rescue": rescue}, "needs": {"placement": {"outputs": {"placed_attempt": "1"}}},
-            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE,
+            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch,
                      "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
 
@@ -1532,20 +1543,21 @@ class BuildRescueToBlacksmith(unittest.TestCase):
 
     def test_a_rescue_still_goes_first_and_unset_keeps_the_earlier_routes(self):
         self.assertEqual(self.pool_runner(self.POOL, rescue="blacksmith"), self.SMALL)
-        self.assertEqual(self.pool_runner(""), self.SIDE)
+        self.assertEqual(self.pool_runner("", switch=""), self.SIDE)
 
     def test_only_this_workflow_reads_the_ffi_release_pool(self):
         readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
                          if "CI_FFI_RELEASE_POOL" in path.read_text(encoding="utf-8"))
         self.assertEqual(readers, ["app-ffi-release.yml"])
 
-    def test_a_rescued_run_places_with_blacksmith_on(self):
+    def test_the_placement_reads_the_switch_as_set(self):
+        """A rescued run is dispatched only under `on`, so it places as `on`; no input turns the switch on."""
         place = next(step for step in self.workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CI_BLACKSMITH_MACOS"]
-        self.assertEqual(render(expression, {"inputs": {"rescue": "blacksmith"}, "vars": {"CI_BLACKSMITH_MACOS": ""}}),
-                         "on")
-        self.assertEqual(render(expression, {"inputs": {"rescue": ""}, "vars": {"CI_BLACKSMITH_MACOS": "pr-rescue"}}),
-                         "pr-rescue")
+        for rescue, switch in itertools.product(("blacksmith", ""), ("", "on", "pr-rescue")):
+            with self.subTest(rescue=rescue, switch=switch):
+                self.assertEqual(render(expression, {"inputs": {"rescue": rescue},
+                                                     "vars": {"CI_BLACKSMITH_MACOS": switch}}), switch)
 
     def rescue_runs(self, switch: str, rescue: str = "", ref: str = "refs/heads/feat-cmux-next") -> bool:
         job = self.workflow["jobs"]["rescue"]
@@ -1553,13 +1565,13 @@ class BuildRescueToBlacksmith(unittest.TestCase):
             "github": {"ref": ref, "repository_owner": "manaflow-ai"}, "inputs": {"rescue": rescue},
             "vars": {"CI_BLACKSMITH_MACOS": switch}}))
 
-    def test_the_watch_runs_only_under_a_rescue_switch_and_never_in_a_rescued_run(self):
-        self.assertTrue(self.rescue_runs("pr-rescue"))
+    def test_the_watch_runs_only_with_the_switch_on_and_never_in_a_rescued_run(self):
         self.assertTrue(self.rescue_runs("on"))
-        for switch in ("", "off", "pr-rescue-later"):
+        # pr-rescue moves cmux-next.yml's pull-request jobs only; a release workflow reads it as off (#43860).
+        for switch in ("", "off", "pr-rescue", "pr-rescue-later"):
             self.assertFalse(self.rescue_runs(switch), switch)
-        self.assertFalse(self.rescue_runs("pr-rescue", rescue="blacksmith"))
-        self.assertFalse(self.rescue_runs("pr-rescue", ref="refs/heads/main"))
+        self.assertFalse(self.rescue_runs("on", rescue="blacksmith"))
+        self.assertFalse(self.rescue_runs("on", ref="refs/heads/main"))
 
     def test_nothing_waits_on_the_watch(self):
         for name, job in self.workflow["jobs"].items():
@@ -1599,7 +1611,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
 
     def test_a_build_queued_20_minutes_is_dispatched_to_blacksmith_then_its_run_cancelled(self):
         m = self.rescue_module
-        verdict, posts = self.watch("pr-rescue", [[{"name": m.BUILD_JOB, "status": "queued"}]])
+        verdict, posts = self.watch("on", [[{"name": m.BUILD_JOB, "status": "queued"}]])
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts, [
             ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
@@ -1610,12 +1622,14 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         m = self.rescue_module
         started = [[{"name": m.BUILD_JOB, "status": "queued"}], [{"name": m.BUILD_JOB, "status": "in_progress",
                                                                   "runner_name": "cmux14-glaeda-2"}]]
-        self.assertEqual(self.watch("pr-rescue", started), (m.DONE, []))
-        self.assertEqual(self.watch("off", [[{"name": m.BUILD_JOB, "status": "queued"}]]), (m.WAIT, []))
+        self.assertEqual(self.watch("on", started), (m.DONE, []))
+        for switch in ("off", "", "pr-rescue"):
+            with self.subTest(switch=switch):
+                self.assertEqual(self.watch(switch, [[{"name": m.BUILD_JOB, "status": "queued"}]]), (m.WAIT, []))
 
     def test_the_watch_is_bounded(self):
         m = self.rescue_module
-        self.assertEqual(self.watch("pr-rescue", [[]]), (m.WAIT, []))
+        self.assertEqual(self.watch("on", [[]]), (m.WAIT, []))
 
 
 STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
