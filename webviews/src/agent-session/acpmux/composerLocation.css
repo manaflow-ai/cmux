@@ -1963,8 +1963,8 @@
   }
 }
 
-/* The active team on the Cloud row and the Cloud face (TeamTag.tsx): its icon and name in the
-   secondary ink, after the label, cut with an ellipsis before the label is. */
+/* The active team on the Cloud row (TeamTag.tsx; the composer chip's face says only Cloud): its icon
+   and name in the secondary ink, after the label, cut with an ellipsis before the label is. */
 .acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
 .acpmux-team-tag > svg { flex: none; }
 .acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1974,27 +1974,6 @@
    (never "Cloud"), at a cap so a long team name does not widen the menu. */
 .acpmux-location-row .acpmux-location-name:has(+ .acpmux-team-tag) { flex-shrink: 0; }
 .acpmux-location-row .acpmux-team-tag { flex: 0 1 auto; max-width: 18ch; margin-left: auto; padding-left: 16px; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
-/* On the chip's face the location word never cuts: "Cloud" stays whole and the team beside it
-   gives up its width first, then drops in a narrow strip before the location's name would
-   (design/composer-menus.md: the machine never shrinks, it drops its name in a narrow strip). */
-.acpmux-location-button > .acpmux-location-label:has(+ .acpmux-team-tag),
-.acpmux-location-readonly > .acpmux-location-label:has(+ .acpmux-team-tag) { flex-shrink: 0; }
-.acpmux-location-button > .acpmux-team-tag { flex: 0 1 auto; min-width: 0; }
-@container acpmux-strip (width < 396px) {
-  .acpmux-location-picker[data-kind="computer"] .acpmux-location-button > .acpmux-team-tag { display: none; }
-}
-@container acpmux-strip (width < 472px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-picker[data-kind="computer"] .acpmux-location-button > .acpmux-team-tag { display: none; }
-}
-/* A Cloud face with its team (ComposerContext LocationFace: "Cloud" and the team tag). The machine
-   control's cap (190 px, 145 px in a narrow pane) cut both to "Cl..." and "leo@cmux.com'..." beside an
-   empty strip (Leo 2026-11-10: "this broken too"). With a team the control takes the room it needs
-   and gives it up only after the folder (which shrinks 100 times faster): the one word "Cloud" never
-   cuts, only the team's name shortens, and the tag's tooltip names the team whole. */
-.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"]:has(.acpmux-team-tag) { flex-shrink: 1; }
-.acpmux-location-picker[data-kind="computer"] .acpmux-location-button:has(> .acpmux-team-tag) { max-width: none; }
-.acpmux-location-button:has(> .acpmux-team-tag) > .acpmux-location-label { flex: none; overflow: visible; }
-
 /* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
 :is(.acpmux-location-button, .acpmux-location-readonly) > .acpmux-icon.acpmux-macbook-icon {
   width: calc(var(--ui-ghost-icon-size) * 1.25);
