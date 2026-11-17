@@ -717,14 +717,16 @@ pub fn apply_mut(state: &mut LayoutState, op: &LayoutOp) -> Result<Vec<LayoutEve
         return result.map(|()| events);
     };
     #[cfg(test)]
-    let full_before = state.clone();
+    let full_before = CROSS_CHECK.with(std::cell::Cell::get).then(|| state.clone());
     let before = scope.capture(state, &created);
     let result = apply_kind(state, &op.kind, &mut events).and_then(|()| {
         let violations = scope.introduced(&before, state, &closed, &created);
         // The unit tests hold the scoped check to the whole-state one.
         #[cfg(test)]
-        if check_state(&full_before).is_empty() {
-            let full = introduced_violations_creating(&full_before, state, &closed, &created);
+        if let Some(full_before) = &full_before
+            && check_state(full_before).is_empty()
+        {
+            let full = introduced_violations_creating(full_before, state, &closed, &created);
             assert_eq!(
                 violations.is_empty(),
                 full.is_empty(),
@@ -744,6 +746,14 @@ pub fn apply_mut(state: &mut LayoutState, op: &LayoutOp) -> Result<Vec<LayoutEve
             Err(reject)
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whether [`apply_mut`] holds its scoped verdict to the whole-state one.
+    /// The exhaustive check turns it off and makes the same comparison once
+    /// per op itself, without the extra copy of the state.
+    static CROSS_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
 fn invariant_result(violations: BTreeSet<Violation>) -> Result<(), Reject> {
@@ -851,7 +861,8 @@ impl LayoutState {
 
     /// The workspace whose layout places `pane`.
     fn workspace_of_pane(&self, pane: PaneId) -> Option<WorkspaceId> {
-        self.slot(pane).map(|slot| self.workspaces[slot.workspace].id)
+        let slot = self.slot(pane)?;
+        self.workspaces.get(slot.workspace).map(|workspace| workspace.id)
     }
 
     fn slot(&self, pane: PaneId) -> Option<Slot> {
@@ -866,7 +877,7 @@ impl LayoutState {
 
     /// `pane`'s slot when workspace `wi` places it.
     fn slot_in(&self, wi: usize, pane: PaneId) -> Option<Slot> {
-        for (si, screen) in self.workspaces[wi].screens.iter().enumerate() {
+        for (si, screen) in self.workspaces.get(wi)?.screens.iter().enumerate() {
             for (ci, column) in screen.columns.iter().enumerate() {
                 if let Some(pi) = column.panes.iter().position(|id| *id == pane) {
                     return Some(Slot { workspace: wi, screen: si, column: ci, pane: pi });

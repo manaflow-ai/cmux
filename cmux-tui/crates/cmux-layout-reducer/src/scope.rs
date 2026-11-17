@@ -143,7 +143,7 @@ impl Scope {
     ) -> impl Iterator<Item = (usize, &'a Workspace)> + 'a {
         self.workspaces.iter().filter_map(|id| {
             let position = state.workspace_position(*id)?;
-            Some((position, &state.workspaces[position]))
+            Some((position, state.workspaces.get(position)?))
         })
     }
 
@@ -361,7 +361,11 @@ impl Scope {
             !self.workspaces.contains(&workspace.id) || kept.contains(&workspace.id)
         });
         for (position, workspace) in before.workspaces {
-            state.workspaces[position] = workspace;
+            // `retain` dropped only workspaces the op created, so every
+            // position from before the op is back in range.
+            if let Some(slot) = state.workspaces.get_mut(position) {
+                *slot = workspace;
+            }
         }
         for (pane, entry) in before.pane_entries {
             match entry {

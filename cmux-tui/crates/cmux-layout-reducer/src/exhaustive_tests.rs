@@ -299,7 +299,15 @@ fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
             return false;
         }
     };
-    assert!(check_state(&after).is_empty(), "{op:?} on {state:?} broke I2/I3: {after:?}");
+    // The whole-state check: `state` is valid, so `apply_mut`'s scoped check
+    // accepting the op (above) must mean this finds nothing either.
+    let whole = introduced_violations_creating(
+        state,
+        &after,
+        &op.kind.closed_tabs(),
+        &op.kind.created_tabs(),
+    );
+    assert!(whole.is_empty(), "{op:?} on {state:?} broke I1-I3 ({whole:?}): {after:?}");
     match op.kind {
         LayoutOpKind::CloseTab { tab } => {
             assert!(!after.tabs.contains_key(&tab), "{op:?} kept its tab");
@@ -371,8 +379,28 @@ fn check_own_place(state: &LayoutState) {
     }
 }
 
+/// Turns off `apply_mut`'s own scoped-against-whole comparison on this thread
+/// while it lives. `check_op` makes that comparison once per op instead: a
+/// valid state never reaches `Reject::Invariant`, and the whole-state check
+/// of every accepted result must be empty.
+struct CrossCheckInCheckOp;
+
+impl CrossCheckInCheckOp {
+    fn new() -> Self {
+        CROSS_CHECK.with(|on| on.set(false));
+        Self
+    }
+}
+
+impl Drop for CrossCheckInCheckOp {
+    fn drop(&mut self) {
+        CROSS_CHECK.with(|on| on.set(true));
+    }
+}
+
 #[test]
 fn exhaustive_small_layouts_keep_invariants() {
+    let _cross_check = CrossCheckInCheckOp::new();
     let started = std::time::Instant::now();
     let shapes = shapes();
     let (mut layouts, mut cases, mut applied) = (0usize, 0usize, 0usize);
