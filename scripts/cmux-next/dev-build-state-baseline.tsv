@@ -1,4 +1,5 @@
 # path	count	reason (check-dev-build-state.py: reviewed sites; a rise fails the pre-push gate)
+Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsModels+Live.swift	1	not a shared read: each stored model key gets its own random account and a keychain:SERVICE/ACCOUNT reference only the storing build keeps (as cmux harness secret set), so no build reads or overwrites another's key (base #40159)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageFlickerLog.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFinishSound.swift	1	reads macOS's own com.apple.systemsound domain (the system alert volume), an input
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneImageCopies.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
@@ -93,4 +94,5 @@ cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	3	a Cloud or SSH machine's f
 cmux-tui/crates/cmux-tui/src/cli/key_broker.rs	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	1	text only (help, a description, an error message), no path is read
 cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
+cmux-tui/crates/cmux-tui/src/link/access_cli.rs	1	not a read or write: a deny-list entry (SECRET_PATHS) that keeps ~/.config/cmux/auth.json from being shared out of a folder (base #40159)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
