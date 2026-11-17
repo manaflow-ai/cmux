@@ -49,11 +49,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// more: a fresh Cloud machine boots its image's cmux-tui, and the automatic update runs in the background, so a
     /// first chat right after it came up would otherwise reach the old daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
     var updateMachine: (@Sendable () async -> Bool)?
-    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
-    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
-    /// A Cloud chat whose folder came from this Mac: the files changed here reach the machine right
-    /// before each send (`CloudMovedChats.pushOnSend`). Nil for any other chat; never on an observation.
-    var beforeSend: RemoteAcpmuxWire.BeforeSend?
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``); `beforeSend`: a Cloud chat whose folder came from this Mac pushes the files changed here before each send (`CloudMovedChats.pushOnSend`), never on an observation.
+    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?, beforeSend: RemoteAcpmuxWire.BeforeSend?
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
         try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
