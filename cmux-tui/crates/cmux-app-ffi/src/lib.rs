@@ -37,6 +37,8 @@
 
 pub mod hover;
 pub mod motion;
+/// Its own header (include/cmux_sign_clone_sweep.h), not the motion one:
+/// cbindgen:ignore
 pub mod sign_clone_sweep;
 pub mod terminal_selection;
 
