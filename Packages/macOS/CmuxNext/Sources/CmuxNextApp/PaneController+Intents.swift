@@ -431,11 +431,9 @@ extension PaneController {
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu), with what the pane's "…"
-            // offered that it lacks (PaneToolbar.tabBarMenuRows) above its More.
-            let menu = registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
-            Self.insert(view.toolbar?.tabBarMenuRows() ?? [], into: menu)
-            return menu.themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu).
+            return registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
+                .themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
@@ -472,16 +470,4 @@ extension PaneController {
 
     /// Toggle Terminal and Chat (`palette.toggleTerminalChat`): the tab right-click's row runs it, as its key does.
     static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
-
-    /// Puts `sections` into the tab bar's `menu`, each between separators, just above its trailing More submenu
-    /// (``ActionRegistry/makeTabStripMenu(target:machineID:)``), else at its end.
-    static func insert(_ sections: [[NSMenuItem]], into menu: NSMenu) {
-        let endsWithMore = menu.items.last.map { $0.submenu != nil && $0.title == MenuFolder.more.title } ?? false
-        var index = endsWithMore ? menu.items.count - 1 : menu.items.count
-        for section in sections where !section.isEmpty {
-            if index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index); index += 1 }
-            for row in section { menu.insertItem(row, at: index); index += 1 }
-        }
-        if endsWithMore, index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index) }
-    }
 }
