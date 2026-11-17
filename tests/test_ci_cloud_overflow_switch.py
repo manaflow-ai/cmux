@@ -212,6 +212,17 @@ class FailoverTests(unittest.TestCase):
         moved, _ = switch.failover_values("/Applications/Xcode_27.0.app", "")
         self.assertEqual(moved["MACOS_RUNNER_PR"], "glaeda-std-xcode-27.0")
 
+    def test_the_sdk_15_lane_has_no_owned_failover(self) -> None:
+        # swift-package-tests builds the Release helper against an SDK 15 Xcode on a
+        # full suite; the minis have none, so the std pool fails it at once
+        # ("No Xcode.app found under /Applications with macOS SDK major 15").
+        values, _ = switch.failover_values(PIN, "")
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", values)
+        changed = switch.plan_off({"MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15"}, values)
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", changed)
+        # A record written before this still restores it.
+        self.assertIn("MACOS_RUNNER_DUAL_XCODE", switch.SWITCHED_VARIABLES)
+
     def test_failover_never_touches_a_lane_switch(self) -> None:
         values, _ = switch.failover_values(PIN, "")
         for name in LANE_SWITCHES:
@@ -364,7 +375,8 @@ class PlanTests(unittest.TestCase):
         }, failover)
         self.assertEqual(changed["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
                                                    "after": "blacksmith-16vcpu-ubuntu-2404"})
-        self.assertEqual(changed["MACOS_RUNNER_DUAL_XCODE"], {"before": None, "after": "glaeda-std-xcode-26.6"})
+        # No owned pool carries the SDK 15 Xcode swift-package-tests' Release helper needs: left unset.
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", changed)
         self.assertEqual(changed["CI_PAID_MACOS_OVERFLOW"], {"before": None, "after": "1"})
         self.assertNotIn("MACOS_RUNNER_26", changed)
         self.assertNotIn("MACOS_RUNNER_IOS", changed)
@@ -506,6 +518,24 @@ class MainTests(unittest.TestCase):
         self.assertIn("outcome=stalled", out)
         # The owned macOS pool is retried; 16 vCPU stalled with the rest, so LINUX_RUNNER waits.
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "glaeda-std-xcode-26.6")])
+
+    def test_a_stalled_record_never_replays_a_variable_with_no_failover(self) -> None:
+        # 2026-11-16: the record holds MACOS_RUNNER_DUAL_XCODE -> the std pool, which has no SDK 15
+        # Xcode. Put back by hand to its recorded before, the next stalled probe must not re-apply it.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "MACOS_RUNNER_DUAL_XCODE": {"before": None, "after": "glaeda-std-xcode-26.6"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
+               "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, _, summary = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "glaeda-std-xcode-26.6")])
+        self.assertIn("MACOS_RUNNER_DUAL_XCODE: no failover", summary)
+        # The record still restores it once Blacksmith serves.
+        restores = {r.name: r for r in switch.plan_on(record, {"MACOS_RUNNER_DUAL_XCODE": "glaeda-std-xcode-26.6"})}
+        self.assertEqual((restores["MACOS_RUNNER_DUAL_XCODE"].value, restores["MACOS_RUNNER_DUAL_XCODE"].skipped),
+                         (None, ""))
 
     def test_a_record_on_hosted_ubuntu_moves_to_the_blacksmith_failover(self) -> None:
         # Written by the switch before 2026-10-27 (Linux failed over to GitHub-hosted Ubuntu).
