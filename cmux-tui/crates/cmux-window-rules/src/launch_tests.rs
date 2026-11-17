@@ -55,3 +55,15 @@ fn unnamed_sessions_and_empty_windows_compare_nothing() {
     assert_eq!(verdict(&facts(Some("s1"), None, None, &[], &[])), Verdict::Current);
     assert_eq!(verdict(&SnapshotFacts::default()), Verdict::Current);
 }
+
+/// Before the daemon answers the app asks with the registry this home last saw live and no workspaces: another
+/// session's snapshot is never drawn, and this home's own one is.
+#[test]
+fn before_the_daemon_answers_only_the_sessions_decide() {
+    let other = facts(Some("registry-other-home"), Some("registry-this-home"), None, &[], &[]);
+    assert_eq!(verdict(&other), Verdict::OtherSession);
+    let own = facts(Some("registry-this-home"), Some("registry-this-home"), None, &[], &[]);
+    assert_eq!(verdict(&own), Verdict::Current);
+    let unrecorded = facts(Some("registry-this-home"), None, None, &[], &[]);
+    assert_eq!(verdict(&unrecorded), Verdict::Current);
+}
