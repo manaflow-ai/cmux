@@ -349,6 +349,16 @@ class Comment(unittest.TestCase):
                     mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
                 self.assertEqual(hr.has_receipt(7), want)
             self.assertLessEqual(run.call_count, 2)
+        # A full page asks for the next one, one bounded call each, never gh's paginate flag (tests/test_gh_pages.py).
+        def paged(argv, **kw):
+            if "comments" not in argv[2]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            text = "false\n" * hr.PER_PAGE if argv[2].endswith("&page=1") else "true\n"
+            return subprocess.CompletedProcess(argv, 0, text, "")
+        with mock.patch.object(hr.subprocess, "run", side_effect=paged) as run:
+            self.assertTrue(hr.has_receipt(7))
+        self.assertEqual(run.call_count, 3)
+        self.assertNotIn("--" + "paginate", [arg for call in run.call_args_list for arg in call.args[0]])
         denied = subprocess.CompletedProcess([], 1, "", "HTTP 403: API rate limit exceeded")
         with mock.patch.object(hr.subprocess, "run", return_value=denied) as run, redirect_stderr(io.StringIO()):
             self.assertEqual(hr.main(["--pr", "7"]), 1)
@@ -558,6 +568,83 @@ class Workflow(unittest.TestCase):
         unmerged = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\topen\tfalse\t-\t{merge}"
         done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
         self.assertIn("ok=false\n", out.read_text())
+
+    def test_a_receipt_check_that_cannot_read_github_still_looks(self) -> None:
+        # Run 44033383427 (cmux#45098, 2026-11-17): the receipt read hit "API rate limit exceeded for installation",
+        # receipt=unknown counted as a receipt, and the merged daemon PR got no look. Only receipt=true skips.
+        block = self.job_block("plan")
+        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        script = textwrap.dedent("\n".join(block[start:]))
+        unreadable = "import sys\nprint('hot-verify-receipt: API rate limit exceeded', file=sys.stderr)\nsys.exit(1)\n"
+        for answer, skips in ((unreadable, False), ("print('receipt=false')\n", False), ("print('receipt=true')\n", True)):
+            with self.subTest(answer=answer):
+                scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-plan-")))
+                (scratch / "scripts/cmux-next").mkdir(parents=True)
+                (scratch / "scripts/cmux-next/hot-verify-receipt.py").write_text(answer)
+                (scratch / "bin").mkdir()
+                # The git fetch after the receipt check stops the script: reaching it means the plan went on.
+                (scratch / "bin/git").write_text("#!/bin/bash\necho reached-git >> \"$GITHUB_STEP_SUMMARY\"; exit 3\n")
+                (scratch / "bin/git").chmod(0o755)
+                out, summary = scratch / "out", scratch / "summary"
+                done = subprocess.run(["bash", "-c", script], cwd=scratch, capture_output=True, text=True,
+                                      env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}",
+                                           "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR": "7", "BASE_REF": "feat-cmux-next",
+                                           "HEAD_SHA": "c" * 40, "MERGED": "true"})
+                said = summary.read_text() if summary.exists() else ""
+                if skips:
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertIn("eligible=false", out.read_text())
+                    self.assertNotIn("reached-git", said)
+                else:
+                    self.assertIn("reached-git", said, (done.stderr, said))
+                    self.assertFalse(out.exists() and "eligible=false" in out.read_text())
+
+    def look_steps(self) -> list[str]:
+        """The look job's `run: |` scripts, each through the line before its next step."""
+        block, scripts = self.job_block("look"), []
+        for i, line in enumerate(block):
+            if line.strip() == "run: |":
+                indent = len(line) - len(line.lstrip()) + 2
+                end = next((j for j in range(i + 1, len(block)) if block[j].strip()
+                            and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
+                scripts.append(textwrap.dedent("\n".join(block[i + 1:end])))
+        return scripts
+
+    def test_a_look_that_stops_waiting_cancels_its_queued_fleet_step(self) -> None:
+        # 2026-11-17 13:49Z: 49 hot-verify steps queued on the fleet, at least 23 of them from runs whose look had
+        # already given up (exit 75 after --queue-timeout leaves the step queued "keeping its place") and whose
+        # `look again` had queued a second one. Those orphans run later and are never posted.
+        step = "0123456789abcdef01234567"
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-look-")))
+        (scratch / "bin").mkdir()
+        calls = scratch / "client-calls"
+        client = scratch / "bin" / "cmux-ci"
+        client.write_text("#!/bin/bash\necho \"$*\" >> \"$CALLS\"\n"
+                          f"if [[ $1 == run ]]; then echo 'submitted step {step}'; exit 75; fi\n"
+                          "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        client.chmod(0o755)
+        curl = scratch / "bin" / "curl"
+        curl.write_text("#!/bin/bash\nwhile [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { shift; printf '{\"commit\": \"%s\"}' "
+                        f"{HEAD} > \"$1\"; }}; shift; done\n")
+        curl.chmod(0o755)
+        temp, out, summary = scratch / "temp", scratch / "out", scratch / "summary"
+        temp.mkdir()
+        env = {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
+               "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(out),
+               "GITHUB_STEP_SUMMARY": str(summary), "CONTROLLER": "http://controller", "PR": "7",
+               "HEAD_SHA": HEAD, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test"}
+        scripts = self.look_steps()
+        done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertNotEqual(done.returncode, 0)  # no look result is never green
+        self.assertIn(f"cancel {step}", calls.read_text(), (done.stdout, done.stderr))
+        # A job cancelled while it waits (a newer push's run, the 75 min limit) cancels its step too.
+        self.assertTrue(any("cancelled()" in line for line in self.job_block("look")), "no step runs on cancel")
+        calls.unlink()
+        (temp / "look.log").write_text(f"submitted step {step}\n")
+        done = subprocess.run(["bash", "-c", scripts[-1]], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(f"cancel {step}", calls.read_text())
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

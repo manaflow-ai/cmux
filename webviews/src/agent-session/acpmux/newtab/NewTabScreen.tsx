@@ -1323,6 +1323,9 @@ export function NewTabScreen(props: Props) {
         return openChatRow(row.id, row.key);
       case "launch":
         return launch(row.harness, row.folder);
+      case "run":
+        touch();
+        return props.onShell(row.command);
     }
   };
   /// Open in Profile…: the field empties to search the profiles; the rows list them all.
@@ -2578,7 +2581,10 @@ export function NewTabScreen(props: Props) {
           anchor={anchor}
           side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
-          className="nt-composer-surface nt-popover"
+          // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
+          className={
+            rows.length === 1 ? "nt-composer-surface nt-popover nt-popover-single" : "nt-composer-surface nt-popover"
+          }
           hostGlass={false}
           initialFocus={false}
           finalFocus={false}
@@ -2742,6 +2748,8 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.title;
     case "launch":
       return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
+    case "run":
+      return nt("row.runInTerminal");
   }
 }
 
