@@ -97,6 +97,13 @@ fn publish_is_an_atomic_replace_under_a_new_name() {
     assert_eq!(store.current("win"), Some(b));
     // The older path still holds its own bytes (the launch record may name it until rewritten).
     assert_eq!(fs::read(&a.path).unwrap(), a_bytes);
+    // Owner only: the folder 0700, each image 0600.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(&dir), mode(&a.path)), (0o700, 0o600));
+    }
     // No partial file is left.
     assert!(files(&dir).iter().all(|n| !n.ends_with(".tmp")), "{:?}", files(&dir));
 }

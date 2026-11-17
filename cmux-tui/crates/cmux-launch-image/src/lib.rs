@@ -260,6 +260,12 @@ impl Store {
         let (pixel_width, pixel_height) = png_pixel_size(png).ok_or(PublishError::NotPng)?;
         let key = window_key(window_id);
         fs::create_dir_all(&self.dir)?;
+        // Owner only, as the app's other launch images (agent-pane-images, terminal launch frames).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700))?;
+        }
         // Released when the file closes, a crashed holder's too.
         let lock = OpenOptions::new()
             .create(true)
