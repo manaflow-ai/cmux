@@ -2673,10 +2673,15 @@ class Target:
     # Shared workflows carry delivery runs in their API name/display title.
     name: str = ""
     display_title: str = ""
-    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()) at an attempt past 1: its current attempt is
-    # watched with attempt 1's rules whatever its number, and the open-head failover may place it again past
-    # REFUSAL_RESCUE_ATTEMPT (places_again()). The watch ends at its one rescue, so a dispatch never loops.
+    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()): its current attempt is watched with attempt 1's
+    # rules whatever its number, the open-head failover may place it again past REFUSAL_RESCUE_ATTEMPT
+    # (places_again()), and while its open head keeps it the watch looks again until the watch limit (follow()).
+    # The watch still ends at its one rescue: a dispatch re-places a run at most once.
     dispatched: bool = False
+    # The owned side label a placement re-run of this run's Mac jobs falls back to (rerun_side_label(), follow()'s
+    # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
+    # onto the label it waits on.
+    rerun_side: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -2762,7 +2767,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
     """The run a dispatch names (WATCH_RUN_ID) to watch, at its current attempt, or why it is none.
 
-    Attempt 1 is judged as its workflow_run event is (target_from_event()). A later attempt is judged as attempt 1
+    Attempt 1 is judged as its workflow_run event is (target_from_event()), and watched as dispatched unless it is a
+    delivery build. A later attempt is judged as attempt 1
     and then watched at its own number with attempt 1's rules (Target.dispatched): a dispatch is a person's or an
     agent's ask about this run now. Before 2026-11-17 it answered "not watched: attempt N; its first attempt's
     watch follows it", which no watch did: five cmux-next runs sat 5 to 7 hours on their bot attempt 3 on
@@ -2772,7 +2778,12 @@ def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
     down at its cancel, which re-reads the attempt first."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
-        return target_from_event({"workflow_run": run}, repository)
+        # cmux#44805's run 44067910921 (2026-11-17): attempt 1's Debug compile waited 5 hours on a side label, and
+        # a watch dating that wait from its own first sighting ended at its first open-head answer.
+        target = target_from_event({"workflow_run": run}, repository)
+        if isinstance(target, str) or is_delivery_target(target):
+            return target
+        return dataclasses.replace(target, dispatched=True)
     first = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
     if isinstance(first, str):
         return first
@@ -4586,6 +4597,17 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
                                      if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
+        # With Blacksmith macOS off the placement re-run finds no idle runner (side_lane_placement.rerun_main()) and
+        # defers the job to the side label again: re-placing a long wait on that label only puts it back in the same
+        # queue and resets its age. Measured 2026-11-17 16:22Z: 46-58 glaeda-side-std-xcode-26.6 joins an hour of
+        # such churn, 124 of its 222 queued jobs on attempt 3. The light move (light_wait()) still applies, as it
+        # names an idle light runner the re-run's placement uses.
+        same = [(job, label) for job, label in long_wait if target.rerun_side and label == target.rerun_side]
+        if same:
+            log(f"no long-wait re-placement for run {target.run_id}: "
+                f"{', '.join(sorted({str(job.get('name') or job.get('id')) for job, _ in same}))} waits on "
+                f"`{target.rerun_side}`, and its placement re-run would put it back on {target.rerun_side}")
+            long_wait = [pair for pair in long_wait if pair not in same]
         # A light-fit job waiting on the std side label while a light side runner listens: placed again sooner, by a
         # placement re-run whose light placement the job reads (checked below, once the plan is read).
         light_moves = [] if dead or long_wait else [
@@ -5840,6 +5862,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if side_label and not target.rerun_side:
+        target = dataclasses.replace(target, rerun_side=side_label)
     if (target.nightly and target.push_branch == "nightly-next" and target.event == "push"
             and target.attempt == 1):
         effective_seconds = max(effective_seconds, NIGHTLY_NEXT_BOOTSTRAP_SECONDS)
