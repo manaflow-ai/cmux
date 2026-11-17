@@ -685,8 +685,12 @@ FORK_WRAPPED_POOL_READ = re.compile(
 FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
     r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && 'blacksmith-[^']+') \|\| "
-    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.event_name != 'pull_request' \|\| "
-    r"github\.run_attempt < 2\) && )?"
+    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.run_attempt < 2 \|\| "
+    r"github\.event_name != 'pull_request' && \(github\.event_name != 'workflow_dispatch' \|\| "
+    r"!contains\(fromJSON\('\[\"github-actions\[bot\]\",\"cmux-bot\[bot\]\"\]'\), github\.triggering_actor\) \|\| "
+    r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
+    r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
+    r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
     r"vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
     r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
 )

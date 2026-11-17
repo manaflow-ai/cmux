@@ -10,7 +10,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
 #     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
-#     [--arg=chat_renderer_crash=1]
+#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -27,13 +27,16 @@
 # infinite=COUNTS: also the infinite-items run (scripts/measure/infinite-items.py, CMUX-571) on the bundle's
 # own acpmux and cmux-tui: COUNTS workspaces, each with a terminal tab and an agent chat, through simulated
 # days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
-# Output: PERF-IDLE lines; JSON under .build/perf-idle.
+# vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
+# --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
+# .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
 infinite="" days=3
-reload_config=() purge=() release=() attribute=() crash_env=()
+reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -47,6 +50,7 @@ for arg in "$@"; do
     attribute=1) attribute=(--attribute) ;;
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
+    vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -103,7 +107,10 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
+  --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+# Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
+grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
 grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys

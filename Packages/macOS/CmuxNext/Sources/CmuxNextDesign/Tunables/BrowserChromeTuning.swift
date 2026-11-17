@@ -66,15 +66,26 @@ public nonisolated struct BrowserChromeTuning {
     static func defaultValue(_ metric: BrowserChromeMetric, tokens: DensityTokens, row: CGFloat?) -> CGFloat {
         let row = row ?? tokens.tokens["browserRowHeight"].map { CGFloat($0) } ?? 28
         let chromeColumn = (tokens.tokens["omnibarChromeColumn"] ?? 0) > 0
+        let factor = tokens.uniformScale ?? 1
+        let sizeRow = tokens.uniformScale == nil ? row : CGFloat(DensityPreset.referenceTokens.tokens["browserRowHeight"] ?? 28)
         switch metric {
         case .rowHeight, .rowGap: return metric.token.flatMap { tokens.tokens[$0] }.map { CGFloat($0) } ?? 0
-        case .closeSize: return share(14, of: row)
-        case .closeCorner: return half(share(14, of: row) * 4 / 14)
-        case .closeInk: return share(8, of: row)
-        case .closeTrailing: return share(6, of: row)
+        case .closeSize: return half(share(14, of: sizeRow) * factor)
+        case .closeCorner: return half(half(share(14, of: sizeRow) * 4 / 14) * factor)
+        case .closeInk: return half(share(8, of: sizeRow) * factor)
+        case .closeTrailing: return half(share(6, of: sizeRow) * factor)
         case .closeHoverOpacity: return 16 // tab_close_button.cc's highlight opacity, at every density
-        case .chipLeading: return chipLeading(bar: row, chromeColumn: chromeColumn)
-        case .textOrigin: return textOrigin(bar: row, chromeColumn: chromeColumn)
+        // The omnibar's own tokens where the density sets them (its bar can differ from the tab row: 28 on 29 at Default).
+        case .chipLeading:
+            if let leading = tokens.tokens["omnibarIconLeading"] { return CGFloat(leading) }
+            return chipLeading(bar: tokens.tokens["omnibarHeight"].map { CGFloat($0) } ?? row, chromeColumn: chromeColumn)
+        case .textOrigin:
+            if let leading = tokens.tokens["omnibarIconLeading"], let view = tokens.tokens["omnibarIconViewSize"], let gap = tokens.tokens["omnibarTextGap"] {
+                let bar = tokens.tokens["omnibarHeight"] ?? Double(row)
+                let edge = tokens.tokens["omnibarEdgeInset"] ?? 2
+                return CGFloat(leading + min(view, bar - 2 * edge) + gap)
+            }
+            return textOrigin(bar: tokens.tokens["omnibarHeight"].map { CGFloat($0) } ?? row, chromeColumn: chromeColumn)
         }
     }
 
