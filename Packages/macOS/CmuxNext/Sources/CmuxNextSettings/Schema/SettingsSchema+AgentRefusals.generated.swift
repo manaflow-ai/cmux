@@ -14,18 +14,8 @@ extension SettingsSchema {
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
         "cloud.agentsStartWithoutAsking": .userOnly,
-        // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
-        "cloud.turnCheckpoints": .userOnly,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
-        "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
-        // Each recap is an extra model call on the person's usage: theirs to turn on or off.
-        "agents.chats.sessionRecap": .userOnly,
-        "picker.pinned": .userOnly,
-        // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
-        "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
-        "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
-        "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
         // Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.
         "workspaces.freeing.enabled": .destructive, "workspaces.freeing.idleMinutes": .destructive,
         "workspaces.freeing.agents": .destructive, "workspaces.freeing.runningCommands": .destructive,
@@ -40,8 +30,6 @@ extension SettingsSchema {
         "feed.mirrorNotifications.agents": .privacy, "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
         "feed.agentPermissionPrompts": .privacy,
-        // Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.
-        "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network, "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
         // Off, Chromium tabs load ads and trackers again.
@@ -50,8 +38,6 @@ extension SettingsSchema {
         "markdown.remoteImages": .privacy,
         // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
         "browser.showAgentCursor": .userOnly,
-        // How agents move the pointer is the person's choice: an agent must not make itself faster or slower.
-        "browser.agentMouse.motion": .userOnly, "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
         // Whether sign-in pages open in a browser agents can drive is the person's call alone.
@@ -71,8 +57,6 @@ extension SettingsSchema {
         "files.textEditor": .userOnly,
         // Where a terminal program's URLs open, and a command that may run for each: an agent must not pick what runs or move a sign-in page into a browser it drives.
         "terminal.linkOpener.default": .userOnly, "terminal.linkOpener.rules": .userOnly,
-        // Which of the person's editor settings files cmux reads (VS Code, Zed...).
-        "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy, "browser.urlsToAlwaysOpenExternally": .privacy,
         // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
         "sidebar.nowPlaying.otherApps": .privacy,
@@ -100,8 +84,6 @@ extension SettingsSchema {
         "developerTools.appPages": .userOnly,
         // Whether the person's Command Palette lists the debug commands: the person's call.
         "app.internalDeveloperMode": .userOnly,
-        // On, a key is taken from every other app system-wide.
-        "app.globalHotKey": .userOnly, "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive, "app.warnBeforeClosingAgentSession": .destructive,
         // Update checks and downloads reach the network; install on quit replaces the app.
@@ -120,24 +102,14 @@ extension SettingsSchema {
         "diagnostics.usagePatterns": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
-        // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
-        "agents.promptCache": .userOnly,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
-        // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
-        "notifications.dockBounce": .userOnly,
-        // Privacy: whether banners show what agents said is the person's call.
-        "notifications.showPreviews": .userOnly,
-        // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
-        "sessions.keepAwake": .userOnly, "sessions.keepAwakeForCommands": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
         "sessions.allowFullAccess": .destructive,
         // On, every agent gets tools that start child chats: the person turns that on.
         "sessions.promptSuggestions": .userOnly,
-        // Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.
-        "agents.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent must not raise its own limits.
         "agents.subsessions.enabled": .userOnly, "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly, "agents.subsessions.maxDepth": .userOnly,
@@ -146,28 +118,18 @@ extension SettingsSchema {
         // What every agent is told, and which of the person's skills reach it, is the person's call: an agent must not switch off the guidance or the skills it was given.
         "agents.guidance.claude": .userOnly, "agents.guidance.codex": .userOnly,
         "agents.guidance.otherAgents": .userOnly, "agents.guidance.userSkills": .userOnly,
-        // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
-        "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
-        "agents.autoRetry.attempts": .userOnly,
-        // Compacting on a timer spends the person's usage (one model call each): their call.
-        "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
         "ssh.linkAllowedHosts": .network,
-        "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
-        // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.
-        "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
-        // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
-        "remote.ultra": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
@@ -183,13 +145,8 @@ extension SettingsSchema {
         // The omnibar's engine and remote suggestions decide what leaves the machine.
         "browser.searchEngine": .privacy, "browser.customSearchEngine.search": .privacy,
         "browser.customSearchEngine.suggest": .privacy, "browser.omnibar.remoteSuggestions": .privacy,
-        // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
-        "chief.autoRouteSubagents": .userOnly,
         // How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).
         "chief.permissionMode": .userOnly,
-        // Which subagents show in the sidebar is the person's to shape, not an agent's.
-        "chief.subagentSidebar": .userOnly, "chief.subagentSidebarShowWords": .userOnly,
-        "chief.subagentSidebarHideWords": .userOnly, "chief.subagentSidebarMinWords": .userOnly,
         // The person decides what the password manager saves, suggests and writes out (decision P2: agents see no sites or usernames, and change none of this).
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,

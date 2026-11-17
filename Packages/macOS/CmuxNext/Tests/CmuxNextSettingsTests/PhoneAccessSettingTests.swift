@@ -33,7 +33,8 @@ struct PhoneAccessSettingTests {
     }
 
     @Test func noAgentChangesPhoneAccess() {
-        #expect(SettingsSchema.agentRefusedKeys["phone.keepAwake"] == .userOnly)
+        // Power only: an agent may set whether the phone stays awake.
+        #expect(SettingsSchema.agentSettableKeys.contains("phone.keepAwake"))
         // Workspace names leave the Mac for the Cloud service only when the person turns it on.
         #expect(SettingsSchema.agentRefusedKeys["phone.cloudReplica"] == .privacy)
         // A phone views the Cloud machine's screen only when the person turns it on.

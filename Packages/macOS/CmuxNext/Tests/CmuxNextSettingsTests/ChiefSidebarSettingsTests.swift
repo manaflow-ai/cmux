@@ -3,7 +3,7 @@ import Testing
 
 /// Settings > Chief > Subagents (a1018): the four rows the Chief host reads at each spawn to decide which
 /// subagents get a sidebar workspace. Their keys must match what optchat-chief `sidebar_choice.rs` reads,
-/// their defaults must match its defaults, and only the person may change them.
+/// their defaults must match its defaults, and an agent may set them (looks only).
 struct ChiefSidebarSettingsTests {
     static let paths: [[String]] = [
         ["chief", "subagentSidebar"],
@@ -44,11 +44,11 @@ struct ChiefSidebarSettingsTests {
         #expect(row.defaultValue == .number(50), "matches sidebar_choice.rs DEFAULT_MIN_WORDS")
     }
 
-    @Test func onlyThePersonChangesThem() throws {
+    @Test func anAgentMaySetThem() throws {
         for path in Self.paths {
             let row = try #require(SettingsSchema.descriptor(for: path))
-            #expect(SettingsSchema.agentSettable(row) == false, "\(row.id)")
-            #expect(SettingsSchema.agentRefusedKeys[row.id] == .userOnly, "\(row.id)")
+            #expect(SettingsSchema.agentSettable(row) == true, "\(row.id)")
+            #expect(SettingsSchema.agentRefusedKeys[row.id] == nil, "\(row.id)")
         }
     }
 }

@@ -47,8 +47,8 @@ struct MobileTerminalSizingSettingTests {
         #expect(order.defaultValue == .array([]))
         let mobile = try #require(SettingsPageLayout().categories().first { $0.spec.id == "mobile" })
         #expect(mobile.groups.flatMap(\.rows).filter { $0.hasPrefix("mobile.") } == ["mobile.allowIPhoneConnections", "mobile.terminalSizing"])
-        // Only the person (here or on the phone, through the daemon) changes it.
-        #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizing"] == .userOnly)
-        #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizingOrder"] == .userOnly)
+        // Looks only: an agent may set it too.
+        #expect(SettingsSchema.agentSettableKeys.contains("mobile.terminalSizing"))
+        #expect(SettingsSchema.agentSettableKeys.contains("mobile.terminalSizingOrder"))
     }
 }

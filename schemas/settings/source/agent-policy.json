@@ -933,8 +933,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "agent": "settable",
+      "why": "Turn checkpoints save the person's Cloud machine to their own snapshot storage: it widens nothing an agent may do.",
       "keys": [
         "cloud.turnCheckpoints"
       ]
@@ -947,10 +947,11 @@
       ]
     },
     {
-      "agent": "userOnly",
+      "agent": "settable",
       "keys": [
         "agentPane.scrollToBottomOnSend"
-      ]
+      ],
+      "why": "Where the chat scrolls on send: looks only."
     },
     {
       "agent": "privacy",
@@ -959,8 +960,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Each recap is an extra model call on the person's usage: theirs to turn on or off.",
+      "agent": "settable",
+      "why": "A recap line costs one model call: it widens nothing an agent may do.",
       "keys": [
         "agents.chats.sessionRecap"
       ]
@@ -974,26 +975,28 @@
       ]
     },
     {
-      "agent": "userOnly",
+      "agent": "settable",
       "keys": [
         "picker.pinned"
-      ]
+      ],
+      "why": "Which folders the picker offers first: looks only."
     },
     {
-      "agent": "userOnly",
-      "why": "Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).",
+      "agent": "settable",
+      "why": "Archived workspaces come back from the sidebar: nothing ends and nothing widens.",
       "keys": [
         "workspaces.autoArchive.style",
         "workspaces.autoArchive.idleDays"
       ]
     },
     {
-      "agent": "userOnly",
+      "agent": "settable",
       "keys": [
         "workspaces.hibernation.enabled",
         "workspaces.hibernation.idleMinutes",
         "workspaces.hibernation.hiddenSpaceMinutes"
-      ]
+      ],
+      "why": "Hibernation frees memory only; terminals and agents keep running."
     },
     {
       "agent": "destructive",
@@ -1047,8 +1050,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.",
+      "agent": "settable",
+      "why": "Whether Chief Home pins the Feed's requests: layout only.",
       "keys": [
         "feed.needsYouInChief"
       ]
@@ -1083,8 +1086,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "How agents move the pointer is the person's choice: an agent must not make itself faster or slower.",
+      "agent": "settable",
+      "why": "How the agent's pointer moves on screen: looks only.",
       "keys": [
         "browser.agentMouse.motion",
         "browser.agentMouse.maxMoveMs"
@@ -1168,8 +1171,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Which of the person's editor settings files cmux reads (VS Code, Zed...).",
+      "agent": "settable",
+      "why": "Which editor's look and keys cmux copies: it widens nothing an agent may do.",
       "keys": [
         "editor.importFrom"
       ]
@@ -1274,8 +1277,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "On, a key is taken from every other app system-wide.",
+      "agent": "settable",
+      "why": "Which key brings cmux forward: the person changes it back in Settings.",
       "keys": [
         "app.globalHotKey",
         "app.startAgentGlobalHotKey"
@@ -1349,8 +1352,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
+      "agent": "settable",
+      "why": "How long Claude Code keeps its prompt cache: cost only.",
       "keys": [
         "agents.promptCache"
       ]
@@ -1364,22 +1367,22 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "How hard cmux pulls the person back from another app: theirs to pick, not an agent's.",
+      "agent": "settable",
+      "why": "How the Dock icon gets attention: looks only.",
       "keys": [
         "notifications.dockBounce"
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Privacy: whether banners show what agents said is the person's call.",
+      "agent": "settable",
+      "why": "Whether banners show what agents said: what agents may do stays the same.",
       "keys": [
         "notifications.showPreviews"
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
+      "agent": "settable",
+      "why": "Whether the Mac stays awake while agents work: power only.",
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
@@ -1407,8 +1410,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "agent": "settable",
+      "why": "Next-prompt suggestions cost one model call each: they widen nothing an agent may do.",
       "keys": [
         "agents.promptSuggestions"
       ]
@@ -1441,8 +1444,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.",
+      "agent": "settable",
+      "why": "Sending a failed turn again costs usage: it widens nothing an agent may do.",
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
@@ -1450,8 +1453,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "agent": "settable",
+      "why": "Compacting on a timer costs one model call each: it widens nothing an agent may do.",
       "keys": [
         "agents.cacheCompact.enabled",
         "agents.cacheCompact.minContextPercent"
@@ -1474,10 +1477,11 @@
       ]
     },
     {
-      "agent": "userOnly",
+      "agent": "settable",
       "keys": [
         "phone.keepAwake"
-      ]
+      ],
+      "why": "Whether the phone stays awake: power only."
     },
     {
       "agent": "privacy",
@@ -1495,8 +1499,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.",
+      "agent": "settable",
+      "why": "Which device sizes a shared terminal: looks only.",
       "keys": [
         "mobile.terminalSizing",
         "mobile.terminalSizingOrder"
@@ -1517,8 +1521,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
+      "agent": "settable",
+      "why": "How much data a remote connection spends for loss protection: it widens nothing an agent may do.",
       "keys": [
         "remote.ultra"
       ]
@@ -1581,8 +1585,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.",
+      "agent": "settable",
+      "why": "Which installed agent a Chief subagent runs on: it widens nothing any of them may do.",
       "keys": [
         "chief.autoRouteSubagents"
       ]
@@ -1595,8 +1599,8 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "Which subagents show in the sidebar is the person's to shape, not an agent's.",
+      "agent": "settable",
+      "why": "Which subagents show in the sidebar: looks only.",
       "keys": [
         "chief.subagentSidebar",
         "chief.subagentSidebarShowWords",

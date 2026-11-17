@@ -18,8 +18,8 @@ struct AgentPaneSendScrollSettingTests {
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
         #expect(snapshot.agentPaneComposer.scrollToBottomOnSend == false)
         #expect(snapshot.agentPaneComposer.pageValue.value(at: ["scrollToBottomOnSend"])?.boolValue == false)
-        #expect(SettingsSchema.agentRefusedKeys["agentPane.scrollToBottomOnSend"] == .userOnly)
-        #expect(!SettingsSchema.agentSettableKeys.contains("agentPane.scrollToBottomOnSend"))
+        #expect(SettingsSchema.agentRefusedKeys["agentPane.scrollToBottomOnSend"] == nil)
+        #expect(SettingsSchema.agentSettableKeys.contains("agentPane.scrollToBottomOnSend"))
     }
 
     @Test func machineLoadWarningsAreOnByDefaultAndRoundTripOff() {

@@ -65,9 +65,10 @@ struct DockBouncePolicyTests {
         #expect(snapshot.diagnostics.contains { $0.path == "notifications.dockBounce" })
     }
 
-    @Test func onlyThePersonSetsIt() throws {
+    @Test func anAgentMaySetIt() throws {
         let row = try #require(SettingsSchema.descriptor(for: ["notifications", "dockBounce"]))
         #expect(row.defaultValue == .string("once"))
-        #expect(SettingsSchema.agentRefusedKeys["notifications.dockBounce"] == .userOnly)
+        #expect(SettingsSchema.agentRefusedKeys["notifications.dockBounce"] == nil)
+        #expect(SettingsSchema.agentSettableKeys.contains("notifications.dockBounce"))
     }
 }

@@ -26,11 +26,11 @@ struct SessionKeepAwakeSettingTests {
         #expect(snapshot.diagnostics.contains { $0.path == "sessions.keepAwake" })
     }
 
-    @Test func theRowMatchesTheAppAndAgentsMayNotSetIt() throws {
+    @Test func theRowMatchesTheAppAndAgentsMaySetIt() throws {
         let row = try #require(SettingsSchema.descriptor(for: ["sessions", "keepAwake"]))
         #expect(row.defaultValue == .string("pluggedIn"))
-        #expect(SettingsSchema.agentRefusedKeys["sessions.keepAwake"] == .userOnly)
-        #expect(!SettingsSchema.agentSettableKeys.contains("sessions.keepAwake"))
+        #expect(SettingsSchema.agentRefusedKeys["sessions.keepAwake"] == nil)
+        #expect(SettingsSchema.agentSettableKeys.contains("sessions.keepAwake"))
     }
 
     @Test func theRowShowsUnderAgents() throws {

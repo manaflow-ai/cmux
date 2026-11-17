@@ -3812,127 +3812,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يطلب أمر تعيين %1$@ إلى %2$@. يمكنك وحدك تغيير هذا الإعداد، لذا يسألك cmux أولاً."
+            "value": "يطلب أمر تعيين %1$@ إلى %2$@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Naredba traži da se %1$@ postavi na %2$@. Samo vi možete promijeniti ovu postavku, pa vas cmux prvo pita."
+            "value": "Naredba traži da se %1$@ postavi na %2$@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En kommando vil sætte %1$@ til %2$@. Kun du kan ændre denne indstilling, så cmux spørger dig først."
+            "value": "En kommando beder om at sætte %1$@ til %2$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein Befehl möchte %1$@ auf %2$@ setzen. Nur du kannst diese Einstellung ändern, daher fragt cmux zuerst."
+            "value": "Ein Befehl möchte %1$@ auf %2$@ setzen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first."
+            "value": "A command asks to set %1$@ to %2$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un comando pide poner %1$@ en %2$@. Solo tú puedes cambiar este ajuste, así que cmux te pregunta primero."
+            "value": "Un comando pide cambiar %1$@ a %2$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Une commande demande de régler %1$@ sur %2$@. Vous seul pouvez modifier ce réglage, cmux vous le demande donc d'abord."
+            "value": "Une commande demande de régler %1$@ sur %2$@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un comando chiede di impostare %1$@ su %2$@. Solo tu puoi modificare questa impostazione, quindi cmux te lo chiede prima."
+            "value": "Un comando chiede di impostare %1$@ su %2$@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "コマンドが %1$@ を %2$@ に設定しようとしています。この設定はあなただけが変更できるため、cmux が先に確認します。"
+            "state": "needs_review",
+            "value": "コマンドが %1$@ を %2$@ に設定しようとしています。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្ដូរការកំណត់នេះ ដូច្នេះ cmux សួរអ្នកជាមុនសិន។"
+            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ %1$@ ទៅ %2$@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "명령이 %1$@을(를) %2$@(으)로 설정하려고 합니다. 이 설정은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+            "value": "명령이 %1$@을(를) %2$@(으)로 설정하려고 합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En kommando vil sette %1$@ til %2$@. Bare du kan endre denne innstillingen, så cmux spør deg først."
+            "value": "En kommando ber om å sette %1$@ til %2$@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Polecenie chce ustawić %1$@ na %2$@. Tylko Ty możesz zmienić to ustawienie, więc cmux najpierw pyta."
+            "value": "Polecenie chce ustawić %1$@ na %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um comando pede para definir %1$@ como %2$@. Só você pode alterar este ajuste, então o cmux pergunta antes."
+            "value": "Um comando pede para definir %1$@ como %2$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Команда хочет установить %1$@ в значение %2$@. Эту настройку можете изменить только вы, поэтому cmux сначала спрашивает."
+            "value": "Команда просит установить для %1$@ значение %2$@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คำสั่งหนึ่งขอตั้งค่า %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนการตั้งค่านี้ได้ cmux จึงถามคุณก่อน"
+            "value": "คำสั่งขอตั้งค่า %1$@ เป็น %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir komut %1$@ ayarını %2$@ yapmak istiyor. Bu ayarı yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+            "value": "Bir komut %1$@ ayarını %2$@ yapmak istiyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Команда хоче встановити %1$@ у значення %2$@. Це налаштування можете змінити лише ви, тому cmux спершу питає."
+            "value": "Команда просить встановити для %1$@ значення %2$@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một lệnh yêu cầu đặt %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi cài đặt này, nên cmux hỏi bạn trước."
+            "value": "Một lệnh yêu cầu đặt %1$@ thành %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "有命令请求将 %1$@ 设为 %2$@。此设置只能由你更改，因此 cmux 会先询问你。"
+            "value": "一条命令请求将 %1$@ 设为 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "有指令要求將 %1$@ 設為 %2$@。此設定只能由你變更，因此 cmux 會先詢問你。"
+            "value": "一個指令要求將 %1$@ 設為 %2$@。"
           }
         }
       }
@@ -10892,127 +10892,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first."
+            "value": "A command asks to set localhost for %1$@ to %2$@."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يطلب أمر تعيين localhost لـ %1$@ إلى %2$@. أنت وحدك من يمكنه تغيير ذلك، لذا يسألك cmux أولًا."
+            "state": "needs_review",
+            "value": "يطلب أمر تعيين localhost لـ %1$@ إلى %2$@."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Naredba traži da se localhost za %1$@ postavi na %2$@. Samo vi ovo možete promijeniti, pa vas cmux prvo pita."
+            "state": "needs_review",
+            "value": "Naredba traži da se localhost za %1$@ postavi na %2$@."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "En kommando beder om at sætte localhost for %1$@ til %2$@. Kun du kan ændre dette, så cmux spørger dig først."
+            "state": "needs_review",
+            "value": "En kommando beder om at sætte localhost for %1$@ til %2$@."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ein Befehl möchte Localhost für %1$@ auf %2$@ setzen. Nur du kannst das ändern, daher fragt cmux zuerst nach."
+            "state": "needs_review",
+            "value": "Ein Befehl möchte localhost für %1$@ auf %2$@ setzen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un comando pide definir el localhost de %1$@ como %2$@. Solo tú puedes cambiarlo, así que cmux te lo pregunta primero."
+            "state": "needs_review",
+            "value": "Un comando pide cambiar localhost de %1$@ a %2$@."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Une commande demande de définir le localhost de %1$@ sur %2$@. Vous seul pouvez le modifier, donc cmux vous le demande d’abord."
+            "state": "needs_review",
+            "value": "Une commande demande de régler localhost pour %1$@ sur %2$@."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un comando chiede di impostare il localhost di %1$@ su %2$@. Solo tu puoi cambiarlo, quindi cmux te lo chiede prima."
+            "state": "needs_review",
+            "value": "Un comando chiede di impostare localhost per %1$@ su %2$@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。これを変更できるのはあなただけなので、cmux が先に確認します。"
+            "state": "needs_review",
+            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្តូរវាបាន ដូច្នេះ cmux សួរអ្នកជាមុន។"
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다. 이 항목은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+            "state": "needs_review",
+            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "En kommando ber om å sette localhost for %1$@ til %2$@. Bare du kan endre dette, så cmux spør deg først."
+            "state": "needs_review",
+            "value": "En kommando ber om å sette localhost for %1$@ til %2$@."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@. Tylko Ty możesz to zmienić, więc cmux najpierw pyta."
+            "state": "needs_review",
+            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Um comando pede para definir o localhost de %1$@ como %2$@. Só você pode alterar isso, então o cmux pergunta primeiro."
+            "state": "needs_review",
+            "value": "Um comando pede para definir o localhost de %1$@ como %2$@."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Команда хочет задать localhost для %1$@: %2$@. Изменить это можете только вы, поэтому cmux сначала спрашивает."
+            "state": "needs_review",
+            "value": "Команда просит установить localhost для %1$@: %2$@."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "คำสั่งหนึ่งขอตั้งค่า localhost ของ %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนค่านี้ได้ cmux จึงถามคุณก่อน"
+            "state": "needs_review",
+            "value": "คำสั่งขอตั้งค่า localhost ของ %1$@ เป็น %2$@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bir komut %1$@ için localhost’u %2$@ olarak ayarlamak istiyor. Bunu yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+            "state": "needs_review",
+            "value": "Bir komut %1$@ için localhost'u %2$@ yapmak istiyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Команда хоче задати localhost для %1$@: %2$@. Змінити це можете лише ви, тому cmux спершу питає."
+            "state": "needs_review",
+            "value": "Команда просить встановити localhost для %1$@: %2$@."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Một lệnh yêu cầu đặt localhost cho %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi điều này nên cmux hỏi bạn trước."
+            "state": "needs_review",
+            "value": "Một lệnh yêu cầu đặt localhost cho %1$@ thành %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "有命令请求将 %1$@ 的 localhost 设为 %2$@。只有你可以更改此项，因此 cmux 会先询问你。"
+            "state": "needs_review",
+            "value": "一条命令请求将 %1$@ 的 localhost 设为 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "有指令要求將 %1$@ 的 localhost 設為 %2$@。只有你可以變更此項，因此 cmux 會先詢問你。"
+            "state": "needs_review",
+            "value": "一個指令要求將 %1$@ 的 localhost 設為 %2$@。"
           }
         }
       }
