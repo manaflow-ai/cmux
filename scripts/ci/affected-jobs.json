@@ -4,8 +4,16 @@
     "touches an input of one of its crates (the crate, every crate it reaches by path dependency with the features",
     "its build turns on, the files their sources name outside them) or one of its own inputs (a path; one ending in",
     "/ is a directory). A workflow's `inputs` are inputs of each of its jobs. `features` are the job's --features;",
-    "a `compile_only` job runs no test, so the fixtures its crates' tests read at run time are not its inputs.",
-    "A change to this file or the router runs every job; so do pushes, dispatches and the full-ci label."
+    "a `compile_only` job runs no test, so the fixtures its crates' tests read at run time are not its inputs; a",
+    "`binaries_only` job uses only its crates' libraries and binaries, so their tests, benches and examples are not.",
+    "A change to this file or the router runs every job; so do pushes, dispatches and the full-ci label.",
+    "A job another router decides names that router's output (`router_output`): cmux-next.yml's daemon-test reads",
+    "scripts/ci/cmux_next_route.py's `daemon`, which takes the job's inputs from here. `binaries_key` is the",
+    "reuse-key file of the binaries a job fetches instead of building: each key input outside the crate graph is one",
+    "of the job's inputs or a file a cmux-tui Rust source names (the graph places it). `routed_elsewhere` are scripts",
+    "its steps run that its router routes by another rule: the generated-files checks it hosts, the package build's",
+    "web bundles, and CI plumbing (caches, scratch, checkout repair) the router sends to the checks tier. `key_only` are key inputs no fetched binary reads (fixtures of crate tests and",
+    "benches): the key holds them so the published tree is rebuilt, and the job's result cannot change with them."
   ],
   "workspace_inputs": [
     "cmux-tui/Cargo.toml",
@@ -78,6 +86,61 @@
             "cmux-tui/bindings/", "cmux-tui/spec/", "ghostty", "ghostty-next", "scripts/install-zig-ci.sh",
             ".github/actions/ghostty-zig-packages/", ".github/actions/zig-global-cache/",
             "scripts/ghostty-zig-version.sh", "scripts/ci/init-submodule.sh"
+          ]
+        }
+      }
+    },
+    ".github/workflows/cmux-next.yml": {
+      "inputs": [],
+      "jobs": {
+        "daemon-test": {
+          "name": "cmux-next daemon tests",
+          "router_output": "daemon",
+          "compile_only": true,
+          "binaries_only": true,
+          "binaries_key": "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+          "crates": [
+            "cmux-tui/crates/cmux-tui", "cmux-tui/crates/cmux-holder", "cmux-tui/crates/cmux-app-host",
+            "cmux-tui/crates/cmux-browser-host", "cmux-tui/crates/acpmux",
+            "cmux-tui/bindings/examples/rust-agent-screen-detection", "first-party-apps/cloud/server"
+          ],
+          "features": ["tailnet", "hub-carrier"],
+          "inputs": [
+            "ghostty-next", "workers/cmux-vm/cli/",
+            "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
+            "scripts/cmux-next/build-layout-reducer-ffi.sh", "scripts/ci/acpmux-build-features.sh",
+            "scripts/ci/tailnet-go.sh", "scripts/cmux-next/build-acpmux.sh", "scripts/ci/cargo-groups.sh",
+            "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
+            "scripts/ci/macho_weaken.py", "scripts/ci/macos-stubs/", ".github/workflows/cmux-tui-build-package.yml",
+            "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/ghostty-zig-version.sh",
+            "scripts/ci/stage-agent-detector.sh",
+            "scripts/select-ci-xcode.sh",
+            "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/cmux-tui.pin",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicImportTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift"
+          ],
+          "routed_elsewhere": [
+            "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
+            "scripts/ci/swiftpm_prefetch_binary_artifacts.py", "scripts/ci/e2e_warm_derived_data.py",
+            "scripts/cmux-next/fast-tier-cache-key.sh", ".github/actions/cache-restore/",
+            "scripts/cmux-next/regenerate-action-contracts.sh", "scripts/cmux-next/regenerate-settings-exports.sh",
+            "scripts/cmux-next/check-settings-exports.sh", "scripts/cmux-next/base-autofix-exports-pack.sh",
+            "scripts/ci/defaults_guard.py",
+            "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+            "scripts/cmux-next/private-bun.sh"
+          ],
+          "key_only": [
+            "schemas/link-token/native.json", "schemas/link-token/vectors.json", "scripts/cmux-next/run-v2-gates.sh",
+            "scripts/cmux-next/tests/run-v2-gates.test.sh", "scripts/cmux-next/v2-gates.d/"
           ]
         }
       }
