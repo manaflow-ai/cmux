@@ -112,6 +112,18 @@ import Testing
         #expect(last.count == 5, "no modes to put back: \(last)")
     }
 
+    /// A resumed stream applies on the mirror as it was: on the alternate screen it showed, which
+    /// a later resize's reset puts back (#44052 F1).
+    @Test func aResumedStreamKeepsTheAlternateScreenItResumesOn() {
+        var parser = DaemonTerminalEventParser(surface: 7, hybridResume: (stream: "s1", frame: 5), alternate: true)
+        let resumed = parser.parse(line(event(frame: 6, base: 5, data: Data([0, 0, 0, 0]))))
+        #expect(!resumed.contains(.alternateScreen(false)), "\(resumed)")
+        var resized = event(frame: 7, base: nil, data: keyframeData)
+        resized["cols"] = 30
+        let again = parser.parse(line(resized))
+        #expect(again.prefix(4) == [.columns(30), .rows(4), .resetMirror(alternate: true),
+                                    .output(Data("\u{1b}[?1049h".utf8))])
+    }
 
     /// A varint past 64 bits is not a delta: the shift used to drop its high bits and read a
     /// smaller value, drawing a wrong frame instead of falling back (#44052 F2).

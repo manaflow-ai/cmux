@@ -253,19 +253,22 @@ impl<'a> Reader<'a> {
         Some(bytes)
     }
 
+    /// An unsigned LEB128 value; `None` when the bytes end first or it does not fit 64 bits.
+    /// The tenth byte holds bit 63 alone: anything more (a higher bit, or an eleventh byte) is a
+    /// value past 64 bits, which the shift would drop and read as a smaller one.
     fn varint(&mut self) -> Option<u64> {
         let mut value = 0u64;
         let mut shift = 0;
         loop {
             let byte = self.byte()?;
+            if shift == 63 && byte > 1 {
+                return None;
+            }
             value |= u64::from(byte & 0x7f).checked_shl(shift)?;
             if byte & 0x80 == 0 {
                 return Some(value);
             }
             shift += 7;
-            if shift > 63 {
-                return None;
-            }
         }
     }
 
