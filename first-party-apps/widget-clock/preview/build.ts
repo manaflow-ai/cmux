@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 // Writes preview/scenes.json: the scene ops the packed widget draws for each gallery variant, at a
 // fixed instant (Monday, November 16, 2026, 9:41 AM in Los Angeles). The webviews gallery entry
-// `apps.clock-widget` renders them with the real scene renderer, in Apple's widget tile sizes.
+// `apps.clock-widget` renders its copy (webviews/src/apps/scene/ClockWidget.scenes.json) with the real scene renderer, in Apple's widget tile sizes.
 //   bun first-party-apps/widget-clock/preview/build.ts [--check]
 process.env.TZ = "America/Los_Angeles"
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pack } from "cmux-extension-sdk/testing"
 import { renderScene, type Render } from "./scenes.ts"
@@ -30,13 +30,17 @@ export async function buildScenes(): Promise<string> {
 }
 
 if (import.meta.main) {
-  const target = join(import.meta.dir, "scenes.json")
+  // The gallery's copy lives in webviews/, because the gallery's dev server serves files from
+  // webviews/ only (fs.strict).
+  const targets = [join(import.meta.dir, "scenes.json"), join(import.meta.dir, "../../../webviews/src/apps/scene/ClockWidget.scenes.json")]
   const text = await buildScenes()
-  if (process.argv.includes("--check")) {
-    if (readFileSync(target, "utf8") !== text) {
-      console.error(`${target} is stale: run bun first-party-apps/widget-clock/preview/build.ts`)
-      process.exit(1)
-    }
-  } else writeFileSync(target, text)
-  console.log(`${target} ok`)
+  for (const target of targets) {
+    if (process.argv.includes("--check")) {
+      if (!existsSync(target) || readFileSync(target, "utf8") !== text) {
+        console.error(`${target} is stale: run bun first-party-apps/widget-clock/preview/build.ts`)
+        process.exit(1)
+      }
+    } else writeFileSync(target, text)
+    console.log(`${target} ok`)
+  }
 }
