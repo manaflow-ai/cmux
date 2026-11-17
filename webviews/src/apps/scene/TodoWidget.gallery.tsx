@@ -1,18 +1,21 @@
 // l10n-allow-file: gallery fixture text, not shipped UI.
 // The store app first-party-apps/widget-todo (cmux/todo, a cmux.widget/1) in each size, with a mixed
 // list and empty, drawn by the web scene renderer from the ops its render export sends over a sample
-// list (preview/scenes.json, written by its preview/build.ts from the packed app). The tile is a
+// list (fixtures/todo-widget-scenes.json, written by first-party-apps/widget-todo/preview/build.ts from the packed app). The tile is a
 // stand-in for the widget host's frame: Apple's macOS widget sizes (small 170, medium 364 x 170,
 // large 364 x 382) and a continuous corner; the widget draws its own 16 pt insets. Light and dark use
 // the gallery theme switch. Compare: cmux-design-references apple-widgets/web/hig-reminders-large-checkbox-rows.
 import { useState } from "react";
-import scenes from "../../../../first-party-apps/widget-todo/preview/scenes.json";
+import scenes from "./fixtures/todo-widget-scenes.json";
 import { componentEntry } from "../../gallery/format";
 import { SceneRenderer } from "./SceneRenderer";
 import { SceneStore, type SceneOp } from "./store";
 import "./TodoWidget.gallery.css";
 
 type Variant = keyof typeof scenes;
+
+/** Apple's macOS widget tile sizes in points: data about the host's frame, not a design token. */
+const TILE = { small: [170, 170], medium: [364, 170], large: [364, 382] } as const;
 type Props = { variant?: Variant; all?: boolean };
 
 function Tile({ variant }: { variant: Variant }) {
@@ -23,7 +26,12 @@ function Tile({ variant }: { variant: Variant }) {
     return s;
   });
   return (
-    <div className="gallery-todo-widget-tile" data-size={scene.size} data-variant={variant}>
+    <div
+      className="gallery-todo-widget-tile"
+      data-size={scene.size}
+      data-variant={variant}
+      style={{ width: TILE[scene.size as keyof typeof TILE][0], height: TILE[scene.size as keyof typeof TILE][1] }}
+    >
       <SceneRenderer store={store} dispatch={() => {}} />
     </div>
   );

@@ -14,19 +14,10 @@
 .gallery-todo-widget-tile {
   box-sizing: border-box;
   display: flex;
-  width: 170px;
-  height: 170px;
-  border-radius: 22px;
+  border-radius: var(--ds-radius-xl);
   background: var(--agent-control);
   color: var(--agent-text);
   overflow: hidden;
-}
-.gallery-todo-widget-tile[data-size="medium"] {
-  width: 364px;
-}
-.gallery-todo-widget-tile[data-size="large"] {
-  width: 364px;
-  height: 382px;
 }
 .gallery-todo-widget-tile > * {
   flex: 1;

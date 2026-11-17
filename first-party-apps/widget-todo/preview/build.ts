@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-// Writes preview/scenes.json: the scene ops the packed widget draws for each gallery variant over a
+// Writes webviews/src/apps/scene/fixtures/todo-widget-scenes.json (inside webviews, so the gallery's
+// CI checkout of webviews/ has it): the scene ops the packed widget draws for each gallery variant over a
 // sample list (preview/scenes.ts). The webviews gallery entry `apps.todo-widget` renders them with
 // the real scene renderer, in Apple's widget tile sizes; light and dark come from the gallery theme.
 //   bun first-party-apps/widget-todo/preview/build.ts [--check]
@@ -33,7 +34,7 @@ export async function buildScenes(): Promise<string> {
 }
 
 if (import.meta.main) {
-  const target = join(import.meta.dir, "scenes.json")
+  const target = join(import.meta.dir, "..", "..", "..", "webviews", "src", "apps", "scene", "fixtures", "todo-widget-scenes.json")
   const text = await buildScenes()
   if (process.argv.includes("--check")) {
     if (readFileSync(target, "utf8") !== text) {

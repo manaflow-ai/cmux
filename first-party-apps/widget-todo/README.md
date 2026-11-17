@@ -50,7 +50,7 @@ devices") runs two devices over a synced store that behaves that way.
 - `src/l10n.ts`, `strings/{en,ja}.json`: strings.
 - `test/`: `bun test first-party-apps/widget-todo/test` (model, first install, add, check off,
   persistence across a restart, the preview, and two devices syncing).
-- `preview/build.ts` writes `preview/scenes.json`, the scene ops for each gallery variant over a
+- `preview/build.ts` writes `webviews/src/apps/scene/fixtures/todo-widget-scenes.json`, the scene ops for each gallery variant over a
   sample list; the webviews gallery entry `apps.todo-widget` draws them
   (`webviews/src/apps/scene/TodoWidget.gallery.tsx`).
 
