@@ -400,3 +400,7 @@ impl Mux {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "quick_terminal_plan_tests.rs"]
+mod plan_tests;

@@ -228,6 +228,77 @@ fn two_toggles_at_once_make_one_quick_terminal_and_no_other_pane() {
     assert_eq!(wire.active(), json!(quick));
 }
 
+/// 2 clients send a toggle at the same time, each for another screen of one workspace that has no quick
+/// terminal. Each request decides on a make. One request makes the quick terminal of the workspace. The other
+/// makes no pane: it brings the quick terminal that the first made to its own screen, and its answer says so.
+///
+/// The order is the order of the test above, with the second request for the second screen.
+#[test]
+fn two_toggles_at_once_from_2_screens_make_one_quick_terminal_in_the_workspace() {
+    let (mut wire, _) = Wire::with_panes(1);
+    let first_screen = wire.screen()["id"].clone();
+    let (second_screen, there) = new_screen(&mut wire);
+
+    let (first_steps, first) = channel::<Step>();
+    let (go_on, wait) = channel::<()>();
+    let at_fence = first_steps.clone();
+    wire.mux.set_creation_before_fence_hook_for_test(Box::new(move || {
+        at_fence.send(Step::AtCreation).unwrap();
+        wait.recv().unwrap();
+    }));
+    let (mux, toggle) =
+        (wire.mux.clone(), json!({"cmd": "quick-terminal", "screen": first_screen}));
+    let first_thread = std::thread::spawn(move || {
+        let response = Wire::on(mux).send(toggle);
+        first_steps.send(Step::Response(response)).unwrap();
+    });
+    at_creation(&first, "first");
+
+    let (second_steps, second) = channel::<Step>();
+    let (mux, toggle) =
+        (wire.mux.clone(), json!({"cmd": "quick-terminal", "screen": second_screen}));
+    let second_thread = std::thread::spawn(move || {
+        let joined = second_steps.clone();
+        let response = crate::mux::with_group_join_notice(
+            Box::new(move || joined.send(Step::AtCreation).unwrap()),
+            || Wire::on(mux).send(toggle),
+        );
+        second_steps.send(Step::Response(response)).unwrap();
+    });
+    at_creation(&second, "second");
+    go_on.send(()).unwrap();
+    let won = answer(&first, "first");
+    let lost = answer(&second, "second");
+    first_thread.join().unwrap();
+    second_thread.join().unwrap();
+
+    assert_eq!(won["created"], true, "{won}");
+    let quick = pane(&won["pane"]);
+    assert_eq!(lost["created"], false, "the toggle that lost made a quick terminal: {lost}");
+    assert!(lost.get("surface").is_none(), "the toggle that lost made a terminal: {lost}");
+    assert_eq!(pane(&lost["pane"]), quick, "{lost}");
+    assert_eq!(lost["hidden"], false, "{lost}");
+    let screens = screens(&wire);
+    assert_eq!(
+        screens.iter().map(|screen| panes_of(screen).len()).sum::<usize>(),
+        3,
+        "the toggle that lost made a pane of its own: {lost}"
+    );
+    let marks: Vec<&Value> = screens
+        .iter()
+        .map(|screen| &screen["quick_terminal"])
+        .filter(|mark| !mark.is_null())
+        .collect();
+    assert_eq!(marks.len(), 1, "one quick terminal in the workspace: {marks:?}");
+    assert_eq!(
+        screens[1]["quick_terminal"],
+        json!({"pane": quick, "hidden": false, "from": there}),
+        "the toggle that lost brings the quick terminal to its screen"
+    );
+    assert_eq!(lost["screen"], second_screen, "{lost}");
+    assert_eq!(lost["focused"], json!(quick), "{lost}");
+}
+
 /// A float request with a frame for a hidden quick terminal shows it at that frame, as each act that brings
 /// a floating pane to the front does. It gives no focus: the focus stays on the pane that has it.
 #[test]

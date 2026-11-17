@@ -3,6 +3,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use cmux_layout_reducer::floating_panes::Quick;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 
 use super::*;
@@ -153,6 +154,145 @@ fn floating_pane_record_with_a_wrong_value_goes_at_a_commit_of_the_loaded_list()
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// A mark that no build writes, in the record of the right pane: the part of the statement, whether the mark
+/// that the load gives the pane is hidden (none: the load gives no mark), and `quick` with the type of
+/// `quick_from` after a commit of the loaded list. `LOW` is the id of the low pane, a pane of the screen. A
+/// number in `quick_from` is a text in the table, by the affinity of the column.
+const MARK_FAULTS: [(&str, Option<bool>, &str); 8] = [
+    ("quick = 3", None, "0 null"),
+    ("quick = -1", None, "0 null"),
+    ("quick = 'x'", None, "0 null"),
+    ("quick = 1.5", None, "0 null"),
+    ("quick = 0, quick_from = 'LOW'", None, "0 null"),
+    ("quick = 1, quick_from = 'not a pane'", Some(false), "1 null"),
+    ("quick = 2, quick_from = 7", Some(true), "2 null"),
+    ("quick = 1, quick_from = x'01'", Some(false), "1 null"),
+];
+
+/// `quick` and the type of `quick_from` of each record of `screen`, back to front.
+fn mark_columns(registry: &WorkspaceRegistry, screen: &ScreenPublicId) -> String {
+    registry
+        .query_text_for_test(&format!(
+            "SELECT group_concat(CAST(quick AS TEXT) || ' ' || typeof(quick_from), ', ')
+             FROM (SELECT quick, quick_from FROM resource_floating_panes
+                   WHERE screen_id = '{screen}' ORDER BY position)"
+        ))
+        .unwrap()
+}
+
+/// A commit that states the first screen of the fixture with `list`.
+fn commit_list(registry: &mut WorkspaceRegistry, list: &[Floating<PanePublicId>], mutation: &str) {
+    let screen = restore_screen_id(1);
+    let (snapshot, mut topology) = resource_restore_fixture();
+    topology.screens.iter_mut().find(|stated| stated.public_id == screen).unwrap().floating =
+        list.to_vec();
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::daemon(mutation.to_owned(), "test").unwrap(),
+            "session.restore_fixture",
+            &serde_json::json!({"fixture":"floating"}),
+            None,
+            None,
+            &resource_restore_patch(&snapshot, &topology),
+            &serde_json::json!({"restored":true}),
+            &serde_json::json!([{"event":"session.restored"}]),
+        )
+        .unwrap();
+}
+
+/// The live list of the first screen with its marks, by the public ids of its panes.
+fn live_marked(mux: &Mux) -> Vec<Floating<PanePublicId>> {
+    mux.with_state(|state| {
+        state.workspaces[0].screens[0]
+            .floating
+            .iter()
+            .filter_map(|entry| {
+                entry.renamed(|pane| state.panes.get(&pane).map(|pane| pane.public_id.clone()))
+            })
+            .collect()
+    })
+}
+
+/// The 2 columns of the mark are affinities too, and a build or a tool that this build does not know can put
+/// each value into them. A `quick` that is not 1 or 2 is no mark: the pane is a floating pane that shows. A
+/// `quick_from` that is no pane id names no pane: the mark stays. The store opens, the load drops no record,
+/// and a commit of the loaded list writes the record with the values that this build writes.
+#[test]
+fn floating_pane_record_with_a_mark_that_no_build_writes_loads_and_is_written_again() {
+    let [low, right] = [3, 4].map(restore_pane_id);
+    let screen = restore_screen_id(1);
+    for (index, (fault, hidden, written)) in MARK_FAULTS.into_iter().enumerate() {
+        let (root, session) = seed(&format!("mark-{index}"), |seeded| {
+            seeded.floating = vec![centered(right.clone())];
+        });
+        let fault = fault.replace("LOW", low.as_str());
+        stage(
+            &root,
+            &session,
+            &format!("UPDATE resource_floating_panes SET {fault} WHERE pane_id = '{right}';"),
+        );
+        let mut entry = centered(right.clone());
+        entry.quick = hidden.map(|hidden| Quick { hidden, from: None });
+        let expected = vec![entry];
+
+        let opened = WorkspaceRegistry::open(&root, &session);
+        assert!(opened.is_ok(), "{fault}: the store did not open: {:?}", opened.as_ref().err());
+        let mut registry = opened.unwrap();
+        let topology = registry.resource_topology_snapshot();
+        assert!(topology.is_ok(), "{fault}: the load failed: {:?}", topology.as_ref().err());
+        assert_eq!(stored_list_in(&registry), expected, "{fault}: the list that the load gives");
+
+        commit_list(&mut registry, &expected, &format!("mark-{index}"));
+        assert_eq!(
+            mark_columns(&registry, &screen),
+            written,
+            "{fault}: the record after a commit of the loaded list"
+        );
+        assert_eq!(stored_list_in(&registry), expected, "{fault}: the list after the commit");
+        drop(registry);
+
+        let mux = open_restart_mux(&root, &session);
+        assert_eq!(live_marked(&mux), expected, "{fault}: the live list");
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// 2 records of one screen have a mark, which no build writes. The first of the list keeps the mark, as the
+/// rule of the list says, and the other pane is a floating pane that shows. A commit of the loaded list
+/// writes one mark.
+#[test]
+fn two_marks_in_one_stored_screen_load_as_one_mark() {
+    let [low, right] = [3, 4].map(restore_pane_id);
+    let screen = restore_screen_id(1);
+    let behind = Floating::plain(low, FloatFrame::centered(300_000, 300_000));
+    let (root, session) = seed("two-marks", |seeded| {
+        seeded.floating = vec![centered(right.clone()), behind.clone()];
+    });
+    stage(
+        &root,
+        &session,
+        &format!("UPDATE resource_floating_panes SET quick = 1 WHERE screen_id = '{screen}';"),
+    );
+    let mut marked = centered(right);
+    marked.quick = Some(Quick { hidden: false, from: None });
+    let expected = vec![marked, behind];
+
+    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    assert_eq!(mark_columns(&registry, &screen), "1 null, 1 null", "the fixture: 2 marks");
+    assert_eq!(stored_list_in(&registry), expected, "the list that the load gives");
+    commit_list(&mut registry, &expected, "two-marks");
+    assert_eq!(mark_columns(&registry, &screen), "1 null, 0 null", "the records after a commit");
+    drop(registry);
+
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(live_marked(&mux), expected, "the live list");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 fn panes_of(list: Vec<Floating<PanePublicId>>) -> Vec<PanePublicId> {

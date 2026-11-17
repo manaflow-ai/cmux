@@ -275,3 +275,161 @@ fn two_marks_in_a_workspace_load_as_one() {
     drop(wire);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// The quick terminal of a screen becomes a tiled pane (`float-pane` with `off`), and a toggle in another
+/// screen makes the new quick terminal of the workspace. An undo in the first screen puts the pane back
+/// into the list of floating panes with no mark: the workspace has one quick terminal still.
+#[test]
+fn an_undo_in_a_screen_that_had_the_quick_terminal_puts_no_mark_back() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (once, _) = made(&mut wire, panes[0]);
+    wire.ok(json!({"cmd": "float-pane", "pane": once, "mode": "off"}));
+    assert!(wire.mark().is_null(), "the fixture: a tiled pane has no mark");
+    let (second, _) = new_screen(&mut wire);
+    let data = toggle_in(&mut wire, &second);
+    assert_eq!(
+        data["created"], true,
+        "the fixture: the workspace has a new quick terminal: {data}"
+    );
+    let quick = pane(&data["pane"]);
+
+    let response = wire.send(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    let screens = screens(&wire);
+    let marks = marks(&screens);
+    assert_eq!(marks.len(), 1, "an undo made a second quick terminal in the workspace: {marks:?}");
+    assert_eq!(marks[0]["pane"], json!(quick), "the workspace keeps its quick terminal");
+    assert_eq!(response["data"]["undone"], true, "the undo of the float request: {response}");
+    let floating: Vec<PaneId> =
+        floating_of(&screens[0]).into_iter().map(|(pane, _)| pane).collect();
+    assert_eq!(floating, vec![once], "the undo puts the pane back into the list");
+}
+
+/// A screen has a quick terminal and a change of its layout to undo, and moves into a workspace that has a
+/// quick terminal: its own becomes a plain floating pane. An undo in that screen puts back the frame of
+/// before the change and no mark: the workspace has one quick terminal still.
+#[test]
+fn an_undo_in_a_screen_that_came_into_a_workspace_with_a_quick_terminal_puts_no_mark_back() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let (first, second) =
+        wire.mux.with_state(|state| (state.workspaces[0].id, state.workspaces[1].id));
+    wire.ok(json!({"cmd": "new-screen", "workspace": second, "cols": 80, "rows": 22}));
+    let other = screens_of(&wire, 1)[1]["id"].clone();
+    let data = toggle_in(&mut wire, &other);
+    assert_eq!(
+        data["created"], true,
+        "the fixture: the second workspace has a quick terminal: {data}"
+    );
+    let came = pane(&data["pane"]);
+    // The change to undo is the frame of the quick terminal: its snapshot of before has the mark.
+    wire.ok(json!({
+        "cmd": "float-pane", "pane": came, "mode": "on", "x": 0.1, "y": 0.2, "w": 0.4, "h": 0.5,
+    }));
+    wire.ok(json!({"cmd": "move-screen", "screen": other, "workspace": first}));
+    assert_eq!(
+        marks(&screens(&wire)).len(),
+        1,
+        "the fixture: the move ended the mark of the pane that came"
+    );
+
+    let response = wire.send(json!({"cmd": "undo-layout", "pane": came}));
+    let screens = screens(&wire);
+    let marks = marks(&screens);
+    assert_eq!(marks.len(), 1, "an undo made a second quick terminal in the workspace: {marks:?}");
+    assert_eq!(marks[0]["pane"], json!(quick), "the workspace keeps its quick terminal");
+    assert_eq!(response["data"]["undone"], true, "the undo of the frame: {response}");
+    assert_eq!(
+        floating_of(&screens[1]),
+        vec![(came, frame(0.55, 0.55, 0.45, 0.45))],
+        "the pane that came floats at the frame of before the change"
+    );
+}
+
+/// A bring is a move of a pane between 2 screens: it ends the layout undo of both, as each move of a pane
+/// between screens does. An undo in the screen that the quick terminal left, and one in the screen that it
+/// came to, have no change to undo.
+#[test]
+fn a_bring_ends_the_layout_undo_of_both_screens() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (_, _, second, there) = two_screens(&mut wire, panes[0]);
+    let surface = wire.mux.new_pane_right(there, 0.5, Some((38, 22))).unwrap();
+    let beside = wire.pane_of(surface.id).unwrap();
+    wire.ok(json!({"cmd": "float-pane", "pane": beside, "mode": "on"}));
+    let entries = |wire: &Wire| {
+        wire.mux.with_state(|state| {
+            let screens = &state.workspaces[0].screens;
+            (screens[0].layout_undo.len(), screens[1].layout_undo.len())
+        })
+    };
+    let before = entries(&wire);
+    assert!(
+        before.0 > 0 && before.1 > 0,
+        "the fixture: each screen has a change to undo: {before:?}"
+    );
+
+    toggle_in(&mut wire, &second);
+    assert_eq!(entries(&wire), (0, 0), "a bring kept a change to undo");
+    for pane in [panes[0], there] {
+        let response = wire.send(json!({"cmd": "undo-layout", "pane": pane}));
+        refused(&response, "layout-undo-unavailable");
+    }
+}
+
+/// The quick terminal comes to a screen that has a zoomed pane: the zoom of that screen ends, as it does
+/// for each pane that becomes a split of a pane of a zoomed screen.
+#[test]
+fn a_bring_ends_the_zoom_of_the_screen_that_it_comes_to() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _, second, there) = two_screens(&mut wire, panes[0]);
+    wire.mux.new_pane_right(there, 0.5, Some((38, 22))).unwrap();
+    let zoom = wire.ok(json!({"cmd": "zoom-pane", "pane": there, "mode": "on"}));
+    assert_eq!(zoom["zoomed"], true, "the fixture: a pane of the second screen is zoomed: {zoom}");
+    assert_eq!(screens(&wire)[1]["zoomed_pane"], json!(there), "the fixture: the zoom");
+
+    let data = toggle_in(&mut wire, &second);
+    assert_eq!(pane(&data["pane"]), quick, "{data}");
+    let screen = screens(&wire)[1].clone();
+    assert_eq!(screen["quick_terminal"]["pane"], json!(quick), "{screen}");
+    assert!(screen["zoomed_pane"].is_null(), "the bring kept the zoom of the screen: {screen}");
+}
+
+/// 2 clients send `show` at the same time, each for another screen of the workspace, while a third screen
+/// holds the quick terminal. Each request brings it, in an order that the test does not set. After both the
+/// workspace has one quick terminal: the same pane with its terminal, in one of the 2 screens, and each
+/// answer names it.
+#[test]
+fn two_shows_at_once_from_2_screens_bring_one_quick_terminal() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, surface, second, _) = two_screens(&mut wire, panes[0]);
+    let (third, _) = new_screen(&mut wire);
+    let start = Arc::new(std::sync::Barrier::new(2));
+    let threads: Vec<_> = [second, third]
+        .into_iter()
+        .map(|screen| {
+            let (mux, start) = (wire.mux.clone(), start.clone());
+            std::thread::spawn(move || {
+                start.wait();
+                Wire::on(mux)
+                    .send(json!({"cmd": "quick-terminal", "screen": screen, "mode": "show"}))
+            })
+        })
+        .collect();
+    for thread in threads {
+        let response = thread.join().unwrap();
+        assert_eq!(response["ok"], true, "a show at the same time as another failed: {response}");
+        let data = &response["data"];
+        assert_eq!(data["created"], false, "{data}");
+        assert_eq!(pane(&data["pane"]), quick, "{data}");
+    }
+
+    let screens = screens(&wire);
+    assert_eq!(screens.len(), 3, "the fixture: 3 screens in one workspace");
+    let marks = marks(&screens);
+    assert_eq!(marks.len(), 1, "one quick terminal in the workspace: {marks:?}");
+    assert_eq!(marks[0]["pane"], json!(quick), "{marks:?}");
+    assert_eq!(marks[0]["hidden"], false, "{marks:?}");
+    assert!(screens[0]["quick_terminal"].is_null(), "no show brought the quick terminal");
+    assert_eq!(screens.iter().map(|screen| panes_of(screen).len()).sum::<usize>(), 5);
+    assert_eq!(wire.pane_of(surface), Some(quick), "the terminal of the quick terminal");
+}

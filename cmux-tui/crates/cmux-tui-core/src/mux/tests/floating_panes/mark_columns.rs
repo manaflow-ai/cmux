@@ -8,6 +8,8 @@
 //! columns in each statement of the table: a test of that build, with these same 3 statements, shows that it
 //! opens, loads and writes such a store.
 
+use cmux_layout_reducer::floating_panes::Quick;
+
 use super::*;
 
 /// The statement of the table as this build and each build before the mark run it at each open.
@@ -100,6 +102,42 @@ fn a_store_of_this_build_has_the_2_columns_of_the_quick_terminal_mark() {
         "the open adds the 2 columns to a table of before the mark"
     );
     assert_eq!(schema_text(&registry, NAME), made, "the same table as in a store of this build");
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// SQLite reads the name of a column with no regard to the case of its letters. A table whose columns of the
+/// mark have their names in other letters, which no build makes, has the 2 columns: the open adds no column,
+/// and the store opens and loads the mark.
+#[test]
+fn a_column_of_the_mark_with_its_name_in_other_letters_is_the_column() {
+    let (root, session) = seed("mark-column-letters", |_| {});
+    let (screen, pane) = (restore_screen_id(1), restore_pane_id(4));
+    let other_letters = TABLE.replace(
+        "h INTEGER NOT NULL,",
+        "h INTEGER NOT NULL, QUICK INTEGER NOT NULL DEFAULT 0, Quick_From TEXT,",
+    );
+    assert_ne!(other_letters, TABLE, "the fixture: the statement has the 2 columns");
+    let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    registry
+        .execute_sql_for_test(&format!(
+            "DROP TABLE {NAME}; {other_letters}
+             INSERT INTO {NAME}(screen_id, pane_id, position, x, y, w, h, QUICK, Quick_From)
+             VALUES('{screen}', '{pane}', 0, 250000, 250000, 500000, 500000, 2, NULL);"
+        ))
+        .unwrap();
+    let expected =
+        COLUMNS.replace("quick INTEGER", "QUICK INTEGER").replace("quick_from", "Quick_From");
+    assert_eq!(columns(&registry), expected, "the fixture: the 2 columns in other letters");
+    drop(registry);
+
+    let opened = WorkspaceRegistry::open(&root, &session);
+    assert!(opened.is_ok(), "the store did not open: {:?}", opened.as_ref().err());
+    let registry = opened.unwrap();
+    assert_eq!(columns(&registry), expected, "the open changed the columns");
+    let mut marked = Floating::plain(pane, FloatFrame::centered(500_000, 500_000));
+    marked.quick = Some(Quick { hidden: true, from: None });
+    assert_eq!(stored_list_in(&registry), [marked], "the load reads the mark");
     drop(registry);
     std::fs::remove_dir_all(root).unwrap();
 }
