@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44027005743",
+  "recorded_at": "2026-11-17T06:01:11Z",
+  "reason": "cmux-tui f8b76f71b3f4 changes the image's cmux-tui (pinned 650d5fecd5dd)",
+  "dry_run": false,
+  "cmux_tui": "f8b76f71b3f4ce36485626d782f22a372a1c390e",
+  "fixes": [
+    {
+      "sha": "6e2a9cf640aa17eb1a182e57d956746de5b7182e",
+      "mergedAt": "2026-11-17T05:31:15Z",
+      "subject": "Stress harness: the remote machine list at 10 to 1000 machines (#44997)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T06:01:11Z",
+    "snapshot_id": "sh-85b1797344ef446392a1578b545d9835",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44027005743): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9019c905c8624875d92e6521a66b859d006ee4cf",
+    "image": "cloud-native-auto-f8b76f71-44027005743-1",
+    "revision": "ci-44027005743-1",
+    "at": "2026-11-17T06:01:11Z"
+  },
+  "rolled_back": false
+}
