@@ -11704,7 +11704,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   onFollowingChange={
                                                                     childRows ? undefined : onTranscriptFollowingChange
                                                                   }
-                                                                  onKeepFrom={childRows ? undefined : onTranscriptKeepFrom}
+                                                                  onKeepFrom={
+                                                                    childRows ? undefined : onTranscriptKeepFrom
+                                                                  }
                                                                   onAnchor={
                                                                     quick || childRows || !shownSessionId
                                                                       ? undefined

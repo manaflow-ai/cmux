@@ -141,8 +141,10 @@ await requireBrowserLane("agent-pane-older-paging-at-bottom.test.ts", async () =
     )) as { error?: string };
     expect(started.error).toBeUndefined();
     await page.waitForFunction(() => (window as any).__olderPagingDone === true, null, { timeout: 60_000 });
-    // A page asked for in the stream's last frames lands in the next ones.
-    await page.waitForTimeout(500);
+    // A page asked for in the stream's last frames lands (and refolds) before `loadingOlder` clears.
+    await page.waitForFunction(() => (window as any).__olderClient.loadingOlder === undefined, null, {
+      timeout: 30_000,
+    });
     const result = (await page.evaluate(() => ({
       counts: (window as any).__olderPaging as Record<string, number>,
       held: (window as any).__olderClient.events.length as number,
