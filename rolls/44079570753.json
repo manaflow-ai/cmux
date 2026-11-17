@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44079570753",
+  "recorded_at": "2026-11-17T12:20:03Z",
+  "reason": "cmux-tui 772860a08177 changes the image's cmux-tui (pinned 21f6a48cf737)",
+  "dry_run": false,
+  "cmux_tui": "772860a08177f625e0a15632bdadab80863242dc",
+  "fixes": [
+    {
+      "sha": "a77b488492bc573ac5e75638bf0bf678f95ee8a9",
+      "mergedAt": "2026-11-17T03:53:14-08:00",
+      "subject": "cmux-tui-core: lock_file waits for a pending LockFileEx before its OVERLAPPED goes (#45452)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T12:20:03Z",
+    "snapshot_id": "sh-a9230bfe2eaa4e01974888bc1f6e0841",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44079570753): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de3b0eab2068250c28bd048976518f6cb8f03d5f",
+    "image": "cloud-native-auto-772860a0-44079570753-1",
+    "revision": "ci-44079570753-1",
+    "at": "2026-11-17T12:20:03Z"
+  },
+  "rolled_back": false
+}
