@@ -71,8 +71,9 @@
    no space (sinceRead.experiment.ts, `data-gone`): a faded row that kept its 28px and the block gaps
    around it was a blank band between turns (Leo, 2026-11-17: "in the periods here"). With no recap
    the row measures 0 and the transcript lays the rows around it out as if it were not there
-   (model.ts, a row of height 0 takes no gap). `collapse` goes at once; `shrink` closes on the calm
-   motion step, which the motion settings and reduced motion zero. */
+   (model.ts, a row of height 0 takes no gap). `shrink` (shipped) closes on the calm motion step, so
+   the rows under it move with it in one transition; with motion off or reduced it goes in one step.
+   `collapse` goes at once. */
 .cv-since[data-read] .cv-since__rule,
 .cv-since[data-read] .cv-since__tag,
 .cv-since[data-read] .cv-since__lead {
@@ -101,6 +102,11 @@
     transition: height var(--agent-motion-calm) var(--agent-ease-out);
   }
 }
+/* The app's motion gate: with motion off or reduced the read line goes in one step. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .cv-since__menu {
+  transition: none;
+}
 
 /* The moving view's zone: the transcript's top start (overlayLayout.ts "top-start"), on the text
    column's start inset, under the clear line VirtualTranscript.tsx measures. It keeps to the
@@ -113,7 +119,8 @@
   display: flex;
   justify-content: flex-start;
   padding-top: var(--ds-space-2);
-  padding-inline: var(--cv-inset, var(--ds-space-4)) var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
+  padding-inline: var(--cv-inset, var(--ds-space-4))
+    var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
   pointer-events: none;
 }
 

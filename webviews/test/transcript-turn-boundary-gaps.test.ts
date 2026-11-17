@@ -188,4 +188,54 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
       // Each received message is named once.
       expect(named, `rows naming the messages:\n${naming.join("\n")}\nrows:\n${table}`).toBe(BOUNDARY_MESSAGES.length);
     });
+
+  // With motion on, marking the line read shrinks its row through the motion step: its height passes
+  // through values between 28 and 0 over several frames, never 28 then 0 in one frame.
+  test("a read line shrinks through the motion step with motion on", async () => {
+    const page = await browser.newPage({
+      viewport: { width: 1000, height: 900 },
+      deviceScaleFactor: 2,
+    });
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "inbox-unread", width: 900, theme: "Catppuccin Mocha", reducedMotion: "false" })}`,
+    );
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 120_000,
+    });
+    await page.evaluate(() => document.fonts.ready);
+    await page.locator(".cv-since__line").click({ button: "right" });
+    const item = page.getByRole("menuitem", { name: /mark/i }).first();
+    await item.waitFor();
+    // Sample every frame from the click on until the row has settled.
+    const sampling = page.evaluate(
+      () =>
+        new Promise<{ height: number; next: number }[]>((resolve) => {
+          const samples: { height: number; next: number }[] = [];
+          const start = performance.now();
+          const frame = () => {
+            const row = document.querySelector<HTMLElement>("[data-row-id='sinceDivider']");
+            const next = row?.nextElementSibling?.getBoundingClientRect().top ?? NaN;
+            samples.push({
+              height: row?.getBoundingClientRect().height ?? 0,
+              next,
+            });
+            if (performance.now() - start < 1200) requestAnimationFrame(frame);
+            else resolve(samples);
+          };
+          requestAnimationFrame(frame);
+        }),
+    );
+    await item.click();
+    const samples = await sampling;
+    await page.close();
+    const heights = samples.map((sample) => Math.round(sample.height * 10) / 10);
+    const tops = samples.map((sample) => Math.round(sample.next * 10) / 10);
+    const trace = `heights per frame: ${heights.join(" ")}\nnext row's top per frame: ${tops.join(" ")}`;
+    console.log(trace);
+    expect(heights[0], trace).toBeGreaterThan(20);
+    expect(heights.at(-1), trace).toBe(0);
+    // Frames in the middle of the shrink: the row did not go from its height to 0 in one step.
+    expect(heights.filter((height) => height > 2 && height < heights[0]! - 2).length, trace).toBeGreaterThanOrEqual(3);
+  });
 });

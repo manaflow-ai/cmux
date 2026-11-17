@@ -6,9 +6,9 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// next turn (Leo, 2026-11-17: "we sometimes have weird ui like this" / "in the periods here"). A row
 /// with nothing visible takes no space, so the read line goes; a recap under it stays (it is
 /// content). Compare in `agent-pane.turn-boundary-gaps`.
-/// The default, `collapse`, takes the line out at once: the reader is at the latest message when it is
-/// read, so what is under the view keeps its place, and the layout reads one new height, not one per
-/// frame of a height animation.
+/// The default, `shrink`, closes the line on the calm motion step through the web motion gate
+/// (`data-cmux-motion`, reduced motion: one step there): one state change in which every row the
+/// line moves moves with it, never a 52px jump in one frame as `collapse` makes.
 export const sinceRead = defineExperiment({
   id: "since-read",
   title: "A read unread line",
@@ -27,5 +27,5 @@ export const sinceRead = defineExperiment({
       description: "Before: the read line fades and keeps its row, a blank band between turns.",
     },
   },
-  defaultArm: "collapse",
+  defaultArm: "shrink",
 });
