@@ -3224,3 +3224,13 @@ fn chromium_shows_its_pages_once_asked_like_a_screen_reader() {
     assert_eq!(web_accessibility_attribute(web_engine(Some("com.apple.Safari"))), None);
     assert_eq!(web_accessibility_attribute(web_engine(None)), None);
 }
+
+#[test]
+fn a_webkit_field_typed_into_with_keys_gets_its_caret_written_again() {
+    use roles::{settles_caret_after_keys, web_engine};
+    // Safari applied a pending autocorrection ("cmux" -> "crux") at the next
+    // call's caret write into another field, after this one said confirmed.
+    assert!(settles_caret_after_keys(web_engine(Some("com.apple.Safari"))));
+    assert!(settles_caret_after_keys(web_engine(None)), "an unknown app is WebKit's rule");
+    assert!(!settles_caret_after_keys(web_engine(Some("com.google.Chrome"))));
+}

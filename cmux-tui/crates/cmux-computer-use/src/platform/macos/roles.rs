@@ -247,6 +247,15 @@ pub fn web_focus_write(engine: WebEngine) -> WebFocusWrite {
     }
 }
 
+/// Whether the caret of a web field is written again after keys typed into
+/// it ([`WebEngine::Other`]: WebKit keeps an autocorrection pending on the
+/// last word and applies it at a later caret write into another field).
+pub fn settles_caret_after_keys(engine: WebEngine) -> bool {
+    // Stub (red): never, as before.
+    let _ = engine;
+    false
+}
+
 /// Where a background app's focused element (`AXFocusedUIElement`) is,
 /// relative to the field keys are meant for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
