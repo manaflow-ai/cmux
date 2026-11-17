@@ -99,7 +99,16 @@ const MAX_STEP_US: u64 = 200_000;
 const MIN_DECREASE_INTERVAL_US: u64 = 200_000;
 /// D12: no feedback, or no arrival while datagrams were in flight, for longer than
 /// this (or four round trips) is an outage, not congestion.
-const OUTAGE_MIN_US: u64 = 100_000;
+pub const OUTAGE_MIN_US: u64 = 100_000;
+
+/// D12: the one outage threshold, max(100 ms, 4 x RTT). Silence or a one-way
+/// delay jump longer than this is a path that went away, not congestion. Every
+/// outage reader (the host's controller, the viewer's link state) uses this.
+/// `rtt_us` is the path's smallest round trip, if one has been measured.
+pub fn outage_threshold_us(rtt_us: Option<u64>) -> u64 {
+    rtt_us.map_or(OUTAGE_MIN_US, |rtt| rtt.saturating_mul(4).max(OUTAGE_MIN_US))
+}
+
 /// An outage's freeze ends at the first arrival of a datagram sent after it, or
 /// after this long at most.
 const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
@@ -335,9 +344,9 @@ impl OutageWatch {
         }
     }
 
-    /// max(100 ms, 4 round trips).
+    /// [`outage_threshold_us`] on this path.
     fn threshold_us(&self) -> u64 {
-        self.min_rtt_us.map_or(OUTAGE_MIN_US, |rtt| rtt.saturating_mul(4).max(OUTAGE_MIN_US))
+        outage_threshold_us(self.min_rtt_us)
     }
 
     /// A response window: at least [`MIN_DECREASE_INTERVAL_US`] or one round trip.

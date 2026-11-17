@@ -407,3 +407,12 @@ fn a_bandwidth_limited_link_still_cuts() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// D12's one threshold: max(100 ms, 4 x RTT), shared by every outage reader.
+#[test]
+fn the_outage_threshold_is_max_of_100_ms_and_four_round_trips() {
+    use cmux_rd_core::cc::outage_threshold_us;
+    assert_eq!(outage_threshold_us(None), 100_000);
+    assert_eq!(outage_threshold_us(Some(8_000)), 100_000);
+    assert_eq!(outage_threshold_us(Some(40_000)), 160_000);
+}
