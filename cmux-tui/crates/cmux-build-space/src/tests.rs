@@ -84,3 +84,11 @@ fn parse_optional_drops_what_resolve_refuses() {
     assert_eq!(BuildSpace::parse_optional(Some("bad")), None);
     assert_eq!(BuildSpace::parse_optional(None), None);
 }
+
+#[test]
+fn an_untagged_dev_builds_child_refusal_names_the_tagging_command() {
+    // The untagged DEV app gives its children `unusable` (CMUXBuildSpaceState.unusableChildValue).
+    let refusal = resolve(env(&[(ENV, "unusable")])).unwrap_err().to_string();
+    assert!(refusal.contains("./scripts/reload.sh --tag <name>"), "{refusal}");
+    assert!(refusal.contains("cmux-ci build cmux --ref <sha> --tag <name>"), "{refusal}");
+}

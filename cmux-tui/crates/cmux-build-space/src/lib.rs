@@ -87,6 +87,9 @@ impl fmt::Display for BuildSpace {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unusable(String);
 
+/// The refusal's way out: a dev build gets its space from its tag.
+pub const HOW_TO_TAG: &str = "Build it with a tag: ./scripts/reload.sh --tag <name> (on the fleet: cmux-ci build cmux --ref <sha> --tag <name>)";
+
 impl Unusable {
     /// What was wrong, without the refusal's preamble.
     pub fn reason(&self) -> &str {
@@ -98,7 +101,7 @@ impl fmt::Display for Unusable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "refusing to call cmux Cloud: {}. A dev build sends {ENV}=dev:<slug> as X-Cmux-Build-Space; without it this process would read and change nightly's data",
+            "refusing to call cmux Cloud: {}. A dev build sends {ENV}=dev:<slug> as X-Cmux-Build-Space; without it this process would read and change nightly's data. {HOW_TO_TAG}",
             self.0
         )
     }

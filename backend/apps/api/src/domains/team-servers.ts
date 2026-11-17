@@ -104,7 +104,7 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
   // The join token its approval minted, kept so the server's revoke revokes that machine too.
   const newJoin = v.machine_join_token !== undefined && state.server_machine_joins?.[v.install] !== v.machine_join_token
   if (existing && JSON.stringify(existing) === JSON.stringify(host) && !newJoin) return { ok: true, state, value: host, changed: false }
-  const next = { ...state, ...(newJoin ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token! } } : {}), host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
+  const next = { ...state, ...(newJoin ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token! } } : {}), host_count: (state.host_count ?? 0) + (existing || space ? 0 : 1) }
   return withWrites(
     audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: hostPayload(host, state.team.id, space) }, `server ${host.name} paired`, {
       host: host.id,
@@ -178,7 +178,7 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   // Its machine (the join token its approval minted) is revoked with it, by the same pending item.
   const { [host.enrolled_by]: machineJoin, ...joins } = state.server_machine_joins ?? {}
   const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now, ...(machineJoin ? { machine_join_token: machineJoin } : {}), ...(space ? { space } : {}) }
-  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}) }
+  const next = { ...state, ...legacy, host_count: space ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}) }
   return withWrites(
     audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(space ? { space } : {}) } }, `server ${host.name} revoked`, {
       host: host.id,

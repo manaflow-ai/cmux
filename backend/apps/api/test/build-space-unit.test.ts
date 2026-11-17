@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { ACCOUNT_WIDE_BINDINGS, PER_BUILD_BINDINGS, envForObject, spaceOf, spaceOfObject, spacedEnv, spacedName } from "../src/build-space.ts"
+import { ACCOUNT_WIDE_BINDINGS, PER_BUILD_BINDINGS, envForObject, envInSpace, spaceOf, spaceOfObject, spacedEnv, spacedName } from "../src/build-space.ts"
 import { spaceRows } from "../src/build-space-projection.ts"
 import { projectRows } from "../src/projection-targets.ts"
 import type { RawEnv } from "../src/env.ts"
@@ -66,6 +66,21 @@ describe("build spaces inside the Worker", () => {
     // A shared object's host row names its space in the payload.
     const host = spaceRows("", [{ id: 4, kind: "host.upsert", entity: "h", payload: { id: "host_1", space: "dev:b" }, seq: 4 }] as never)
     expect((host.dev[0]!.payload as any).id).toBe("dev:b|host_1")
+    // Only host rows may name a space: any other base row stays nightly's, whatever its payload says.
+    const named = [{ id: 5, kind: "home.conversation.upsert", entity: "c", payload: { id: "conv_y", space: "dev:b" }, seq: 5 }] as never
+    expect(spaceRows("", named)).toEqual({ base: named, dev: [], skipped: [] })
+  })
+
+  it("refuses a dev space's object name in the base space, and a shared env still crosses into a dev space", () => {
+    const base = spacedEnv(raw, "")
+    // A client's text (an agent id, a conversation id) named `dev:<slug>|…` would be that dev space's object.
+    expect(() => base.USER_DO.idFromName("dev:a|user_x")).toThrow(/starts with dev:/)
+    expect(() => base.CONVERSATION_DO.getByName("dev:a|conv_x")).toThrow(/starts with dev:/)
+    // Every other name is nightly's object, byte for byte.
+    expect(base.USER_DO.idFromName("user_x").toString()).toBe(raw.USER_DO.idFromName("user_x").toString())
+    // envInSpace: TeamDO's base env reaching a host's dev space names the dev object as before.
+    const crossed = envInSpace(base, "dev:a")
+    expect(crossed.USER_DO.idFromName("user_x").toString()).toBe(raw.USER_DO.idFromName("dev:a|user_x").toString())
   })
 
   it("projects a dev build's rows to the Postgres shadow when MySQL is the primary", async () => {

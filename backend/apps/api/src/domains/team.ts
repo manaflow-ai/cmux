@@ -32,6 +32,7 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly seat_count?: number
   /** Owners of a Stack team, kept by the reducers that change roles (re-review P3); 0 means no owner (noOwnerOf, review P2-3). Undefined on older heads until team.owner_count.init. */
   readonly owner_count?: number
+  /** Hosts of the base space (nightly and stable) only: a dev build's host is not in nightly's directory, so not in its count (team-reads.ts). */
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
@@ -231,7 +232,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
         return {
           ok: true,
-          state: { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) },
+          state: { ...state, host_count: (state.host_count ?? 0) + (existing || space ? 0 : 1) }, // nightly's count: base-space hosts only
           writes: hostUpsert(host, existing ? undefined : space),
           value: host,
           outbox: [{ kind: "host.upsert", entity: id, payload: hostPayload(host, state.team.id, space) }]
@@ -248,7 +249,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (host.owner_user !== p.user && !roleHas(role, "team.manage")) return reject("auth.forbidden", "only the host owner or a team admin may remove it")
         return {
           ok: true,
-          state: { ...withoutLegacyHost(state, host.id), host_count: Math.max(0, (state.host_count ?? 1) - 1) },
+          state: { ...withoutLegacyHost(state, host.id), host_count: principalSpace(p) ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1) },
           writes: hostDelete(host),
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(principalSpace(p) ? { space: principalSpace(p) } : {}) } }]

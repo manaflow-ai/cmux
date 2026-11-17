@@ -80,6 +80,9 @@ struct CMUXBuildSpaceStateTests {
         #expect(text.contains("no usable build space tag"))
         #expect(text.contains("it has no tag"))
         #expect(text.contains("nightly"))
+        // Actionable: it names the command that makes a tagged build.
+        #expect(text.contains("./scripts/reload.sh --tag <name>"))
+        #expect(text.contains("cmux-ci build cmux --ref <sha> --tag <name>"))
         #expect(refusal.localizedDescription == text)
     }
 }

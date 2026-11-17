@@ -110,8 +110,39 @@ export const spaceOfName = (name: string | undefined): BuildSpace => {
   return space
 }
 
+/** The raw namespace behind a base-space one, so a shared object's env (envInSpace) can still name into a dev space. */
+const rawNamespaces = new WeakMap<object, DurableObjectNamespace<Rpc.DurableObjectBranded | undefined>>()
+const rawNamespace = <T extends Rpc.DurableObjectBranded | undefined>(ns: DurableObjectNamespace<T>): DurableObjectNamespace<T> =>
+  (rawNamespaces.get(ns) as DurableObjectNamespace<T> | undefined) ?? ns
+
+/** Whether a client-supplied name would land in a dev space's object (`dev:<slug>|…`, or any `dev:` name). */
+export const namesDevSpace = (name: string): boolean => name.startsWith("dev:")
+
+/**
+ * A per-build namespace in the base space: every name as it is (nightly's objects byte for byte), except a name that
+ * starts with `dev:`. Such a name is a dev space's object (spacedName), and a base-space caller passing a client's
+ * text (an agent id, a conversation id) must never reach it.
+ */
+const baseNamespace = <T extends Rpc.DurableObjectBranded | undefined>(ns: DurableObjectNamespace<T>): DurableObjectNamespace<T> => {
+  const checked = (name: string) => {
+    if (namesDevSpace(name)) throw new Error("build space: a name in the base space starts with dev:, a dev space's object")
+    return name
+  }
+  const base = {
+    idFromName: (name: string) => ns.idFromName(checked(name)),
+    idFromString: (id: string) => ns.idFromString(id),
+    newUniqueId: (options?: DurableObjectNamespaceNewUniqueIdOptions) => ns.newUniqueId(options),
+    get: (id: DurableObjectId, options?: DurableObjectNamespaceGetDurableObjectOptions) => ns.get(id, options),
+    getByName: (name: string, options?: DurableObjectNamespaceGetDurableObjectOptions) => ns.get(ns.idFromName(checked(name)), options),
+    jurisdiction: (jurisdiction: DurableObjectJurisdiction) => baseNamespace(ns.jurisdiction(jurisdiction))
+  } as unknown as DurableObjectNamespace<T>
+  rawNamespaces.set(base, ns as DurableObjectNamespace<Rpc.DurableObjectBranded | undefined>)
+  return base
+}
+
 /** A namespace whose names live in `space`. Ids from strings and unique ids are refused in a dev space: their objects could not tell their space. */
-const spacedNamespace = <T extends Rpc.DurableObjectBranded | undefined>(ns: DurableObjectNamespace<T>, space: BuildSpace): DurableObjectNamespace<T> => {
+const spacedNamespace = <T extends Rpc.DurableObjectBranded | undefined>(given: DurableObjectNamespace<T>, space: BuildSpace): DurableObjectNamespace<T> => {
+  const ns = rawNamespace(given)
   const refuse = (what: string) => () => {
     throw new Error(`build space: ${what} is not available in a dev space`)
   }
@@ -160,8 +191,8 @@ const principalsInSpace = <T extends Rpc.DurableObjectBranded | undefined>(ns: D
 
 /**
  * The env of one build space: every PER_BUILD binding names its objects in `space`; everything else is the raw
- * binding. In the base space the bindings are the raw ones, so nightly and stable reach exactly the objects they
- * reached before build spaces existed.
+ * binding. In the base space a PER_BUILD binding names every object as it is, so nightly and stable reach exactly the
+ * objects they reached before build spaces existed, except a `dev:` name (a dev space's object): refused (baseNamespace).
  */
 export const spacedEnv = (raw: RawEnv, space: BuildSpace): Env => {
   if (isDevSpace(space) && !devSpacesAllowed(raw)) throw new Error(`build space: environment "${raw.ENVIRONMENT}" serves no dev spaces (production and unknown environments are nightly and stable only)`)
@@ -175,6 +206,11 @@ export const spacedEnv = (raw: RawEnv, space: BuildSpace): Env => {
     for (const binding of ACCOUNT_WIDE_BINDINGS.filter((b) => b !== "CLOUD_DO")) {
       const ns = raw[binding] as DurableObjectNamespace | undefined
       if (ns) out[binding] = principalsInSpace(ns, space)
+    }
+  } else {
+    for (const binding of PER_BUILD_BINDINGS) {
+      const ns = raw[binding] as DurableObjectNamespace | undefined
+      if (ns) out[binding] = baseNamespace(ns)
     }
   }
   return out as unknown as Env

@@ -73,7 +73,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       const q = params as { cursor?: unknown; limit?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
       const pageOf = listHosts(state, rows, typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined, limit, principal)
-      // host_count is every space's: a dev build counts only what it lists (build-space.ts).
+      // host_count counts the base space's hosts only (TeamState.host_count); a dev build counts only what it lists (build-space.ts).
       return { ok: true, value: { team: state.team?.id, hosts: pageOf.items, host_count: principal.build_space ? pageOf.items.length : (state.host_count ?? pageOf.items.length), next_cursor: pageOf.next }, revision: "" }
     }
     case "team.policy.get": {

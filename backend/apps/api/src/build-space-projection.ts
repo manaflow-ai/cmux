@@ -31,9 +31,12 @@ export const SPACE_KEYED_KINDS: Readonly<Record<string, ReadonlyArray<string>>> 
   "home.message.delete_through": ["conversation_id"]
 }
 
-/** The space a row belongs to: its object's, or for a shared object (TeamDO's hosts) the space its payload names. */
+/**
+ * The space a row belongs to: its object's, or for a shared object's host rows (TeamDO's `host.*`) the space its
+ * payload names. No other kind may name a space: a base row whose payload happens to carry `space` stays a base row.
+ */
 const rowSpace = (objectSpace: BuildSpace, row: OutboxRow): BuildSpace | null => {
-  if (isDevSpace(objectSpace)) return objectSpace
+  if (isDevSpace(objectSpace) || !row.kind.startsWith("host.")) return objectSpace
   const named = (row.payload as { space?: unknown } | null)?.space
   return named === undefined ? objectSpace : typeof named === "string" ? parseBuildSpace(named) : null
 }

@@ -95,7 +95,8 @@ public enum CMUXBuildSpaceError: Error, Sendable, Hashable, LocalizedError {
         switch self {
         case let .misconfiguredDev(reason):
             "This dev build has no usable build space tag (\(reason)), so it makes no cloud calls: without one it "
-                + "would read and change nightly's cloud data. Rebuild it with a tag."
+                + "would read and change nightly's cloud data. Build it with a tag: ./scripts/reload.sh --tag <name> "
+                + "(on the fleet: cmux-ci build cmux --ref <sha> --tag <name>)."
         }
     }
 }

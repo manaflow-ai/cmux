@@ -107,6 +107,8 @@ describe("build spaces (dev builds do not intertwine)", () => {
       expect(hosts.status, JSON.stringify(hosts.json)).toBe(200)
       expect(hosts.json.value.team).toBe(mine.team)
       expect((hosts.json.value.hosts as Array<{ id: string }>).map((h) => h.id)).toEqual([mine.host])
+      // The count matches the list: nightly's counts no dev build's host (review follow-up).
+      expect(hosts.json.value.host_count).toBe(1)
       const directory = await read(space, token, "team.directory", {})
       expect((directory.json.value.hosts as Array<{ id: string }>).map((h) => h.id)).toEqual([mine.host])
       // Another build's host cannot be removed from here.
