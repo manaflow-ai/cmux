@@ -13,10 +13,16 @@
 //! `structuredContent.status` `running`, `ok` or `failed`. `bg_start` asks the daemon to tell
 //! the chat when the task ends (`notify`, on unless false; `hub/bg_notify.rs`).
 //!
-//! `run_wait` is a `bg_start` the server writes: one blocking `gh run watch` or `gh pr checks
-//! --watch` under the daemon, then the failed jobs read once, and the outcome printed last, which
-//! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
-//! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//! `run_wait` is a `bg_start` the server writes: one blocking wait under the daemon, then the
+//! failed jobs named, and the outcome printed last, which the task's summary is (`resultLine`), so
+//! the chat wakes once with "... passed" or "... failed: JOB, JOB". Where `glaeda-gh` is on the
+//! PATH and answers `glaeda-gh gh --probe`, the wait is one `glaeda-gh wait run|pr`: the host's
+//! one shared daemon polls GitHub for every waiter, and the task itself makes no GitHub call. Only
+//! a machine without it (a user's own Mac) waits with `gh run watch` or `gh pr checks --watch`,
+//! every 120 s. Leo, 2026-11-17, on the Claude desktop app showing a GitHub rate limit: "this
+//! is... interesting. so claude desktop shows rate limit on hover of the github links
+//! sometimes..."; one gh watcher every 30 s spent about 240 to 360 REST calls an hour of his
+//! login's quota. A machine with neither is refused before a task starts.
 //!
 //! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
 //! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
@@ -29,6 +35,9 @@ use crate::client::Client;
 use crate::rpc::method;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 
 pub(super) const TOOLS: [&str; 5] = ["bg_start", "bg_list", "bg_output", "bg_stop", "run_wait"];
@@ -57,7 +66,7 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI.",
+        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs glaeda-gh or the gh CLI.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
@@ -84,13 +93,13 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             Ok(wait) => wait,
             Err(why) => return error_result(why),
         };
-        if !on_path("gh") {
+        let Some(waiter) = Waiter::find(std::env::var_os("PATH")).await else {
             return error_result(
-                "run_wait needs the gh CLI, and none is on this machine's PATH; install gh (https://cli.github.com) or wait another way".to_owned(),
+                "run_wait needs glaeda-gh or the gh CLI, and neither is on this machine's PATH; install gh (https://cli.github.com) or wait another way".to_owned(),
             );
-        }
+        };
         let sub = params.get("callerSubagent").cloned().unwrap_or(Value::Null);
-        params = json!({"sessionId": session, "command": wait.script(),
+        params = json!({"sessionId": session, "command": wait.script(&waiter),
             "description": wait.description, "notify": true, "resultLine": true,
             "callerSubagent": sub});
         return match daemon.request(method::MUX_BG_START, params).await {
@@ -284,11 +293,12 @@ mod tests {
         }
     }
 
-    /// The script waits with one blocking gh call, names what failed, and ends on its outcome
-    /// line and gh's exit code; a pinned head that is another commit fails without a wait.
+    /// Where there is no glaeda-gh, the script waits with one blocking gh call every 120 s, names
+    /// what failed, and ends on its outcome line and gh's exit code; a pinned head that is another
+    /// commit fails without a wait.
     #[cfg(unix)]
     #[test]
-    fn run_wait_scripts_end_on_their_outcome() {
+    fn run_wait_gh_scripts_end_on_their_outcome() {
         let dir = cmux_unix_socket::short_test_dir("run-wait");
         let calls = dir.path().join("calls");
         let gh = dir.path().join("gh");
@@ -312,7 +322,7 @@ esac
         let path =
             format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
         let run = |args: Value| {
-            let script = RunWait::of(&args).unwrap().script();
+            let script = RunWait::of(&args).unwrap().script(&Waiter::Gh);
             let out = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(script)
@@ -337,7 +347,140 @@ esac
         let calls = std::fs::read_to_string(&calls).unwrap();
         // The pinned-elsewhere call never waited: the one wait is the earlier call's.
         assert_eq!(calls.matches("--watch").count(), 1, "{calls}");
-        assert!(calls.contains("run watch 7 --repo o/r --exit-status"), "{calls}");
+        assert!(calls.contains("run watch 7 --repo o/r --exit-status --interval 120"), "{calls}");
+        assert!(
+            calls.contains("pr checks 3 --repo o/r --watch --fail-fast --interval 120"),
+            "{calls}"
+        );
+        assert!(!calls.contains("--interval 30"), "{calls}");
+    }
+
+    /// A fake executable at `path` that appends its arguments to `calls` and runs `body`.
+    #[cfg(unix)]
+    fn fake(path: &Path, calls: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let text = format!("#!/bin/sh\necho \"$*\" >> '{}'\n{body}\n", calls.display());
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Where glaeda-gh answers its probe, the script is one `glaeda-gh wait` (by its full path,
+    /// quoted) and no gh call: it names the failed jobs or checks the wait's summary lists, reads
+    /// a pinned head from the daemon's cache, and turns each of the wait's exit codes into its
+    /// outcome line.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_glaeda_scripts_wait_once_through_the_daemon() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
+        let bin = dir.path().join("it's bin");
+        std::fs::create_dir(&bin).unwrap();
+        let calls = dir.path().join("calls");
+        let gh_calls = dir.path().join("gh-calls");
+        let glaeda = bin.join("glaeda-gh");
+        fake(
+            &glaeda,
+            &calls,
+            r#"case "$*" in
+  "wait run o/r/7 --jobs --timeout 21600")
+    echo "o/r/7 CI: completed / failure  attempt 1  main 0123456789"
+    echo "jobs: 3 total, 2 failed, 0 not finished"
+    echo "  failed: build (step: compile)  https://example.com/job/1"
+    echo "  cancelled: lint  https://example.com/job/2"
+    echo "https://example.com/run/7"
+    exit 1 ;;
+  "wait run o/r/8"*) exit 2 ;;
+  "status pr o/r#3 --field head") echo 0123456789abcdef0123456789abcdef01234567 ;;
+  "status pr o/r#5 --field head") echo "" ;;
+  "wait pr o/r#3 --until done --timeout 21600") echo "checks SUCCESS: 5 passed, 0 failed"; exit 0 ;;
+  "wait pr o/r#4 --until done"*) exit 4 ;;
+  "wait pr o/r#5 --until done"*) exit 0 ;;
+  "wait pr o/r#6 --until done"*) exit 6 ;;
+esac"#,
+        );
+        fake(&dir.path().join("gh"), &gh_calls, "exit 1");
+        let path =
+            format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
+        let waiter = Waiter::Glaeda(glaeda.clone());
+        let run = |args: Value| {
+            let script = RunWait::of(&args).unwrap().script(&waiter);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(script)
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned(), text)
+        };
+        let (code, last, all) = run(json!({"repo": "o/r", "run": 7}));
+        assert_eq!(
+            (code, last.as_str()),
+            (Some(1), "Actions run 7 in o/r failed: build (step: compile), lint"),
+            "{all}"
+        );
+        assert!(all.contains("failed jobs: build (step: compile), lint"), "{all}");
+        assert!(all.contains("https://example.com/run/7"), "the wait's summary is kept: {all}");
+        let (code, last, _) = run(json!({"repo": "o/r", "run": 8}));
+        assert_eq!(
+            (code, last.as_str()),
+            (Some(2), "Actions run 8 in o/r failed: not done within 6 h")
+        );
+        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"));
+        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "fedcba9"}));
+        assert_eq!(code, Some(2));
+        assert!(last.contains("its head is 0123456789abcdef"), "{last}");
+        let (code, last, _) = run(json!({"repo": "o/r", "pr": 4}));
+        assert_eq!(code, Some(4));
+        assert!(last.contains("conflicts with its base"), "{last}");
+        // A head the daemon cannot read, before or after the wait, is not taken as the pinned one.
+        let (code, last, _) = run(json!({"repo": "o/r", "pr": 5, "sha": "abcdef1"}));
+        assert_eq!(
+            (code, last.as_str()),
+            (Some(2), "Checks of o/r#5 failed: its head could not be read")
+        );
+        let (code, last, _) = run(json!({"repo": "o/r", "pr": 6}));
+        assert_eq!(
+            (code, last.as_str()),
+            (Some(6), "Checks of o/r#6 failed: no check ever reported on its head")
+        );
+        let calls = std::fs::read_to_string(&calls).unwrap();
+        // The pinned-elsewhere call never waited: the one wait of #3 is the earlier call's.
+        assert_eq!(calls.matches("wait pr o/r#3").count(), 1, "{calls}");
+        assert!(
+            !gh_calls.exists(),
+            "no gh call: {}",
+            std::fs::read_to_string(&gh_calls).unwrap_or_default()
+        );
+    }
+
+    /// glaeda-gh is used where it answers its probe; an older one (a usage error) or none leaves
+    /// gh, and a machine with neither has no waiter.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_wait_prefers_a_glaeda_gh_that_answers_its_probe() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-find");
+        let calls = dir.path().join("calls");
+        let (new, old, gh_only, none) = (
+            dir.path().join("new"),
+            dir.path().join("old"),
+            dir.path().join("gh"),
+            dir.path().join("none"),
+        );
+        for d in [&new, &old, &gh_only, &none] {
+            std::fs::create_dir(d).unwrap();
+        }
+        fake(&new.join("glaeda-gh"), &calls, r#"[ "$*" = "gh --probe" ] && echo "broker 2""#);
+        fake(&old.join("glaeda-gh"), &calls, "echo 'usage: glaeda-gh' >&2; exit 2");
+        fake(&gh_only.join("gh"), &calls, "exit 0");
+        let path = |dirs: &[&PathBuf]| Some(std::env::join_paths(dirs).unwrap());
+        assert_eq!(
+            Waiter::find(path(&[&new, &gh_only])).await,
+            Some(Waiter::Glaeda(new.join("glaeda-gh")))
+        );
+        assert_eq!(Waiter::find(path(&[&old, &gh_only])).await, Some(Waiter::Gh));
+        assert_eq!(Waiter::find(path(&[&none])).await, None);
+        assert_eq!(Waiter::find(None).await, Some(Waiter::Gh));
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
@@ -417,10 +560,69 @@ impl RunWait {
         Ok(Self { repo: repo.to_owned(), target, description })
     }
 
-    /// The task's command: one blocking `gh` wait, then one read of what failed, and the outcome
-    /// as its last line (the task's summary, `resultLine`). Every value in it was checked above
-    /// (digits, hex, OWNER/REPO characters), so nothing needs quoting.
-    fn script(&self) -> String {
+    /// The task's command (module docs): one blocking wait, then what failed, and the outcome as
+    /// its last line (the task's summary, `resultLine`). Every value in it was checked above
+    /// (digits, hex, OWNER/REPO characters), so only glaeda-gh's path needs quoting.
+    fn script(&self, waiter: &Waiter) -> String {
+        match waiter {
+            Waiter::Glaeda(path) => self.glaeda_script(&sh_quote(&path.to_string_lossy())),
+            Waiter::Gh => self.gh_script(),
+        }
+    }
+
+    /// One `glaeda-gh wait`: the host's daemon polls GitHub for it, so the task makes no GitHub
+    /// call of its own. What failed is what the wait's summary lists.
+    fn glaeda_script(&self, glaeda: &str) -> String {
+        let repo = &self.repo;
+        let mut lines = vec![format!("g={glaeda}")];
+        let (name, wait, what) = match &self.target {
+            Target::Run(run) => (
+                format!("Actions run {run} in {repo}"),
+                format!("\"$g\" wait run {repo}/{run} --jobs --timeout {WAIT_TIMEOUT_S}"),
+                "jobs",
+            ),
+            Target::Pr { number, .. } => (
+                format!("Checks of {repo}#{number}"),
+                format!("\"$g\" wait pr {repo}#{number} --until done --timeout {WAIT_TIMEOUT_S}"),
+                "checks",
+            ),
+        };
+        let pinned = match &self.target {
+            Target::Pr { number, sha: Some(sha) } => {
+                Some((format!("\"$g\" status pr {repo}#{number} --field head 2>/dev/null"), sha))
+            }
+            _ => None,
+        };
+        if let Some((head, sha)) = &pinned {
+            // A head the daemon has not read yet is checked after the wait, which reads it.
+            lines.push(format!("head=$({head})"));
+            lines.push(format!("case \"$head\" in ''|{sha}*) ;; *) echo \"{name} failed: its head is $head, not {sha}\"; exit 2;; esac"));
+        }
+        lines.push(format!("out=$({wait} 2>&1); rc=$?"));
+        lines.push("printf '%s\\n' \"$out\"".to_owned());
+        lines.push(format!("failed=$(printf '%s\\n' \"$out\" | awk '{FAILED_AWK}')"));
+        lines.push(format!("[ -n \"$failed\" ] && echo \"failed {what}: $failed\""));
+        if let Some((head, sha)) = &pinned {
+            lines.push(format!("now=$({head})"));
+            lines.push(format!("case \"$now\" in {sha}*) ;; '') echo \"{name} failed: its head could not be read\"; exit 2;; *) echo \"{name} failed: its head moved to $now while it was waited for\"; exit 2;; esac"));
+        }
+        let hours = WAIT_TIMEOUT_S / 3600;
+        lines.push(format!(
+            "case $rc in 0) echo \"{name} passed\";; \
+             1) echo \"{name} failed${{failed:+: $failed}}\";; \
+             2) echo \"{name} failed: not done within {hours} h\";; \
+             3) echo \"{name} failed: the glaeda-gh daemon is not running (glaeda-gh restart starts it)\";; \
+             4) echo \"{name} failed: it conflicts with its base, so its checks run only after the next push\";; \
+             6) echo \"{name} failed: no check ever reported on its head\";; \
+             *) echo \"{name} failed: glaeda-gh wait exited $rc\";; esac"
+        ));
+        lines.push("exit $rc".to_owned());
+        lines.join("\n")
+    }
+
+    /// One blocking `gh` wait every `GH_INTERVAL_S`, then one read of what failed: only where
+    /// there is no glaeda-gh, since each watcher polls on the login's own quota.
+    fn gh_script(&self) -> String {
         let repo = &self.repo;
         let mut lines = vec![
             "command -v gh >/dev/null 2>&1 || { echo 'run_wait: gh is not installed'; exit 127; }"
@@ -429,7 +631,7 @@ impl RunWait {
         match &self.target {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
-                lines.push(format!("gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$?"));
+                lines.push(format!("gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$?"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
                 lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
@@ -443,7 +645,7 @@ impl RunWait {
                     lines.push(format!("head=$({head}) || {{ echo \"{name} failed: its head could not be read\"; exit 2; }}"));
                     lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head is $head, not {sha}\"; exit 2;; esac"));
                 }
-                lines.push(format!("gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$?"));
+                lines.push(format!("gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$?"));
                 lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
@@ -458,21 +660,76 @@ impl RunWait {
     }
 }
 
-/// Whether an executable named `name` is on this process's PATH (true when it has none).
-fn on_path(name: &str) -> bool {
-    // No PATH here says nothing of the agent's: the task's own check decides then.
-    std::env::var_os("PATH").is_none_or(|path| {
-        std::env::split_paths(&path).any(|dir| {
-            let file = dir.join(name);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                file.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            }
-            #[cfg(not(unix))]
-            {
-                file.is_file()
-            }
-        })
+/// How long a glaeda-gh wait waits before it ends as not done: 6 h, an Actions job's own limit.
+const WAIT_TIMEOUT_S: u64 = 6 * 3600;
+
+/// How often the gh fallback reads the run or the checks: each read spends the login's own REST
+/// quota (about 2 to 3 calls), so 120 s keeps one watcher near 60 to 90 calls an hour.
+const GH_INTERVAL_S: u64 = 120;
+
+/// How long `glaeda-gh gh --probe` may take before the gh fallback is used.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The failed jobs or checks a `glaeda-gh wait` summary lists, comma-joined: its lines
+/// `  failed: NAME (step: S)  URL` (or cancelled, timed_out, ...), without the URL.
+const FAILED_AWK: &str = r#"/^  (failed|cancelled|timed_out|startup_failure|action_required): /{sub(/^  [a-z_]+: /, ""); sub(/  https?:\/\/.*$/, ""); s = s (s == "" ? "" : ", ") $0} END {print s}"#;
+
+/// How a `run_wait` task waits (module docs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Waiter {
+    /// `glaeda-gh` at this path: its host's one daemon polls GitHub for every waiter.
+    Glaeda(PathBuf),
+    /// `gh`, polling on its own: a machine with no glaeda-gh.
+    Gh,
+}
+
+impl Waiter {
+    /// glaeda-gh when `path` has one that answers `glaeda-gh gh --probe`, else gh when `path` has
+    /// it (or there is no PATH, which says nothing of the agent's: the task's own check decides
+    /// then), else none.
+    async fn find(path: Option<OsString>) -> Option<Self> {
+        if let Some(glaeda) = find_on_path(path.as_deref(), "glaeda-gh")
+            && probe(&glaeda).await
+        {
+            return Some(Self::Glaeda(glaeda));
+        }
+        (path.is_none() || find_on_path(path.as_deref(), "gh").is_some()).then_some(Self::Gh)
+    }
+}
+
+/// Whether `glaeda-gh gh --probe` answers `broker N`; an older glaeda-gh answers with a usage
+/// error, and a hung one is cut off at `PROBE_TIMEOUT`.
+async fn probe(glaeda: &Path) -> bool {
+    let mut cmd = tokio::process::Command::new(glaeda);
+    cmd.args(["gh", "--probe"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    match tokio::time::timeout(PROBE_TIMEOUT, cmd.output()).await {
+        Ok(Ok(out)) => {
+            out.status.success() && String::from_utf8_lossy(&out.stdout).starts_with("broker ")
+        }
+        _ => false,
+    }
+}
+
+/// `text` as one shell word.
+fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// The first executable named `name` in `path`'s folders.
+fn find_on_path(path: Option<&OsStr>, name: &str) -> Option<PathBuf> {
+    std::env::split_paths(path?).map(|dir| dir.join(name)).find(|file| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        }
+        #[cfg(not(unix))]
+        {
+            file.is_file()
+        }
     })
 }
