@@ -10069,6 +10069,15 @@ export class AcpmuxDirectClient {
         // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
         // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
         if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
+        // What the agent writes once it read the steer answers it, below the steer: a reply held
+        // open past it (`holdAssistantSegment`) ends here, even when its chunks carry no message id
+        // or the same one, which would run the answer on in the row above the steer (Leo,
+        // 2026-11-17: "and the message you sent after my steer... shot up. instead of landing after
+        // my steer prompt"). The words before the read stay in their row above.
+        if (this.assistantCut) {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+        }
       } else if (event.kind === "steer_withdrawn") {
         // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
         // text went back to the composer that took it.
