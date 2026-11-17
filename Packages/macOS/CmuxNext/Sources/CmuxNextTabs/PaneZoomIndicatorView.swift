@@ -86,15 +86,22 @@ public final class PaneZoomIndicatorView: NSView {
         return hit
     }
 
-    /// The button's frame in an indicator with `bounds`: the bounds less the glass's padding.
+    /// The button's frame in an indicator with `bounds`: the bounds less the glass's padding. Nil
+    /// when the bounds have no room for it (a hidden indicator has no size): the inset of a rect
+    /// smaller than the inset is the null rect, whose origin is infinite, and AppKit faults on that
+    /// frame.
     static func buttonFrame(in bounds: NSRect) -> NSRect? {
-        bounds.insetBy(dx: padding, dy: padding)
+        let frame = bounds.insetBy(dx: padding, dy: padding)
+        return frame.isNull ? nil : frame
     }
 
     override public func layout() {
         super.layout()
-        surface?.frame = bounds
-        if let frame = Self.buttonFrame(in: bounds) { button.frame = frame }
+        // No room for the button: the frames wait for a size.
+        if let frame = Self.buttonFrame(in: bounds) {
+            surface?.frame = bounds
+            button.frame = frame
+        }
         button.layer?.cornerRadius = Metrics.buttonCornerRadius
         button.contentTintColor = performWithTheme { Palette.litGlyph }
     }
