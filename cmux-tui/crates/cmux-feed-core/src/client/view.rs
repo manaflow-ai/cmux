@@ -108,9 +108,9 @@ impl ViewContext<'_> {
                 let id = if request.layout == Layout::List { "requests" } else { "needs_you" };
                 groups.push((id, list.by_ref().take(shown).map(Entry::single).collect(), open));
                 if request.layout == Layout::List {
-                    let rest_shown = if shown == open { limit - shown } else { 0 };
+                    let rest_shown = if shown == open { limit.saturating_sub(shown) } else { 0 };
                     let rest = list.take(rest_shown).map(Entry::single).collect();
-                    groups.push(("rest", rest, self.mirror.list_len() - open));
+                    groups.push(("rest", rest, self.mirror.list_len().saturating_sub(open)));
                 }
             }
             Layout::List => {

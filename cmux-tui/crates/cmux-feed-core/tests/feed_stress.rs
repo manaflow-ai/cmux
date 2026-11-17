@@ -394,9 +394,7 @@ fn stress_bench_local_owner_ingest() {
             }
             if n % 100 == 99 {
                 // The unread total a badge reads.
-                std::hint::black_box(
-                    feed.items().into_iter().filter(|item| item.is_unread()).count(),
-                );
+                std::hint::black_box(feed.items().filter(|item| item.is_unread()).count());
             }
         }
         let sampled = (size - sample_from).max(1) as u64;

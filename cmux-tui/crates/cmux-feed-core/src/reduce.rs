@@ -232,10 +232,10 @@ impl Feed {
         let mut changes = Changes::default();
         let mut refused = Vec::new();
         for shared in &mut self.items {
-            if !shared.is_unread() || !matches(&**shared) {
+            if !shared.is_unread() || !matches(shared) {
                 continue;
             }
-            if let Err(error) = refuse_unowned(&**shared) {
+            if let Err(error) = refuse_unowned(shared) {
                 refused.push(error);
                 continue;
             }
@@ -359,7 +359,7 @@ impl Feed {
         }
         let mut dropped = vec![false; self.items.len()];
         for settled_first in [true, false] {
-            for (index, item) in self.items.iter().enumerate() {
+            for (item, dropped) in self.items.iter().zip(dropped.iter_mut()) {
                 if excess == 0 {
                     break;
                 }
@@ -367,19 +367,15 @@ impl Feed {
                     && (!settled_first
                         || item.state == ItemState::Moved
                         || item.read_at_ms.is_some());
-                if eligible && !dropped[index] {
-                    dropped[index] = true;
+                if eligible && !*dropped {
+                    *dropped = true;
                     changes.removed.push(item.id.clone());
-                    excess -= 1;
+                    excess = excess.saturating_sub(1);
                 }
             }
         }
-        let mut index = 0;
-        self.items.retain(|_| {
-            let keep = !dropped[index];
-            index += 1;
-            keep
-        });
+        let mut keep = dropped.into_iter().map(|dropped| !dropped);
+        self.items.retain(|_| keep.next().unwrap_or(true));
         changes
     }
 
