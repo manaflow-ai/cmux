@@ -6622,6 +6622,55 @@ class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
 
 
+class GitHubQuotaRedIsInfra(unittest.TestCase):
+    """A red whose failed steps printed only GitHub's API rate-limit refusal (cmux#44387 at cf31af39, job
+    133700254405: `re-run the runs that deferred to the published tree` could not list its markers) is Infra, a
+    refusal naming the re-run, with the job green on base. Another error beside it keeps the comparison, and a base
+    red the same way still excuses it as the base's."""
+
+    NAME = "re-run the runs that deferred to the published tree"
+    STEP = "Re-run the runs that deferred to this tree"
+    QUOTA = ("##[error]tree f416335316d9 is published, but gh api repos/manaflow-ai/cmux/actions/artifacts?name=x "
+             "failed: gh: API rate limit exceeded for installation ID 175618676. (HTTP 403). Those commits have no "
+             "cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        base = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
+        if base_red:
+            github.logs[2] = log(self.NAME, self.STEP, *lines)
+        else:
+            base["conclusion"] = "success"
+            base["steps"] = [dict(step, conclusion="success") for step in base["steps"]]
+            github.base_runs[1]["conclusion"] = "success"
+            github.logs[2] = log(self.NAME, self.STEP, "Re-ran run 1 (feat-cmux-next, attempt 1).")
+        github.jobs[2] = base
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_quota_only_red_is_infra_with_base_green(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*API rate limit exceeded.*needs a re-run"):
+            self.judge(self.QUOTA, self.EXIT)
+
+    def test_a_red_with_another_error_beside_the_quota_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.QUOTA, "##[error]manifest mismatch: cmux-tui/abc/manifest.json holds other bytes", self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
+    def test_a_base_red_the_same_way_is_still_compared(self):
+        try:
+            self.judge(self.QUOTA, self.EXIT, base_red=True)
+        except excuse.Refused as caught:
+            self.assertNotIsInstance(caught, excuse.Infra)
+
+    def test_only_the_quota_line_matches(self):
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("gh: API rate limit exceeded for installation ID 1"))
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("You have exceeded a secondary rate limit."))
+        self.assertIsNone(excuse.GITHUB_QUOTA.search("Deployment rate limited"))
+
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
@@ -10407,7 +10456,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
@@ -14058,6 +14107,8 @@ SCANNERS = {
     "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
     "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
+    "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
+                                                   excuse.github_quota_only(f.base_view)),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),

@@ -29,3 +29,9 @@ ps() { echo "/usr/sbin/cfprefsd agent"; }
 left="$(quiesce_left "$app")"
 [[ "$left" == 0 ]] || { echo "launch-ready quiesce: counted $left with none of the copy running, want 0" >&2; exit 1; }
 echo 'launch-ready quiesce: counts only the copy'"'"'s processes'
+
+# load_1m reads the 1-minute field of vm.loadavg, the one an A/B's validity is judged by.
+sysctl() { echo "{ 3.21 2.00 1.50 }"; }
+load="$(load_1m)"
+[[ "$load" == 3.21 ]] || { echo "launch-ready load_1m: read '$load', want 3.21" >&2; exit 1; }
+echo 'launch-ready load_1m: reads the 1-minute load'
