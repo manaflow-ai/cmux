@@ -189,6 +189,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      # The helper app is cmux Computer Use and its supervisor the helper host: the retired Remote names stay retired.
+      - name: Validate the helper app has no retired Remote name
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_no_cmux_remote_name.py
+
       - name: Validate push triggers name their branches
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_push_trigger_branches.py

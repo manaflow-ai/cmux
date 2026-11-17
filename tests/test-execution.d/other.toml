@@ -464,6 +464,10 @@ path = "tests/test_next_line.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_no_cmux_remote_name.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_no_playwright_on_macs.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence, 2026-10-23): the author runs it, python3 -m unittest tests/test_no_playwright_on_macs.py; it needs only bash and a fake uname."
