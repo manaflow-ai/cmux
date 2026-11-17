@@ -65,6 +65,16 @@
       "surface": "action",
       "name": "import.suggest",
       "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    },
+    {
+      "surface": "menu",
+      "name": "notificationRow",
+      "reason": "keep: every row runs a palette-offered action: notificationOpen, notificationCopy, notificationToggleRead, notificationDismiss; Customize Menu… is settings.customizeMenus"
+    },
+    {
+      "surface": "menu",
+      "name": "agentPaneMessage",
+      "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
