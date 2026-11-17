@@ -11,11 +11,17 @@ below `<Chromium profile>/Service Worker/CacheStorage`, closes the workspace and
 
 Run 2: start the app again. Before a tab of that profile opens, it runs `browserProfile.clearBrowsingData` with
 only the cache option, first for the last hour (Cache Storage must stay), then for all time (Cache Storage must
-go, and no moved-aside `.cleared-` directory may stay). Then it opens the page again and records the page's
-report, the requests the server saw, and that the directory is back.
+go, and no moved-aside `.cleared-` directory may stay). The clear is not part of the action's answer, so the
+script waits for the sign of the first clear: the profile's HTTP cache directories go for each range. Then it
+opens the page again and records the page's report, the requests the server saw, and that the directory is back.
+
+What stays on the Mac: the profile's record in the tagged app's state (the action that deletes a profile is for
+a person only, so no script can run it) and the first workspace of the tag's layout. The script removes the
+profile's directory after the quit.
 
 Usage: clear-cache-look.py --tag TAG --app PATH/TO/App.app [--out DIR] [--json FILE]
-Exit 0 when every check holds, 1 when one does not, 2 when the app or the page gave no answer.
+Exit 0 when every check holds, 1 when one does not, 2 when the app, the page or the script itself failed,
+130 on an interrupt, 143 when terminated. Each exit writes the JSON.
 """
 
 import argparse
@@ -24,6 +30,7 @@ import http.server
 import json
 import os
 import pwd
+import shutil
 import signal
 import socket
 import subprocess
@@ -42,14 +49,17 @@ TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"clear-cache-look-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
 PROFILE = f"clear-cache-look-{os.getpid()}"
 CACHE_STORAGE = os.path.join("Service Worker", "CacheStorage")
+# The directories that the cache option removes for each range.
+HTTP_CACHES = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
 MOVED_ASIDE = ".cleared-"
+# The write of a new profile's record to the daemon runs in the background, after `browserProfile.new` answers.
+# So an action that names the profile is tried again for this many seconds before its error stops the look
+# (also after a start: when the records are there is not known).
+RECORD_PATIENCE = 20
 LAUNCHED = []
+STATE = {"scratch": None, "profile_dir": None, "page_open": False, "stopping": False}
 app = None
 
 WORKER = """
@@ -173,11 +183,20 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
-    if isinstance(reply, dict) and reply.get("error"):
-        stop(2, f"the action {name} failed: {reply['error']}")
-    return reply
+def action(name, args=None, timeout=60, target=None, patience=0):
+    """Runs an action; an error stops the look. `patience`: the seconds for which a refused call is tried again."""
+    params = {"action": name, "args": args or {}, "focus": True, "origin": "script"}
+    if target:
+        params["target"] = target
+    deadline = time.time() + patience
+    while True:
+        reply = rpc("action.run", params, timeout=timeout)
+        error = reply.get("error") if isinstance(reply, dict) else None
+        if not error:
+            return reply
+        if time.time() >= deadline:
+            stop(2, f"the action {name} failed: {error}")
+        time.sleep(0.5)
 
 
 def wait(check, seconds, step=0.2):
@@ -191,6 +210,20 @@ def wait(check, seconds, step=0.2):
             return value
         time.sleep(step)
     return None
+
+
+def panes():
+    return [p for w in ((rpc("debug.surfaces") or {}).get("windows") or []) for p in w.get("panes", [])]
+
+
+def scratch():
+    """The driver's own directory, below --out; `stop` removes it."""
+    if not STATE["scratch"]:
+        os.makedirs(opts.out, exist_ok=True)
+        STATE["scratch"] = tempfile.mkdtemp(prefix=f"clear-cache-look-{TAG}-", dir=opts.out)
+        open(os.path.join(STATE["scratch"], "ghostty"), "w").close()
+        open(os.path.join(STATE["scratch"], "cmux.json"), "w").write("{}\n")
+    return STATE["scratch"]
 
 
 def support_roots():
@@ -210,18 +243,25 @@ def file_count(directory):
     return sum(len(files) for _, _, files in os.walk(directory))
 
 
+def http_caches(profile_dir):
+    return [name for name in HTTP_CACHES if os.path.isdir(os.path.join(profile_dir, name))]
+
+
+def moved_aside(profile_dir):
+    return [name for name in os.listdir(profile_dir) if name.startswith(MOVED_ASIDE)]
+
+
 def launch():
     global app
     if os.path.exists(SOCKET):
         ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
         if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
+            stop(2, f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    os.makedirs(opts.out, exist_ok=True)
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch(), "cmux.json"),
+           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch(), "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     LAUNCHED.append(app.pid)
@@ -237,8 +277,11 @@ def quit_app():
         try:
             app.wait(timeout=30)
         except subprocess.TimeoutExpired:
-            os.kill(app.pid, signal.SIGKILL)
-            app.wait(timeout=10)
+            try:
+                os.kill(app.pid, signal.SIGKILL)
+                app.wait(timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                pass
     app = None
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
@@ -248,13 +291,18 @@ def cleanup():
     if not LAUNCHED:
         return
     if app:
-        # No `action()` here: a failed delete must not stop the cleanup.
-        rpc("action.run", {"action": "browserProfile.delete", "args": {"browserProfile": PROFILE}, "focus": True,
-                           "origin": "script"}, timeout=10)
+        if STATE["page_open"]:
+            # No `action()` here: a failed close must not stop the cleanup. The page's workspace must not
+            # come back at the tag's next start.
+            rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}, "focus": True, "origin": "script"},
+                timeout=10)
         quit_app()
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    try:
+        subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
+                       env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        ps = ""
     for line in ps.splitlines():
         parts = line.split(None, 1)
         if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
@@ -264,18 +312,31 @@ def cleanup():
                 pass
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
+    # The profile's record stays in the app's state: no script can delete a profile. Its directory is this run's.
+    profile_dir = STATE["profile_dir"]
+    if profile_dir and os.path.basename(profile_dir).startswith("Profile-") \
+            and os.path.basename(os.path.dirname(profile_dir)) == "Chromium":
+        shutil.rmtree(profile_dir, ignore_errors=True)
+        RESULT["profile_directory_removed"] = not os.path.exists(profile_dir)
 
 
 RESULT = {"tag": TAG, "host": os.uname().nodename, "checks": {}, "pass": False}
 
 
 def stop(code, reason=None):
+    if STATE["stopping"]:
+        sys.exit(code)
+    STATE["stopping"] = True
     if reason:
         RESULT["stopped"] = reason
         print(f"CLEAR-CACHE-LOOK STOPPED: {reason}", flush=True)
     try:
         cleanup()
+    except Exception as error:
+        RESULT["cleanup_failed"] = repr(error)
     finally:
+        if STATE["scratch"]:
+            shutil.rmtree(STATE["scratch"], ignore_errors=True)
         if opts.json:
             os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
             open(opts.json, "w").write(json.dumps(RESULT, indent=1))
@@ -285,20 +346,31 @@ def stop(code, reason=None):
 def open_page(site, phase):
     """Opens the page in the profile, in a workspace of its own; the page's report, or None."""
     arrived = site.report(phase, 90)
+    earlier = {p.get("workspace") for p in panes()}
     action("newTab", {"name": f"clear-cache-look-{phase}"})
-    time.sleep(1)  # the new workspace's pane
-    action("browserProfile.openLink", {"browserProfile": PROFILE, "url": site.url})
+    STATE["page_open"] = True
+    # The new workspace's pane: with no pane the open does nothing and gives no error. A miss of this wait does
+    # not stop the look; the JSON says it.
+    RESULT[f"{phase}_pane_came"] = bool(wait(lambda: any(
+        p.get("focused") and p.get("kind") == "terminal" and p.get("workspace") not in earlier for p in panes()), 30))
+    action("browserProfile.openLink", {"browserProfile": PROFILE, "url": site.url}, patience=RECORD_PATIENCE)
     return arrived()
+
+
+def close_page():
+    action("closeWorkspace", {"confirm": True})
+    STATE["page_open"] = False
 
 
 def clear(scope):
     action("browserProfile.clearBrowsingData",
-           {"browserProfile": PROFILE, "range": scope, "history": False, "cookies": False, "cache": True})
+           {"range": scope, "history": False, "cookies": False, "cache": True, "confirm": True},
+           target=f"browser-profile:{PROFILE}", patience=RECORD_PATIENCE)
 
 
 def main():
     if not BINARY:
-        sys.exit(f"no binary in {APP}/Contents/MacOS")
+        stop(2, f"no binary in {APP}/Contents/MacOS")
     site = Site()
     checks = RESULT["checks"]
 
@@ -316,10 +388,10 @@ def main():
     if not store:
         RESULT["run1"]["stores"] = sorted(stores() - before)
         stop(1, "no new Cache Storage directory with files after the page's report")
-    profile_dir = os.path.dirname(os.path.dirname(store))
+    profile_dir = STATE["profile_dir"] = os.path.dirname(os.path.dirname(store))
     RESULT["profile_directory"] = os.path.basename(profile_dir)
     RESULT["run1"]["files"] = file_count(store)
-    action("closeWorkspace", {"confirm": True})
+    close_page()
     time.sleep(2)  # the tab's close
     quit_app()
 
@@ -327,18 +399,26 @@ def main():
     launch()
     survived = file_count(store) if os.path.isdir(store) else 0
     checks["cache_storage_survives_the_quit"] = survived > 0
-    RESULT["run2"] = {"files_at_start": survived}
+    # A browser pane here can be a tab of the profile: then Chromium has the profile open and the clear
+    # takes another path. The JSON says how many there are.
+    kinds = [p.get("kind") for p in panes()]
+    caches = http_caches(profile_dir)
+    RESULT["run2"] = {"files_at_start": survived, "pane_kinds_at_start": kinds,
+                      "browser_panes_at_start": kinds.count("browser"), "http_caches_at_start": caches}
     if not survived:
         stop(1, "the Cache Storage directory has no files after the quit")
     clear("hour")
-    time.sleep(3)  # a delete that must not come
+    # The clear runs after the action's answer. Its sign: the HTTP caches that were there are gone, and then
+    # no moved-aside directory stays (the delete starts after the last move). Only then is Cache Storage read.
+    ran = bool(caches) and wait(lambda: not http_caches(profile_dir), 20) and wait(lambda: not moved_aside(profile_dir), 30)
+    checks["the_last_hour_clear_ran"] = bool(ran)
     checks["the_last_hour_keeps_cache_storage"] = os.path.isdir(store) and file_count(store) > 0
     clear("all")
     gone = wait(lambda: not os.path.exists(store), 20)
     checks["all_time_removes_cache_storage"] = bool(gone)
-    leftovers = wait(lambda: not [n for n in os.listdir(profile_dir) if n.startswith(MOVED_ASIDE)], 30)
+    leftovers = wait(lambda: not moved_aside(profile_dir), 30)
     checks["no_moved_aside_directory_stays"] = bool(leftovers)
-    RESULT["run2"]["moved_aside_left"] = [n for n in os.listdir(profile_dir) if n.startswith(MOVED_ASIDE)]
+    RESULT["run2"]["moved_aside_left"] = moved_aside(profile_dir)
     checks["the_registrations_stay"] = os.path.isdir(os.path.join(profile_dir, "Service Worker", "Database"))
 
     # The page again: what Chromium and the worker do with the directory gone.
@@ -347,11 +427,12 @@ def main():
     if again is None:
         stop(2, "the page gave no report after the clear")
     checks["the_page_reports_no_error_after_the_clear"] = "error" not in again and again.get("a") == "a"
-    checks["the_worker_fetches_its_file_again"] = "/a.txt" in site.paths("reopen")
+    checks["the_worker_fetches_its_file_again"] = bool(
+        again.get("controlled") and again.get("a_from") == "network" and "/a.txt" in site.paths("reopen"))
     back = wait(lambda: os.path.isdir(store) and file_count(store) > 0, 30)
     checks["cache_storage_is_back"] = bool(back)
     RESULT["run2"]["files_after_reopen"] = file_count(store) if os.path.isdir(store) else 0
-    action("closeWorkspace", {"confirm": True})
+    close_page()
 
     RESULT["pass"] = all(checks.values())
     print(json.dumps(RESULT, indent=1), flush=True)
@@ -367,3 +448,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         stop(130, "interrupted")
+    except Exception as error:
+        stop(2, f"the driver failed: {error!r}")

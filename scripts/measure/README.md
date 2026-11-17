@@ -177,13 +177,13 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
-| `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |
 | `cef-pak-render.sh` | Pages still render after the CEF paks are trimmed. | - | 2026-11-12 | active |
 | `chromium-host-bench.sh` | Chromium host input hop time (hop_us). | cef-host-input | 2026-11-03 | active |
 | `cef-app-size.sh` | Installed-size proof for CEF binary with V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
+| `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
 
 ## Build and dev loop
 

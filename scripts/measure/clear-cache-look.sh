@@ -38,7 +38,7 @@ for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
 # The web bundles need the bun webviews/package.json pins; a bench host's shared ~/.bun may hold
-# another version (cmux20-bench: none). The step gets its own checked copy, first on PATH.
+# another version. The step gets its own checked copy, first on PATH.
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
