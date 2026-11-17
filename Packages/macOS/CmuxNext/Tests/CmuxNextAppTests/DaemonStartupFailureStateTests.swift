@@ -89,7 +89,7 @@ struct DaemonStartupFailureStateTests {
     @Test func aReconnectStaysQuietAfterSixtySeconds() async throws {
         let clock = ManualClock()
         let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: clock)
-        let section = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("long-reconnect"), name: "Studio", kind: .ssh,
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID("long-reconnect"), name: "Studio", kind: .ssh,
                                                                   status: .reconnecting)), nodes: [])
         let (expired, finish) = AsyncStream<Void>.makeStream()
         grace.onEnd = { finish.yield(()); finish.finish() }
@@ -110,8 +110,8 @@ struct DaemonStartupFailureStateTests {
     /// Automatic reconnect never schedules a late label or spinner. Actionable failures remain visible.
     @Test func automaticReconnectKeepsHeadersQuiet() async {
         let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        func machine(_ id: String, _ status: SidebarMachine.Status, kind: SidebarMachine.Kind = .ssh) -> SidebarSection {
-            SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: kind, status: status)), nodes: [])
+        func machine(_ id: String, _ status: SidebarMachine.Status, kind: SidebarMachine.Kind = .ssh) -> CmuxNextSidebar.SidebarSection {
+            CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: kind, status: status)), nodes: [])
         }
         let healing: [SidebarMachine.Status] = [.reconnecting, .unreachable, .offline, .connecting]
         let needsPerson: [SidebarMachine.Status] = [.authFailed, .installRequired, .updateRequired, .failed]
