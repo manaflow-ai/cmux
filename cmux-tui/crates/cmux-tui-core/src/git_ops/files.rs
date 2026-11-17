@@ -184,6 +184,8 @@ impl Folders {
     /// there or cannot be opened, the path has too many folders, or there
     /// is no look at all. A path with no kind is no candidate and no result.
     pub(super) fn kind(&mut self, path: &str) -> Option<Kind> {
+        #[cfg(test)]
+        LOOKS.with(|looks| looks.set(looks.get() + 1));
         self.tree.as_mut()?.entry(&self.below.join(path)).ok()?.kind()
     }
 
@@ -208,6 +210,27 @@ pub(super) fn candidates(
     below: &Path,
     operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
+    let (mut files, cut) = listed(repository, directory, operation)?;
+    let mut folders = Folders::of(repository, below);
+    files.retain(|path| folders.kind(path).is_some());
+    Ok((files, cut))
+}
+
+/// Looks ([`Folders::kind`]) made on this thread: the stress tests count
+/// work with it (`files_stress_tests`).
+#[cfg(test)]
+thread_local! {
+    pub(super) static LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The paths git lists under `directory`, relative to it, sorted and with no
+/// repeat, before any look: some may not be there or not be reachable
+/// ([`candidates`] keeps the ones that are). And whether the listing was cut.
+pub(super) fn listed(
+    repository: &Repository,
+    directory: &Path,
+    operation: &'static str,
+) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
@@ -224,8 +247,7 @@ pub(super) fn candidates(
     // folder one time.
     files.sort_unstable();
     files.dedup();
-    let mut folders = Folders::of(repository, below);
-    files.retain(|path| !path.contains('\u{FFFD}') && folders.kind(path).is_some());
+    files.retain(|path| !path.contains('\u{FFFD}'));
     Ok((files, listed.truncated))
 }
 
