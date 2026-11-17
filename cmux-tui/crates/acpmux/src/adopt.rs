@@ -283,7 +283,7 @@ pub(crate) fn find_codex_rollout(root: &Path, id: &str) -> Option<PathBuf> {
         }
     }
     if found.len() > 1 {
-        found.sort_by(|a, b| b.0.cmp(&a.0));
+        found.sort_by_key(|f| std::cmp::Reverse(f.0));
         if let Some(i) = found.iter().position(|(_, path)| opens_codex_thread(path, id)) {
             return Some(found.swap_remove(i).1);
         }
