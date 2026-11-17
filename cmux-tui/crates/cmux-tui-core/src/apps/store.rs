@@ -216,22 +216,22 @@ const CONTRIBUTION_KINDS: [(&str, &str); 5] = [
 /// runs outside the supervisor lock.
 fn contributions(package: &Package) -> Vec<Contribution> {
     let m = &package.manifest;
-    let name = text(&m["name"]);
+    let name = m.get("name").map(text).unwrap_or_default();
     let mut rows: Vec<Contribution> = CONTRIBUTION_KINDS
         .iter()
         .filter_map(|&(interface, kind)| {
-            let implementation = m["implements"].get(interface)?;
-            let title = Some(text(&implementation["title"])).filter(|t| !t.is_empty());
+            let implementation = m.get("implements")?.get(interface)?;
+            let title = implementation.get("title").map(text).filter(|t| !t.is_empty());
             Some(Contribution { kind, title: title.unwrap_or_else(|| name.clone()) })
         })
         .collect();
-    rows.extend(widget_contributions(&m["implements"]["cmux.widget/1"], &name));
-    rows.extend(
-        package
-            .palette_commands()
-            .iter()
-            .map(|command| Contribution { kind: "command", title: text(&command["title"]) }),
-    );
+    if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
+        rows.extend(widget_contributions(widget, &name));
+    }
+    rows.extend(package.palette_commands().iter().map(|command| Contribution {
+        kind: "command",
+        title: command.get("title").map(text).unwrap_or_default(),
+    }));
     rows
 }
 
@@ -243,9 +243,9 @@ fn widget_contributions(widget: &Value, name: &str) -> Vec<Contribution> {
     if !widget.is_object() {
         return Vec::new();
     }
-    let title = Some(text(&widget["title"])).filter(|t| !t.is_empty());
+    let title = widget.get("title").map(text).filter(|t| !t.is_empty());
     let title = title.unwrap_or_else(|| name.to_string());
-    let Some(places) = widget["options"]["places"].as_array() else {
+    let Some(places) = widget.pointer("/options/places").and_then(Value::as_array) else {
         return ["newTab", "sidebarWidget"]
             .into_iter()
             .map(|kind| Contribution { kind, title: title.clone() })
@@ -266,8 +266,9 @@ fn widget_contributions(widget: &Value, name: &str) -> Vec<Contribution> {
 }
 
 fn screenshots(manifest: &Value) -> Vec<String> {
-    manifest["screenshots"]
-        .as_array()
+    manifest
+        .get("screenshots")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|path| path.as_str().map(str::to_string))
@@ -400,7 +401,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
         app: package.id.clone(),
         name: text(&m["name"]),
         summary: text(&m["description"]),
-        tagline: Some(text(&m["tagline"])).filter(|t| !t.is_empty()),
+        tagline: m.get("tagline").map(text).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
         tier: package.tier,
         version: package.version.clone(),
