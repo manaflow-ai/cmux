@@ -2,6 +2,7 @@ use cmux_json::JsonSet as _;
 
 mod plugin_generation;
 mod reader;
+mod subject_rows;
 mod subjects;
 use super::output_cleanup::pruned_gap;
 use super::*;
@@ -13,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use subject_rows::{drop_journal_subject_index_by_subject, query_session_journal_after_subjects};
 use subjects::{collect_patch_subjects, collect_subjects};
 pub(crate) use subjects::{expand_topology_subjects, terminal_topology_subjects_batch};
 
@@ -242,6 +244,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     };
     let subject_index_existed = table_exists("journal_subject_index")?;
     let event_index_existed = table_exists("journal_event_index")?;
+    drop_journal_subject_index_by_subject(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS session_journal (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,8 +287,6 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            id TEXT NOT NULL,
            PRIMARY KEY(sequence, kind, id)
          ) WITHOUT ROWID;
-         CREATE INDEX IF NOT EXISTS journal_subject_index_by_subject_sequence
-           ON journal_subject_index(kind, id, sequence);
          CREATE TABLE IF NOT EXISTS journal_event_index (
            event_id TEXT PRIMARY KEY NOT NULL,
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
@@ -1592,73 +1593,6 @@ pub(crate) fn query_session_journal_sequences(
         "one or more requested journal records are absent"
     );
     Ok(records.into_values().collect())
-}
-
-fn query_session_journal_after_subjects(
-    connection: &Connection,
-    sequence: u64,
-    limit: usize,
-    subjects: &[JournalSubject],
-) -> anyhow::Result<SessionJournalSubjectPage> {
-    anyhow::ensure!(limit > 0, "journal page limit must be positive");
-    anyhow::ensure!(
-        limit <= MAX_JOURNAL_PAGE_SIZE,
-        "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
-    );
-    anyhow::ensure!(!subjects.is_empty(), "journal subject filter must not be empty");
-    let head_sequence = connection
-        .prepare_cached(
-            "SELECT MAX(
-           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
-         )",
-        )?
-        .query_row([], |row| row.get::<_, i64>(0))?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
-    anyhow::ensure!(
-        sequence <= head_sequence,
-        "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
-    );
-    let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
-    let mut statement = connection.prepare_cached(
-        "SELECT DISTINCT indexed.sequence
-         FROM json_each(?1) AS requested
-         JOIN journal_subject_index AS indexed
-           INDEXED BY journal_subject_index_by_subject_sequence
-           ON indexed.kind = json_extract(requested.value, '$.kind')
-          AND indexed.id = json_extract(requested.value, '$.id')
-         WHERE indexed.sequence > ?2
-         ORDER BY indexed.sequence ASC
-         LIMIT ?3",
-    )?;
-    let sequences = statement
-        .query_map(
-            params![
-                requested_json,
-                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
-            ],
-            |row| row.get::<_, i64>(0),
-        )?
-        .map(|row| {
-            u64::try_from(row?).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Integer,
-                    Box::new(error),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(statement);
-    let records = query_session_journal_sequences(connection, &sequences)?;
-    let scanned_through = if sequences.len() == limit {
-        sequences.last().copied().unwrap_or(sequence)
-    } else {
-        head_sequence
-    };
-    Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
 pub(super) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);

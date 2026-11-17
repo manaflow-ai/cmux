@@ -200,6 +200,128 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A subject page reads the subject rows by the table's own key and at most
+/// a fixed count of sequences. A page with no match can end below the head:
+/// its cursor goes on.
+#[test]
+fn a_subject_page_reads_by_the_tables_key_and_ends_at_its_scan_bound() {
+    let root = std::env::temp_dir().join(format!("cmux-journal-subject-page-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "subject-page").unwrap();
+    let workspace_id = format!("ws_{}", "1".repeat(32));
+    let result = serde_json::json!({"workspace_id":workspace_id});
+    let db = registry.connection.get();
+    for revision in 1..=3_u64 {
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "subject-page-test",
+            &format!("subject-page-commit-{revision}"),
+            "workspace.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    let present = [JournalSubject { kind: "workspace".into(), id: workspace_id }];
+    let absent = [JournalSubject { kind: "agent_tree".into(), id: "agenttree_absent".into() }];
+    let page = |sequence, limit, subjects: &[JournalSubject]| {
+        let page = subject_rows::query_subject_page(&db, sequence, limit, subjects, 2).unwrap();
+        let sequences: Vec<u64> = page.records.iter().map(|record| record.sequence).collect();
+        (page.head_sequence, page.scanned_through, sequences)
+    };
+    // No match: each page ends 2 sequences on, then at the head.
+    assert_eq!(page(0, 8, &absent), (3, 2, vec![]));
+    assert_eq!(page(2, 8, &absent), (3, 3, vec![]));
+    // A match: the records of the 2 sequences that the page read.
+    assert_eq!(page(0, 8, &present), (3, 2, vec![1, 2]));
+    assert_eq!(page(2, 8, &present), (3, 3, vec![3]));
+    // A full page ends at its last record.
+    assert_eq!(page(0, 1, &present), (3, 1, vec![1]));
+
+    let plan: Vec<String> = db
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", subject_rows::SUBJECT_PAGE_QUERY))
+        .unwrap()
+        .query_map(params!["[]", 0, 1, 1], |row| row.get(3))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(
+        plan.iter().any(|step| step.contains("USING PRIMARY KEY (sequence>? AND sequence<?)")),
+        "the subject page does not read by the table's key: {plan:?}"
+    );
+    assert!(
+        !plan.iter().any(|step| step.starts_with("SCAN indexed")),
+        "the subject page reads each subject row: {plan:?}"
+    );
+    drop(db);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A store that an older build made has the index of the subject rows by
+/// subject. An open drops it with `secure_delete` off for that one
+/// statement. The pragma is on again after it: on the open that drops, and
+/// on a connection whose drop fails.
+#[test]
+fn an_open_drops_the_index_by_subject_and_leaves_secure_delete_on() {
+    let indexes = |connection: &Connection| {
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'
+                 AND tbl_name = 'journal_subject_index' AND sql IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+    };
+    let secure_delete = |connection: &Connection| {
+        connection.query_row("PRAGMA secure_delete", [], |row| row.get::<_, i64>(0)).unwrap()
+    };
+    let root =
+        std::env::temp_dir().join(format!("cmux-journal-subject-index-drop-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "drop").unwrap();
+    let database_path = registry.session_journal_database_path().unwrap();
+    {
+        let connection = registry.connection.get();
+        assert_eq!(indexes(&connection), 0, "a new store has an index by subject");
+        assert_eq!(secure_delete(&connection), 1);
+    }
+    drop(registry);
+
+    // The store of an older build.
+    let old = Connection::open(&database_path).unwrap();
+    old.execute_batch(
+        "CREATE INDEX journal_subject_index_by_subject_sequence
+           ON journal_subject_index(kind, id, sequence);",
+    )
+    .unwrap();
+    // A drop that fails: this connection refuses each write.
+    old.execute_batch("PRAGMA secure_delete=ON; PRAGMA query_only=ON;").unwrap();
+    let failed = drop_journal_subject_index_by_subject(&old);
+    assert!(failed.is_err(), "the drop on a connection that refuses writes: {failed:?}");
+    assert_eq!(secure_delete(&old), 1, "a drop that failed left secure_delete off");
+    assert_eq!(indexes(&old), 1);
+    drop(old);
+
+    let registry = WorkspaceRegistry::open(&root, "drop").unwrap();
+    {
+        let connection = registry.connection.get();
+        assert_eq!(indexes(&connection), 0, "the open kept the index by subject");
+        assert_eq!(secure_delete(&connection), 1, "the open left secure_delete off");
+    }
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// Registry connections keep their statements compiled
 /// (`REGISTRY_STATEMENT_CACHE_CAPACITY`). A reused statement must read the
 /// latest commit, never the snapshot of its previous run: a long-lived

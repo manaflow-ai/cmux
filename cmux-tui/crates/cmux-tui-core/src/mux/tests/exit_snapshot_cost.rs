@@ -61,9 +61,9 @@ fn exit_snapshot_cost_does_not_grow_with_other_workspaces() {
 
 /// The startup prefetch warms the index pages a lost terminal's end writes
 /// (Lawrence 2026-10-30: 60% of a reboot's adoption was cold reads of
-/// those pages). Every journal subject and terminal event an end appends is
-/// one the prefetch reads first; a new subject kind an end starts writing
-/// must be added to the prefetch.
+/// those pages). The schema makes no index by subject now, so an end's
+/// subject rows go to their table's tail; every terminal event an end
+/// appends is one the prefetch reads first.
 #[cfg(unix)]
 #[test]
 fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
@@ -78,21 +78,16 @@ fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
     mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
     let terminal =
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
-    let (keys, journal_head, event_head) = {
+    let (keys, event_head) = {
         let _registry = mux.workspace_registry.lock().unwrap();
         let connection = mux.registry_connection.get();
         let keys = terminal_end_prefetch_keys(&connection).unwrap();
-        let journal_head: i64 = connection
-            .query_row("SELECT COALESCE(MAX(sequence), 0) FROM session_journal", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
         let event_head: i64 = connection
             .query_row("SELECT COALESCE(MAX(revision), 0) FROM terminal_events", [], |row| {
                 row.get(0)
             })
             .unwrap();
-        (keys, journal_head, event_head)
+        (keys, event_head)
     };
 
     let exit = TerminalExit {
@@ -105,25 +100,28 @@ fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
         let _registry = mux.workspace_registry.lock().unwrap();
         let connection = mux.registry_connection.get();
         let mut statement = connection
-            .prepare(
-                "SELECT kind, id FROM journal_subject_index
-                 WHERE sequence > ?1 AND kind IN ('terminal', 'tab', 'pane', 'screen', 'workspace')
-                 UNION SELECT 'terminal_events', terminal_id FROM terminal_events
-                 WHERE revision > ?2",
-            )
+            .prepare("SELECT DISTINCT terminal_id FROM terminal_events WHERE revision > ?1")
             .unwrap();
         statement
-            .query_map([journal_head, event_head], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
+            .query_map([event_head], |row| row.get::<_, String>(0))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap()
     };
-    assert!(
-        written.iter().any(|(kind, _)| kind == "terminal"),
-        "the end appended no terminal subject: {written:?}"
-    );
+    assert!(!written.is_empty(), "the end appended no terminal event");
+    let by_subject: i64 = {
+        let _registry = mux.workspace_registry.lock().unwrap();
+        let connection = mux.registry_connection.get();
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'
+                 AND tbl_name = 'journal_subject_index' AND sql IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(by_subject, 0, "an index by subject is back: the prefetch does not read it");
     let missing = written.iter().filter(|key| !keys.contains(key)).collect::<Vec<_>>();
     assert!(missing.is_empty(), "the end writes pages the prefetch never reads: {missing:?}");
     mux.shutdown();

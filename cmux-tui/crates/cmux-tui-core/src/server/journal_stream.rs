@@ -628,6 +628,7 @@ pub(super) fn run_session_journal_stream(
             break;
         }
         loop {
+            let read_from = stream.last_sequence;
             let page = match session_journal_page(
                 mux,
                 stream.reader.as_ref(),
@@ -691,6 +692,26 @@ pub(super) fn run_session_journal_stream(
                 );
                 if complete_bounded_journal_replay(writer, &stream) {
                     break 'stream;
+                }
+                // A page by subject reads a bounded range of the subject
+                // rows: an empty one that moved the cursor is no gap.
+                let subject_page = stream.reader.is_some() && stream.indexed_subjects.is_some();
+                if subject_page
+                    && read_from < stream.last_sequence
+                    && stream.last_sequence < head_sequence
+                {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect with the last journal cursor"),
+                        None,
+                    );
+                    let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                    if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
+                        break 'stream;
+                    }
+                    continue;
                 }
                 if stream.last_sequence < head_sequence {
                     let end = resource_stream_end(

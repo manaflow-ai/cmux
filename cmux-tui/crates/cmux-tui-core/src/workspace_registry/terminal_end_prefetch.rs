@@ -4,10 +4,15 @@
 //! Lawrence 2026-10-30: after a reboot every terminal host is gone, and the
 //! startup adoption records each terminal's end before the daemon answers
 //! anyone (`terminal.adopt_hosts`, 0.8-1.5 s for 462 terminals on a 41.6 GB
-//! registry). 60% of that was cold page reads: each end appends a journal
+//! registry). 60% of that was cold page reads: each end appended a journal
 //! record whose subjects (the terminal, its tabs, panes, screens and
-//! workspaces) go into `journal_subject_index_by_subject_sequence`, keyed by
-//! random public ids, so every insert lands on a leaf no earlier step read.
+//! workspaces) went into an index by subject, keyed by random public ids, so
+//! every insert landed on a leaf no earlier step read.
+//!
+//! The schema no longer makes that index: a subject row is written only
+//! under its sequence, at the tail of its table, which the append has in
+//! memory. What an end still writes under a random key is the terminal's
+//! event log (`terminal_events_by_terminal`).
 //!
 //! A background thread started right after the registry opens reads those
 //! leaves on read-only connections of its own, in parallel, while restore
@@ -15,7 +20,7 @@
 //! adoption's inserts find them there. A failure is ignored. The set is
 //! every terminal that is neither exited nor tombstoned, since which hosts
 //! are gone is known only during adoption; when they are all alive the
-//! reads are wasted, a few thousand small reads on a background thread.
+//! reads are wasted, one small read for each terminal on a background thread.
 
 use std::path::{Path, PathBuf};
 
@@ -28,61 +33,34 @@ use super::open_registry_database_read_only;
 /// overlap the restore.
 const PREFETCH_THREADS: usize = 8;
 
-/// One index probe: a journal subject `(kind, id)`, or a terminal's event log
-/// (`("terminal_events", terminal_id)`).
-pub(crate) type PrefetchKey = (String, String);
+/// One index probe: the id of a terminal, the key of its event log.
+pub(crate) type PrefetchKey = String;
 
-/// The journal subjects an end of each live terminal appends, and each live
-/// terminal's event-log key: the pages its end record writes.
+/// Each live terminal's event-log key: the keyed pages its end record writes.
 pub(crate) fn terminal_end_prefetch_keys(
     connection: &Connection,
 ) -> anyhow::Result<Vec<PrefetchKey>> {
     let mut statement = connection.prepare(
-        "WITH live(terminal_id, public_id) AS (
-           SELECT host.terminal_id, terminal.public_id
-           FROM terminal_hosts AS host
-           JOIN resource_terminals AS terminal
-             ON terminal.terminal_id = host.terminal_id AND terminal.deleted_revision IS NULL
-           WHERE host.lifecycle NOT IN ('exited', 'tombstoned')
-         ),
-         paths(terminal_id, terminal, tab, pane, screen, workspace) AS (
-           SELECT live.terminal_id, live.public_id, tab.public_id, pane.public_id,
-                  screen.public_id, screen.workspace_id
-           FROM live
-           LEFT JOIN resource_tabs AS tab
-             ON tab.content_id = live.public_id AND tab.deleted_revision IS NULL
-           LEFT JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
-           LEFT JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
-         )
-         SELECT 'terminal', terminal FROM paths
-         UNION SELECT 'tab', tab FROM paths WHERE tab IS NOT NULL
-         UNION SELECT 'pane', pane FROM paths WHERE pane IS NOT NULL
-         UNION SELECT 'screen', screen FROM paths WHERE screen IS NOT NULL
-         UNION SELECT 'workspace', workspace FROM paths WHERE workspace IS NOT NULL
-         UNION SELECT 'terminal_events', terminal_id FROM paths",
+        "SELECT host.terminal_id
+         FROM terminal_hosts AS host
+         JOIN resource_terminals AS terminal
+           ON terminal.terminal_id = host.terminal_id AND terminal.deleted_revision IS NULL
+         WHERE host.lifecycle NOT IN ('exited', 'tombstoned')",
     )?;
-    let keys = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let keys =
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
     Ok(keys)
 }
 
 /// The probe of one key: it reads the leaf the key's next insert lands on.
-const SUBJECT_PROBE: &str = "SELECT sequence FROM journal_subject_index WHERE kind = ?1 AND id = ?2
-     ORDER BY sequence DESC LIMIT 1";
 const EVENT_PROBE: &str = "SELECT revision FROM terminal_events WHERE terminal_id = ?1
      ORDER BY revision DESC LIMIT 1";
 
-/// Read every key of `shard` on `connection`, two prepared statements.
+/// Read every key of `shard` on `connection`, one prepared statement.
 fn probe_all(connection: &Connection, shard: &[PrefetchKey]) -> anyhow::Result<()> {
-    let mut subjects = connection.prepare(SUBJECT_PROBE)?;
     let mut events = connection.prepare(EVENT_PROBE)?;
-    for (kind, id) in shard {
-        let mut rows = if kind == "terminal_events" {
-            events.query([id])?
-        } else {
-            subjects.query([kind, id])?
-        };
+    for terminal_id in shard {
+        let mut rows = events.query([terminal_id])?;
         let _ = rows.next()?;
     }
     Ok(())
