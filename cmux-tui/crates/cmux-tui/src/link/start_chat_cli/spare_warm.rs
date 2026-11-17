@@ -16,9 +16,22 @@ use crate::cli::{Platform, PlatformCallError};
 /// A warm asked again within this long of the last one, for the same account and team, while
 /// that warm still runs for longer than this, is answered from the record with `fresh: false`:
 /// no platform call and no second login copy. Every composer keystroke and app activation can ask.
-/// A warm that found no spare, or failed, is an attempt: within the gap its answer is replayed
-/// with no platform call, so a route that is down is not asked on every activation.
+/// A warm that failed is an attempt: within the gap its answer is replayed with no platform call,
+/// so a route that is down is not asked on every activation.
 pub(super) const WARM_GAP_MS: u64 = 120_000;
+
+/// A warm that found no spare is replayed only this long ([`NONE_GAP_MS`] < [`WARM_GAP_MS`]): a
+/// refill turns ready at a moment the client cannot see, and the claim reads the pool fresh. Burst
+/// 43951741299 replayed "none" for 120 s at a time, so its 290 s waits asked the platform about
+/// three times while 7 of 9 claims took a ready spare. Still one platform call per burst of
+/// keystrokes and activations.
+pub(super) const NONE_GAP_MS: u64 = 10_000;
+
+/// How long an attempt's answer is replayed: a "no spare" (an `ok` answer) for [`NONE_GAP_MS`], a
+/// failure for [`WARM_GAP_MS`].
+fn attempt_gap(attempt: &Attempt) -> u64 {
+    if attempt.answer.get("ok") == Some(&json!(true)) { NONE_GAP_MS } else { WARM_GAP_MS }
+}
 
 /// The answer's code when the team cannot be read from the install token: no warm, no copy.
 pub(super) const TEAM_UNRESOLVED: &str = "team_unresolved";
@@ -297,7 +310,7 @@ pub(super) fn run_reporting(
     file.installed.retain(|receipt| now_ms < receipt.at.saturating_add(RECEIPT_MS));
     // A record past its warm, or an attempt past the gap, is dropped: the file stays small.
     file.warms.retain(|record| record.warm_until > now_ms);
-    file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(WARM_GAP_MS));
+    file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(attempt_gap(attempt)));
     let pair = |account: &str, other: Option<&str>| {
         account == request.account && other == Some(team.as_str())
     };
@@ -369,6 +382,12 @@ pub(super) fn run_reporting(
         return Some(answer);
     }
     if let Some(machine) = request.ready.as_deref() {
+        // A spare the platform says is ready ends any "no spare" being replayed for this pair: the
+        // next warm asks the platform, which names it (an error's replay stays: the route is down).
+        file.attempts.retain(|attempt| {
+            !(pair(&attempt.account, Some(attempt.team.as_str()))
+                && attempt.answer.get("ok") == Some(&json!(true)))
+        });
         let answer = ready::ready(
             &mut file,
             &request,
