@@ -324,6 +324,10 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
+    /// The size a new machine needs for the chat's folder (`preflight`'s `needed_size`: `md`, `lg`, `xl`); none or
+    /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
+    #[serde(default)]
+    size: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -355,7 +359,7 @@ fn plan_with_calls(
     ensure: EnsureCall<'_>,
     reservation: reservations::Transport<'_>,
 ) -> Value {
-    let request: PlanRequest = match serde_json::from_str(request) {
+    let mut request: PlanRequest = match serde_json::from_str(request) {
         Ok(request) => request,
         Err(error) => return refused("bad_request", error),
     };
@@ -364,6 +368,20 @@ fn plan_with_calls(
     }
     if !valid_account(&request.account) {
         return refused("bad_request", "the account is too long or has control characters");
+    }
+    if request
+        .size
+        .as_deref()
+        .is_some_and(|size| !matches!(size, "sm" | "md" | "lg" | "xl" | "2xl"))
+    {
+        return refused(
+            "bad_request",
+            "the size is not a Cloud machine size (sm, md, lg, xl, 2xl)",
+        );
+    }
+    // A machine larger than the chat size is never a warm spare (every spare is `sm`): no reservation goes for it.
+    if larger_than_chat(request.size.as_deref()) {
+        request.reservation_key = None;
     }
     let workspace = request.workspace.as_deref();
     if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
@@ -453,6 +471,7 @@ fn plan_with_calls(
                     .reservation_key
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
+                size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
             };
             let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
@@ -551,6 +570,11 @@ fn reservation_destination(
         return refused("ledger_failed", format!("{error:#}"));
     }
     json!({"ok": true, "machine": machine})
+}
+
+/// Whether `size` asks for more than the platform's chat size (`sm`, also what no size means).
+fn larger_than_chat(size: Option<&str>) -> bool {
+    size.is_some_and(|size| size != "sm")
 }
 
 /// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
@@ -705,7 +729,12 @@ pub(super) struct Ensure {
     platform: Option<String>,
     reservation_key: Option<String>,
     reservation_send_key: Option<String>,
+    /// The ladder size the chat's folder needs, sent only above the chat size ([`ENSURE_SIZE_FIELD`]).
+    size: Option<String>,
 }
+
+/// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
+pub(super) const ENSURE_SIZE_FIELD: &str = "size";
 
 impl Ensure {
     fn of(flags: &Flags) -> Option<Self> {
@@ -745,6 +774,7 @@ impl Ensure {
             platform: optional("--platform")?,
             reservation_key: None,
             reservation_send_key: None,
+            size: None,
         })
     }
 
@@ -766,6 +796,9 @@ impl Ensure {
         }
         if let Some(environment) = &self.environment {
             body.set("environment", json!(environment));
+        }
+        if let Some(size) = &self.size {
+            body.set(ENSURE_SIZE_FIELD, json!(size));
         }
         body
     }
@@ -945,6 +978,21 @@ pub(super) fn with_handling(
     use cmux_cloud_machine::refusals::{self, Handling};
     let facts = facts.unwrap_or_default();
     let Value::Object(object) = line else { return };
+    // A size the plan does not give: the size asked, the largest the plan gives and the plan that lifts it, for the
+    // App's start card (`cloud_size_locked`).
+    if code == "cloud.size.locked" {
+        // Only what the platform said: an absent `upgrade_plan` is not `nothing`.
+        let sizes = [
+            ("needed", facts.needed.map(|size| json!(size))),
+            ("allowed", facts.allowed.map(|size| json!(size))),
+            ("upgrade_plan", facts.upgrade_plan.map(|plan| json!(plan))),
+        ];
+        let sizes: serde_json::Map<String, Value> = sizes
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value)))
+            .collect();
+        object.insert("size_locked".into(), Value::Object(sizes));
+    }
     if refusals::platform(code).is_none() && facts.retryable.is_none() {
         return;
     }

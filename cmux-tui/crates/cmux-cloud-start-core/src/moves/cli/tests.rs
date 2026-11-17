@@ -519,3 +519,29 @@ fn a_failure_says_its_result_line_else_the_end_of_stderr() {
         "started"
     );
 }
+
+/// A seed refusal's copy size reaches the app (its room check reads it), and a first-pass copy says what it left on
+/// this Mac, at the line's top or in its `copy` summary, so the start never reads as a whole copy.
+#[test]
+fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 0)).0).unwrap();
+    let refused = encoded(r#"{"ok":false,"error_code":"seed_refused","copy_bytes":123}"#);
+    assert_eq!(refused["copyBytes"], 123);
+    let nested =
+        encoded(r#"{"ok":true,"mode":"copy","copy":{"skipped_counts":{"left_on_mac":7}}}"#);
+    assert_eq!(nested["leftOnMac"], 7);
+    let top = encoded(r#"{"ok":true,"skipped_counts":{"left_on_mac":2,"heavy":1}}"#);
+    assert_eq!(top["leftOnMac"], 2);
+    let whole = encoded(r#"{"ok":true,"copy":{"skipped_counts":{"heavy":1}}}"#);
+    assert_eq!(whole["leftOnMac"], Value::Null);
+    let locked = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"cloud.size.locked","size_locked":{"needed":"xl"}}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(locked["sizeLocked"], json!({"needed": "xl"}));
+}

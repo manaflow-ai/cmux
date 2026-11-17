@@ -2071,3 +2071,92 @@ fn a_refused_seed_answers_its_fallback_code_and_what_a_copy_would_send() {
     assert_eq!(answer["copy_bytes"], json!(5), "{answer}");
     assert_eq!(answer["seed_state"], json!("failed"), "{answer}");
 }
+
+/// A folder the chat size cannot hold asks the platform for its size (`preflight`'s `needed_size`), and never with a
+/// warm spare's reservation: every spare is `sm`. The chat size itself, or none, sends no size (an older platform's body).
+#[test]
+fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let bodies = RefCell::new(Vec::new());
+    let ensure = |ask: &Ensure, _: &str| {
+        bodies.borrow_mut().push(ask.body());
+        Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
+    };
+    for size in [Some("lg"), Some("sm"), None] {
+        let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
+            "local": folder.to_str().unwrap(), "credential_on_stdin": true, "reservation_key": key()});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        let answer = super::plan_with_calls(
+            &path,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &ensure,
+            &|_, _| panic!("the ensure made the machine"),
+        );
+        assert!(answer["machine"].is_string(), "{answer}");
+    }
+    let bodies = bodies.borrow();
+    assert_eq!(bodies[0][super::ENSURE_SIZE_FIELD], "lg");
+    assert!(bodies[0].get("reservationKey").is_none(), "{}", bodies[0]);
+    for body in &bodies[1..] {
+        assert!(body.get(super::ENSURE_SIZE_FIELD).is_none(), "{body}");
+        assert!(body.get("reservationKey").is_some(), "{body}");
+    }
+}
+
+/// A larger size whose ensure made no machine never binds a spare: the App makes it cold.
+#[test]
+fn a_larger_size_never_binds_a_spare_and_an_unknown_size_is_refused() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let request = json!({"key": key(), "account": "user-leo/team-a", "loaded": false,
+        "credential_on_stdin": true, "reservation_key": key(), "size": "md"});
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("a team send ensures nothing"),
+        &|_, _| panic!("a larger size binds no spare"),
+    );
+    assert_eq!(answer["machine"], Value::Null, "{answer}");
+    let bad = json!({"key": key(), "account": "user-leo/", "size": "huge"});
+    assert_eq!(plan(&path, &bad.to_string())["error_code"], "bad_request");
+}
+
+/// The platform refusing the workspace machine's size: the line names the size asked, the largest the plan gives and
+/// the plan that lifts it, for the App's start card (`cloud_size_locked`).
+#[test]
+fn a_size_refusal_names_its_sizes_for_the_start_card() {
+    use crate::cli::PlatformCallError as E;
+    let facts = cmux_cloud_machine::refusals::Facts::read(
+        Some(&json!({"code": "cloud.size.locked", "retryable": false,
+            "details": {"needed": "xl", "allowed": "lg", "upgrade_plan": "max"}})),
+        None,
+    );
+    let line = ensure_answer(Err(E::Status {
+        status: 403,
+        code: "cloud.size.locked",
+        facts: Some(facts),
+    }));
+    assert_eq!(line["error_code"], "cloud.size.locked", "{line}");
+    assert_eq!(
+        line["size_locked"],
+        json!({"needed": "xl", "allowed": "lg", "upgrade_plan": "max"}),
+        "{line}"
+    );
+    // No plan lifts it (null) is `nothing`; a field the platform left out stays out.
+    let top = cmux_cloud_machine::refusals::Facts::read(
+        Some(
+            &json!({"code": "cloud.size.locked", "details": {"needed": "2xl", "upgrade_plan": null}}),
+        ),
+        None,
+    );
+    let line =
+        ensure_answer(Err(E::Status { status: 403, code: "cloud.size.locked", facts: Some(top) }));
+    assert_eq!(line["size_locked"], json!({"needed": "2xl", "upgrade_plan": "nothing"}), "{line}");
+}

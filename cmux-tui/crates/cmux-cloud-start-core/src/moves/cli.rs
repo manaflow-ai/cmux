@@ -67,6 +67,14 @@ pub struct Answer {
     pub retryable: bool,
     /// With `retryable`, a rate limit's window in seconds: a Retry before it meets the limit again.
     pub retry_after_s: Option<u64>,
+    /// `seed_refused`: the bytes a copy of the folder would send (its first pass past the copy's limits).
+    pub copy_bytes: Option<u64>,
+    /// A copy past its limits sent a first pass: the files it left on this Mac (`skipped_counts.left_on_mac`,
+    /// at the top or in its `copy` summary). None for a copy sent whole.
+    pub left_on_mac: Option<u64>,
+    /// `link start-chat plan`'s `cloud.size.locked`: `{needed, allowed, upgrade_plan}` as the platform named them
+    /// (`upgrade_plan` `"nothing"`: no plan lifts it).
+    pub size_locked: Option<Value>,
 }
 
 impl Answer {
@@ -163,8 +171,20 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         remote_root: string(&object, "remote_root"),
         retryable: boolean(&object, "retryable").unwrap_or(false),
         retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
+        copy_bytes: object.get("copy_bytes").and_then(Value::as_u64),
+        left_on_mac: left_on_mac(&object),
+        size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
     };
     (answer, Some(object))
+}
+
+/// A first-pass copy's `left_on_mac` count, at the line's top or in its `copy` summary; None when nothing was left.
+fn left_on_mac(object: &Map<String, Value>) -> Option<u64> {
+    [object.get("skipped_counts"), object.get("copy").and_then(|copy| copy.get("skipped_counts"))]
+        .into_iter()
+        .flatten()
+        .find_map(|counts| counts.get("left_on_mac").and_then(Value::as_u64))
+        .filter(|left| *left > 0)
 }
 
 /// A `link machine update` success is exit 0 with `updated`, and with the `build` it reached
