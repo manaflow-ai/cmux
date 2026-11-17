@@ -40,6 +40,11 @@ parser.add_argument("--states", default="page,pageinput,omnibar,findbar,devtools
 parser.add_argument("--rounds", type=int, default=20)
 parser.add_argument("--settle", type=float, default=1.5)
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--key-window", choices=["page", "shell"],
+                    help="sequence input: make this window key first (`page`: the Chromium page window, as a press "
+                         "in a focused page; the keys then reach Chromium's own window as a person's do)")
+parser.add_argument("--url", help="a real site to test instead of the local page (linear.app, github.com); "
+                    "`navigated` then reloads the page before the press")
 opts = parser.parse_args()
 APP_PID = int(os.environ.get("APP_PID", "0"))
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
@@ -127,7 +132,12 @@ def chord_steps(after=0):
 
 
 def play(steps):
-    reply = rpc("debug.key", {"sequence": steps}) or {}
+    params = {"sequence": steps}
+    if opts.key_window and resolved()[0] in ("browserPage",):
+        params["key_window"] = opts.key_window
+    reply = rpc("debug.key", params) or {}
+    if reply.get("error"):
+        print("debug.key:", reply.get("error"), flush=True)
     time.sleep(((reply.get("duration_ms") or 0) + 30) / 1000)  # test harness: the sequence plays out
     return reply
 
@@ -212,6 +222,10 @@ def setup_state(state, url):
             play([{"key_code": 48, "down": True}, {"key_code": 48, "down": False, "after_ms": 20}])  # Tab into the field
             time.sleep(0.1)  # test harness: the page moves its focus
         if state == "navigated":
+            if opts.url:
+                run("browserReload")  # a real site: the press right after a reload starts
+                time.sleep(0.05)  # test harness: the load is under way
+                return browser_tab(), None, "after reload"
             return browser_tab(), [{"key_code": 45, "down": True}, {"key_code": 45, "down": False, "after_ms": 20}], ""
         return browser_tab(), None, ""
     if state == "omnibar":
@@ -237,7 +251,7 @@ def setup_state(state, url):
 def try_transition(state, url, attempt):
     """newtab / tabswitch / split: the change, then the press at once; returns (tab, note)."""
     if state == "newtab":
-        run("openBrowser", {"url": url + "nt%d" % attempt})
+        run("openBrowser", {"url": url if opts.url else url + "nt%d" % attempt})
         # The press goes as soon as the model names the new tab, as a person's would.
         wait(lambda: resolved()[0] == "browserPage" and resolved()[1] != STATE["tab"] or None, 5)
         STATE["tab"] = browser_tab()
@@ -265,14 +279,14 @@ def main():
         sys.exit("the app does not answer on " + opts.socket)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    url = opts.url or f"http://127.0.0.1:{server.server_address[1]}/"
     if opts.input == "real":
         cua("bring_to_front", {"pid": APP_PID})
     print("newBrowserWorkspace", run("newBrowserWorkspace"), flush=True)
     wait(lambda: browser_tab() or None, 15)
     print("openBrowser", run("openBrowser", {"url": url}), flush=True)
     wait(lambda: browser_tab() or None, 15)
-    time.sleep(2)  # test harness: the page loads
+    time.sleep(6 if opts.url else 2)  # test harness: the page loads
     STATE["tab"] = browser_tab()
     print("page tab", STATE["tab"], resolved(), flush=True)
 
