@@ -58,10 +58,12 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
     /// The bytes that draw this frame on a terminal showing frame ``base`` (a blank one for a
     /// keyframe); nil when `data` is not a delta.
     ///
-    /// No synchronized update (DEC mode 2026) around them, unlike cmux-tui's `frame_bytes`:
-    /// the phone hands Ghostty one frame in one `process_output`, parsed under the terminal
-    /// lock, so the renderer never sees half of it. Each `?2026h` instead woke Ghostty's IO
-    /// thread and re-armed its 1 s reset timer, for every frame.
+    /// No synchronized update (DEC mode 2026) around them, unlike cmux-tui's `frame_bytes`.
+    /// Each `?2026h` woke Ghostty's IO thread and re-armed its 1 s reset timer, for every
+    /// frame. A frame's bytes reach Ghostty in one `process_output`, parsed under the terminal
+    /// lock, unless the screen's output queue (`TerminalOutputQueue`) splits them: only when
+    /// more than one batch is waiting (256 KiB, or 16 KiB while the screen is dragged). Then
+    /// one display frame can show part of the frame.
     var terminalBytes: Data? {
         guard let delta else { return nil }
         var out = "\u{1b}[?25l\u{1b}[0m"
