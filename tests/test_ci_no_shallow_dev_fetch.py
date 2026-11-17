@@ -80,6 +80,8 @@ OWN_REPOSITORY = {
     "scripts/ci/cmux_next_base_merge_carry.py":
         "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
+    "scripts/measure/tab-switch.sh":
+        "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
