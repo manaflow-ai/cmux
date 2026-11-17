@@ -67,7 +67,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     public var group: ScreenGroupID?
     /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
     public var hiddenDividers: Set<SplitID>
-    /// The panes shown above the tiled layout, back to front (`floating-panes-v1`). Each one stays a leaf of `layout`.
+    /// The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not
+    /// checked against the layout, the range or repeats. The daemon keeps each one a leaf of `layout`.
     public var floating: [FloatingPaneSnapshot]
 
     public init(

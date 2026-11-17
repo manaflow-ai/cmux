@@ -5,7 +5,9 @@ import Foundation
 /// panes in `frame`. `Screen.floating` lists them back to front.
 public struct FloatingPaneSnapshot: Sendable, Hashable, Decodable {
     /// Where a floating pane is, as fractions of the screen's pane area:
-    /// the top left corner and the size, each in `0...1`.
+    /// the top left corner and the size, as the daemon sent it; not checked
+    /// against the layout, the range or repeats. The daemon bounds each
+    /// number (each is in `0...1` today).
     public struct Frame: Sendable, Hashable {
         public var x: Double
         public var y: Double
