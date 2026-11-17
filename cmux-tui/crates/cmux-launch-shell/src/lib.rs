@@ -1,9 +1,15 @@
-//! Which input the stage-0 launch window holds for the real window (docs/design/launch-shell-first.md,
-//! "Decision: stage 0 is its own window"): every key, button, drag and scroll, in arrival order,
-//! never dropped. What stage 0 shows (its plan and the image's staleness) is cmux-launch-record's,
-//! the one crate that reads the record. The app holds and replays; nothing here touches AppKit.
+//! The stage-0 launch window's decisions (docs/design/launch-shell-first.md, "Decision: stage 0 is
+//! its own window"): what it shows (`plan`: the saved image, the plain shell, the bare launch, or no
+//! window) and which input it holds for the real window (every key, button, drag and scroll, in
+//! arrival order, never dropped). The record's format is cmux-launch-record's; the app draws and
+//! replays; nothing here touches AppKit.
 
 pub mod ffi;
+pub mod plan;
+
+pub use plan::{
+    Appearance, Display, Frame, ImageKey, Now, Plan, Reason, SavedWindow, plan, png_size,
+};
 
 /// Held events past which the window swaps at once. Typing never reaches it; nothing is dropped.
 pub const INPUT_SWAP_AT: usize = 4096;
