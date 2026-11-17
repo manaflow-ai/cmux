@@ -656,6 +656,268 @@
         }
       }
     },
+    "remote.confirm.shareOther.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ مشاركة جهاز Mac هذا إذا سمح مالكه بالتحكم من أجهزتك الأخرى المسجّل دخولها. ستظل أجهزتك تطلب الإذن قبل أن تراه أو تتحكم فيه، ويسجّل كلا جهازي Mac أنك سمحت بذلك هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uključuje Dijeli ovaj Mac ako je vlasnik dozvolio kontrolu s vaših drugih prijavljenih računara. Vaši uređaji i dalje traže dozvolu prije nego što ga vide ili kontrolišu, a oba Mac računara bilježe da ste to dozvolili ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slår Del denne Mac til, hvis ejeren har tilladt styring fra dine andre loggede ind-maskiner. Dine enheder spørger stadig, før de ser eller styrer den, og begge Mac-computere registrerer, at du tillod det her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ schaltet „Diesen Mac teilen“ ein, wenn sein Besitzer die Steuerung von deinen anderen angemeldeten Rechnern erlaubt hat. Deine Geräte fragen weiterhin, bevor sie ihn sehen oder steuern, und beide Macs protokollieren, dass du es hier erlaubt hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ turns on Share This Mac if its owner allowed control from your other signed-in machines. Your devices still ask before they see or control it, and both Macs record that you allowed it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ activa Compartir este Mac si su propietario permitió el control desde tus otras máquinas con sesión iniciada. Tus dispositivos siguen pidiendo permiso antes de verlo o controlarlo, y ambos Mac registran que lo permitiste aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ active Partager ce Mac si son propriétaire a autorisé le contrôle depuis vos autres machines connectées. Vos appareils demandent toujours avant de le voir ou de le contrôler, et les deux Mac enregistrent que vous l’avez autorisé ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ attiva Condividi questo Mac se il proprietario ha consentito il controllo dalle tue altre macchine con accesso effettuato. I tuoi dispositivi chiedono comunque prima di vederlo o controllarlo, ed entrambi i Mac registrano che lo hai consentito qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者がサインイン済みの他のマシンからの操作を許可していれば、%@ は「この Mac を共有」をオンにします。デバイスが画面を見たり操作したりする前には引き続き確認があり、ここで許可したことが両方の Mac に記録されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បើក ចែករំលែក Mac នេះ ប្រសិនបើម្ចាស់របស់វាបានអនុញ្ញាតការគ្រប់គ្រងពីម៉ាស៊ីនផ្សេងទៀតរបស់អ្នកដែលបានចូល។ ឧបករណ៍របស់អ្នកនៅតែសួរមុនពេលមើល ឬគ្រប់គ្រងវា ហើយ Mac ទាំងពីរកត់ត្រាថាអ្នកបានអនុញ្ញាតវានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소유자가 로그인된 내 다른 기기의 제어를 허용했다면 %@에서 이 Mac 공유가 켜집니다. 기기가 화면을 보거나 제어하기 전에는 계속 확인을 요청하며, 두 Mac 모두 여기에서 허용했다는 사실을 기록합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slår på Del denne Macen hvis eieren har tillatt styring fra de andre påloggede maskinene dine. Enhetene dine spør fortsatt før de ser eller styrer den, og begge Mac-maskinene registrerer at du tillot det her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ włącza Udostępnianie tego Maca, jeśli jego właściciel zezwolił na sterowanie z Twoich innych zalogowanych komputerów. Twoje urządzenia nadal pytają, zanim go zobaczą lub nim sterują, a oba Maki zapisują, że zezwolono na to tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ativa Compartilhar este Mac se o proprietário permitiu o controle a partir das suas outras máquinas conectadas. Seus dispositivos ainda pedem permissão antes de vê-lo ou controlá-lo, e os dois Macs registram que você permitiu aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ включит «Поделиться этим Mac», если владелец разрешил управление с ваших других компьютеров, где выполнен вход. Ваши устройства по-прежнему спрашивают разрешение, прежде чем видеть его или управлять им, а оба Mac записывают, что вы разрешили это здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ จะเปิด แชร์ Mac เครื่องนี้ หากเจ้าของอนุญาตให้ควบคุมจากเครื่องอื่นของคุณที่ลงชื่อเข้าใช้อยู่ อุปกรณ์ของคุณยังคงต้องขออนุญาตก่อนดูหรือควบคุม และ Mac ทั้งสองเครื่องจะบันทึกว่าคุณอนุญาตที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sahibi oturum açmış diğer makinelerinizden denetime izin verdiyse %@ Bu Mac'i Paylaş'ı açar. Cihazlarınız onu görmeden veya denetlemeden önce yine sorar ve iki Mac de buna burada izin verdiğinizi kaydeder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ увімкне «Поділитися цим Mac», якщо власник дозволив керування з ваших інших комп’ютерів, де виконано вхід. Ваші пристрої й надалі питатимуть, перш ніж бачити його чи керувати ним, а обидва Mac записують, що ви дозволили це тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bật Chia sẻ máy Mac này nếu chủ sở hữu đã cho phép điều khiển từ các máy khác đã đăng nhập của bạn. Các thiết bị của bạn vẫn hỏi trước khi xem hoặc điều khiển, và cả hai máy Mac đều ghi lại rằng bạn đã cho phép tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果“%@”的所有者允许从你其他已登录的电脑进行控制，它会打开“共享此 Mac”。你的设备在查看或控制它之前仍会询问，两台 Mac 都会记录你在这里允许了此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果「%@」的擁有者允許從你其他已登入的電腦進行控制，它會開啟「共享這台 Mac」。你的裝置在查看或控制它之前仍會詢問，兩台 Mac 都會記錄你在這裡允許了此操作。"
+          }
+        }
+      }
+    },
+    "remote.confirm.shareOther.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد مشاركة شاشة %@ مع أجهزتك؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeliti ekran računara %@ s vašim uređajima?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del skærmen på %@ med dine enheder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm von %@ mit deinen Geräten teilen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share %@'s screen with your devices?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Compartir la pantalla de %@ con tus dispositivos?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’écran de %@ avec vos appareils ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividere lo schermo di %@ con i tuoi dispositivi?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の画面をあなたのデバイスと共有しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែកអេក្រង់របស់ %@ ជាមួយឧបករណ៍របស់អ្នកឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 화면을 내 기기와 공유하겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dele skjermen til %@ med enhetene dine?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnić ekran komputera %@ Twoim urządzeniom?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar a tela de %@ com seus dispositivos?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться экраном %@ с вашими устройствами?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์หน้าจอของ %@ กับอุปกรณ์ของคุณหรือไม่?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranı cihazlarınızla paylaşılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися екраном %@ з вашими пристроями?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình của %@ với các thiết bị của bạn?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要与你的设备共享“%@”的屏幕吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要與你的裝置共享「%@」的螢幕嗎？"
+          }
+        }
+      }
+    },
     "remote.done": {
       "extractionState": "manual",
       "localizations": {
@@ -783,6 +1045,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "remote.notYourDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ليس جهازًا آخر لهذا الحساب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije drugi uređaj ovog računa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en anden enhed på denne konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein anderes Gerät dieses Kontos."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not another device of this account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es otro dispositivo de esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas un autre appareil de ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è un altro dispositivo di questo account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこのアカウントの他のデバイスではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមែនជាឧបករណ៍ផ្សេងទៀតរបស់គណនីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 이 계정의 다른 기기가 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en annen enhet på denne kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest innym urządzeniem tego konta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é outro dispositivo desta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не является другим устройством этой учетной записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ใช่อุปกรณ์อื่นของบัญชีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu hesabın başka bir cihazı değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не є іншим пристроєм цього облікового запису."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không phải là thiết bị khác của tài khoản này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是此账户的其他设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是此帳號的其他裝置。"
           }
         }
       }

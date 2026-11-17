@@ -99,7 +99,7 @@ impl FrameSource for X11Frames {
                 r.y as usize,
                 r.w as usize,
                 r.h as usize,
-                2,
+                cmux_encode::convert_threads(),
             );
         }
         Ok(())

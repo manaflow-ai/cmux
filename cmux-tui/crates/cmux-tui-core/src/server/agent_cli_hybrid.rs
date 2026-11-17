@@ -22,18 +22,31 @@
 //!   [`PARKED_MAX`] of them.
 //! - `resized` becomes a keyframe at the new size; `colors-changed` passes through;
 //!   `detached` ends the stream as before.
+//! - Frames carry cells, not modes: an agent CLI's viewer gets the alternate screen (Codex,
+//!   opencode) and the input modes as `output` bytes, the screen before the first keyframe,
+//!   the input modes after it, and each change later on; a switch of screens is followed by a
+//!   keyframe of the screen switched to (#44052 F1).
 //! - A connection that also declared [`AGENT_CLI_HYBRID_LEAN_CAPABILITY`] gets each frame as
 //!   an `agent-cli-lean` event instead: `{event, surface, f}`, `f` one lean frame
 //!   (`cmux_agent_cli_render::lean`), which says the stream, size, frame numbers and cursor only
 //!   when the viewer does not know them yet and names styles from a table the connection builds,
 //!   so the link carries less than the PTY it replaces for every agent CLI (v1's JSON per frame
 //!   cost more than the PTY for Claude Code).
+//! - A connection that declared both and [`TERMINAL_SHELL_LINES_CAPABILITY`] gets a plain
+//!   shell's terminal (its own program a shell: `cmux_agent_cli_render::adapter`) as the same
+//!   lean frames: its lines and cursor. A full-screen program the shell runs (the alternate
+//!   screen or mouse tracking) goes as `output` PTY bytes from the byte that starts it, after
+//!   a last frame of what came before, so the viewer's terminal tracks its modes; when it ends
+//!   the frames go on from the screen the viewer then shows, with no keyframe. A terminal that
+//!   is already full-screen when it attaches starts with `vt-state`. Any other program (a
+//!   terminal whose own program is not a shell or an agent CLI) keeps the byte stream.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use cmux_agent_cli_render::adapter::{Adapter, FullScreenScan};
 use cmux_agent_cli_render::lean::LeanEncoder;
 use cmux_agent_cli_render::stream::{Frame, FramePacer, HybridStream};
 use cmux_agent_cli_render::vt;
@@ -49,8 +62,9 @@ pub const AGENT_CLI_HYBRID_CAPABILITY: &str = "agent-cli-hybrid-v1";
 /// With [`AGENT_CLI_HYBRID_CAPABILITY`]: frames go as lean `agent-cli-lean` events.
 pub const AGENT_CLI_HYBRID_LEAN_CAPABILITY: &str = "agent-cli-hybrid-v2";
 
-/// The agent adapters (`cmux_agent` hook `adapter.id`) whose terminals get the hybrid stream.
-pub(super) const AGENT_CLIS: &[&str] = &["claude", "claude-code", "codex", "opencode"];
+/// With both: a plain shell's terminal goes as lean frames too, PTY bytes only while it runs a
+/// full-screen program.
+pub const TERMINAL_SHELL_LINES_CAPABILITY: &str = "terminal-shell-lines-v1";
 
 /// How long a stream whose viewer left can still be resumed.
 pub(super) const PARKED_FOR: Duration = Duration::from_secs(600);
@@ -63,7 +77,52 @@ const SHADOW_SCROLLBACK_BYTES: usize = 64 * 1024;
 struct Parked {
     surface: SurfaceId,
     stream: HybridStream,
+    /// The modes the viewer's terminal was left in (an agent CLI's viewer).
+    told: Option<ScreenModes>,
     at: Instant,
+}
+
+/// The DEC private modes an agent CLI's viewer follows besides the alternate screen:
+/// [`cmux_agent_cli_render::adapter::INPUT_MODES`] and mouse tracking (1000, 1002, 1003), so
+/// its keys, pastes and touches send what the program asked for.
+const AGENT_INPUT_MODES: &[u16] = &[1, 1000, 1002, 1003, 1004, 1005, 1006, 1015, 2004];
+
+/// What an agent CLI's frames do not carry, which its viewer's terminal must follow (Codex and
+/// opencode run on the alternate screen): the screen the program draws on, and its input modes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ScreenModes {
+    alternate: bool,
+    /// The [`AGENT_INPUT_MODES`] that are set.
+    input: Vec<u16>,
+}
+
+impl ScreenModes {
+    fn of(term: &ghostty_vt::Terminal) -> ScreenModes {
+        ScreenModes {
+            alternate: term.active_screen() == ghostty_vt::Screen::Alternate,
+            input: AGENT_INPUT_MODES
+                .iter()
+                .copied()
+                .filter(|mode| term.mode(*mode, false))
+                .collect(),
+        }
+    }
+
+    /// The bytes that take a terminal in these modes to `next`'s: the input mode sets and
+    /// resets, then the switch of screens.
+    fn changes(&self, next: &ScreenModes) -> Vec<u8> {
+        let mut out = String::new();
+        for mode in AGENT_INPUT_MODES {
+            let set = next.input.contains(mode);
+            if self.input.contains(mode) != set {
+                out.push_str(&format!("\x1b[?{mode}{}", if set { 'h' } else { 'l' }));
+            }
+        }
+        if self.alternate != next.alternate {
+            out.push_str(if next.alternate { "\x1b[?1049h" } else { "\x1b[?1049l" });
+        }
+        out.into_bytes()
+    }
 }
 
 fn parked() -> &'static Mutex<HashMap<String, Parked>> {
@@ -71,12 +130,27 @@ fn parked() -> &'static Mutex<HashMap<String, Parked>> {
     PARKED.get_or_init(Mutex::default)
 }
 
-/// Whether `surface`'s terminal runs an agent CLI now.
-pub(super) fn runs_agent_cli(mux: &Mux, surface: &crate::Surface) -> bool {
-    surface
-        .terminal_public_id()
-        .and_then(|terminal| mux.running_agent_adapter(terminal))
-        .is_some_and(|agent| AGENT_CLIS.contains(&agent.as_str()))
+/// The stream a viewer gets for `surface`'s terminal: an agent CLI's adapter while one runs,
+/// the shell's when its own program is a shell, else the PTY.
+pub(super) fn adapter(mux: &Mux, surface: &crate::Surface) -> Adapter {
+    let agent =
+        surface.terminal_public_id().and_then(|terminal| mux.running_agent_adapter(terminal));
+    if Adapter::of(agent.as_deref(), None) == Adapter::Agent {
+        return Adapter::Agent;
+    }
+    let program = surface.process_id().and_then(crate::platform::process_executable);
+    Adapter::of(None, program.as_deref())
+}
+
+/// Whether the terminal shows a full-screen program: the alternate screen or mouse tracking.
+fn full_screen(term: &ghostty_vt::Terminal) -> bool {
+    term.active_screen() == ghostty_vt::Screen::Alternate
+        || [1000, 1002, 1003].into_iter().any(|mode| term.mode(mode, false))
+}
+
+/// A shell viewer's phase: its lines as frames, or a full-screen program's PTY bytes.
+struct Shell {
+    pty: bool,
 }
 
 /// The `hybrid_stream` and `hybrid_frame` an attach names to resume.
@@ -112,32 +186,59 @@ pub(super) struct HybridViewer {
     started: Instant,
     /// The connection's lean encoder, when it declared `agent-cli-hybrid-v2`.
     lean: Option<LeanEncoder>,
+    /// A plain shell's terminal ([`TERMINAL_SHELL_LINES_CAPABILITY`]).
+    shell: Option<Shell>,
+    /// A connection that declared [`TERMINAL_SHELL_LINES_CAPABILITY`]: its writes' input modes
+    /// (and, for a shell, the start of a full-screen program).
+    scan: Option<FullScreenScan>,
+    /// An agent CLI's viewer: the modes its terminal was told, as `output` bytes (the alternate
+    /// screen and [`AGENT_INPUT_MODES`]); each write that changes them tells it the change.
+    told: Option<ScreenModes>,
+}
+
+/// What a viewer declared: the lean frames (`agent-cli-hybrid-v2`), the shell adapter for
+/// this terminal, and [`TERMINAL_SHELL_LINES_CAPABILITY`] (its input modes as bytes).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Wants {
+    pub(super) lean: bool,
+    pub(super) shell: bool,
+    pub(super) lines: bool,
 }
 
 impl HybridViewer {
     /// The viewer of a terminal of `cols` x `rows` whose screen `replay` rebuilds, and its
     /// first `agent-cli-frame`: a keyframe, or a delta from the frame `resume` names when its
-    /// stream is still kept.
+    /// stream is still kept. A shell's viewer whose terminal is full-screen has no first frame:
+    /// the attach sends `vt-state`, and frames start when the program ends.
     pub(super) fn start(
         surface: SurfaceId,
         cols: u16,
         rows: u16,
         replay: &[u8],
         resume: Option<(String, u64)>,
-        lean: bool,
-    ) -> anyhow::Result<(HybridViewer, Value)> {
+        wants: Wants,
+    ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
+        let Wants { lean, shell, lines } = wants;
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
+        // An agent CLI's viewer follows the modes of its screen, which frames do not carry.
+        let modes = (!shell).then(|| ScreenModes::of(&term));
         let kept = resume.as_ref().and_then(|(id, _)| {
             let mut parked = parked().lock().recover_poison();
             parked.retain(|_, entry| entry.at.elapsed() < PARKED_FOR);
-            parked
-                .remove(id)
-                .filter(|entry| entry.surface == surface && entry.stream.size() == (cols, rows))
+            parked.remove(id).filter(|entry| {
+                entry.surface == surface
+                    && entry.stream.size() == (cols, rows)
+                    // An agent CLI's viewer left on the other screen, or in modes this stream
+                    // never told it, gets a keyframe: a delta would draw on the screen it shows.
+                    && modes.as_ref().is_none_or(|now| {
+                        entry.told.as_ref().is_some_and(|told| told.alternate == now.alternate)
+                    })
+            })
         });
-        let (id, stream) = match (kept, resume) {
-            (Some(entry), Some((id, frame))) => (Some((id, frame)), entry.stream),
-            _ => (None, HybridStream::new(cols, rows)),
+        let (id, stream, kept_told) = match (kept, resume) {
+            (Some(entry), Some((id, frame))) => (Some((id, frame)), entry.stream, entry.told),
+            _ => (None, HybridStream::new(cols, rows), None),
         };
         let mut viewer = HybridViewer {
             surface,
@@ -150,14 +251,193 @@ impl HybridViewer {
             pacer: FramePacer::default(),
             started: Instant::now(),
             lean: lean.then(LeanEncoder::new),
+            shell: shell.then_some(Shell { pty: false }),
+            scan: (lines || shell).then(FullScreenScan::new),
+            told: None,
         };
+        if let Some(shell) = viewer.shell.as_mut()
+            && full_screen(&viewer.term)
+        {
+            shell.pty = true;
+            viewer.stream.resize(cols, rows);
+            return Ok((viewer, None));
+        }
         let (real, cursor) = viewer.screen()?;
         viewer.stream.update(&real, 0);
         let frame = id
             .and_then(|(_, frame)| viewer.stream.resume(frame, 0))
             .unwrap_or_else(|| viewer.stream.keyframe(0));
+        // A keyframe goes to a terminal that starts over (reset); a resumed delta to one in the
+        // modes this stream left it in, input modes aside: those are said again, which is harmless.
+        viewer.told = modes.map(|_| ScreenModes {
+            alternate: frame.base.is_some() && kept_told.is_some_and(|told| told.alternate),
+            input: Vec::new(),
+        });
         let event = viewer.event(&frame, cursor);
-        Ok((viewer, event))
+        Ok((viewer, Some(event)))
+    }
+
+    /// Whether the viewer gets PTY bytes now (a shell running a full-screen program).
+    pub(super) fn sends_bytes(&self) -> bool {
+        self.shell.as_ref().is_some_and(|shell| shell.pty)
+    }
+
+    /// For an agent CLI's viewer whose first frame is a keyframe of the alternate screen: the
+    /// switch to it, which goes before that frame (after it, the switch would blank the frame).
+    pub(super) fn screen_before_first_frame(&mut self) -> Option<Vec<u8>> {
+        let told = self.told.as_mut()?;
+        let alternate = self.term.active_screen() == ghostty_vt::Screen::Alternate;
+        if told.alternate || !alternate {
+            return None;
+        }
+        told.alternate = true;
+        Some(b"\x1b[?1049h".to_vec())
+    }
+
+    /// The input modes the terminal's screen has set, as bytes for the viewer's terminal: what
+    /// a lines viewer or an agent CLI's viewer needs after its first frame (`None` for any
+    /// other viewer, or when none is set).
+    pub(super) fn input_modes(&mut self) -> Option<Vec<u8>> {
+        if let Some(told) = self.told.as_mut() {
+            let now = ScreenModes::of(&self.term);
+            let bytes = told.changes(&now);
+            *told = now;
+            return (!bytes.is_empty()).then_some(bytes);
+        }
+        self.scan.as_ref()?;
+        let modes: String = cmux_agent_cli_render::adapter::INPUT_MODES
+            .iter()
+            .filter(|mode| self.term.mode(**mode, false))
+            .map(|mode| format!("\x1b[?{mode}h"))
+            .collect();
+        (!modes.is_empty()).then(|| modes.into_bytes())
+    }
+
+    /// The terminal wrote `bytes` at `now`: a shell's viewer may switch phase within them.
+    fn write(
+        &mut self,
+        bytes: &[u8],
+        now: Instant,
+        out: &mut Vec<HybridOut>,
+    ) -> anyhow::Result<()> {
+        if self.sends_bytes() {
+            self.term.vt_write(bytes);
+            out.push(HybridOut::Attach(AttachFrame::Output(bytes.to_vec())));
+            return self.leave_full_screen(now);
+        }
+        if self.told.is_some() {
+            self.output(bytes, now);
+            return self.follow_modes(now, out);
+        }
+        let Some(scan) = self.scan.as_mut() else {
+            self.output(bytes, now);
+            return Ok(());
+        };
+        // The keys and pastes the viewer sends follow the program's input modes (bracketed
+        // paste, cursor keys), which frames do not carry: their sets and resets go as bytes
+        // (they draw nothing). Only a shell's full-screen program switches to bytes.
+        let found = scan.scan(bytes).filter(|_| self.shell.is_some());
+        let modes = scan.take_modes();
+        let Some(start) = found else {
+            self.output(bytes, now);
+            if !modes.is_empty() {
+                out.push(HybridOut::Attach(AttachFrame::Output(modes)));
+            }
+            return Ok(());
+        };
+        // What came before the program reaches the viewer as a last frame, then its bytes.
+        let (before, rest) = bytes.split_at(start.at.min(bytes.len()));
+        if !before.is_empty() {
+            self.output(before, now);
+        }
+        if let Some(event) = self.frame_now(now)? {
+            out.push(HybridOut::Event(event));
+        }
+        if !modes.is_empty() {
+            out.push(HybridOut::Attach(AttachFrame::Output(modes)));
+        }
+        self.bytes_from_now();
+        self.term.vt_write(rest);
+        out.push(HybridOut::Attach(AttachFrame::Output([&start.carried[..], rest].concat())));
+        self.leave_full_screen(now)
+    }
+
+    /// An agent CLI's viewer after a write: a change of input modes goes as bytes (they draw
+    /// nothing); a switch of screens goes as bytes too, then the screen switched to as a
+    /// keyframe, since the viewer's terminal no longer shows the frame before.
+    fn follow_modes(&mut self, now: Instant, out: &mut Vec<HybridOut>) -> anyhow::Result<()> {
+        let Some(told) = self.told.as_ref() else { return Ok(()) };
+        let next = ScreenModes::of(&self.term);
+        if *told == next {
+            return Ok(());
+        }
+        let switched = told.alternate != next.alternate;
+        out.push(HybridOut::Attach(AttachFrame::Output(told.changes(&next))));
+        self.told = Some(next);
+        if switched {
+            let (real, cursor) = self.screen()?;
+            let at_ms =
+                u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
+            self.stream.update(&real, at_ms);
+            self.pacer = FramePacer::default();
+            let frame = self.stream.keyframe(at_ms);
+            out.push(HybridOut::Event(self.event(&frame, cursor)));
+        }
+        Ok(())
+    }
+
+    /// The viewer gets PTY bytes from now on; no frame before can be resumed from.
+    fn bytes_from_now(&mut self) {
+        if let Some(shell) = self.shell.as_mut() {
+            shell.pty = true;
+        }
+        let (cols, rows) = self.stream.size();
+        self.stream.resize(cols, rows);
+        self.pacer = FramePacer::default();
+    }
+
+    /// A shell's full-screen program ended: frames go on from the screen the viewer shows (it
+    /// got every byte), with no keyframe.
+    fn leave_full_screen(&mut self, now: Instant) -> anyhow::Result<()> {
+        if full_screen(&self.term) {
+            return Ok(());
+        }
+        if let Some(shell) = self.shell.as_mut() {
+            shell.pty = false;
+        }
+        self.scan = Some(FullScreenScan::new());
+        let (real, _) = self.screen()?;
+        let at_ms = u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
+        self.stream.update(&real, at_ms);
+        Ok(())
+    }
+
+    /// A shell's resize, when it decides the viewer's phase: a full-screen terminal's viewer
+    /// gets the replay as a byte viewer does, and so does one leaving full-screen (frames go on
+    /// from it). False when the frame is not that (a shell at its lines gets a keyframe).
+    fn shell_resize(
+        &mut self,
+        frame: &AttachFrame,
+        now: Instant,
+        out: &mut Vec<HybridOut>,
+    ) -> anyhow::Result<bool> {
+        let (AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
+        | AttachFrame::ResizedWithColors { cols, rows, replay, pending_sequence, .. }) = frame
+        else {
+            return Ok(false);
+        };
+        let Some(shell) = self.shell.as_ref() else { return Ok(false) };
+        let shadow = shadow(*cols, *rows, &[&**replay, &**pending_sequence].concat())?;
+        let now_full = full_screen(&shadow);
+        if !now_full && !shell.pty {
+            return Ok(false);
+        }
+        out.push(HybridOut::Attach(frame.clone()));
+        self.term = shadow;
+        self.stream.resize(*cols, *rows);
+        self.bytes_from_now();
+        self.leave_full_screen(now)?;
+        Ok(true)
     }
 
     /// The terminal wrote `bytes` at `now`.
@@ -208,10 +488,13 @@ impl HybridViewer {
         now: Instant,
         out: &mut Vec<HybridOut>,
     ) -> anyhow::Result<()> {
+        if self.shell_resize(&frame, now, out)? {
+            return Ok(());
+        }
         match frame {
-            AttachFrame::Output(bytes) => self.output(&bytes, now),
+            AttachFrame::Output(bytes) => self.write(&bytes, now, out)?,
             AttachFrame::OutputWithColors { output, colors } => {
-                self.output(&output, now);
+                self.write(&output, now, out)?;
                 out.push(HybridOut::Attach(AttachFrame::ColorsChanged(Arc::new(*colors))));
             }
             AttachFrame::Resized { cols, rows, replay, pending_sequence, .. } => {
@@ -287,7 +570,7 @@ impl Drop for HybridViewer {
         let stream = std::mem::replace(&mut self.stream, HybridStream::new(1, 1));
         parked.insert(
             std::mem::take(&mut self.id),
-            Parked { surface: self.surface, stream, at: Instant::now() },
+            Parked { surface: self.surface, stream, told: self.told.take(), at: Instant::now() },
         );
     }
 }
@@ -353,7 +636,9 @@ mod tests {
 
     #[test]
     fn a_left_stream_resumes_from_its_frame_and_another_size_starts_over() {
-        let (mut viewer, first) = HybridViewer::start(7, 20, 4, b"hello", None, false).unwrap();
+        let (mut viewer, first) =
+            HybridViewer::start(7, 20, 4, b"hello", None, Wants::default()).unwrap();
+        let first = first.unwrap();
         assert_eq!(first["base"], Value::Null);
         let id = first["stream"].as_str().unwrap().to_owned();
         let applied = first["frame"].as_u64().unwrap();
@@ -363,14 +648,21 @@ mod tests {
         assert_eq!(next["base"].as_u64(), Some(applied));
         drop(viewer);
         // Back after missing frame `next`: one delta from `applied`, not a keyframe.
-        let (_viewer, resumed) =
-            HybridViewer::start(7, 20, 4, b"hello\r\nworld!", Some((id.clone(), applied)), false)
-                .unwrap();
+        let (_viewer, resumed) = HybridViewer::start(
+            7,
+            20,
+            4,
+            b"hello\r\nworld!",
+            Some((id.clone(), applied)),
+            Wants::default(),
+        )
+        .unwrap();
+        let resumed = resumed.unwrap();
         assert_eq!(resumed["stream"].as_str(), Some(id.as_str()));
         assert_eq!(resumed["base"].as_u64(), Some(applied));
         drop(_viewer);
         let (_viewer, other) =
-            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), false).unwrap();
-        assert_eq!(other["base"], Value::Null);
+            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), Wants::default()).unwrap();
+        assert_eq!(other.unwrap()["base"], Value::Null);
     }
 }

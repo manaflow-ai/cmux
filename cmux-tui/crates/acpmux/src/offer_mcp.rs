@@ -132,7 +132,7 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
             return error_result(format!("task {} {e} (none was offered)", n + 1));
         }
     }
-    let nonce: String = crate::hub::person::new_nonce().chars().take(16).collect();
+    let nonce: String = crate::person_tokens::new_nonce().chars().take(16).collect();
     let group = format!("g-{nonce}");
     let mut offered = Vec::new();
     for (n, task) in tasks.iter().enumerate() {

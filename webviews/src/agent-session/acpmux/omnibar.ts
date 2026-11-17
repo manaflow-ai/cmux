@@ -47,7 +47,14 @@ export type OmnibarProfile = { id: string; name: string; color?: string };
 export const MAX_NEW_TAB_PROFILES = 200;
 
 /// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
-export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
+export type OmnibarAction = {
+  id: string;
+  title: string;
+  detail?: string;
+  keywords: string[];
+  keycaps?: string[];
+  symbol?: string;
+};
 
 /// The most action rows accepted from the host: every palette action fits (AgentPaneOmnibar.maximumActions).
 export const MAX_NEW_TAB_ACTIONS = 2000;
@@ -156,6 +163,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
       if (!id || !title) return [];
       const detail = string(action.detail);
       const keycaps = strings(action.keycaps);
+      const symbol = string(action.symbol);
       return [
         {
           id,
@@ -163,6 +171,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
           keywords: strings(action.keywords),
           ...(detail ? { detail } : {}),
           ...(keycaps.length ? { keycaps } : {}),
+          ...(symbol ? { symbol } : {}),
         },
       ];
     })
