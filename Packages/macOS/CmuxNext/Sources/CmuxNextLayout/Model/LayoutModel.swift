@@ -182,7 +182,7 @@ public final class LayoutModel {
     /// Each canvas screen's viewport, reported by its view: fitting and revealing read it.
     @ObservationIgnored var canvasViewports: [ScreenID: CGSize] = [:]
 
-    /// Receives every intent. Set by the App (or `MockLayoutSource`).
+    /// Receives every intent. Set by the App.
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
     @ObservationIgnored var splitOverrides: [SplitID: GestureOverride] = [:]
