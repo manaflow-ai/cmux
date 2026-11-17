@@ -434,6 +434,43 @@ pub fn team(
     Ok((Some(team.id.as_str()) != active).then(|| team.id.clone()))
 }
 
+/// Why Set Up GitHub will not use the App, as the GitHub App check answered (`ready` is none).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GitHubApp {
+    Ready,
+    NotConnected,
+    NotConfigured,
+    Unknown,
+}
+
+/// What Set Up GitHub's question says: the App's helper, else the machine's own sign-in with the
+/// fallback's reason first. The parts are the app's strings, said in order; the bodies name the
+/// machine's git identity (`—` for a missing name or email).
+pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -> Vec<Said> {
+    let named = name.is_some() || email.is_some();
+    let identity = [name.unwrap_or("—"), email.unwrap_or("—")];
+    let body = |key: &'static str, bare: &'static str| {
+        if named {
+            Said::with(key, identity)
+        } else {
+            Said::key(bare)
+        }
+    };
+    let reason = match app {
+        GitHubApp::Ready => {
+            return vec![body("gitHubAppConfirmBody", "gitHubAppConfirmNoIdentity")];
+        }
+        GitHubApp::NotConnected => "gitHubFallbackNotConnected",
+        GitHubApp::NotConfigured => "gitHubFallbackNotConfigured",
+        GitHubApp::Unknown => "gitHubFallbackUnknown",
+    };
+    vec![
+        Said::key(reason),
+        body("gitHubConfirmBody", "gitHubConfirmNoIdentity"),
+    ]
+}
+
 /// An error's own words, without a trailing period (it sits inside a sentence).
 pub fn detail(text: &str) -> String {
     text.trim().trim_end_matches('.').to_owned()
