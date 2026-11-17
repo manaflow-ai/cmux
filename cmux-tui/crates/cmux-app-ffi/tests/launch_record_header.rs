@@ -1,4 +1,7 @@
-use cmux_launch_record::{CmuxLaunchSidebarInput, CmuxLaunchWindow, CmuxLaunchWindowInput};
+use cmux_launch_record::{
+    CmuxLaunchDisplay, CmuxLaunchNow, CmuxLaunchShellPlan, CmuxLaunchSidebarInput,
+    CmuxLaunchWindow, CmuxLaunchWindowInput,
+};
 use std::{
     mem::{align_of, offset_of, size_of},
     path::Path,
@@ -31,7 +34,15 @@ fn launch_record_c_layout_and_exports_match_rust() {
         image_pixel_width,
         image_pixel_height,
         window_id,
-        image_path
+        image_key,
+        backing_scale,
+        screen_frame_x,
+        screen_frame_y,
+        screen_frame_width,
+        screen_frame_height,
+        appearance,
+        appearance_follows_system,
+        fullscreen
     );
     check!(
         CmuxLaunchWindowInput,
@@ -45,12 +56,42 @@ fn launch_record_c_layout_and_exports_match_rust() {
         image_pixel_width,
         image_pixel_height,
         window_id,
-        image_path,
+        image_key,
         visible_workspace_id,
         visible_tab_ids,
-        visible_tab_count
+        visible_tab_count,
+        backing_scale,
+        screen_frame_x,
+        screen_frame_y,
+        screen_frame_width,
+        screen_frame_height,
+        appearance,
+        appearance_follows_system,
+        fullscreen
     );
     check!(CmuxLaunchSidebarInput, id, title, icon_key);
+    check!(
+        CmuxLaunchDisplay,
+        display_id,
+        frame_x,
+        frame_y,
+        frame_width,
+        frame_height,
+        backing_scale
+    );
+    check!(CmuxLaunchNow, build, appearance, displays, n, support_dir);
+    check!(
+        CmuxLaunchShellPlan,
+        frame_x,
+        frame_y,
+        frame_width,
+        frame_height,
+        background_rgba,
+        bar_rgba,
+        appearance,
+        reason,
+        image_path
+    );
     std::fs::write(&source, c).unwrap();
     let output = Command::new("cc")
         .arg("-std=c11")
@@ -75,7 +116,13 @@ fn launch_record_c_layout_and_exports_match_rust() {
         .unwrap();
     assert!(exports.status.success(), "{}", String::from_utf8_lossy(&exports.stderr));
     let exports = String::from_utf8(exports.stdout).unwrap();
-    for name in ["_cmux_launch_record_front_window", "_cmux_launch_record_write"] {
+    for name in [
+        "_cmux_launch_record_front_window",
+        "_cmux_launch_record_write",
+        "_cmux_launch_record_windows",
+        "_cmux_launch_record_layout_matches",
+        "_cmux_launch_shell_plan",
+    ] {
         assert!(exports.lines().any(|line| line == name), "missing packaged symbol {name}");
     }
 }
