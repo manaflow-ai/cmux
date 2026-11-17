@@ -137,6 +137,21 @@ class Routes(unittest.TestCase):
                     run = {key[1]: value for key, value in result.run.items()}
                     self.assertEqual(run, {"app-tests": True, "app-sim": True, "core-check": True}, result.lines())
 
+    def test_a_build_scripts_paths_and_path_modules_are_inputs_of_every_job_building_them(self):
+        # cmux#45420 review at bce48e967ff6: cmux-cloud-client's build.rs compiles a file outside cmux-tui through
+        # #[path = "../..."] and reruns on a "../" literal; a compile-only job and a dependent's job must count both.
+        files = {**FILES,
+                 "cmux-tui/crates/core/build.rs": '#[path = "../../../codegen/normalize.rs"]\nmod normalize;\n'
+                                                 'const RERUN: &str = "../../../codegen/schema.json";\n',
+                 "cmux-tui/crates/core/src/gen.rs": 'include!("../../../../codegen/table.rs");\n',
+                 "codegen/normalize.rs": "", "codegen/schema.json": "{}", "codegen/table.rs": ""}
+        with fake_tree(files) as tree:
+            for path in ("codegen/normalize.rs", "codegen/schema.json", "codegen/table.rs"):
+                with self.subTest(path=path):
+                    result = jobs.route(tree, [path], map_text=MAP)
+                    run = {key[1]: value for key, value in result.run.items()}
+                    self.assertEqual(run, {"app-tests": True, "app-sim": True, "core-check": True}, result.lines())
+
     def test_a_jobs_own_inputs_and_the_workspace_inputs_run_it(self):
         self.assertEqual(route(["scripts/run-app.sh"])[0], {"app-tests": True, "app-sim": False, "core-check": False})
         self.assertTrue(all(route(["cmux-tui/Cargo.lock"])[0].values()))
@@ -258,11 +273,9 @@ class TheRepository(unittest.TestCase):
             inputs = jobs.Graph(tree, [], all_jobs).inputs(job)
             dirs, files = verdict.crate_inputs(ROOT, root, tree)
             built = built_crates(tree, root)
-            namers = {}
-            for path in files:
-                name = posixpath.basename(path)
-                namers[path] = [source for source in tree.files(verdict.WORKSPACE, ".rs")
-                                if name in tree.text(source, errors="replace")]
+            sources = {source: tree.text(source, errors="replace") for source in tree.files(verdict.WORKSPACE, ".rs")}
+            namers = {path: [source for source, text in sources.items() if posixpath.basename(path) in text]
+                      for path in files}
         for path in [*dirs, *files]:
             if path == verdict.WORKSPACE or posixpath.basename(posixpath.dirname(path)) in verdict.UNBUILT_TARGET_DIRS:
                 continue

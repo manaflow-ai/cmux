@@ -57,13 +57,17 @@ ALWAYS = (
 READ_AT_TEST_TIME = {
     "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
 }
-INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')
+# include!/include_str!/include_bytes! of a literal path, from the source's directory.
+INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*"([^"]+)"')
+# #[path = "..."] on a module: compiled from that file (cmux#45420 review: cmux-cloud-client's build.rs compiles
+# workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs this way).
+PATH_ATTR = re.compile(r'#\[\s*path\s*=\s*"([^"]+)"\s*\]')
 # include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/x.json")) names a path from the crate directory;
 # include_str!(concat!("../dir/", $name, ".json")) one from the source's directory. The first literal is the path, or,
 # when more pieces follow it (a macro's $name), the directory it opens: its prefix up to the last "/" (cmux#45420
 # review P3-F1: the Windows check skipped a change to cmux-tui/spec/browser-host-operations.json). env!("OUT_DIR") and
 # other non-literal heads name no file of the tree and are not matched.
-INCLUDE_CONCAT = re.compile(r'include_(?:str|bytes)!\(\s*concat!\(\s*(env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?'
+INCLUDE_CONCAT = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*concat!\(\s*(env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?'
                             r'"([^"]*)"\s*([,)])')
 
 
@@ -343,7 +347,14 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
             if included is not None:
                 inputs.add(included)
         inputs.update(_concat_includes(tree, crate, source, text))
-        if not references or "../" not in text:
+        for match in PATH_ATTR.finditer(text):
+            named = _follow(tree, posixpath.dirname(source), match.group(1))
+            if named is not None:
+                inputs.add(named)
+        # A build script reads its "../" paths when the crate builds (cargo:rerun-if-changed, codegen inputs), so they
+        # count for a compile-only job and for every dependency, not only for the tested crate's run-time fixtures.
+        build_script = source == f"{crate}/build.rs"
+        if not (references or build_script) or "../" not in text:
             continue
         for literal in RELATIVE_REF.findall(text):
             for anchor in (posixpath.dirname(source), crate):

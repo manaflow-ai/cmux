@@ -79,6 +79,7 @@ on:
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
   # the change touches a `push` path above; when it touches none, every job is skipped,

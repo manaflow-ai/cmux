@@ -28,6 +28,7 @@ on:
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
       - ".github/actions/ghostty-zig-packages/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish"
       - "Resources/cmux-cli-path/zsh/.zshenv"
@@ -84,6 +85,7 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
       - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
