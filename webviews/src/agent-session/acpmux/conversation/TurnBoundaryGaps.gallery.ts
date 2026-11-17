@@ -11,6 +11,7 @@ import { activity, assistant, chat, row, summary, thought, tool, user } from "..
 import type { Play } from "../../../gallery/play";
 import { received } from "../incomingFixture";
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
+import { sinceRead } from "./sinceRead.experiment";
 import { markUnreadRead } from "./unreadState";
 import { minutesAgo } from "../../../gallery/clock";
 
@@ -164,6 +165,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/LaneNoticeBatch.tsx",
     "agent-session/acpmux/conversation/MessageRunLine.tsx",
   ],
+  // What the read line does (sinceRead.experiment.ts): collapse at once (shipped), shrink on the
+  // motion step, or fade in place as before.
+  experiment: { definition: sinceRead, script: [{ name: "Mark the line read", run: readDivider }] },
   variants: {
     "inbox-read": variant(
       'Leo\'s first screenshot: a read "New since you looked" line at the boundary, a turn two messages opened, read and a hidden call.',

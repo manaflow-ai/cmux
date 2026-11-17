@@ -8,8 +8,9 @@
 // Leo came back to. In real Chromium, for every variant:
 // - a row that takes height draws something: some text, svg or image in it has a box and is not
 //   faded out (opacity 0) or hidden;
-// - the footer's glyph centre sits footer-to-received (transcriptSpacing.ts LONE_SYSTEM_ROWS) over the
-//   first thing drawn under it, within its tolerance;
+// - the footer's glyph centre sits footer-to-received (transcriptSpacing.ts LONE_SYSTEM_ROWS) over a
+//   "Received" line drawn right under it, and with a read "New since you looked" line between them,
+//   as far as with no line at all (a read line takes no space);
 // - the received messages are named once: the "Received N messages" lines' counts and the message
 //   lines drawn on their own add up to the messages there are.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -138,6 +139,16 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
     return result;
   };
 
+  type Measured = Awaited<ReturnType<typeof measure>>;
+  /// The footer's glyph centre to the centre of the first thing drawn under it, and that row's id.
+  const footerGap = (rows: Measured["rows"], glyph: number | null, table: string) => {
+    expect(glyph, `no footer glyph; rows:\n${table}`).not.toBeNull();
+    const footerAt = rows.findIndex((row) => row.id === "gap-footer");
+    const next = rows.slice(footerAt + 1).find((row) => row.firstCentre !== null);
+    expect(next, `nothing drawn under the footer; rows:\n${table}`).toBeDefined();
+    return { gap: next!.firstCentre! - glyph!, next: next!.id };
+  };
+
   for (const variant of BOUNDARY_VARIANTS)
     test(variant, async () => {
       const { rows, glyph, named, naming } = await measure(variant);
@@ -159,15 +170,21 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
         expect(named, `rows:\n${table}`).toBe(BOUNDARY_MESSAGES.length);
         return;
       }
-      expect(glyph, `no footer glyph; rows:\n${table}`).not.toBeNull();
-      const footerAt = rows.findIndex((row) => row.id === "gap-footer");
-      const next = rows.slice(footerAt + 1).find((row) => row.firstCentre !== null);
-      expect(next, `nothing drawn under the footer; rows:\n${table}`).toBeDefined();
-      const gap = next!.firstCentre! - glyph!;
-      expect(
-        Math.abs(gap - LONE_SYSTEM_ROWS.footerToReceived),
-        `footer glyph to ${next!.id}: ${gap.toFixed(1)}px, spec ${LONE_SYSTEM_ROWS.footerToReceived}; rows:\n${table}`,
-      ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
+      const { gap, next } = footerGap(rows, glyph, table);
+      if (variant.endsWith("-read")) {
+        // A read line takes no space: the footer sits as far over the next turn as with no line.
+        const without = await measure(variant.slice(0, -"-read".length));
+        const expected = footerGap(without.rows, without.glyph, table).gap;
+        expect(
+          Math.abs(gap - expected),
+          `footer glyph to ${next}: ${gap.toFixed(1)}px, ${expected.toFixed(1)}px with no line; rows:\n${table}`,
+        ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
+      } else if (/^Received/.test(rows.find((row) => row.id === next)?.text ?? "")) {
+        expect(
+          Math.abs(gap - LONE_SYSTEM_ROWS.footerToReceived),
+          `footer glyph to ${next}: ${gap.toFixed(1)}px, spec ${LONE_SYSTEM_ROWS.footerToReceived}; rows:\n${table}`,
+        ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
+      }
       // Each received message is named once.
       expect(named, `rows naming the messages:\n${naming.join("\n")}\nrows:\n${table}`).toBe(BOUNDARY_MESSAGES.length);
     });

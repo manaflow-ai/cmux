@@ -2129,6 +2129,9 @@ export type AcpmuxMessageRun = {
   failed: number;
   running: boolean;
   rows: string[];
+  /// The ids of the messages it received (each message's `msgId`, an inbox notice's prompt ids):
+  /// laneNoticeBatches.ts never draws one of these again in a "Received N messages" row.
+  messages?: string[];
 };
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
