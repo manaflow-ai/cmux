@@ -66,15 +66,11 @@ extension MainPaneLayout {
                 return nil
             }
             outbound?.hidden(whileHolding: chat.id)
-            // The chat stays where it shows; only the tab's pane comes in, from the right (as
-            // AgentBesidePlacement docks a lone chat).
-            let layout = controller.workspace?.layoutModel
-            layout?.handOffContent(of: controller.layoutPaneID)
+            // The dock is one layout change (as AgentBesidePlacement docks a lone chat).
             let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) { done.resume(returning: $0) }
             }
             guard docked else {
-                layout?.cancelContentHandoff()
                 outbound?.finish(moved: false)
                 reveal(controller, tab)
                 if focus { controller.focusContent() }
