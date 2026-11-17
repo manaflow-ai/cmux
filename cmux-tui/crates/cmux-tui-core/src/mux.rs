@@ -3842,6 +3842,7 @@ impl Mux {
             .name(format!("template-complete-{terminal_id}"))
             .spawn(move || {
                 let mut delay = Duration::from_millis(100);
+                let mut log = RetryLog::default();
                 loop {
                     std::thread::sleep(delay);
                     if mux.shutting_down.load(Ordering::Acquire) {
@@ -3850,10 +3851,13 @@ impl Mux {
                     match mux.complete_template_adoption(&terminal_id) {
                         Ok(()) => break,
                         Err(error) => {
-                            eprintln!(
-                                "cmux-tui: template terminal {terminal_id} not published yet: \
-                                 {error:#}"
-                            );
+                            let error = format!("{error:#}");
+                            if let Some(attempts) = log.failed(&error) {
+                                eprintln!(
+                                    "cmux-tui: template terminal {terminal_id} not published \
+                                     yet after {attempts} retries: {error}"
+                                );
+                            }
                             delay = (delay * 2).min(Duration::from_secs(5));
                         }
                     }
@@ -3888,9 +3892,18 @@ impl Mux {
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
+        // The binding is a hint for a shell's bounded first-prompt wait, not
+        // part of the commit above: a write that fails (the supervisor's run
+        // directory is not ours to create) does not fail again on a retry, so
+        // it is reported once and the completion still succeeds.
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
-        if let Some(path) = bound_file {
-            self.publish_template_binding(terminal_id, &path)?;
+        if let Some(path) = bound_file
+            && let Err(error) = self.publish_template_binding(terminal_id, &path)
+        {
+            eprintln!(
+                "cmux-tui: template terminal {terminal_id} binding not written to {}: {error:#}",
+                path.display()
+            );
         }
         Ok(())
     }
@@ -3965,8 +3978,12 @@ impl Mux {
             session_id.as_str(),
             terminal_public_id.as_str()
         );
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        // The supervisor's run directory (/run/cmux) is created at bake and
+        // carried by the memory snapshot; a shell that waits for this file
+        // lives in it. After a reboot it is gone, nothing waits, and the
+        // daemon (not root) could not create it under /run anyway.
+        if path.parent().is_some_and(|parent| !parent.as_os_str().is_empty() && !parent.is_dir()) {
+            return Ok(());
         }
         let temporary = path.with_extension("tmp");
         std::fs::write(&temporary, contents)?;
@@ -18836,6 +18853,31 @@ fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
 /// registry (Mux::claim_template_terminal).
 fn template_terminal_launch_spec() -> Value {
     serde_json::json!({"template_terminal": true})
+}
+
+/// When a background retry loop reports a failure. It retries every few
+/// seconds for as long as the failure lasts, which can be the life of the
+/// machine: logging each attempt wrote 720 journal lines an hour on Cloud
+/// machines. The first failure, any change of error, and the 2nd, 4th, 8th...
+/// failure of the same error are logged.
+#[cfg(unix)]
+#[derive(Default)]
+struct RetryLog {
+    attempts: u64,
+    last_error: String,
+}
+
+#[cfg(unix)]
+impl RetryLog {
+    /// Record one failed attempt; `Some(attempts so far)` when it is logged.
+    fn failed(&mut self, error: &str) -> Option<u64> {
+        self.attempts += 1;
+        let changed = self.last_error != error;
+        if changed {
+            self.last_error = error.to_string();
+        }
+        (changed || self.attempts.is_power_of_two()).then_some(self.attempts)
+    }
 }
 
 fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
@@ -34497,6 +34539,18 @@ mod tests {
         assert_eq!(surface.process_id(), process_id);
         assert!(!surface.is_dead());
         mux.shutdown();
+    }
+
+    /// A retry loop that fails the same way for an hour (720 attempts at the
+    /// 5 s cap) logs 10 lines, not 720; a new error is logged at once.
+    #[cfg(unix)]
+    #[test]
+    fn retry_log_reports_a_lasting_failure_on_a_doubling_schedule() {
+        let mut log = RetryLog::default();
+        let logged: Vec<u64> = (0..720).filter_map(|_| log.failed("tab slot 5")).collect();
+        assert_eq!(logged, vec![1, 2, 4, 8, 16, 32, 64, 128, 256, 512]);
+        assert_eq!(log.failed("Permission denied (os error 13)"), Some(721));
+        assert_eq!(log.failed("Permission denied (os error 13)"), None);
     }
 
     #[test]
