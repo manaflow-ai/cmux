@@ -1386,6 +1386,138 @@ jobs:
       # As build-linux: the GCP build lane for the Linux legs when the preflight placed this call there.
       linux_runner: ${{ contains(needs.tree-preflight.outputs.gcp_jobs, ' build ') && needs.tree-preflight.outputs.gcp_runner || '' }}
 
+  # cmux-rd, the screen host of a joined Linux machine (cmux-tui/crates/cmux-rd-host, its
+  # own Cargo workspace), for both Linux targets, as cmux-rd-release.yml builds it: the
+  # release features (openh264 + link: no bench, no x264), linked by Zig against the glibc
+  # floor (cmux-rd loads Cisco's OpenH264 with dlopen, so it is a glibc binary, not musl).
+  # Its artifact cmux-tui-rd-<target> holds cmux-tui-rd-<target> and
+  # cmux-tui-rd-notices-<target>.md, so publish's cmux-tui-* download puts both in
+  # cmux-tui/<sha>/ beside acpmux, under the commit manifest and its attestation;
+  # publish-tree carries them into the tree, and the channel file names the binary's
+  # sha256 (scripts/ci/cmux-tui-point-channel.sh), where the join line installs it from.
+  # Before anything is built, the license gate: cargo-license over the release features,
+  # and a crate from a registry that is GPL, LGPL or AGPL only stops it (release.py
+  # license-gate). After the build, no H.264 codec may be in the binary: Cisco's OpenH264
+  # is downloaded by the machine itself (`cmux-rd openh264-install`), never shipped.
+  # Optional: publish runs without it when it fails, and the tree and channel then carry
+  # no cmux-rd (the join line says so and keeps the machine's own).
+  build-cmux-rd:
+    name: build cmux-rd ${{ matrix.target }}
+    if: >-
+      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    needs: [tree-preflight, tree-owner-wait]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    env:
+      # The VM image's glibc is the floor; zig links against this version.
+      GLIBC_FLOOR: "2.31"
+      TARGET: ${{ matrix.target }}
+      FEATURES: openh264,link
+      MANIFEST: cmux-tui/crates/cmux-rd-host/Cargo.toml
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty-next submodule (sets the Zig version)
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Resolve Zig version
+        id: zig
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install cargo-zigbuild and cargo-license
+        run: |
+          set -euo pipefail
+          rustup target add "$TARGET"
+          cargo install --locked cargo-zigbuild@0.20.0
+          cargo install --locked cargo-license@0.7.0
+
+      - name: License gate (every crate the binary links)
+        run: |
+          set -euo pipefail
+          cargo license --json --avoid-build-deps --avoid-dev-deps --manifest-path "$MANIFEST" \
+            --no-default-features --features "$FEATURES" --filter-platform "$TARGET" > "$RUNNER_TEMP/cargo-license.json"
+          status=0
+          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py license-gate \
+            --cargo-license "$RUNNER_TEMP/cargo-license.json" --out "$RUNNER_TEMP/licenses.md" || status=$?
+          { echo "### cmux-rd $TARGET: crates not under permissive licenses only"; echo; cat "$RUNNER_TEMP/licenses.md"; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Build
+        id: build
+        env:
+          CMUX_BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cargo zigbuild --release --locked --manifest-path "$MANIFEST" \
+            --no-default-features --features "$FEATURES" --bin cmux-rd --target "${TARGET}.${GLIBC_FLOOR}"
+          target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$MANIFEST" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+          bin="$target_dir/$TARGET/release/cmux-rd"
+          test -x "$bin"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+          # readelf reads either target's ELF on this runner (nm and objdump read only the host's).
+          # No glibc symbol newer than the floor.
+          newest="$(readelf --dyn-syms -W "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)"
+          echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
+          [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
+          # Never a codec in the binary: no symbol table entry defines an x264 or OpenH264
+          # function (the release profile keeps symbols), and no x264 banner is in the data.
+          # The names WelsCreateSVCEncoder and "openh264" do appear as strings: the host looks
+          # Cisco's library up by name at run time.
+          symbols="$(readelf -sW "$bin" | awk '$7 != "UND"' | wc -l)"
+          [[ "$symbols" -gt 1000 ]] || { echo "readelf sees only $symbols symbols (stripped?); cannot check codecs" >&2; exit 1; }
+          if readelf -sW "$bin" | awk '$7 != "UND" {print $8}' | grep -E '^(x264_|WelsCreateSVCEncoder|WelsCreateDecoder|WelsInitEncoderExt|WelsEncoderEncodeExt|DecodeFrame2)'; then
+            echo "the cmux-rd build defines an H.264 codec function" >&2
+            exit 1
+          fi
+          if strings -a "$bin" | grep -i -E 'x264 - core|x264_encoder_open|libx264'; then
+            echo "the cmux-rd build contains x264" >&2
+            exit 1
+          fi
+
+      - name: Notices (the exact crate tree of the build)
+        run: |
+          set -euo pipefail
+          cargo tree --locked --manifest-path "$MANIFEST" --no-default-features --features "$FEATURES" \
+            -e normal,no-proc-macro --target "$TARGET" --prefix none -f "{p}" > "$RUNNER_TEMP/cargo-tree.txt"
+          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py notices --target "$TARGET" --ref "$GITHUB_SHA" \
+            --cargo-tree "$RUNNER_TEMP/cargo-tree.txt" --out "$RUNNER_TEMP/notices.md" --cache "$RUNNER_TEMP/notices-cache"
+
+      - name: Stage
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          install -m 755 "${{ steps.build.outputs.bin }}" "dist/cmux-tui-rd-$TARGET"
+          install -m 644 "$RUNNER_TEMP/notices.md" "dist/cmux-tui-rd-notices-$TARGET.md"
+          (cd dist && sha256sum ./*)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-rd-${{ matrix.target }}
+          retention-days: 3
+          path: dist/
+          if-no-files-found: error
+
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
   # nightly bundles only the macOS daemon, and nightly-next promotes only a
@@ -1911,7 +2043,7 @@ jobs:
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    needs: [build, darwin-fallback-plan, build-darwin-fallback]
+    needs: [build, darwin-fallback-plan, build-darwin-fallback, build-cmux-rd]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
@@ -2069,7 +2201,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("rd-notices-").removeprefix("rd-").removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -2077,7 +2209,8 @@ jobs:
               return {
                   "os": "linux",
                   "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
-                  "libc": "musl",
+                  # cmux-rd (build-cmux-rd) links glibc: it loads Cisco's OpenH264 with dlopen.
+                  "libc": "glibc" if filename.removeprefix(sys.argv[2]).startswith("rd-") else "musl",
               }
 
           server_url, repository, run_id, release_url = sys.argv[5:9]
@@ -5026,7 +5159,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-cmux-rd, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

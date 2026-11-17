@@ -188,7 +188,7 @@ def notices(cargo_tree: Path, out: Path, cache: Path, target: str = TARGET, ref:
 PERMISSIVE = frozenset((
     "MIT", "MIT-0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
     "ISC", "Zlib", "0BSD", "BSL-1.0", "CC0-1.0", "Unlicense", "Unicode-3.0", "Unicode-DFS-2016",
-    "CDLA-Permissive-2.0",
+    "CDLA-Permissive-2.0", "bzip2-1.0.6",
 ))
 # Copyleft that reaches a program it is linked into statically.
 STRONG_COPYLEFT = re.compile(r"\b(?:A|L)?GPL-")
