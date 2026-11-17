@@ -21,6 +21,10 @@
 //! - `{"op":"traffic"}`: this host's bytes in and out per service since it
 //!   started, and per second over the last 10 s and 60 s (`traffic.rs`;
 //!   `cmux device traffic`).
+//! - `{"op":"self-check","phone":DEVICE_ID?,"rows":[1,...]?}`: the iPhone's
+//!   hidden lean-terminal self-check (`self_check.rs`; `cmux device
+//!   self-check`): a `{"progress":{..}}` line per case as the phone measures
+//!   it, then the report (or an error) as the last line.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -129,9 +133,13 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
         }
         Some("open") => open(&dialer, &request, read, write).await,
         Some("traffic") => reply(&mut write, traffic_reply(Instant::now())).await,
+        Some("self-check") => {
+            let registry = crate::self_check::registry();
+            Ok(crate::self_check::run(registry, &request, crate::self_check::LIMITS, &mut write).await?)
+        }
         _ => {
-            reply(&mut write, json!({"error": "bad_request", "message": "op is machines, open or traffic"}))
-                .await
+            let message = "op is machines, open, traffic or self-check";
+            reply(&mut write, json!({"error": "bad_request", "message": message})).await
         }
     }
 }

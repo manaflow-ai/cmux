@@ -752,9 +752,19 @@ fn b64(bytes: &[u8]) -> String {
 
 /// A frame as the daemon sends it (`agent-cli-frame`, `HybridViewer::event` in cmux-tui-core).
 fn frame_event(frame: &cmux_agent_cli_render::stream::Frame, cursor: vt::Cursor) -> Value {
+    sized_frame_event(frame, cursor, COLS, ROWS)
+}
+
+/// [`frame_event`] at a grid of `cols` × `rows`.
+fn sized_frame_event(
+    frame: &cmux_agent_cli_render::stream::Frame,
+    cursor: vt::Cursor,
+    cols: u16,
+    rows: u16,
+) -> Value {
     json!({
         "event": "agent-cli-frame", "surface": 1, "stream": STREAM_ID, "frame": frame.frame,
-        "base": frame.base, "cols": COLS, "rows": ROWS, "data": b64(&frame.data),
+        "base": frame.base, "cols": cols, "rows": rows, "data": b64(&frame.data),
         "cursor_x": cursor.x, "cursor_y": cursor.y, "cursor_visible": cursor.visible,
     })
 }
@@ -766,14 +776,30 @@ struct BenchStream {
     frames: Vec<Value>,
     shown: String,
     cursor: vt::Cursor,
+    cols: u16,
+    rows: u16,
 }
 
 impl BenchStream {
     fn check(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) {
         let (real, cursor) = live_screen(mac);
         if let Some(frame) = self.hybrid.update(&real, at_ms) {
-            self.frames.push(json!([at_ms, frame_event(&frame, cursor)]));
+            self.frames
+                .push(json!([at_ms, sized_frame_event(&frame, cursor, self.cols, self.rows)]));
         }
+        self.cursor = cursor;
+        self.shown = mac.viewport_text().unwrap();
+    }
+
+    /// The terminal changed size: a keyframe at the new size at once, as the daemon's
+    /// `HybridViewer::resized` sends it (and [`PhoneRun::resize`] replays it).
+    fn resized(&mut self, mac: &mut ghostty_vt::Terminal, cols: u16, rows: u16, at_ms: u64) {
+        (self.cols, self.rows) = (cols, rows);
+        self.hybrid.resize(cols, rows);
+        let (real, cursor) = live_screen(mac);
+        self.hybrid.update(&real, at_ms);
+        let key = self.hybrid.keyframe(at_ms);
+        self.frames.push(json!([at_ms, sized_frame_event(&key, cursor, cols, rows)]));
         self.cursor = cursor;
         self.shown = mac.viewport_text().unwrap();
     }
@@ -781,17 +807,25 @@ impl BenchStream {
 
 /// A session as the phone's in-app bench (`AgentCLIHybridBench`, cmux-next-ios) replays it:
 /// its PTY chunks, the daemon's `agent-cli-frame` events paced as the daemon paces them, what
-/// a viewer attaching at the `working` moment gets each way (the `vt-state` replay of the
-/// screen, or the stream's keyframe), and at every moment the real screen's text (`text`) and
-/// the text a hybrid viewer shows then, as of the newest frame check (`shown`). Written only
-/// when `HYBRID_EXPORT_DIR` names a directory.
+/// a viewer attaching at the `working` moment (else the session's second moment) gets each way
+/// (the `vt-state` replay of the screen, or the stream's keyframe), and at every moment the real
+/// screen's text (`text`) and the text a hybrid viewer shows then, as of the newest frame check
+/// (`shown`). A size change (`pty.jsonl`'s `resize` lines) is a `pty` entry
+/// `{"cols", "rows", "replay"}` (the daemon's `resized` event with its replay) and a keyframe
+/// at the new size among the frames. Written only when `HYBRID_EXPORT_DIR` names a directory.
 fn export(session: &Session) -> Value {
     let origin = std::time::Instant::now();
     let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
     let ms = |due: std::time::Instant| u64::try_from((due - origin).as_millis()).unwrap();
     let start = session.chunks.first().unwrap().0;
     let end = session.moments.last().unwrap().1;
-    let attach = session.moments.iter().find(|(name, _)| name == "working").unwrap().1;
+    let attach = session
+        .moments
+        .iter()
+        .find(|(name, _)| name == "working")
+        .or_else(|| session.moments.get(1))
+        .unwrap()
+        .1;
     let mut mac = terminal();
     let mut pacer = FramePacer::default();
     let mut stream = BenchStream {
@@ -799,6 +833,8 @@ fn export(session: &Session) -> Value {
         frames: Vec::new(),
         shown: String::new(),
         cursor: vt::Cursor::default(),
+        cols: COLS,
+        rows: ROWS,
     };
     let first = stream.hybrid.keyframe(0);
     stream.frames.push(json!([0, frame_event(&first, vt::Cursor::default())]));
@@ -824,23 +860,47 @@ fn export(session: &Session) -> Value {
                 let key = stream.hybrid.keyframe(moment - start);
                 attached = Some(json!({
                     "t_ms": moment - start, "pty": b64(&replay), "text": text,
-                    "hybrid": frame_event(&key, stream.cursor), "shown": stream.shown,
+                    "hybrid": sized_frame_event(&key, stream.cursor, stream.cols, stream.rows),
+                    "shown": stream.shown,
                 }));
             }
             next_moment += 1;
         }
     };
-    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
-        while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
+    let mut events: Vec<SessionEvent<'_>> = session
+        .chunks
+        .iter()
+        .map(|(t, bytes)| (*t, Some(bytes.as_slice()), (0, 0)))
+        .chain(session.resizes.iter().map(|(t, c, r)| (*t, None, (*c, *r))))
+        .filter(|(t, _, _)| *t <= end)
+        .collect();
+    events.sort_by_key(|(t, _, _)| *t);
+    for (t, bytes, (cols, rows)) in events {
+        while let Some(due) = pacer.due().filter(|due| *due <= at(t)) {
             // In time order: the moments before this frame check see the screen without it.
             note_moments(ms(due), &mut mac, &stream, &mut moments);
             stream.check(&mut mac, ms(due) - start);
             pacer.sent(due);
         }
-        note_moments(*t, &mut mac, &stream, &mut moments);
-        mac.vt_write(bytes);
-        pty.push(json!([t - start, b64(bytes)]));
-        pacer.wrote(at(*t));
+        note_moments(t, &mut mac, &stream, &mut moments);
+        match bytes {
+            Some(bytes) => {
+                mac.vt_write(bytes);
+                pty.push(json!([t - start, b64(bytes)]));
+                pacer.wrote(at(t));
+            }
+            None => {
+                mac.resize(cols, rows, 8, 16).unwrap();
+                let replay = mac
+                    .vt_replay_tail_theme_portable_with_aliases(4 << 20, 0)
+                    .unwrap()
+                    .replay
+                    .into_self_contained_bytes();
+                pty.push(json!([t - start, {"cols": cols, "rows": rows, "replay": b64(&replay)}]));
+                pacer = FramePacer::default();
+                stream.resized(&mut mac, cols, rows, t - start);
+            }
+        }
     }
     if let Some(due) = pacer.due() {
         note_moments(ms(due), &mut mac, &stream, &mut moments);
@@ -863,7 +923,8 @@ fn export(session: &Session) -> Value {
             y: u16::try_from(event["cursor_y"].as_u64().unwrap()).unwrap(),
             visible: event["cursor_visible"].as_bool().unwrap(),
         };
-        let f = encoder.encode(STREAM_ID, COLS, ROWS, &frame, cursor).unwrap();
+        let dim = |key: &str| u16::try_from(event[key].as_u64().unwrap()).unwrap();
+        let f = encoder.encode(STREAM_ID, dim("cols"), dim("rows"), &frame, cursor).unwrap();
         json!({"event": "agent-cli-lean", "surface": 1, "f": b64(&f)})
     };
     let attach_frame = attached["hybrid"]["frame"].as_u64().unwrap();
@@ -883,10 +944,18 @@ fn export(session: &Session) -> Value {
     })
 }
 
+/// A session written for the phone's pixel matrix (`AgentCLIHybridPixelMatrixUITests`,
+/// cmux-next-ios), not recorded: `tests/fixtures/pixel-matrix/make_fixture.py` writes its PTY
+/// bytes. Text in the first and last column of every row, a line wrapped over three rows, wide
+/// glyphs (CJK, emoji, a flag, fullwidth) placed at the right edge so they wrap, a box-drawing
+/// full-screen app on the alternate screen with a header and footer bar, the cursor moved
+/// inside it and to the last column, and the primary screen back after it.
+const PIXEL_MATRIX: &str = "pixel-matrix";
+
 #[test]
 fn export_sessions_for_the_phone_bench() {
     let Some(dir) = std::env::var_os("HYBRID_EXPORT_DIR") else { return };
-    for dir_name in [CLAUDE, CODEX, OPENCODE] {
+    for dir_name in [CLAUDE, CODEX, OPENCODE, SHELL, PIXEL_MATRIX] {
         let out = export(&load(dir_name));
         let path = Path::new(&dir).join(format!("{dir_name}.json"));
         std::fs::write(&path, serde_json::to_vec(&out).unwrap()).unwrap();

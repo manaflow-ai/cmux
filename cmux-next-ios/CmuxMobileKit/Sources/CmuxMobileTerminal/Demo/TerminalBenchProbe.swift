@@ -39,6 +39,16 @@ public final class TerminalBenchProbe: @unchecked Sendable {
     /// probe is active; the agent CLI hybrid bench compares it with the Mac's screen.
     nonisolated(unsafe) public var readScreen: (@MainActor () -> [String]?)?
 
+    /// Where the Mac's grid is drawn now, in window points (set with ``readScreen``): the
+    /// pixel matrix (`AgentCLIHybridPixelMatrixUITests`) compares exactly those pixels. The
+    /// release self-check reads the same (`TerminalGridGeometry`).
+    public typealias Geometry = TerminalGridGeometry
+
+    /// The Mac's grid on screen now (``Geometry``).
+    nonisolated(unsafe) public var readGeometry: (@MainActor () -> Geometry?)?
+    /// Pans a grid wider than the phone to its first column (false) or its last (true).
+    nonisolated(unsafe) public var pan: (@MainActor (_ toEnd: Bool) -> Void)?
+
     /// Times the drain: from `since` until Ghostty has processed session byte
     /// `end`, read back as ``Snapshot/drainMs``. Already there: zero.
     public func timeDrain(until end: Int, since: CFTimeInterval) {

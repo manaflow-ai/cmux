@@ -1,5 +1,6 @@
-// DEBUG and Demo builds only: the hybrid benchmark is never compiled into Production.
-#if os(iOS) && DEBUG
+// The bench (AgentCLIHybridBenchRoot, AgentCLIHybridBench) is DEBUG and Demo only; the session and its fake Mac
+// (BenchSession, HybridBenchDaemon) are in every build: the lean terminal self-check replays them (LeanSelfCheck).
+#if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -7,6 +8,7 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
+#if DEBUG
 /// DEBUG only. Launch with `-CmuxMobileHybridBench` to replay a recorded agent CLI session
 /// (Claude Code, Codex, opencode) into the real terminal screen, the way the Mac's daemon sends
 /// it: as PTY bytes (`output` events, today) or as the cells that changed (`agent-cli-frame`,
@@ -53,6 +55,18 @@ public struct AgentCLIHybridBenchRoot: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .bottom) {
+            // A still's grid on screen now (`TerminalBenchProbe.Geometry`), kept current
+            // through a rotation or a trip to the background (the pixel matrix reads it).
+            if !bench.geometry.isEmpty {
+                Text(bench.geometry)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("hybrid-bench.geometry")
+                    .accessibilityLabel(bench.geometry)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+            }
+        }
         .task { await bench.run() }
     }
 }
@@ -61,10 +75,13 @@ public struct AgentCLIHybridBenchRoot: View {
 final class AgentCLIHybridBench {
     let model: TerminalModel
     private(set) var result = ""
+    /// In still mode: the grid's geometry on screen as one line of JSON, refreshed.
+    private(set) var geometry = ""
     private let daemon: HybridBenchDaemon
     private let probe = TerminalBenchProbe()
     private let hybrid: Bool
     private let mode: String
+    private let terminal: DaemonTerminalSession
 
     init() {
         let defaults = UserDefaults.standard
@@ -73,8 +90,8 @@ final class AgentCLIHybridBench {
         hybrid = mode == "hybrid" || mode == "lean"
         // The setting the session reads at attach (off unless this run is hybrid).
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
-        let session = defaults.string(forKey: "CmuxMobileHybridBenchFile")
-            .flatMap { FileManager.default.contents(atPath: $0) }
+        let session = (Self.sessionFromEnvironment() ?? defaults.string(forKey: "CmuxMobileHybridBenchFile")
+            .flatMap { FileManager.default.contents(atPath: $0) })
             .flatMap { BenchSession($0) }
         daemon = HybridBenchDaemon(session: session, hybrid: hybrid, lean: mode == "lean")
         let daemon = daemon
@@ -83,10 +100,22 @@ final class AgentCLIHybridBench {
             open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
             openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
+        self.terminal = terminal
         model = TerminalModel(session: terminal, artifactSource: MockArtifactSource(), title: "hybrid bench")
     }
 
     private func log(_ text: String) { NSLog("[hybrid-bench] %@", text) }
+
+    /// The environment variable a UI test hands the session in: the session file, LZFSE
+    /// compressed, base64. On a device the app cannot read the test runner's files, so the
+    /// pixel matrix sends the session itself (`-CmuxMobileHybridBenchFile` reads a path).
+    nonisolated static let sessionEnvironmentKey = "CMUX_HYBRID_BENCH_SESSION_LZFSE"
+
+    static func sessionFromEnvironment() -> Data? {
+        guard let text = ProcessInfo.processInfo.environment[sessionEnvironmentKey],
+              let packed = Data(base64Encoded: text) else { return nil }
+        return try? (packed as NSData).decompressed(using: .lzfse) as Data
+    }
 
     /// `-CmuxMobileHybridBenchStillMs T`: stop at the daemon's frame of `T` ms (from the
     /// session's start) and hold the screen: the lean frames up to that frame, or the PTY bytes
@@ -130,7 +159,20 @@ final class AgentCLIHybridBench {
             let (daemon, attachMs) = (daemon, session.attachMs)
             await Task.detached { await daemon.play(until: stillMs, from: 0, attachMs: attachMs, fast: true) }.value
             _ = await settledScreen(clock)
+            // `-CmuxMobileHybridBenchPan end`: a grid wider than the phone shows its last column.
+            if UserDefaults.standard.string(forKey: "CmuxMobileHybridBenchPan") == "end" {
+                probe.pan?(true)
+                _ = await settledScreen(clock)
+            }
+            geometry = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
             finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent])
+            // Nothing moves from here on, but the page can (a rotation, the background and
+            // back): the geometry follows it until the test ends the app.
+            while !Task.isCancelled {
+                try? await clock.sleep(for: .milliseconds(200))
+                let line = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
+                if line != geometry { geometry = line }
+            }
             return
         }
         // The rest of the session at its recorded pace, paused at each moment.
@@ -173,6 +215,22 @@ final class AgentCLIHybridBench {
         finish(summary)
     }
 
+    /// The grid on screen as one line of JSON (points): `grid` and `cursor` as [x, y, width,
+    /// height], `window` [width, height], `scale`, `fullScreen` (the page's full-screen app
+    /// layout) and `alternate` (the session's alternate screen flag).
+    static func geometryLine(_ geometry: TerminalBenchProbe.Geometry?, alternate: Bool) -> String {
+        guard let geometry else { return "{\"error\":\"no geometry\"}" }
+        func rect(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { (Double($0) * 100).rounded() / 100 } }
+        var object: [String: Any] = [
+            "grid": rect(geometry.grid), "window": [Double(geometry.window.width), Double(geometry.window.height)],
+            "scale": Double(geometry.scale), "fullScreen": geometry.fullScreen, "alternate": alternate,
+            "cell": [Double(geometry.cell.width), Double(geometry.cell.height)],
+        ]
+        if let cursor = geometry.cursor { object["cursor"] = rect(cursor) }
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// The screen once nothing changed for 300 ms (at most 5 s).
     private func settledScreen(_ clock: ContinuousClock) async -> [String] {
         let deadline = clock.now + .seconds(5)
@@ -200,6 +258,7 @@ final class AgentCLIHybridBench {
         log("summary \(result)")
     }
 }
+#endif
 
 /// Cells of the phone's screen equal to the Mac's (text only; a no-break space equals a space),
 /// over the Mac's grid. The rows are
@@ -265,7 +324,9 @@ struct BenchSession {
     let rows: Int
     let durationMs: Int
     /// PTY chunks: ms from the start, bytes.
-    let pty: [(atMs: Int, data: Data)]
+    /// PTY chunks, and the terminal's size changes among them (`resized`: the new size, the
+    /// replay the daemon sends with it, in `data`).
+    let pty: [(atMs: Int, data: Data, resized: (columns: Int, rows: Int)?)]
     /// The daemon's `agent-cli-frame` events: ms from the start, the event.
     let frames: [(atMs: Int, event: [String: Any])]
     let attachMs: Int
@@ -293,9 +354,15 @@ struct BenchSession {
         self.rows = rows
         durationMs = duration
         self.pty = pty.compactMap { pair in
-            guard pair.count == 2, let at = pair[0] as? Int,
-                  let bytes = (pair[1] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
-            return (at, bytes)
+            guard pair.count == 2, let at = pair[0] as? Int else { return nil }
+            // A size change: `{"cols", "rows", "replay"}` (the export's `resized`).
+            if let resized = pair[1] as? [String: Any] {
+                guard let columns = resized["cols"] as? Int, let rows = resized["rows"] as? Int,
+                      let replay = (resized["replay"] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+                return (at, replay, (columns, rows))
+            }
+            guard let bytes = (pair[1] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+            return (at, bytes, nil)
         }
         self.frames = frames.compactMap { pair in
             guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
@@ -324,7 +391,7 @@ struct BenchSession {
         let bytes = switch mode {
         case "hybrid": frames.reduce(0) { $0 + HybridBenchDaemon.line($1.event).count }
         case "lean": leanFrames.reduce(HybridBenchDaemon.line(attachLean).count) { $0 + HybridBenchDaemon.line($1.event).count }
-        default: pty.reduce(0) { $0 + HybridBenchDaemon.outputLine($1.data).count }
+        default: pty.reduce(0) { $0 + HybridBenchDaemon.ptyLine($1).count }
         }
         if mode == "lean" {
             return Double(bytes) / max(Double(durationMs - attachMs) / 1000, 0.001)
@@ -377,6 +444,13 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     static func outputLine(_ bytes: Data) -> Data {
         line(["event": "output", "surface": 1, "data": bytes.base64EncodedString()])
+    }
+
+    /// A PTY chunk as `output`, or a size change as the daemon's `resized` with its replay.
+    static func ptyLine(_ entry: (atMs: Int, data: Data, resized: (columns: Int, rows: Int)?)) -> Data {
+        guard let size = entry.resized else { return outputLine(entry.data) }
+        return line(["event": "resized", "surface": 1, "cols": size.columns, "rows": size.rows,
+                     "replay": entry.data.base64EncodedString()])
     }
 
     private func request(_ line: Data, on channel: FloodChannel?) {
@@ -432,7 +506,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
                     return nil
                 }
                 defer { nextPTY += 1 }
-                return (session.pty[nextPTY].atMs, Self.outputLine(session.pty[nextPTY].data))
+                return (session.pty[nextPTY].atMs, Self.ptyLine(session.pty[nextPTY]))
             }
             guard let next else { return }
             let due = from + Double(next.atMs - attachMs) / 1000

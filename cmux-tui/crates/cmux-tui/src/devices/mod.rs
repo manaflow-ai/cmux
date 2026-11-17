@@ -37,6 +37,8 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device network [--json]
        cmux device traffic [--json]            (this Mac's bytes in and out per service through its
                                                iPhone and machine link host, last 10 s and 60 s)
+       cmux device self-check [--phone ID] [--rows 1,...,9] [--out DIR] [--json]   (hidden debug: the iPhone draws each
+                                               lean terminal case beside its PTY one and pixel-diffs them; images saved here)
        cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
        cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
        cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or

@@ -173,6 +173,12 @@ targets:
       - App
       - path: ../AppIcon.icon
         buildPhase: resources
+      # The lean terminal self-check's sessions (CmuxMobileLive LeanSelfCheck), in every build, so
+      # `cmux device self-check` runs on any phone with no host path (about 1 MB).
+      - path: verify/agent-cli-hybrid
+        buildPhase: resources
+        excludes:
+          - "parity/**"
     dependencies:
       - package: CmuxMobileKit
         product: CmuxMobileShell
@@ -467,6 +473,12 @@ targets:
     platform: iOS
     sources:
       - UITests
+      # The agent CLI bench sessions, so the pixel matrix runs on a device with no host path
+      # (AgentCLIHybridPixelMatrixUITests).
+      - path: verify/agent-cli-hybrid
+        buildPhase: resources
+        excludes:
+          - "parity/**"
     dependencies:
       - target: CmuxMobileApp
     settings:

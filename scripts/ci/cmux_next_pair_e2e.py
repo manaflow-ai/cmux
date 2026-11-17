@@ -20,6 +20,10 @@ old 100 MiB cap, with marked pages at its start, middle and end, is streamed by 
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
 lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
 memory footprint grew by less than a fifth of the file (no whole-file Data).
+Then the self-check leg (on a ref whose app has LeanSelfCheck): the Mac app's bundled `cmux device
+self-check --json` asks the paired phone, over the link, to draw every case of the lean terminal
+pixel matrix lean and PTY and diff them; it passes when all 9 rows come back, and keeps the images
+and report.json in self-check/ (a failing row is a finding, not a failed step).
 With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
 the paired phone, copies its history, sends a fresh challenge, reads the
 assistant reply, and taps an injected notification. That injection proves
@@ -71,6 +75,11 @@ def shows_a_code():
     code is the expected "before"; on one with it, no code is a failure."""
     src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
     return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+
+
+def has_self_check():
+    """Whether this ref's app has the lean terminal self-check (LeanSelfCheck.swift): its leg runs only there."""
+    return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LeanSelfCheck.swift"))
 
 
 def has_upload_probe():
@@ -301,6 +310,7 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded = [], None, None, None, not probe
+    self_checked = not has_self_check()
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
@@ -441,6 +451,13 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if paired and has_self_check():
+                phone_launch()
+                phone_log.wait(re.compile(r"live data on"), 60)
+                self_checked, lines = self_check_leg(a.mac_app, tag, a.out)
+                for line in lines:
+                    note(f"- self-check: {line}")
+                note(f"- self-check: phone after it {phone_shot('phone-after-self-check')}")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -484,7 +501,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and self_checked and cloud_ok and ask_ok and restart_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
@@ -573,6 +590,55 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
          f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
          f" -> {'PASS' if ok else 'FAIL'}")
     return restarted.proc, ok
+
+
+def self_check_leg(mac_app, tag, out):
+    """The lean terminal self-check as Leo would run it against his phone: the Mac app's own
+    `cmux device self-check --json --out DIR`, on the session socket of this run's tagged Mac (the
+    link socket beside it, hostd's), over the paired link to the simulator's app, which draws every
+    case lean and PTY and pixel-diffs them. (passed, summary lines): it passes when all 9 rows come
+    back (a row may fail: that is the finding); images and report.json go to self-check/."""
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    sockets = [p for pattern in ("/tmp/*.link.sock", os.path.join(home, "Library/Application Support/*/*.link.sock"),
+                                 os.path.join(home, "Library/Application Support/*/*/*.link.sock"))
+               for p in glob.glob(pattern) if tag in p]
+    if not sockets:
+        return False, [f"FAIL: no link socket of tag {tag} (hostd's <session>.link.sock)"]
+    link = max(sockets, key=os.path.getmtime)
+    daemon = link[: -len(".link.sock")] + ".sock"
+    cli = next((p for p in (os.path.join(mac_app, "Contents/Resources/bin", n) for n in ("cmux", "cmux-tui"))
+                if os.access(p, os.X_OK)), None)
+    if not cli:
+        return False, ["FAIL: the Mac app has no bundled cmux CLI"]
+    folder = os.path.join(out, "self-check")
+    command = [cli, "device", "self-check", "--json", "--out", folder]
+    t0 = time.monotonic()
+    try:
+        run = subprocess.run(command, env=dict(os.environ, CMUX_TUI_SOCKET=daemon), capture_output=True, text=True,
+                             timeout=1500, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return False, ["FAIL: `cmux device self-check` gave no answer in 1500 s"]
+    took = time.monotonic() - t0
+    with open(os.path.join(out, "self-check.log"), "w") as f:
+        f.write(f"$ CMUX_TUI_SOCKET=<tag session socket> cmux device self-check --json --out self-check (rc {run.returncode})\n")
+        f.write(run.stderr[-200000:])
+    try:
+        report = json.load(open(os.path.join(folder, "report.json")))
+    except (OSError, ValueError):
+        return False, [f"FAIL: rc {run.returncode}, no report.json: {(run.stdout + run.stderr).strip()[-600:]}"]
+    rows = report.get("rows") or []
+    lines = [f"`cmux device self-check` rc {run.returncode} in {took:.0f} s, phone {json.dumps(report.get('device', {}))}"]
+    for row in rows:
+        cases = row.get("cases") or []
+        why = "; ".join((row.get("why") or [])[:2])
+        lines.append(f"row {row.get('row')} {row.get('name')}: {'PASS' if row.get('pass') else 'FAIL'} "
+                     f"({sum(1 for c in cases if c.get('pass'))}/{len(cases)} cases){' - ' + why[:400] if why else ''}")
+    images = len(glob.glob(os.path.join(folder, "*.png")))
+    lines.append(f"{images} images and report.json in self-check/")
+    ok = run.returncode in (0, 1) and sorted(r.get("row") for r in rows) == list(range(1, 10))
+    if not ok:
+        lines.append(f"FAIL: expected rows 1-9, got {[r.get('row') for r in rows]}")
+    return ok, lines
 
 
 def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):

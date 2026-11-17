@@ -1095,7 +1095,8 @@ mod tests {
         // A notification's own reply is PR B's narrow command, with only its notification
         // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
         // field still refuses it.
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
+        let line =
+            br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
@@ -1528,7 +1529,11 @@ mod tests {
             br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
             br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
         ] {
-            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
         }
         let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
         let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };

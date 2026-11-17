@@ -402,6 +402,13 @@ final class FloodDaemon: @unchecked Sendable {
     }
 }
 
+#endif
+
+#if os(iOS)
+import CmuxMobileTransport
+import Foundation
+
+/// (Every build: the lean terminal self-check's fake Mac uses it too.)
 /// An in-memory link channel: lines the app sends go to `onSend`; lines
 /// pushed by the fake daemon come back from `receive`, one link frame each.
 final class FloodChannel: LinkChannel, @unchecked Sendable {

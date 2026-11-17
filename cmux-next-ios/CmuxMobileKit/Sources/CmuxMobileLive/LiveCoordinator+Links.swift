@@ -281,6 +281,8 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // The lean terminal self-check, idle until the Mac asks (`cmux device self-check`).
+        Task { await LeanSelfCheckLink.serve(on: link) }
         do {
             let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
