@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44013898355",
+  "recorded_at": "2026-11-17T04:08:54Z",
+  "reason": "cmux-tui 6e7e6c9d19d9 changes the image's cmux-tui (pinned e9eb50164043)",
+  "dry_run": false,
+  "cmux_tui": "6e7e6c9d19d90f15ab23452c3111ce9eea118026",
+  "fixes": [
+    {
+      "sha": "6e7e6c9d19d90f15ab23452c3111ce9eea118026",
+      "mergedAt": "2026-11-16T19:39:52-08:00",
+      "subject": "acpmux: per-link path counters (first byte, route, switches, RTT p50/p95, direct upgrades) (#44976)"
+    },
+    {
+      "sha": "c9a1a010dfc1e97beef9c354b8ad7f641390b65f",
+      "mergedAt": "2026-11-17T03:37:56Z",
+      "subject": "cmux mcp serve: an upstream server may be a loopback HTTP endpoint (#44934)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T04:08:54Z",
+    "snapshot_id": "sh-69749c7c3cae446a8d97230702865de4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44013898355): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "961ddc645fc0f2b25c8bb47718b5791a1d604af0",
+    "image": "cloud-native-auto-6e7e6c9d-44013898355-1",
+    "revision": "ci-44013898355-1",
+    "at": "2026-11-17T04:08:54Z"
+  },
+  "rolled_back": false
+}
