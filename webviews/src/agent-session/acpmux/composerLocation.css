@@ -1498,6 +1498,13 @@
      and its ink centers on the box's middle, where the controls are. */
   --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
 }
+/* The agent chat's composer is the chat's (user 2026-11-16: "make it so compact and default density have same size
+   of both imessage and chat trajectory"): at and below Default its boxes and text are Default's, above it they grow
+   with the density as before. New Tab's (`.nt-composer .acpmux-composer`, below) keeps its density zoom. */
+:is(.acpmux-dock, .acpmux-composer) {
+  --acpmux-density: max(1, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-density-text: var(--cmux-chat-text-scale, var(--cmux-interface-scale, 1));
+}
 /* The composer's type steps also cover New Tab's suggestions and create row.
    Dock toasts, asks and lists keep the transcript's sizes. */
 :is(.acpmux-composer, .nt-composer, .nt-popover, .nt-create) {
@@ -1511,7 +1518,7 @@
   --text-control--line-height: var(--text-body--line-height);
   --text-title: calc(15px * var(--acpmux-density-text));
   --text-title--line-height: calc(20px * var(--acpmux-density-text));
-  /* The prompt is the chat's text (chatDisplay.ts draws it at the density), a step over the chips, and above
+  /* The prompt is the chat's text (chatDisplay.ts draws it at the chat's text scale), a step over the chips, and above
      Default the text scale once more, so a roomy density's prompt reads big in its fat box (Lucas
      2026-11-13: Spacious's prompt should be bigger; about 18 px there). */
   --text-content: calc(var(--cv-font-size, 14px) * max(1, var(--acpmux-density-text)));
