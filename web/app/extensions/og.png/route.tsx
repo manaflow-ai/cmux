@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { KIND_ROOT, type ListingKind, type ListingKey, parseListingSlug } from "@/app/extensions/_lib/refs";
 import { readLimitedBody } from "@/app/extensions/_lib/limited-body";
+import { isMediaUrl } from "@/app/extensions/_lib/media-hosts";
 import { type Listing, loadListing } from "@/app/extensions/_lib/registry";
 import { listingSummary } from "@/app/extensions/_lib/seo";
 
@@ -39,9 +40,9 @@ function cardTarget(params: URLSearchParams): { kind: ListingKind; key: ListingK
   return { kind, key: { host: route.host, owner: route.owner, repo: route.repo, path: route.path } };
 }
 
-/** A remote image as a data URL, or null when it is slow, large, or not an image satori can draw. */
+/** A remote image as a data URL, or null when it is off the media hosts, slow, large, or not an image satori can draw. */
 async function fetchImage(url: string | undefined): Promise<string | null> {
-  if (!url) return null;
+  if (!url || !isMediaUrl(url)) return null;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS), redirect: "error" });
     const type = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
