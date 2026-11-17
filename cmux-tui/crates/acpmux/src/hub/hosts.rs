@@ -669,7 +669,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -1629,7 +1629,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;
