@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Live wallpapers</title>
+<!-- Every live wallpaper running from its own WGSL (translated by build.mjs), each in its
+     variants, in the dark and light themes. Move the pointer over a card. ?still=1 draws one
+     frame per card at the manifest's still time (what shoot.mjs captures). -->
+<style>
+  body { margin: 0; padding: 48px 56px 96px; background: #0b0b0c; color: #e9e8e4; font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 28px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lede { color: #8d8c88; margin: 0 0 40px; font: 11px ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+  section { margin-bottom: 56px; }
+  section h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  section p { color: #a4a39f; margin: 4px 0 16px; max-width: 80ch; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  figure { margin: 0; }
+  canvas, img.still { width: 100%; aspect-ratio: 16 / 9; display: block; border-radius: 6px; background: #000; }
+  figcaption { margin-top: 8px; font: 11px ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #8d8c88; }
+  .error { color: #ff6b5e; font: 12px ui-monospace, monospace; white-space: pre-wrap; }
+</style>
+<h1>Live wallpapers</h1>
+<p class="lede">Each card runs the wallpaper's own program. Move the pointer over a card.</p>
+<main id="main"></main>
+<script type="module">
+  import { WALLPAPERS } from "./wallpapers.js";
+  import { Wallpaper } from "./runner.js";
+
+  const query = new URLSearchParams(location.search);
+  const still = query.has("still");
+  const only = query.get("id");
+  const main = document.getElementById("main");
+  const live = [];
+
+  for (const wp of WALLPAPERS.filter((w) => !only || w.id === only)) {
+    const m = wp.manifest;
+    const section = document.createElement("section");
+    section.id = wp.id;
+    section.innerHTML = `<h2>${m.name}</h2><p>${m.description ?? ""}</p><div class="grid"></div>`;
+    main.append(section);
+    const grid = section.querySelector(".grid");
+    const variants = m.variants?.length ? m.variants : [{ name: "Default" }];
+    for (const variant of variants) {
+      for (const theme of variant.themes ?? ["dark", "light"]) {
+        const figure = document.createElement("figure");
+        const canvas = document.createElement("canvas");
+        figure.append(canvas);
+        figure.insertAdjacentHTML("beforeend", `<figcaption>${variant.name} · ${theme}</figcaption>`);
+        grid.append(figure);
+        const vstill = variant.still ?? m.still;
+        const options = { theme, accent: variant.accent, params: variant.params, seed: 0.37, pointer: vstill?.pointer };
+        // Every card first shows its still, drawn in a context that is given back at once.
+        const img = document.createElement("img");
+        img.className = "still";
+        // toDataURL keeps GL's bottom-up rows, so the image takes the canvas's flip too.
+        img.style.transform = "scaleY(-1)";
+        canvas.replaceWith(img);
+        try {
+          const w = new Wallpaper(document.createElement("canvas"), wp, { ...options, still: true });
+          // A card stands for a 480 x 270 point window on a Retina screen.
+          w.resize(480, 270);
+          w.draw(vstill?.time ?? 10);
+          img.src = w.canvas.toDataURL();
+          w.dispose();
+          if (!still) live.push({ wp, options, img, w: null });
+        } catch (e) {
+          figure.insertAdjacentHTML("beforeend", `<div class="error">${e.message}</div>`);
+        }
+      }
+    }
+  }
+
+  // Only cards on screen run, each in its own context while it is seen, as the app runs only
+  // a visible wallpaper; a card that leaves the screen gives its context back.
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const item = live.find((l) => l.img === e.target || l.canvas === e.target);
+      if (e.isIntersecting && !item.w) {
+        const canvas = document.createElement("canvas");
+        item.canvas = canvas;
+        item.w = new Wallpaper(canvas, item.wp, item.options);
+        item.w.resize(480, 270);
+        item.img.style.display = "none";
+        item.img.after(canvas);
+        io.observe(canvas);
+        item.w.start();
+      } else if (!e.isIntersecting && item.w && e.target === item.canvas) {
+        item.w.dispose();
+        item.w = null;
+        item.canvas.remove();
+        item.img.style.display = "";
+      }
+    }
+  });
+  for (const l of live) io.observe(l.img);
+  document.body.dataset.ready = "1";
+</script>
