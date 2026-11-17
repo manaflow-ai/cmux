@@ -1,0 +1,567 @@
+{
+  "source": "cmuxterm-hq build-fleet/data/job-needs.json",
+  "schema": "glaeda-job-needs/v1",
+  "generated_at": "2026-11-15T23:59:42Z",
+  "window": {
+    "from": "2026-11-02",
+    "to": "2026-11-15"
+  },
+  "min_samples": 20,
+  "jobs": {
+    "agent-brands.yml/swift-test": {
+      "mem_peak_mib_max": 1000,
+      "mem_peak_mib_p90": 629,
+      "n": 40
+    },
+    "app-ffi-release.yml/build": {
+      "mem_peak_mib_max": 3730,
+      "mem_peak_mib_p90": 3624,
+      "n": 27
+    },
+    "auth-refresh-tests.yml/auth-refresh-tests": {
+      "mem_peak_mib_max": 8854,
+      "mem_peak_mib_p90": 4143,
+      "n": 64
+    },
+    "ci.yml/app-host-unit-tests": {
+      "mem_peak_mib_max": 5544,
+      "mem_peak_mib_p90": 4439,
+      "n": 585
+    },
+    "ci.yml/claude-wrapper": {
+      "mem_peak_mib_max": 571,
+      "mem_peak_mib_p90": 283,
+      "n": 86
+    },
+    "ci.yml/cli-product-tests": {
+      "mem_peak_mib_max": 572,
+      "mem_peak_mib_p90": 509,
+      "n": 91
+    },
+    "ci.yml/cli-regressions": {
+      "mem_peak_mib_max": 341,
+      "mem_peak_mib_p90": 331,
+      "n": 25
+    },
+    "ci.yml/comment": {
+      "mem_peak_mib_max": 750,
+      "mem_peak_mib_p90": 533,
+      "n": 678
+    },
+    "ci.yml/macos-compile-admission": {
+      "mem_peak_mib_max": 32045,
+      "mem_peak_mib_p90": 15832,
+      "n": 169
+    },
+    "ci.yml/remote-daemon-macos-tests": {
+      "mem_peak_mib_max": 555,
+      "mem_peak_mib_p90": 354,
+      "n": 86
+    },
+    "ci.yml/swift-package-tests": {
+      "mem_peak_mib_max": 13614,
+      "mem_peak_mib_p90": 10405,
+      "n": 48
+    },
+    "ci.yml/tests-build-and-lag": {
+      "mem_peak_mib_max": 1008,
+      "mem_peak_mib_p90": 887,
+      "n": 80
+    },
+    "cmux-next-base-autofix.yml/action-exports": {
+      "mem_peak_mib_max": 30822,
+      "mem_peak_mib_p90": 27360,
+      "n": 261
+    },
+    "cmux-next-cua-helper-identity.yml/helper-identity": {
+      "mem_peak_mib_max": 799,
+      "mem_peak_mib_p90": 716,
+      "n": 62
+    },
+    "cmux-next-dev-daily.yml/tip-dmg-build": {
+      "mem_peak_mib_max": 692,
+      "mem_peak_mib_p90": 329,
+      "n": 1541
+    },
+    "cmux-next-dev-daily.yml/verify": {
+      "mem_peak_mib_max": 666,
+      "mem_peak_mib_p90": 232,
+      "n": 1519
+    },
+    "cmux-next-fast-gates.yml/post": {
+      "mem_peak_mib_max": 148,
+      "mem_peak_mib_p90": 94,
+      "n": 773
+    },
+    "cmux-next-fast-gates.yml/resolve": {
+      "mem_peak_mib_max": 901,
+      "mem_peak_mib_p90": 557,
+      "n": 1221
+    },
+    "cmux-next-guards.yml/ci-guard-group": {
+      "mem_peak_mib_max": 1094,
+      "mem_peak_mib_p90": 765,
+      "n": 108
+    },
+    "cmux-next-guards.yml/comment": {
+      "mem_peak_mib_max": 732,
+      "mem_peak_mib_p90": 532,
+      "n": 1251
+    },
+    "cmux-next-guards.yml/guard-status": {
+      "mem_peak_mib_max": 147,
+      "mem_peak_mib_p90": 95,
+      "n": 1422
+    },
+    "cmux-next-guards.yml/tooling-tests": {
+      "mem_peak_mib_max": 948,
+      "mem_peak_mib_p90": 684,
+      "n": 1232
+    },
+    "cmux-next-guards.yml/workflow-guard-tests": {
+      "mem_peak_mib_max": 820,
+      "mem_peak_mib_p90": 652,
+      "n": 142
+    },
+    "cmux-next-hot-verify.yml/look": {
+      "mem_peak_mib_max": 678,
+      "mem_peak_mib_p90": 572,
+      "n": 102
+    },
+    "cmux-next-ios-kit.yml/kit-tests": {
+      "mem_peak_mib_max": 18482,
+      "mem_peak_mib_p90": 17339,
+      "n": 25
+    },
+    "cmux-next-media.yml/tour": {
+      "mem_peak_mib_max": 29548,
+      "mem_peak_mib_p90": 24519,
+      "n": 1341
+    },
+    "cmux-next-pr-autofix.yml/action-exports": {
+      "mem_peak_mib_max": 33110,
+      "mem_peak_mib_p90": 25066,
+      "n": 2150
+    },
+    "cmux-next-terminal.yml/rust-terminal": {
+      "mem_peak_mib_max": 1482,
+      "mem_peak_mib_p90": 1292,
+      "n": 140
+    },
+    "cmux-next-terminal.yml/swift-terminal": {
+      "mem_peak_mib_max": 996,
+      "mem_peak_mib_p90": 745,
+      "n": 78
+    },
+    "cmux-next-tip-test-compile.yml/compile": {
+      "mem_peak_mib_max": 667,
+      "mem_peak_mib_p90": 393,
+      "n": 1127
+    },
+    "cmux-next.yml/app-compile-fleet": {
+      "mem_peak_mib_max": 157,
+      "mem_peak_mib_p90": 139,
+      "n": 13088
+    },
+    "cmux-next.yml/checks": {
+      "mem_peak_mib_max": 1230,
+      "mem_peak_mib_p90": 857,
+      "n": 276
+    },
+    "cmux-next.yml/cmux-scheme-compile": {
+      "mem_peak_mib_max": 50894,
+      "mem_peak_mib_p90": 37044,
+      "n": 3396
+    },
+    "cmux-next.yml/daemon-test": {
+      "mem_peak_mib_max": 89566,
+      "mem_peak_mib_p90": 37564,
+      "n": 4030
+    },
+    "cmux-next.yml/fast-tier": {
+      "mem_peak_mib_max": 84963,
+      "mem_peak_mib_p90": 36777,
+      "n": 7214
+    },
+    "cmux-next.yml/fast-tier-fleet": {
+      "mem_peak_mib_max": 916,
+      "mem_peak_mib_p90": 497,
+      "n": 371
+    },
+    "cmux-next.yml/generated-files": {
+      "mem_peak_mib_max": 85554,
+      "mem_peak_mib_p90": 67247,
+      "n": 3823
+    },
+    "cmux-next.yml/path_route": {
+      "mem_peak_mib_max": 1021,
+      "mem_peak_mib_p90": 598,
+      "n": 102
+    },
+    "cmux-next.yml/release-compile": {
+      "mem_peak_mib_max": 12213,
+      "mem_peak_mib_p90": 11314,
+      "n": 199
+    },
+    "cmux-next.yml/release-compile-fast": {
+      "mem_peak_mib_max": 150,
+      "mem_peak_mib_p90": 138,
+      "n": 5127
+    },
+    "cmux-next.yml/swift-canary": {
+      "mem_peak_mib_max": 42850,
+      "mem_peak_mib_p90": 21188,
+      "n": 21
+    },
+    "cmux-next.yml/swift-canary-fleet": {
+      "mem_peak_mib_max": 145,
+      "mem_peak_mib_p90": 138,
+      "n": 139
+    },
+    "cmux-next.yml/swift-test": {
+      "mem_peak_mib_max": 76620,
+      "mem_peak_mib_p90": 43296,
+      "n": 1261
+    },
+    "cmux-tui-artifacts.yml/build": {
+      "mem_peak_mib_max": 34192,
+      "mem_peak_mib_p90": 33136,
+      "n": 231
+    },
+    "cmux-tui.yml/build": {
+      "mem_peak_mib_max": 6857,
+      "mem_peak_mib_p90": 6600,
+      "n": 111
+    },
+    "cmux-tui.yml/lint": {
+      "mem_peak_mib_max": 2923,
+      "mem_peak_mib_p90": 2734,
+      "n": 89
+    },
+    "cmux-tui.yml/macos": {
+      "mem_peak_mib_max": 28211,
+      "mem_peak_mib_p90": 22787,
+      "n": 596
+    },
+    "cmux-tui.yml/test": {
+      "mem_peak_mib_max": 8335,
+      "mem_peak_mib_p90": 7948,
+      "n": 76
+    },
+    "fleet-compile-check.yml/compile-check": {
+      "mem_peak_mib_max": 145,
+      "mem_peak_mib_p90": 138,
+      "n": 142
+    },
+    "fleet-test-compile.yml/compile": {
+      "mem_peak_mib_max": 207,
+      "mem_peak_mib_p90": 164,
+      "n": 6930
+    },
+    "ios-internal-nightly.yml/archive": {
+      "mem_peak_mib_max": 3715,
+      "mem_peak_mib_p90": 3442,
+      "n": 131
+    },
+    "iroh-v2.yml/client": {
+      "mem_peak_mib_max": 3884,
+      "mem_peak_mib_p90": 1554,
+      "n": 32
+    },
+    "nightly-next-canary.yml/canary": {
+      "mem_peak_mib_max": 1810,
+      "mem_peak_mib_p90": 1314,
+      "n": 395
+    },
+    "nightly-next-canary.yml/pick": {
+      "mem_peak_mib_max": 624,
+      "mem_peak_mib_p90": 254,
+      "n": 654
+    },
+    "nightly-next-canary.yml/verdict": {
+      "mem_peak_mib_max": 105,
+      "mem_peak_mib_p90": 99,
+      "n": 80
+    },
+    "nightly-next-launch-smoke.yml/pick": {
+      "mem_peak_mib_max": 831,
+      "mem_peak_mib_p90": 588,
+      "n": 1138
+    },
+    "nightly-next-launch-smoke.yml/record": {
+      "mem_peak_mib_max": 150,
+      "mem_peak_mib_p90": 100,
+      "n": 138
+    },
+    "nightly-next-launch-smoke.yml/smoke": {
+      "mem_peak_mib_max": 1450,
+      "mem_peak_mib_p90": 1076,
+      "n": 394
+    },
+    "nightly.yml/attest-nightly-remote-daemon": {
+      "mem_peak_mib_max": 725,
+      "mem_peak_mib_p90": 556,
+      "n": 452
+    },
+    "nightly.yml/await-nightly-tree-marker": {
+      "mem_peak_mib_max": 170,
+      "mem_peak_mib_p90": 161,
+      "n": 321
+    },
+    "nightly.yml/build-nightly-app": {
+      "mem_peak_mib_max": 46012,
+      "mem_peak_mib_p90": 11321,
+      "n": 1020
+    },
+    "nightly.yml/build-nightly-deltas": {
+      "mem_peak_mib_max": 15176,
+      "mem_peak_mib_p90": 15013,
+      "n": 156
+    },
+    "nightly.yml/build-nightly-ghostty-cli-helper": {
+      "mem_peak_mib_max": 2944,
+      "mem_peak_mib_p90": 602,
+      "n": 903
+    },
+    "nightly.yml/build-nightly-inputs": {
+      "mem_peak_mib_max": 2150,
+      "mem_peak_mib_p90": 579,
+      "n": 761
+    },
+    "nightly.yml/build-nightly-remote-daemon": {
+      "mem_peak_mib_max": 654,
+      "mem_peak_mib_p90": 200,
+      "n": 623
+    },
+    "nightly.yml/build-sign-notarize-nightly": {
+      "mem_peak_mib_max": 691,
+      "mem_peak_mib_p90": 577,
+      "n": 226
+    },
+    "nightly.yml/check-nightly-webviews": {
+      "mem_peak_mib_max": 6154,
+      "mem_peak_mib_p90": 4246,
+      "n": 657
+    },
+    "nightly.yml/close-nightly-failure-issue": {
+      "mem_peak_mib_max": 163,
+      "mem_peak_mib_p90": 99,
+      "n": 345
+    },
+    "nightly.yml/decide": {
+      "mem_peak_mib_max": 690,
+      "mem_peak_mib_p90": 306,
+      "n": 1277
+    },
+    "nightly.yml/dispatch-nightly-next-sign": {
+      "mem_peak_mib_max": 664,
+      "mem_peak_mib_p90": 174,
+      "n": 132
+    },
+    "nightly.yml/dispatch-published-in": {
+      "mem_peak_mib_max": 719,
+      "mem_peak_mib_p90": 615,
+      "n": 159
+    },
+    "nightly.yml/find-nightly-next-recovery": {
+      "mem_peak_mib_max": 647,
+      "mem_peak_mib_p90": 159,
+      "n": 652
+    },
+    "nightly.yml/generate-nightly-deltas": {
+      "mem_peak_mib_max": 37560,
+      "mem_peak_mib_p90": 26881,
+      "n": 301
+    },
+    "nightly.yml/keep-published-dsyms": {
+      "mem_peak_mib_max": 360,
+      "mem_peak_mib_p90": 354,
+      "n": 132
+    },
+    "nightly.yml/launch-smoke-nightly": {
+      "mem_peak_mib_max": 1298,
+      "mem_peak_mib_p90": 978,
+      "n": 173
+    },
+    "nightly.yml/legacy-signer-dmg-image": {
+      "mem_peak_mib_max": 615,
+      "mem_peak_mib_p90": 572,
+      "n": 200
+    },
+    "nightly.yml/nightly-identity-legacy-published": {
+      "mem_peak_mib_max": 100,
+      "mem_peak_mib_p90": 93,
+      "n": 513
+    },
+    "nightly.yml/nightly-next-one": {
+      "mem_peak_mib_max": 42813,
+      "mem_peak_mib_p90": 38070,
+      "n": 212
+    },
+    "nightly.yml/pick-classic-sign-runner": {
+      "mem_peak_mib_max": 635,
+      "mem_peak_mib_p90": 147,
+      "n": 158
+    },
+    "nightly.yml/pick-nightly-build-runner": {
+      "mem_peak_mib_max": 171,
+      "mem_peak_mib_p90": 138,
+      "n": 804
+    },
+    "nightly.yml/pick-nightly-sign-runner": {
+      "mem_peak_mib_max": 173,
+      "mem_peak_mib_p90": 162,
+      "n": 527
+    },
+    "nightly.yml/prepare-nightly-variant": {
+      "mem_peak_mib_max": 697,
+      "mem_peak_mib_p90": 327,
+      "n": 1069
+    },
+    "nightly.yml/prepare-nightly-variant-primary": {
+      "mem_peak_mib_max": 734,
+      "mem_peak_mib_p90": 576,
+      "n": 479
+    },
+    "nightly.yml/publish-nightly": {
+      "mem_peak_mib_max": 426,
+      "mem_peak_mib_p90": 417,
+      "n": 158
+    },
+    "nightly.yml/publish-nightly-next-github": {
+      "mem_peak_mib_max": 705,
+      "mem_peak_mib_p90": 693,
+      "n": 67
+    },
+    "nightly.yml/published-build": {
+      "mem_peak_mib_max": 707,
+      "mem_peak_mib_p90": 590,
+      "n": 311
+    },
+    "nightly.yml/published-in": {
+      "mem_peak_mib_max": 780,
+      "mem_peak_mib_p90": 651,
+      "n": 184
+    },
+    "nightly.yml/report-nightly-failure": {
+      "mem_peak_mib_max": 450,
+      "mem_peak_mib_p90": 100,
+      "n": 610
+    },
+    "nightly.yml/republish-nightly-deltas": {
+      "mem_peak_mib_max": 422,
+      "mem_peak_mib_p90": 399,
+      "n": 77
+    },
+    "nightly.yml/resolve-nightly-cmux-tui-client": {
+      "mem_peak_mib_max": 1883,
+      "mem_peak_mib_p90": 667,
+      "n": 1226
+    },
+    "nightly.yml/resolve-nightly-ghostty-cli-helper": {
+      "mem_peak_mib_max": 677,
+      "mem_peak_mib_p90": 174,
+      "n": 791
+    },
+    "nightly.yml/retry-nightly-next": {
+      "mem_peak_mib_max": 695,
+      "mem_peak_mib_p90": 349,
+      "n": 218
+    },
+    "nightly.yml/sign-nightly-identity-legacy": {
+      "mem_peak_mib_max": 587,
+      "mem_peak_mib_p90": 565,
+      "n": 168
+    },
+    "nightly.yml/signer-dmg-image": {
+      "mem_peak_mib_max": 616,
+      "mem_peak_mib_p90": 576,
+      "n": 283
+    },
+    "nightly.yml/verify-final-dmg-nightly": {
+      "mem_peak_mib_max": 1259,
+      "mem_peak_mib_p90": 904,
+      "n": 434
+    },
+    "nightly.yml/verify-nightly-identity-legacy": {
+      "mem_peak_mib_max": 619,
+      "mem_peak_mib_p90": 531,
+      "n": 77
+    },
+    "nightly.yml/verify-nightly-identity-legacy-pool": {
+      "mem_peak_mib_max": 617,
+      "mem_peak_mib_p90": 550,
+      "n": 195
+    },
+    "nightly.yml/verify-signed-nightly": {
+      "mem_peak_mib_max": 667,
+      "mem_peak_mib_p90": 546,
+      "n": 185
+    },
+    "nightly.yml/wake-nightly-next-tick": {
+      "mem_peak_mib_max": 718,
+      "mem_peak_mib_p90": 652,
+      "n": 86
+    },
+    "pr-checks.yml/size": {
+      "mem_peak_mib_max": 760,
+      "mem_peak_mib_p90": 515,
+      "n": 2723
+    },
+    "pr-checks.yml/split": {
+      "mem_peak_mib_max": 3184,
+      "mem_peak_mib_p90": 1290,
+      "n": 700
+    },
+    "pr-checks.yml/ui-review": {
+      "mem_peak_mib_max": 760,
+      "mem_peak_mib_p90": 562,
+      "n": 1810
+    },
+    "seed-derived-data.yml/seed": {
+      "mem_peak_mib_max": 15897,
+      "mem_peak_mib_p90": 3920,
+      "n": 214
+    },
+    "stable-next.yml/perf-budgets": {
+      "mem_peak_mib_max": 19968,
+      "mem_peak_mib_p90": 3343,
+      "n": 37
+    },
+    "stable-next.yml/smoke-27": {
+      "mem_peak_mib_max": 1889,
+      "mem_peak_mib_p90": 1244,
+      "n": 33
+    },
+    "stable-next.yml/swift-suites": {
+      "mem_peak_mib_max": 26726,
+      "mem_peak_mib_p90": 25177,
+      "n": 31
+    },
+    "terminal-hang-diagnostics.yml/phase-attribution": {
+      "mem_peak_mib_max": 2904,
+      "mem_peak_mib_p90": 2582,
+      "n": 39
+    },
+    "test-e2e.yml/build": {
+      "mem_peak_mib_max": 16343,
+      "mem_peak_mib_p90": 15894,
+      "n": 23
+    },
+    "test-ios.yml/ios-simulator-build": {
+      "mem_peak_mib_max": 7145,
+      "mem_peak_mib_p90": 1567,
+      "n": 1550
+    },
+    "test-ios.yml/mobile-core-package": {
+      "mem_peak_mib_max": 5177,
+      "mem_peak_mib_p90": 2368,
+      "n": 1580
+    },
+    "web-validation.yml/web-validation": {
+      "mem_peak_mib_max": 152,
+      "mem_peak_mib_p90": 100,
+      "n": 1855
+    }
+  }
+}

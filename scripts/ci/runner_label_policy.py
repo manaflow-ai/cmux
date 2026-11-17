@@ -174,6 +174,9 @@ def side_lane_reason(label: str) -> str | None:
 # runner with Xcode 26.6. The tiers are the ones cmuxterm-hq build-fleet/mini-ops/runner_labels.py
 # CAPABILITY_LABELS gives every root, side, gui and session runner from its host's measured shape.
 SIDE_LANE_LABELS_VARIABLE = "CI_SIDE_LANE_LABELS"
+# The same kind of array for the side jobs measured to fit a 16 GiB host (scripts/ci/side_lane_light_tier.py
+# picks them from job-needs.json): those jobs read it first, then CI_SIDE_LANE_LABELS.
+SIDE_LANE_LABELS_LIGHT_VARIABLE = "CI_SIDE_LANE_LABELS_LIGHT"
 SHARED_SIDE_LABEL = re.compile(r"glaeda-side-xcode-[0-9]+(?:\.[0-9]+)*")
 CAPABILITY_LABEL = re.compile(r"glaeda-(?:ram-(?:16|48|96)|cores-(?:10|12|14|30)|display)")
 
@@ -479,7 +482,7 @@ def drifted_runner_variables(
                       "must name the one nightly mini's warm builder label (glaeda-nightly-mini-builder) or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
-        elif name == SIDE_LANE_LABELS_VARIABLE:
+        elif name in (SIDE_LANE_LABELS_VARIABLE, SIDE_LANE_LABELS_LIGHT_VARIABLE):
             reason = side_lane_labels_reason(value)
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
