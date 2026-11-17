@@ -813,10 +813,16 @@ class OpenSameTreeRun(unittest.TestCase):
 
     def test_two_sweeps_reading_the_same_pending_record_dispatch_once(self):
         api = PendingApi([self.both()], [(500, pending_zip(), None)])
+        made: list[str] = []
+
+        def make(*args, **kwargs):
+            made.append(kwargs["key"])
+            return notify.notify(*args, **kwargs)
         for _sweep in range(2):
-            # GitHub deletes nothing between the two reads: both sweeps list the marker and the record.
-            self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None,
+            # Both sweeps listed the record before either deleted it (PendingApi lists it every time).
+            self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, make=make,
                                                   fetch_completion=lambda key: completion_json(key)), [])
+        self.assertEqual(made, [KEY])  # the second sweep's claim found the record gone
         [body] = api.dispatched
         self.assertEqual((body["ref"], body["inputs"]["same_tree_tiers"]), ("lane/x", "daemon,scheme"))
 
@@ -886,6 +892,13 @@ class PendingApi(FakeApi):
                         for artifact_id, _, run in pending]
         self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in pending})
         self.refuse_listing = refuse_listing
+        self.pending_ids = {artifact_id for artifact_id, _, _ in pending}
+
+    def delete(self, path: str) -> int:
+        artifact_id = int(path.rsplit("/", 1)[1])
+        if artifact_id in self.pending_ids and artifact_id in self.deleted:
+            return 404  # another sweep claimed it
+        return super().delete(path)
 
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}"):
@@ -894,6 +907,41 @@ class PendingApi(FakeApi):
             self.refuse_listing -= 1
             raise RuntimeError(f"GET {path}: HTTP 403")
         return super().get(path)
+
+
+class PendingRecords(unittest.TestCase):
+    def test_a_record_names_one_key_or_several(self):
+        import os
+        import tempfile
+        other = "e" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "pending.json")
+            notify.write_pending(path, [KEY, other], "ready", "HTTP 403")
+            with open(path, "rb") as handle:
+                body = handle.read()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("pending.json", body)
+        api = PendingApi([], [(500, buffer.getvalue(), None), (501, pending_zip(), None)])
+        records = [notify.read_pending(api, artifact) for artifact in api.pending]
+        self.assertEqual([record["keys"] for record in records], [[KEY, other], [KEY]])
+        made: list[str] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key),
+                             make=lambda *a, **kw: made.append(kw["key"]) or 0)
+        self.assertEqual(sorted(made), sorted([KEY, other]))
+
+    def test_the_sweep_records_again_what_it_claimed_and_could_not_finish(self):
+        import os
+        import tempfile
+        import unittest.mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+            with unittest.mock.patch.object(notify, "sweep_pending",
+                                            lambda api, repo, record: record([KEY]) or [KEY]), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                self.assertEqual(notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path]), 0)
+            with open(path) as handle:
+                self.assertEqual(json.load(handle)["keys"], [KEY])
 
 
 class NotifyNeverLost(unittest.TestCase):
@@ -971,10 +1019,19 @@ class NotifyNeverLost(unittest.TestCase):
         self.assertEqual(sorted(api.deleted), [100, 500, 501])
 
     def test_the_sweep_keeps_a_record_it_could_not_finish_and_ignores_what_a_publish_did_not_write(self):
-        # the marker read refused again: the record stays for the next push
+        # the marker read refused again: the sweep claimed the record (deleted it) and records the key again
         api = PendingApi([pr_marker()], [(500, pending_zip(), None)], refuse_listing=1)
-        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key))
-        self.assertEqual((left, api.deleted, api.dispatched), ([KEY], [], []))
+        again: list[list[str]] = []
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                    fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((left, api.deleted, api.dispatched, again), ([KEY], [500], [], [[KEY]]))
+        # a record whose delete GitHub refused is not claimed: no notify, the record stays
+        refused = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        refused.delete = lambda path: 403
+        again = []
+        self.assertEqual(notify.sweep_pending(refused, "o/r", log=lambda _l: None, record=again.append,
+                                              fetch_completion=lambda key: completion_json(key)), [KEY])
+        self.assertEqual((refused.dispatched, again), ([], []))
         # a tree with no completion.json: nothing starts, the record stays
         api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
         self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: None),
@@ -1000,13 +1057,12 @@ class NotifyNeverLost(unittest.TestCase):
         sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
         self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
         self.assertIn("pull-requests: read", sweep)
-        # Overlapping sweeps serialize (OpenSameTreeRun): one group for every run, never cancelled once started.
-        self.assertIn("    concurrency:\n      group: cmux-tui-sweep-pending-tree-notify\n"
-                      "      cancel-in-progress: false\n", sweep)
+        # Overlapping sweeps claim a record by deleting it (sweep_pending), not by a concurrency group: GitHub
+        # ends a pending job its group replaced as cancelled, and with it the artifacts run's conclusion.
+        self.assertNotIn("concurrency:", sweep)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", sweep.split("\n    if: ", 1)[1].split("\n", 1)[0])
-        # A sweep replaced while pending ends cancelled: it must not hold back the artifact drop.
-        drop = text.split("\n  drop-build-artifacts:\n", 1)[1].split("\n    if: ", 1)[0]
-        self.assertNotIn("sweep-pending-tree-notify", drop)
+        self.assertIn('--sweep-pending --pending-file "$pending"', sweep)
+        self.assertIn("name: cmux-next-tree-notify-pending", sweep)
         rerun = text.split("\n  rerun-deferred-commits:\n", 1)[1].split("\n  verify-cdn-publication:", 1)[0]
         self.assertNotIn("github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') &&", rerun)
 
