@@ -427,10 +427,22 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     }
     // First-party only from the shipped directories (the first-party dir and
     // the samples next to the daemon's real executable): a cmux/ or
-    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
-    // server, no served ops).
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory (the store packages) is
+    // Verified when cmux's store key signed exactly these files
+    // (`store_trust`), else unverified (no native server, no served ops).
     let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
         Tier::FirstParty
+    } else if first_party
+        && kind == DirKind::Extra
+        && super::store_trust::verify(
+            dir,
+            &id,
+            manifest["version"].as_str().unwrap_or_default(),
+            &super::store_trust::trusted_keys(),
+        )
+        .is_ok()
+    {
+        Tier::Verified
     } else {
         Tier::Unverified
     };

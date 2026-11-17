@@ -1,0 +1,1 @@
+{"manifestVersion":2,"id":"cmux/hello","name":"Demo","version":"1.0.0","description":"d","engines":{"cmux":"^2.0"},"runtime":{"main":"dist/main.js"},"implements":{"cmux.section/1":{"export":"render","title":"Demo"}},"scopes":[],"files":["dist/"],"repository":"https://github.com/manaflow-ai/demo"}

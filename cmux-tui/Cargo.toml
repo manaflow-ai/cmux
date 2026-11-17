@@ -78,6 +78,7 @@ members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -196,6 +197,7 @@ default-members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -309,6 +311,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }

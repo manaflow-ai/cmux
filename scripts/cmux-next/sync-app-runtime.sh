@@ -140,8 +140,8 @@ same() {
   [[ -d "$b" ]] || { echo "sync-app-runtime: $b is missing" >&2; return 1; }
   while IFS= read -r name; do
     [[ -n "$name" && "$name" != "$skip" ]] || continue
-    if ! diff -r "$a/$name" "$b/$name" >/dev/null 2>&1; then
-      diff -rq "$a/$name" "$b/$name" >&2 || true
+    if ! diff -r -x STORE.sig "$a/$name" "$b/$name" >/dev/null 2>&1; then
+      diff -rq -x STORE.sig "$a/$name" "$b/$name" >&2 || true
       ok=1
     fi
   done < <({ ls -A "$a"; ls -A "$b"; } | sort -u)
@@ -152,6 +152,15 @@ if [[ "$scope" == "all" ]]; then
   stage_committed
 fi
 stage_store
+# cmux's own store packages get STORE.sig (store-package-sign.py) when the build holds the store key
+# (CMUX_STORE_SIGNING_KEY_FILE, CI secret CMUX_STORE_SIGNING_KEY); unsigned ones list as Unverified.
+# --check never signs, and `same` leaves STORE.sig out of its comparison.
+if [[ "$mode" != "check" && -n "${CMUX_STORE_SIGNING_KEY_FILE:-}" ]]; then
+  for app in "$stage/store"/*/; do
+    [[ -d "$app" ]] || continue
+    python3 "$root/scripts/cmux-next/store-package-sign.py" --key "$CMUX_STORE_SIGNING_KEY_FILE" "$app"
+  done
+fi
 
 if [[ "$mode" == "check" && "$scope" == "store" ]]; then
   if ! same "$stage/store" "$dest/store"; then

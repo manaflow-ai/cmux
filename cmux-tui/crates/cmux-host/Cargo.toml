@@ -30,6 +30,8 @@ zeroize.workspace = true
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.
 cmux-server = { path = "../cmux-server" }
+# The signed envelope of the update channels (`updater/channel.rs`).
+cmux-signed-envelope.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 libc.workspace = true
 serde.workspace = true

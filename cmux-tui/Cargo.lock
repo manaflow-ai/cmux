@@ -1685,6 +1685,7 @@ dependencies = [
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
@@ -2158,6 +2159,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-signed-envelope"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-source-scan"
 version = "1.0.0"
 dependencies = [
@@ -2457,6 +2469,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-signed-envelope",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",
@@ -2485,6 +2498,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
