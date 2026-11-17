@@ -13,11 +13,11 @@ import Testing
 /// New Tab key, a letter key, New Tab key: the app types the letter into the page of the first new tab. The letter
 /// key and the second New Tab key come with no turn of the app between them.
 ///
-/// Decision of 2026-11-17: a letter that is lost here is a fault. A person who holds New Tab and types gets each
+/// The rule: a letter that is lost here is a fault. A person who holds New Tab and types gets each
 /// letter in the tab of the New Tab key before it.
 ///
-/// 2 rows. A New Tab page gets its view at the next frame of the app, for the tab that the pane has selected then
-/// (decision of 2026-11-16), and the pool of ready pages is empty here, so each page is made by that rule.
+/// 2 rows. A New Tab page gets its view at the next frame of the app, for the tab that the pane has selected then,
+/// and the pool of ready pages is empty here, so each page is made by that rule.
 ///
 /// - The letter key comes after the first frame of the first new tab: the page of that tab has its view, and its
 ///   field is not ready at the letter key and not at the second New Tab key. At a key each 30 ms a frame comes
