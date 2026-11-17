@@ -144,6 +144,17 @@ body {
   --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
   --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
   --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
+  --ds-transient-dark-veil-alpha: 0.42;
+  --ds-transient-light-veil-alpha: 0.55;
+  --ds-transient-dark-rim-top: 0.3;
+  --ds-transient-dark-rim-bottom: 0.06;
+  --ds-transient-light-rim-top: 0.85;
+  --ds-transient-light-rim-bottom: 0.1;
+  --ds-transient-host-veil: 0.4;
+  --ds-transient-native-tint-strength: 1.25;
+  --ds-transient-web-tint: 78%;
+  --ds-transient-web-blur: 32px;
+  --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */

@@ -160,6 +160,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"], planned["build"])
 
+    def test_a_landed_commit_with_no_app_is_planned_from_its_first_parent(self):
+        # The workflow's merged half plans the merge commit with no app: its merge base with feat-cmux-next is
+        # itself, so head..head was empty and cmux#44971 (Rust in cmux-tui) planned as "nothing in the app changes".
+        tip = self.advance_base({"docs/notes.md": "drift\n"})
+        landed = self.land({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"}, tip)
+        planned = hv.plan(self.fx.repo, f"sha:{landed}", hv.NO_APP, None)
+        self.assertEqual(planned["base"], tip)
+        self.assertEqual(planned["fork"], tip)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
     def test_a_branch_merged_in_as_second_parent_keeps_all_its_commits(self):
         # Review of the first-parent rule: 161 first-parent merges in 30 days landed real branches as second parents.
         # A look at such a branch's last commit after it landed must still count the branch's earlier Swift.
@@ -685,7 +696,7 @@ class VideoTest(unittest.TestCase):
                                        (1920.0, 1080.0))
             self.assertIsNone(why)
             self.assertEqual(mp4.read_bytes(), b"window")
-            compiled.assert_called_once_with("crop-video")
+            compiled.assert_called_once_with(hv.HERE / "media/crop-video.swift")
             argv = json.loads(log.read_text())
             self.assertEqual(argv[0], str(mp4))
             self.assertEqual(argv[2:], ["0.250000", "0.250000", "0.500000", "0.500000", "1"])
@@ -720,6 +731,21 @@ class VideoTest(unittest.TestCase):
                 mp4 = video.stop()
             self.assertEqual(mp4.read_bytes(), b"window")
             self.assertEqual(video.facts, {"by": "cua-driver", "window": True})
+
+    def test_every_swift_tool_source_is_a_literal_join_a_fleet_export_follows(self):
+        """A fleet worker runs the engine from an export holding only the files its text joins to its folder as a
+        literal (cmuxterm-hq build-fleet/ci-client.py hot_verify_refs: `HERE / "media/x.swift"`). A source path
+        built from a name (f"media/{name}.swift") was not exported, so crop-video.swift was missing on the worker
+        and the video stayed the whole display (2026-11-16, cmux19)."""
+        import re
+        text = ENGINE.read_text()
+        calls = re.findall(r"swift_tool\(([^)]*)\)", text)
+        sources = [c.split(",")[0].strip() for c in calls if not c.startswith("source")]
+        self.assertGreaterEqual(len(sources), 2, calls)
+        for source in sources:
+            found = re.fullmatch(r'HERE / "(media/[\w.-]+\.swift)"', source)
+            self.assertIsNotNone(found, f"swift_tool({source}): not a literal HERE join the export follows")
+            self.assertTrue((ENGINE.parent / found.group(1)).is_file(), found.group(1))
 
     def test_the_looks_copy_has_a_neutral_shell(self):
         """The copy's terminals said `cmux@cmux23 ~ %`, and the privacy check withheld the new-tab shot and the video

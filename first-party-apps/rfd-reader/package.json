@@ -1,0 +1,10 @@
+{
+  "name": "@cmux-first-party/rfd-reader",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "description": "Web pane bundle dependencies of the RFD reader app.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../cmux-tui/crates/cmux-extension-sdk/typescript",
+    "marked": "17.0.5"
+  }
+}

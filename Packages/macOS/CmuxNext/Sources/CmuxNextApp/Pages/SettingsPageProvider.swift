@@ -48,6 +48,8 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
+    /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
+    var models: (any PageProvider)?
     /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
@@ -218,6 +220,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
+        case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
@@ -361,6 +364,7 @@ final class SettingsPageProvider: PageProvider {
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
+        if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
         }
