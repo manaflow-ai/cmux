@@ -47,7 +47,7 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
-import { idleTrace } from "./idleTrace";
+import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
@@ -614,6 +614,9 @@ try {
         return total;
       };
       const idleWakes: (Wakes & { switches: number })[] = [];
+      // TRACE=DIR: one browser-wide trace over every idle window, so a burst on the thread pool is named.
+      const windowsCdp = TRACE ? await browser.newBrowserCDPSession() : undefined;
+      const stopWindowsTrace = windowsCdp ? await startIdleTrace(windowsCdp) : undefined;
       for (let round = 0; round < REPEAT; round++) {
         // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
         // source, summed over the pages.
@@ -702,6 +705,12 @@ try {
           console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
       }
+      if (stopWindowsTrace) {
+        fs.mkdirSync(TRACE!, { recursive: true });
+        console.log(`  ${name}: browser-wide trace of the idle windows`);
+        console.log(await stopWindowsTrace(path.join(TRACE!, `${name}-windows.json.gz`)));
+        await windowsCdp!.detach();
+      }
       if (TRACE) {
         // TRACE=DIR: what each page's frames come from (the rAF sites the init script saw, through the build's maps),
         // a control page of plain text in the same browser, and one browser-wide trace of IDLE_S idle.
@@ -733,6 +742,25 @@ try {
         const browserCdp = await browser.newBrowserCDPSession();
         console.log(`  ${name}: browser-wide idle trace`);
         console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-idle.json.gz`)));
+        // What has focus on each page: a focused editable blinks its caret, a frame each blink.
+        const focus = new Map<string, number>();
+        for (const { page } of pages) {
+          const what = await page.evaluate(() => {
+            const active = document.activeElement;
+            const label = active
+              ? `${active.tagName.toLowerCase()}${typeof active.className === "string" && active.className ? `.${active.className.trim().split(/\s+/).slice(0, 3).join(".")}` : ""}`
+              : "none";
+            return `${label}${(active as HTMLElement | null)?.isContentEditable ? " (editable)" : ""}; hasFocus ${document.hasFocus()}`;
+          });
+          focus.set(what, (focus.get(what) ?? 0) + 1);
+        }
+        for (const [what, n] of focus) console.log(`  ${name}: focus on ${n} page(s): ${what}`);
+        for (const { page } of pages)
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        // fixed-wait: the blurred fields stop their carets.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        console.log(`  ${name}: browser-wide idle trace, every page's focus blurred`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-blurred.json.gz`)));
         await browserCdp.detach();
       }
       const idlePct = median(idleWindows);

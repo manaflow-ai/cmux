@@ -38,6 +38,14 @@ type TraceEvent = {
 
 /// Traces `seconds` of the whole browser through `cdp` (Browser.newBrowserCDPSession) and returns a summary.
 export async function idleTrace(cdp: CDPSession, seconds: number, file?: string): Promise<string> {
+  const stop = await startIdleTrace(cdp);
+  // fixed-wait: the window itself.
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  return stop(file);
+}
+
+/// Starts a browser-wide trace; the returned stop ends it and summarizes the time between.
+export async function startIdleTrace(cdp: CDPSession): Promise<(file?: string) => Promise<string>> {
   const events: TraceEvent[] = [];
   const collect = (payload: { value: object[] }) => {
     for (const event of payload.value) events.push(event as TraceEvent);
@@ -47,14 +55,16 @@ export async function idleTrace(cdp: CDPSession, seconds: number, file?: string)
     transferMode: "ReportEvents",
     traceConfig: { includedCategories: CATEGORIES, excludedCategories: ["*"] },
   });
-  // fixed-wait: the window itself.
-  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
-  await cdp.send("Tracing.end");
-  await done;
-  cdp.off("Tracing.dataCollected", collect);
-  if (file) fs.writeFileSync(file, zlib.gzipSync(JSON.stringify({ traceEvents: events })));
-  return summarize(events, seconds);
+  const began = performance.now();
+  return async (file?: string) => {
+    const seconds = (performance.now() - began) / 1000;
+    const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.end");
+    await done;
+    cdp.off("Tracing.dataCollected", collect);
+    if (file) fs.writeFileSync(file, zlib.gzipSync(JSON.stringify({ traceEvents: events })));
+    return summarize(events, seconds);
+  };
 }
 
 export function summarize(events: TraceEvent[], seconds: number): string {
