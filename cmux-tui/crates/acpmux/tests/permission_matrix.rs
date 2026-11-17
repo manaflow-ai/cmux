@@ -111,7 +111,8 @@ impl Level {
             Level::Standard => json!({"defaultPermissionMode": "standard"}),
             Level::Ask => json!({"defaultPermissionMode": "ask"}),
             Level::ApproveAll => {
-                return json!({"defaultPermissionMode": "standard", "permissionPolicy": "approve-all"});
+                let policy = "approve-all";
+                return json!({"defaultPermissionMode": "standard", "permissionPolicy": policy});
             }
         };
         match policy {
