@@ -166,7 +166,7 @@ fn a_failed_revalidation_serves_the_kept_body_and_is_tried_once_per_floor() {
     assert_eq!((server_error.response.status, server_error.stale), (200, true));
     assert_eq!(server_error.failed, Some(json!({ "status": 503 })));
     let back = cache.get(&fetcher, request(), t0 + secs(181)).unwrap();
-    assert_eq!((back.response.body.as_str(), back.stale, back.failed), ("back", false, None));
+    assert_eq!((back.response.body.as_str(), back.stale, &back.failed), ("back", false, &None));
     assert!(back.json()["value"]["cache"].get("failed").is_none());
     assert_eq!(fetcher.count(), 4);
 }
