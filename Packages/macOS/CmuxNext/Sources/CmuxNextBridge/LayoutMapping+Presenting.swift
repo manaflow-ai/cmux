@@ -16,6 +16,7 @@ extension LayoutMapping.Result {
         for index in result.screens.indices where result.screens[index].layout.contains(pane) {
             result.screens[index].layout = .splits(.leaf(pane))
             result.screens[index].zoomed = true
+            result.screens[index].presented = true
         }
         return result
     }

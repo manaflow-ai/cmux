@@ -432,7 +432,9 @@ function world(k: Knobs = {}) {
     if (cmd[0] === "id") return { code: 0, stdout: "1001\n", stderr: "" }
     if (cmd[0] === "readlink") return { code: 0, stdout: `${sk.linkTarget ?? CMUX_RD}\n`, stderr: "" }
     if (cmd[0] !== "/usr/bin/env" || cmd[1] !== "XDG_RUNTIME_DIR=/run/user/1001" || cmd[2] !== "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus") return undefined
-    const rest = cmd.slice(3)
+    // The acpmux home the credential is in: without it cmux-rd reads the machine as not joined.
+    if (cmd[3] !== `ACPMUX_HOME=${HOME}/.acpmux`) return { code: 1, stdout: "", stderr: "no ACPMUX_HOME\n" }
+    const rest = cmd.slice(4)
     hostCmds.push(rest)
     if (rest[0] === "journalctl") return { code: 0, stdout: 'linux-host: serving "ci-join-1" (dev_host1)\n', stderr: "" }
     if (rest[0] === HOST_RD && rest[1] === "linux-host" && rest[2] === "enable") {

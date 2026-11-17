@@ -1,4 +1,4 @@
-// Settings > Accounts > Cloud Environments (plans/cmux-next/cloud-environments-DESIGN.md): the team's
+// Settings > Cloud > Cloud Environments (plans/cmux-next/cloud-environments-DESIGN.md): the team's
 // environments as the app serves them (`cmux.settings.environments.state`), each with its build
 // status, and Add, Edit, Build, Delete and Refresh (`cmux.settings.environments.run`). Build and Delete
 // ask natively first (the host's confirmation sheet); the page only draws and forwards. The list is read

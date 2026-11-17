@@ -218,6 +218,18 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         # The viewer is a disposable user of its own, recorded before it exists so its removal always runs.
         self.assertLess(prep.index('echo "viewer=$viewer"'), prep.index("sudo useradd"))
         self.assertIn('sudo loginctl enable-linger "$JOIN_USER"', prep)
+        # The user manager is started explicitly and its own socket waited for (not the optional session bus);
+        # nothing of the host is run directly.
+        self.assertLess(prep.index('sudo loginctl enable-linger "$JOIN_USER"'), prep.index('systemctl start "$manager"'))
+        self.assertIn('private="/run/user/$JOIN_UID/systemd/private"', prep)
+        self.assertNotIn("linux-host", prep)
+        # /run/user/UID is the joined user's (0700): the runner's own `[ -S ]` never sees inside it (run
+        # 44039047306 read "no" with the socket there), so every test of it runs as root. The manager is judged
+        # by is-active, not by its start's exit status (1 there, with the manager up).
+        self.assertNotRegex(prep, r'\[ !? ?-S "\$(private|bus)" \]')
+        self.assertIn('sudo test -S "$private"', prep)
+        self.assertIn('sudo systemctl is-active --quiet "$manager"', prep)
+        self.assertNotIn('systemctl start "$manager" && started=1', prep)
         # The development device hub only, in the workflow and the script.
         document = load()
         self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
