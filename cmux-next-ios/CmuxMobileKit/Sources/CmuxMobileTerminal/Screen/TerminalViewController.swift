@@ -320,6 +320,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The scroll model is setting the offset (not a person).
     private var settingOffset = false
+    /// The page's offset at the last scroll: which way the reader moves past
+    /// a history window's end (``TerminalHistoryGap``).
+    private var lastGapOffsetY: CGFloat?
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
@@ -2557,13 +2560,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The mirror holds a window far above the Mac's screen (a long
         // history): a reader within a screen of where the window ends gets
         // the newer rows, or the newest when they came up from the screen.
+        // Not while a reset's replay is fed or the reader's rows are still to
+        // be put back: the page's rows then are not the reader's, and a fling
+        // up to line 1 moved the window back down 40 times on its way
+        // (simulator run 8f9f55310f87a97be78b36cd).
+        let gapOffsetY = scrollView.contentOffset.y
+        defer { lastGapOffsetY = gapOffsetY }
         if scrollView.isTracking || scrollView.isDecelerating, cell.height > 0,
+           !replayGate.isReplaying, !restorePending, let lastY = lastGapOffsetY, gapOffsetY != lastY,
            let windowRows = model.session.historyWindowRows {
             let gap = TerminalHistoryGap(shift: feedHostRows.map { surface.grid.rows - $0 } ?? 0, windowRows: windowRows)
-            let minY = max(0, scrollView.contentOffset.y)
+            let minY = max(0, gapOffsetY)
             let top = originRow + Int(floor(minY / cell.height))
             let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
-            if let need = gap.need(visibleTop: top, visibleBottom: bottom) {
+            if let need = gap.need(visibleTop: top, visibleBottom: bottom, movingDown: gapOffsetY > lastY) {
                 model.session.loadNewerHistory(toTheScreen: need == .newest)
             }
         }
