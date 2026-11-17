@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as DevicesRouteImport } from './routes/devices'
+import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as ICodeRouteImport } from './routes/i.$code'
@@ -41,6 +42,11 @@ const BillingRoute = BillingRouteImport.update({
 const DevicesRoute = DevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MachinesRoute = MachinesRouteImport.update({
+  id: '/machines',
+  path: '/machines',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PolicyRoute = PolicyRouteImport.update({
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/automations': typeof AutomationsRoute
   '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
+  '/machines': typeof MachinesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/automations': typeof AutomationsRoute
   '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
+  '/machines': typeof MachinesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/automations': typeof AutomationsRoute
   '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
+  '/machines': typeof MachinesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/automations'
     | '/billing'
     | '/devices'
+    | '/machines'
     | '/policy'
     | '/team'
     | '/i/$code'
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/automations'
     | '/billing'
     | '/devices'
+    | '/machines'
     | '/policy'
     | '/team'
     | '/i/$code'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/automations'
     | '/billing'
     | '/devices'
+    | '/machines'
     | '/policy'
     | '/team'
     | '/i/$code'
@@ -189,6 +201,7 @@ export interface RootRouteChildren {
   AutomationsRoute: typeof AutomationsRoute
   BillingRoute: typeof BillingRoute
   DevicesRoute: typeof DevicesRoute
+  MachinesRoute: typeof MachinesRoute
   PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
   ICodeRoute: typeof ICodeRoute
@@ -228,6 +241,13 @@ declare module '@tanstack/react-router' {
       path: '/devices'
       fullPath: '/devices'
       preLoaderRoute: typeof DevicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/machines': {
+      id: '/machines'
+      path: '/machines'
+      fullPath: '/machines'
+      preLoaderRoute: typeof MachinesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/policy': {
@@ -301,6 +321,7 @@ const rootRouteChildren: RootRouteChildren = {
   AutomationsRoute: AutomationsRoute,
   BillingRoute: BillingRoute,
   DevicesRoute: DevicesRoute,
+  MachinesRoute: MachinesRoute,
   PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
   ICodeRoute: ICodeRoute,
