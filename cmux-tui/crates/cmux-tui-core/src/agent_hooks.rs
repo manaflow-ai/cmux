@@ -503,6 +503,36 @@ pub fn agent_hook_event_starts_session(source: &str, native_event: &str) -> bool
     semantic_kind(source, native_event, &Map::new()) == "agent.session.started"
 }
 
+/// Hook sources whose installed hooks post both a permission wait
+/// (`agent.approval.requested`) and a finished turn (`agent.turn.completed`),
+/// with the OSC 7501 `app` names their agent reports itself under (the hook
+/// source id and its aliases, as `cmux agents` reads them). Only for these
+/// does the daemon drop the agent's own desktop notification near a hook
+/// notification and its 7501 permission and done alerts while the hook
+/// session is live (`Mux::post_terminal_notifications`).
+///
+/// Muse (`PermissionRequest`, `Stop`), Hermes (`pre_approval_request`,
+/// `on_session_end`) and Rovo Dev (`on_tool_permission`, `on_complete`) map
+/// to the same kinds but are not here until a real build shows their hooks
+/// fire at every permission prompt. Gemini (`Notification`), Cursor, Grok,
+/// Kimi, Kiro, Copilot, Codebuddy, Factory, Qoder, Antigravity, Amp, pi, omp
+/// and Campfire install no hook that becomes an approval.
+const NOTIFYING_HOOK_SOURCES: &[(&str, &[&str])] = &[
+    // `PermissionRequest` and `Stop` (cmux-tui-hooks `CLAUDE_EVENTS`).
+    ("claude", &["claude", "claude-code", "claude_code", "claudecode"]),
+    // `PermissionRequest` and `Stop` (`CODEX_EVENTS`).
+    ("codex", &["codex", "codex-cli", "codex_cli", "openai-codex"]),
+    // `permission.asked` and `session.idle` (the OpenCode plugin).
+    ("opencode", &["opencode", "open-code", "open_code"]),
+];
+
+/// The OSC 7501 `app` names of the agent behind hook source `source` when
+/// its hooks post its permission waits and finished turns, else `None`. See
+/// [`NOTIFYING_HOOK_SOURCES`].
+pub(crate) fn notifying_hook_source_apps(source: &str) -> Option<&'static [&'static str]> {
+    NOTIFYING_HOOK_SOURCES.iter().find(|(id, _)| *id == source).map(|(_, apps)| *apps)
+}
+
 fn semantic_kind(
     source: &str,
     native_event: &str,

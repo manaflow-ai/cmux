@@ -303,6 +303,19 @@ impl Mux {
                 NotificationSource::Agent,
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
+            // The agent's own desktop notification of this permission wait
+            // or finished turn, near it in time, is its copy
+            // (`agent_desktop_holds.rs`).
+            let hook_source = ingress
+                .payload
+                .get("adapter")
+                .and_then(|adapter| adapter.get("id"))
+                .and_then(Value::as_str);
+            if matches!(ingress.kind.as_str(), "agent.approval.requested" | "agent.turn.completed")
+                && hook_source.and_then(crate::agent_hooks::notifying_hook_source_apps).is_some()
+            {
+                self.agent_desktop_holds.hook_posted(&terminal_id);
+            }
         }
         // A notification that leaves the roster state as it is reports
         // nothing and leaves the fence where the last report stored it.
@@ -341,6 +354,18 @@ impl Mux {
             agent_provider_identity(ingress),
         )?;
         fences.insert(terminal_id.clone(), next_fence);
+        // Whose hooks the fence now stands for (`notifying_agent_hooks_for`).
+        let hook_source = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str);
+        let mut sources = self.agent_hook_sources.lock().unwrap_or_else(PoisonError::into_inner);
+        match hook_source {
+            Some(source) => sources.insert(terminal_id.clone(), source.to_owned()),
+            None => sources.remove(&terminal_id),
+        };
+        drop(sources);
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
         drop(fences);

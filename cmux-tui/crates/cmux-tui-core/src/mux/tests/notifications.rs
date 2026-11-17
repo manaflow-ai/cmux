@@ -996,6 +996,468 @@ fn attention_a_bell_posts_one_notification_event_without_a_desktop_banner() {
     assert_eq!(bell.source, NotificationSource::Terminal);
 }
 
+/// What Claude Code prints in its terminal for one permission request, one
+/// finished turn and one sign-in wait, each when the test writes a line:
+/// its own desktop notification (OSC 777), then OSC 7501 records.
+const W6D_CLAUDE_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]777;notify;Claude Code;Claude needs your permission to use Bash\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=claude-code\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=done:app=claude-code\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
+/// What Gemini CLI could print at one tool permission wait: a desktop
+/// notification (OSC 9) and an OSC 7501 record, then a sign-in wait.
+const W6D_GEMINI_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]9;Gemini CLI needs your permission\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=gemini\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=gemini\\033\\\\'; sleep 30",
+);
+
+/// What another program (`make`) prints in a terminal where Claude's hooks
+/// report: a permission wait, a finished run and a sign-in wait, each an
+/// OSC 7501 record with its own `app`.
+const W6D_OTHER_APP_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=make\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=done:app=make\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=make\\033\\\\'; sleep 30",
+);
+
+/// What a background job (`make`) prints in a terminal where an agent runs:
+/// its own desktop notification (OSC 9), then, as the run's last
+/// notification, Claude's OSC 7501 sign-in wait.
+const W6D_JOB_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]9;build finished\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
+/// What Claude Code prints for one permission request: its own desktop
+/// notification (OSC 777), then, as the run's last notification, its OSC
+/// 7501 sign-in wait.
+const W6D_CLAUDE_PERMISSION_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]777;notify;Claude Code;Claude needs your permission to use Bash\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
+/// One step of a W6-D stand-in run.
+enum W6dStep {
+    /// The agent's hooks report this native event with this payload.
+    Hook(&'static str, Value),
+    /// The script prints its next line.
+    Print,
+    /// The notification clock moves forward (no real waiting).
+    Advance(Duration),
+    /// When a desktop notification is held, a plain control client (a CLI
+    /// call, a status query or a hook emit) connects and closes without a
+    /// view attach.
+    PlainClientComesAndGoes,
+    /// When a desktop notification is held, a view client (a TUI or the
+    /// app) that announced its attach leaves.
+    ViewClientLeaves,
+}
+
+/// The Claude hook events and output of one permission request, one
+/// finished turn and one sign-in wait (`W6D_CLAUDE_OUTPUT`).
+fn w6d_claude_steps() -> Vec<W6dStep> {
+    vec![
+        W6dStep::Hook("SessionStart", serde_json::json!({})),
+        W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+        W6dStep::Print,
+        W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+        W6dStep::Print,
+        W6dStep::Print,
+        W6dStep::Hook("Stop", serde_json::json!({})),
+        W6dStep::Print,
+    ]
+}
+
+/// Runs `script` in a new terminal and does `steps`: a hook step reports
+/// the native event from the hook source `hooks` (nothing when `None`), a
+/// print step lets the script print its next line. Returns the titles of
+/// the terminal's notifications, sorted, once `last_title` (posted last,
+/// and posted under every rule) arrived and the notification clock then
+/// passed the dedupe window, so a desktop notification still held for it
+/// either posted or was dropped.
+fn w6d_notification_titles(
+    name: &str,
+    script: &str,
+    hooks: Option<&str>,
+    steps: Vec<W6dStep>,
+    last_title: &str,
+) -> Vec<String> {
+    // A real PTY: the test surface runtime of `Mux::new_for_test` starts no
+    // process, so the stand-in script never printed anything.
+    let mux = Mux::new(
+        name,
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+            ..SurfaceOptions::default()
+        },
+    );
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let screen = || surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+    let ready = Instant::now() + Duration::from_secs(20);
+    while !screen().contains("w6d-ready") {
+        assert!(Instant::now() < ready, "the script never started; screen: {:?}", screen());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut sequence = 0;
+    let mut printed = false;
+    for step in steps {
+        match step {
+            W6dStep::Hook(event, native) => {
+                let Some(source) = hooks else { continue };
+                sequence += 1;
+                let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                    source,
+                    event,
+                    Some(&terminal_id.to_string()),
+                    native,
+                )
+                .unwrap();
+                mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+            }
+            W6dStep::Print => {
+                // A terminal's notifications are at least 1 s apart (its
+                // rate limit): each step after the first must pass it, as
+                // the agent's real output does.
+                if printed {
+                    std::thread::sleep(Duration::from_millis(1_100));
+                }
+                printed = true;
+                surface.write_bytes(b"\n").unwrap();
+            }
+            W6dStep::Advance(by) => mux.advance_agent_notification_clock_for_test(by),
+            W6dStep::PlainClientComesAndGoes => {
+                let held = Instant::now() + Duration::from_secs(20);
+                while mux.held_agent_desktop_notifications_for_test() == 0 {
+                    assert!(Instant::now() < held, "no desktop notification was held");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert!(mux.connect_and_close_a_plain_client_for_test());
+            }
+            W6dStep::ViewClientLeaves => {
+                let held = Instant::now() + Duration::from_secs(20);
+                while mux.held_agent_desktop_notifications_for_test() == 0 {
+                    assert!(Instant::now() < held, "no desktop notification was held");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert!(mux.connect_and_close_a_view_client_for_test());
+                assert_eq!(
+                    mux.held_agent_desktop_notifications_for_test(),
+                    0,
+                    "the view client's detach did not post the held notification"
+                );
+            }
+        }
+    }
+    let titles = || {
+        let mut titles = mux
+            .resource_notifications(32)
+            .into_iter()
+            .filter(|notification| notification.terminal_id.as_ref() == Some(&terminal_id))
+            .map(|notification| notification.title)
+            .collect::<Vec<_>>();
+        titles.sort();
+        titles
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !titles().iter().any(|title| title == last_title) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Notifications post in output order: every desktop notification before
+    // `last_title` is posted, dropped or held by now.
+    mux.advance_agent_notification_clock_for_test(Duration::from_secs(10));
+    let titles = titles();
+    let _ = mux.close_surface(surface.id);
+    titles
+}
+
+/// W6-D (bench r5 #5): one Claude permission request made three unread
+/// notifications (Claude's own OSC 777, its OSC 7501 record and the hook)
+/// and each finished turn two. While Claude's hooks report for the
+/// terminal, the hooks post each agent event once; Claude's own desktop
+/// notifications and the records the hooks also report post nothing. A
+/// wait the hooks do not report (sign-in) still posts from the record.
+#[test]
+fn w6d_a_claude_terminal_with_hooks_posts_one_notification_per_agent_event() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-once-hooks",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            w6d_claude_steps(),
+            "claude-code needs sign-in",
+        ),
+        ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D review of 79d07045: a plain control client (a CLI call, a status
+/// query or a hook emit) that connects and closes while Claude's own
+/// desktop notification is held is no client detach. The hold stays, and
+/// the hook notification that follows drops it as its copy: one
+/// notification per agent event, as without the plain client.
+#[test]
+fn w6d_c_a_plain_client_that_comes_and_goes_keeps_the_hold() {
+    let mut steps = w6d_claude_steps();
+    let first_print = steps.iter().position(|step| matches!(step, W6dStep::Print)).unwrap();
+    steps.insert(first_print + 1, W6dStep::PlainClientComesAndGoes);
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-plain-client",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            steps,
+            "claude-code needs sign-in",
+        ),
+        ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D review of a139bbee: a view client (a TUI or the app) that announced
+/// its attach and leaves still ends the hold. Claude's own OSC 777, held at
+/// that time, posts at once, so the person sees it; the hook notification
+/// that follows posts as before.
+#[test]
+fn w6d_c_a_view_clients_detach_ends_the_hold() {
+    let mut steps = w6d_claude_steps();
+    let first_print = steps.iter().position(|step| matches!(step, W6dStep::Print)).unwrap();
+    steps.insert(first_print + 1, W6dStep::ViewClientLeaves);
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-view-client",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            steps,
+            "claude-code needs sign-in",
+        ),
+        ["Claude Code", "Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// Without hooks the terminal's own notifications are the only ones: each
+/// still posts.
+#[test]
+fn w6d_a_terminal_without_agent_hooks_keeps_its_own_notifications() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-once-no-hooks",
+            W6D_CLAUDE_OUTPUT,
+            None,
+            w6d_claude_steps(),
+            "claude-code needs sign-in",
+        ),
+        [
+            "Claude Code",
+            "claude-code is done",
+            "claude-code needs approval",
+            "claude-code needs sign-in"
+        ],
+    );
+}
+
+/// W6-D review (w6d-rev BLOCK): Gemini's hooks report its session and turns
+/// but post no permission notification (its tool permission callback is
+/// `Notification`, an `agent.state.changed`). A permission wait it reports
+/// by OSC 9 or by an OSC 7501 record must still post, or the person never
+/// learns of it.
+#[test]
+fn w6d_b_hooked_agent_without_a_permission_hook_keeps_its_permission_notifications() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-gemini-hooks",
+            W6D_GEMINI_OUTPUT,
+            Some("gemini"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("BeforeAgent", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Hook(
+                    "Notification",
+                    serde_json::json!({"notification_type": "ToolPermission"})
+                ),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "gemini needs sign-in",
+        ),
+        ["Gemini CLI needs your permission", "gemini needs approval", "gemini needs sign-in"],
+    );
+}
+
+/// W6-D review (w6d-rev BLOCK): Claude's hooks post Claude's permission
+/// waits and finished turns, not those of another program in the same
+/// terminal. An OSC 7501 record whose `app` is not Claude still posts.
+#[test]
+fn w6d_b_claude_hooks_keep_another_programs_status_notifications() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-other-app",
+            W6D_OTHER_APP_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "make needs sign-in",
+        ),
+        ["make is done", "make needs approval", "make needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: Claude's hook posts its permission request, and
+/// Claude's own desktop notification for it (OSC 777) inside the dedupe
+/// window posts nothing. One permission request is one notification.
+#[test]
+fn w6d_c_claude_permission_hook_and_its_desktop_notification_post_once() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-once",
+            W6D_CLAUDE_PERMISSION_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: a desktop notification is dropped only as the copy
+/// of a hook notification. A background job's OSC 9 in a terminal with a
+/// live Claude hook session, and no Claude hook event near it, posts.
+#[test]
+fn w6d_c_background_job_desktop_notification_in_a_claude_terminal_posts() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-job",
+            W6D_JOB_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["build finished", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: a desktop notification after the 2 s dedupe window
+/// (`AGENT_DESKTOP_DEDUPE_WINDOW`) of a Claude hook notification is no copy
+/// of it, and posts.
+#[test]
+fn w6d_c_desktop_notification_outside_the_dedupe_window_posts() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-late",
+            W6D_JOB_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+                W6dStep::Advance(Duration::from_secs(3)),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["Claude needs approval", "build finished", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D lead condition: no desktop notification is lost in its hold. A
+/// background job's OSC 9 in a live Claude hook session is held for the
+/// dedupe window; a daemon stop before the window ends posts it, and it is
+/// in the durable notification list (what `notification list` shows after
+/// the restart).
+#[test]
+fn w6d_c_daemon_stop_posts_a_held_desktop_notification() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-w6d-stop-held-{}", WorkspacePublicId::random().unwrap()));
+    let session = "w6d-stop-held";
+    let script = concat!(
+        "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+        "printf '\\033]9;build finished\\007w6d-sent\\r\\n'; sleep 30",
+    );
+    let mux = Mux::from_workspace_registry(
+        session.into(),
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+            ..SurfaceOptions::default()
+        },
+        WorkspaceRegistry::open(&root, session).unwrap(),
+        ProviderWorkspaceState::default(),
+        false,
+    )
+    .unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let screen = || surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+    let wait_for = |text: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !screen().contains(text) {
+            assert!(Instant::now() < deadline, "no {text:?} on the screen: {:?}", screen());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    wait_for("w6d-ready");
+    for (sequence, event) in [(1, "SessionStart"), (2, "UserPromptSubmit")] {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    }
+    surface.write_bytes(b"\n").unwrap();
+    wait_for("w6d-sent");
+    assert!(mux.wait_for_terminal_publisher_for_test(Duration::from_secs(20)));
+    let posted = |titles: &[String]| titles.iter().any(|title| title == "build finished");
+    let live = mux
+        .resource_notifications(16)
+        .into_iter()
+        .filter(|notification| notification.terminal_id.as_ref() == Some(&terminal_id))
+        .map(|notification| notification.title)
+        .collect::<Vec<_>>();
+    assert!(!posted(&live), "the job's OSC 9 posted before the window ended: {live:?}");
+    drop(surface);
+
+    mux.shutdown();
+    drop(mux);
+
+    let stored = WorkspaceRegistry::open(&root, session)
+        .unwrap()
+        .public_projections()
+        .unwrap()
+        .notifications
+        .into_iter()
+        .map(|notification| notification.title)
+        .collect::<Vec<_>>();
+    assert!(posted(&stored), "the held OSC 9 was lost at the stop: {stored:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// A cleared notification leaves nothing behind in memory: its post record (event number and
 /// poster) goes with its ledger row. Before, `notification_posts` dropped a post only when its
 /// row was evicted from the 256-row ledger, which a cleared row never is: every post that was

@@ -61,6 +61,7 @@ impl Mux {
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        self.agent_hook_sources.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
@@ -100,6 +101,9 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
+        // First, while every store still takes writes: no desktop
+        // notification held for the agent dedupe window is lost.
+        self.release_all_agent_desktop_notifications();
         // Every terminal has no daemon until the next one adopts it, so the
         // log names where a slow stop spent its time (the update drill reads it).
         let began_ms = crate::startup_timings::unix_now_ms();
@@ -379,6 +383,7 @@ impl Mux {
     /// shutdown path. Durable terminal hosts are disconnected by `shutdown`
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
+        self.release_all_agent_desktop_notifications();
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
         self.stop_agent_chat_notices();
