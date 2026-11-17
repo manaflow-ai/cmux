@@ -301,6 +301,32 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
   };
 }
 
+// The agent chat page (`cmux.agent`) the person types in: its renderer is its own.
+//
+// Every agent chat is the same site, and the fork runs one renderer per site for cmux pages
+// (`cmux-process-per-site-schemes`), so a key typed in one chat waited on that renderer's main
+// thread behind every other chat's stream work (key to the page's listener p95 31-37 ms on
+// cmux20-bench while the app's main thread was mostly idle). Chromium keys that one renderer by the
+// whole SiteInfo, which includes an origin's opt-in origin isolation: a document answered with
+// `Origin-Agent-Cluster: ?1` goes to the site's isolated renderer, one more renderer whatever number
+// of documents land there, and documents without it keep sharing. The opt-in is fixed per browsing
+// context group, so `Cross-Origin-Opener-Policy: same-origin` (which differs from the shared
+// documents' default) makes the load start a new group: a chat reloaded into, or out of, the own
+// renderer moves. Same origin, so storage and BroadcastChannel stay shared.
+//
+// `owner_browser_id` is the browser the app names (cmux_shim_page_own_renderer): the most recently
+// focused agent chat. Only that browser's top-level document gets the headers.
+inline constexpr char kOwnRendererPageId[] = "cmux.agent";
+
+inline std::vector<std::pair<std::string, std::string>> OwnRendererHeaders(const std::string& domain, bool main_frame,
+                                                                           int browser_id, int owner_browser_id) {
+  if (domain != kOwnRendererPageId || !main_frame || browser_id <= 0 || browser_id != owner_browser_id) return {};
+  return {
+      {"Cross-Origin-Opener-Policy", "same-origin"},
+      {"Origin-Agent-Cluster", "?1"},
+  };
+}
+
 // Whether a bundled page file's request names its content (`?h=` and 8 to 64 hex digits, written by
 // the page's build: build-agent-pane-web.sh's pane.css): that URL never names other bytes, so the
 // answer may be kept (`Cache-Control: max-age=31536000, immutable`). Blink then hands every page of

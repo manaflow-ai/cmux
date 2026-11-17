@@ -266,6 +266,22 @@ int main() {
     for (auto& [name, value] : kept) same |= name == "Content-Security-Policy" && value == "default-src 'none'; frame-ancestors 'none'";
     Expect(same, "a CSP with its own frame-ancestors is kept");
   }
+  {
+    // The focused agent chat's top document opts into its own renderer: a new browsing context group
+    // (COOP same-origin) where the origin is isolated (Origin-Agent-Cluster), so Chromium's
+    // one-renderer-per-site map gives it the site's isolated renderer. Nothing else does.
+    auto own = cmux_shim::OwnRendererHeaders("cmux.agent", true, 7, 7);
+    bool coop = false, oac = false;
+    for (auto& [name, value] : own) {
+      coop |= name == "Cross-Origin-Opener-Policy" && value == "same-origin";
+      oac |= name == "Origin-Agent-Cluster" && value == "?1";
+    }
+    Expect(own.size() == 2 && coop && oac, "the named chat's document gets its own renderer");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 8, 7).empty(), "another chat keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", false, 7, 7).empty(), "a frame or subresource gets nothing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", true, 7, 7).empty(), "another page id keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 0, 0).empty(), "no chat named, no headers");
+  }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
   // The root is given through a symlink on purpose (macOS's /tmp is one too),
