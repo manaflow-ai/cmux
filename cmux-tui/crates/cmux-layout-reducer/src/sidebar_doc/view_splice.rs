@@ -20,13 +20,14 @@
 //! ```
 //!
 //! A band section's `items` are its `bands` list; `machines` holds the
-//! sessions whose list is not empty. [`Kept`] applies answers the way the
+//! sessions whose list is not empty. `Kept` (tests only) applies answers the way the
 //! app does; the tests hold its projection equal to [`project::project`].
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 
 use serde::Serialize;
+#[cfg(test)]
 use serde_json::{Map, Value};
 
 use super::doc::Doc;
@@ -145,25 +146,31 @@ fn part_len(part: &Part, kind: Kind) -> usize {
 
 /// The longest run of `seq` that increases, as indexes into `seq`.
 fn increasing_run(seq: &[usize]) -> Vec<usize> {
-    let mut tails: Vec<usize> = Vec::new();
-    let mut before: Vec<Option<usize>> = vec![None; seq.len()];
+    // The smallest (value, index) ending a run of each length, and each
+    // element's predecessor in its run.
+    let mut tails: Vec<(usize, usize)> = Vec::new();
+    let mut before: Vec<Option<usize>> = Vec::with_capacity(seq.len());
     for (index, &value) in seq.iter().enumerate() {
-        let at = tails.partition_point(|&tail| seq[tail] < value);
-        before[index] = at.checked_sub(1).map(|prior| tails[prior]);
-        if at == tails.len() {
-            tails.push(index);
-        } else {
-            tails[at] = index;
+        let at = tails.partition_point(|&(tail, _)| tail < value);
+        before.push(at.checked_sub(1).and_then(|prior| tails.get(prior)).map(|&(_, i)| i));
+        match tails.get_mut(at) {
+            Some(slot) => *slot = (value, index),
+            None => tails.push((value, index)),
         }
     }
     let mut run = Vec::with_capacity(tails.len());
-    let mut next = tails.last().copied();
+    let mut next = tails.last().map(|&(_, index)| index);
     while let Some(index) = next {
         run.push(index);
-        next = before[index];
+        next = before.get(index).copied().flatten();
     }
     run.reverse();
     run
+}
+
+/// `list[range]`, empty when the range does not fit.
+fn span<T>(list: &[T], range: std::ops::Range<usize>) -> &[T] {
+    list.get(range).unwrap_or(&[])
 }
 
 /// The splices that turn `old` into `new`: (element offset, elements
@@ -173,13 +180,14 @@ fn splices(
     new: &[Segment<'_>],
 ) -> Vec<(usize, usize, std::ops::Range<usize>)> {
     let prefix = old.iter().zip(new).take_while(|(o, n)| o.0 == n.id).count();
-    let suffix = old[prefix..]
+    let suffix = span(old, prefix..old.len())
         .iter()
         .rev()
-        .zip(new[prefix..].iter().rev())
+        .zip(span(new, prefix..new.len()).iter().rev())
         .take_while(|(o, n)| o.0 == n.id)
         .count();
-    let (old_mid, new_mid) = (&old[prefix..old.len() - suffix], &new[prefix..new.len() - suffix]);
+    let old_mid = span(old, prefix..old.len().saturating_sub(suffix));
+    let new_mid = span(new, prefix..new.len().saturating_sub(suffix));
     if old_mid.is_empty() && new_mid.is_empty() {
         return Vec::new();
     }
@@ -193,17 +201,18 @@ fn splices(
         .collect();
     let olds: Vec<usize> = held.iter().map(|(_, old)| *old).collect();
     let mut stable: Vec<(usize, usize)> =
-        increasing_run(&olds).into_iter().map(|index| held[index]).collect();
+        increasing_run(&olds).into_iter().filter_map(|index| held.get(index).copied()).collect();
     stable.push((new_mid.len(), old_mid.len()));
     let mut out = Vec::new();
-    let mut offset: usize = new[..prefix].iter().map(|segment| segment.len).sum();
+    let mut offset: usize = span(new, 0..prefix).iter().map(|segment| segment.len).sum();
     let (mut next_new, mut next_old) = (0, 0);
     for (stable_new, stable_old) in stable {
-        let removed: usize = old_mid[next_old..stable_old].iter().map(|(_, len)| len).sum();
+        let removed: usize = span(old_mid, next_old..stable_old).iter().map(|(_, len)| len).sum();
         if removed > 0 || next_new < stable_new {
             out.push((offset, removed, prefix + next_new..prefix + stable_new));
         }
-        offset += new_mid[next_new..stable_new].iter().map(|segment| segment.len).sum::<usize>();
+        offset +=
+            span(new_mid, next_new..stable_new).iter().map(|segment| segment.len).sum::<usize>();
         if let Some(segment) = new_mid.get(stable_new) {
             offset += segment.len;
         }
@@ -348,7 +357,7 @@ impl ViewCache {
                 }
                 let _ = write!(text, "{{\"at\":{at},\"remove\":{remove},\"insert\":[");
                 let mut first = true;
-                for segment in &segments[range.clone()] {
+                for segment in span(segments, range.clone()) {
                     segment.write_elements(&mut text, &mut first);
                 }
                 text.push_str("]}");
@@ -409,13 +418,16 @@ impl ViewCache {
 }
 
 /// What the app keeps from the answers, applied the way it applies them:
-/// the reference the tests hold to [`project::project`].
+/// the reference the tests hold to [`project::project`] (the app has its own,
+/// `SidebarDocWire.KeptProjection`).
+#[cfg(test)]
 #[derive(Debug, Clone, Default)]
 pub struct Kept {
     lists: BTreeMap<String, Vec<Value>>,
     fields: Map<String, Value>,
 }
 
+#[cfg(test)]
 impl Kept {
     /// Apply one answer.
     pub fn apply(&mut self, answer: &Value) {
