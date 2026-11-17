@@ -1185,7 +1185,7 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
 
 # A step reads its job's needs when an expression in it (`${{ ... }}`) names `needs` (`${{ toJSON(needs) }}`,
 # `${{ needs.x.result }}`). Each expression is cut out with str.split, so the read stays linear in the step's text.
-NEEDS_WORD = re.compile(r"\bneeds\b")
+NEEDS_WORD = re.compile(r"(?<![\w.-])needs\b")  # the context itself: never `steps.needs-x` or `inputs.needs`
 
 
 def _reads_needs(text: str) -> bool:
@@ -1194,15 +1194,16 @@ def _reads_needs(text: str) -> bool:
 
 
 def _needs_steps(job: dict, where: str) -> list[str]:
-    """The names of rollup JOB's steps that read its needs (_reads_needs of anything but the step's name): the only
-    steps whose failure is the needs' (run_rollup_line). A step with no `name:` is left out, so its failure is the
-    rollup's own."""
+    """The names of rollup JOB's steps that read its needs (_reads_needs of anything but the step's name and `if:`): the
+    only steps whose failure is the needs' (run_rollup_line). A step with no `name:` is left out, so its failure is
+    the rollup's own, and so is one that only names `needs` in its `if:` (a check of its own that runs on a need's
+    result)."""
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
         raise Refused(f"{where}: a rollup's steps are not a list of steps")
     named = [(step.get("name"), step) for step in steps]  # step-name: classify
     return sorted({name for name, step in named if isinstance(name, str) and name.strip()
-                   and _reads_needs(json.dumps({k: v for k, v in step.items() if k != "name"}, default=str))})
+                   and _reads_needs(json.dumps({k: v for k, v in step.items() if k not in ("name", "if")}, default=str))})
 
 
 def _workflow(yaml, read, file: str) -> tuple[dict, dict]:

@@ -3808,6 +3808,18 @@ class OtherRepoRollups(unittest.TestCase):
                                     "25% of the measured step table \\(failure\\) failed"):
             self.judge()
 
+    def test_only_a_step_that_reads_its_needs_reports_them(self):
+        # A step that names `needs` only in its `if:`, or reads another context with "needs" in its name, is a check of
+        # the rollup's own: its failure is never its needs' (review of cmux#45424, F1 and F2).
+        job = {"steps": [
+            {"name": "report", "env": {"NEEDS_JSON": "${{ toJSON(needs) }}"}, "run": "x"},
+            {"name": "result", "run": "test ${{ needs.scope.result }} = success"},
+            {"name": "guarded lint", "if": "${{ needs.scope.result == 'success' }}", "run": "lint"},
+            {"name": "other context", "run": "echo ${{ steps.needs-check.outputs.x }} ${{ inputs.needs }}"},
+            {"name": "outside an expression", "run": "echo needs"},
+            {"run": "echo ${{ toJSON(needs) }}"}]}
+        self.assertEqual(excuse._needs_steps(job, "w"), ["report", "result"])
+
     def test_a_summary_whose_steps_were_not_read_is_not_excused(self):
         self.gh.jobs[3]["steps"] = []
         with self.assertRaisesRegex(excuse.Refused, f"'{SKILL_DOCS}': job 3 shows no failed step"):
@@ -14288,6 +14300,9 @@ SCANNERS = {
     # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
+    # A rollup step's text (run_rollup_line's contract): timed on the log, and on a run of unclosed expressions.
+    "base_red_excuse._reads_needs": lambda f: (excuse._reads_needs(f.log),
+                                              excuse._reads_needs("${{ " * len(f.lines) + f.log)),
     "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
     "base_red_excuse.check_passed_in": lambda f: excuse.check_passed_in(f.log, "scripts/x.sh"),
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
