@@ -1,5 +1,5 @@
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// Move to Cloud's text (the App's `CloudMove`, `CloudStartChat`, `CloudBringBack`). Keys live in
 /// Resources/Cloud.xcstrings with every app locale.
@@ -54,6 +54,13 @@ public struct CloudMoveStrings {
     public static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// The machine did not connect, and its last connect said why (the link's own words); no reason: ``notConnected(_:)``.
+    /// A bare `relay` (the machine never came to the relay: it did not come online) is a code, not words a person
+    /// can act on ("didn't connect: relay. Retry when that's fixed."), so it reads as no reason.
+    public static func notConnected(_ machine: String, because reason: String?) -> String {
+        guard let reason, reason != "relay" else { return notConnected(machine) }
+        return String(format: String(localized: "cloud.move.notConnectedBecause", defaultValue: "%1$@ didn't connect: %2$@. Retry when that's fixed.", table: "Cloud", bundle: .localizedModule), machine, reason)
+    }
     public static func syncFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.syncFailed", defaultValue: "Couldn't copy the folder to %1$@: %2$@", table: "Cloud", bundle: .localizedModule),
                machine, detail)
@@ -93,6 +100,14 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
+    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, any other one a ``CloudMoveFailure``.
+    public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
+        guard answer.0.ok else {
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+        }
+        return answer.1
+    }
     public static func moveFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .localizedModule), detail)
     }
@@ -100,4 +115,16 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)
     }
+    /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
+    public nonisolated static let machineLimitCode = "cmux.cloud.vm_limit"
+    public nonisolated static var machineLimit: String {
+        String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, paused machines included. Delete a machine you don't need, then try again.", table: "Cloud", bundle: .localizedModule)
+    }
+}
+
+/// An app-server refusal a person can act on reads as its own sentence wherever an error is put in plain words
+/// (`PlainErrorText.personal`): a create at the machine limit says so, not "Something went wrong". Any other
+/// code has no description here and keeps the caller's wording.
+extension CloudAppOpFailure: LocalizedError {
+    public var errorDescription: String? { code == CloudMoveStrings.machineLimitCode ? CloudMoveStrings.machineLimit : nil }
 }

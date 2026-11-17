@@ -343,3 +343,32 @@ extension AgentPaneLoadingView {
         String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .localizedModule)
     }
 }
+
+extension AgentPaneModel {
+    /// `github.repos.list` for a team with no cmux GitHub App installation (`github.not_connected`).
+    static var gitHubNotConnectedMessage: String {
+        String(localized: "agentPane.github.notConnected", defaultValue: "Connect GitHub to see your repositories.", bundle: .localizedModule)
+    }
+
+    /// A GitHub method that could not be answered (signed out, offline, or no App here).
+    static var gitHubUnavailableMessage: String {
+        String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .localizedModule)
+    }
+
+    /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
+    static var gitHubFolderCloudOnlyMessage: String {
+        String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .localizedModule)
+    }
+}
+
+extension AgentPaneCloudRepositoryRefusal {
+    /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
+    nonisolated static func needsAccessMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
+    }
+
+    /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
+    nonisolated static func failedMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .localizedModule), repository)
+    }
+}

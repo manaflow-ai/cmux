@@ -432,7 +432,8 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
         rawInput: { file_path: "src/routes.ts" },
       }),
     ]);
-    const after = page.locator(".cv-tool__text", { hasText: "Read src/auth.ts" }).first();
+    // A read names its file alone (ReadLabel.tsx), its path on hover.
+    const after = page.locator(".cv-tool__text", { hasText: "Read auth.ts" }).first();
     await after.waitFor({ timeout: 5_000 });
     const [record, read] = await Promise.all([
       page.locator(".acpmux-question-answered").first().boundingBox(),

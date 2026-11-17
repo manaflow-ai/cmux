@@ -38,4 +38,33 @@ public struct CloudChangeRequest {
         guard let window else { return false }
         return await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == Self.accept
     }
+
+    /// ``allowed(_:in:)`` that also tells `shown` the dialog's id (CmuxDialogCenter's, as `cmux debug dialog`
+    /// lists it) as soon as it is shown, so an agent's or a script's run can answer that it waits for the person.
+    @MainActor public func allowed(_ title: String, in window: NSWindow?, shown: @escaping @MainActor (Int) -> Void) async -> Bool {
+        guard let window else { return false }
+        let spec = spec(title)
+        return await withCheckedContinuation { continuation in
+            let id = CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
+                continuation.resume(returning: answer.button == Self.accept)
+            }
+            shown(id)
+        }
+    }
+
+    /// The yes a change waits for: a person's own run (`person`) is theirs; an agent's or a script's asks in the window
+    /// `window` answers when it runs (``allowed(_:in:shown:)``, `shown` told the dialog's id; without it ``allowed(_:in:)``).
+    public func asking(_ title: String, person: Bool, in window: @escaping @MainActor () -> NSWindow?,
+                       shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
+        {
+            guard !person else { return true }
+            guard let shown else { return await allowed(title, in: window()) }
+            return await allowed(title, in: window(), shown: shown)
+        }
+    }
+
+    /// What an agent's or a script's run answers when the person chose Don't Allow.
+    public static var declined: String {
+        String(localized: "cloud.changeRequest.declined", defaultValue: "Don't Allow was chosen in the cmux window; nothing changed.", table: "Cloud", bundle: .localizedModule)
+    }
 }

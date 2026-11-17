@@ -158,9 +158,11 @@ final class CEFRuntime {
     weak var initializeAfter: FirstFrameGate?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
-    private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
-        self?.isPlacedDevToolsWindow(window) ?? false
-    }
+    private(set) lazy var windowGuard: ChromiumWindowGuard = {
+        let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
+        guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        return guard_
+    }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
@@ -187,6 +189,8 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
+    /// Gives the keys back from a parked agent page's window (``AgentRenderKeyReturn``), told by ``windowGuard``.
+    let keyReturn = AgentRenderKeyReturn()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 

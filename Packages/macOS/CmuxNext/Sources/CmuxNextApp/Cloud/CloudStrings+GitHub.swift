@@ -95,4 +95,15 @@ nonisolated extension CloudStrings {
                defaultValue: "Your git user.name or user.email has control characters or is too long, so cmux won't pass it on.",
                table: "Cloud", bundle: .module.inAppLanguage)
     }
+
+    /// Set Up GitHub when the team has not connected cmux's GitHub App: Connect GitHub instead of the machine's own sign-in.
+    static var gitHubConnectBody: String {
+        String(localized: "cloud.github.connectBody",
+               defaultValue: "Connect cmux's GitHub App and choose its repositories in your browser. Then set up GitHub here again.",
+               table: "Cloud", bundle: .module.inAppLanguage)
+    }
+
+    static var gitHubConnect: String {
+        String(localized: "cloud.github.connect", defaultValue: "Connect GitHub", table: "Cloud", bundle: .module.inAppLanguage)
+    }
 }

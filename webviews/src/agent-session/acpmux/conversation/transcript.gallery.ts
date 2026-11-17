@@ -978,10 +978,11 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
-  doc.body.append(probe);
-  const runGap = probe.getBoundingClientRect().height;
+  // The gap over the live line in a run, from its one source (transcriptGrid.ts transcriptLiveVars, set on the
+  // scroller), including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-gap)";
+  (doc.querySelector<HTMLElement>(".acpmux-scroll") ?? doc.body).append(probe);
+  const stepGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
   const footerGap = probe.getBoundingClientRect().height;
   probe.remove();
@@ -995,8 +996,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
   const gap = live.top - nearest.bottom;
-  if (nearest.step && Math.abs(gap - runGap) > 0.5)
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (nearest.step && Math.abs(gap - stepGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not its ${stepGap}px gap`);
   if (!nearest.step && gap < footerGap - 0.5)
     throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
@@ -1350,10 +1351,8 @@ const ENVELOPE_TOOLS = [
       ],
     }),
   }),
-  tool("Read package.json", "read", "completed", {
-    output:
-      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
-  }),
+  // (A read of a JSON file drew here, kept as printed; a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts, so its output has no card.)
 ];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
@@ -2908,7 +2907,7 @@ export default agentPaneEntry({
       ),
     },
     "tool-result-envelopes": {
-      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text.",
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
@@ -3771,7 +3770,7 @@ export default agentPaneEntry({
       note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3785,7 +3784,7 @@ export default agentPaneEntry({
       note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-wrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3805,7 +3804,7 @@ export default agentPaneEntry({
       note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),
