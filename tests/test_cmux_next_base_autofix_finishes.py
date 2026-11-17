@@ -49,6 +49,8 @@ SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
 ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
+# A file the namespace rewrite changes (base-autofix.sh 1f'), which the compile gate judges.
+NAMESPACE_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Policy.swift"
 
 
 def git(cwd, *args):
@@ -114,7 +116,8 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("github.ref_name", group)
 
     def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
-             reject_without_moving=False, move_again: dict[str, str] | None = None):
+             reject_without_moving=False, move_again: dict[str, str] | None = None,
+             env: dict[str, str] | None = None):
         """Run the push loop: a repair (default: the settings export) made at HEAD_SHA, while feat-cmux-next
         gained `moved`; with `move_again`, the first push is rejected after the branch moves once more."""
         repair = repair or {EXPORT: "new"}
@@ -126,7 +129,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
         files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
-                 "README.md": "r", "unlisted/output.txt": "old",
+                 "README.md": "r", "unlisted/output.txt": "old", NAMESPACE_SWIFT: "public enum Policy {}\n",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
@@ -163,7 +166,7 @@ class BaseAutofixFinishes(unittest.TestCase):
                                "publication-fixture", str(work),
                                str(ROOT / "scripts/cmux-next/tests/lib/action-parity-stub.sh"),
                                str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
-                              cwd=runner, capture_output=True, text=True)
+                              cwd=runner, capture_output=True, text=True, env={**os.environ, **(env or {})})
         tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
         landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
         return done, landed, done.stdout + done.stderr
@@ -295,6 +298,65 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertIn("rejected", out)
         self.assertNotIn("kept moving", out)
+
+    def gated_push(self, verdict: int, repair: dict[str, str], moved: dict[str, str] | None = None,
+                   move_again: dict[str, str] | None = None):
+        """push() with a fake compile gate that exits `verdict` and logs each candidate it is asked about."""
+        gate_dir = Path(tempfile.mkdtemp())
+        log = gate_dir / "calls"
+        gate = gate_dir / "gate.sh"
+        gate.write_text(f'#!/bin/sh\necho "$2" >> "{log}"\nexit {verdict}\n')
+        gate.chmod(0o755)
+        done, landed, out = self.push(moved, repair=repair, move_again=move_again,
+                                      env={"CMUX_BASE_AUTOFIX_COMPILE_GATE": str(gate)})
+        calls = log.read_text().split() if log.exists() else []
+        return done, landed, out, calls
+
+    def test_a_swift_repair_lands_after_the_compile_gate_passes(self):
+        # 8f33d7030 (2026-11-17): a namespace rewrite that did not compile went straight to the base.
+        done, landed, out, calls = self.gated_push(0, {NAMESPACE_SWIFT: "public struct Policy {}\n"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public struct Policy {}")
+        self.assertEqual(len(calls), 1, out)
+
+    def test_a_swift_repair_the_gate_does_not_pass_is_never_pushed(self):
+        done, landed, out, calls = self.gated_push(1, {NAMESPACE_SWIFT: "public struct Policy {}\n"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertIn("did not pass", out)
+        self.assertEqual(len(calls), 1, out)
+
+    def test_without_a_gate_verdict_the_rest_of_the_repair_still_lands(self):
+        done, landed, out, calls = self.gated_push(
+            2, {NAMESPACE_SWIFT: "public struct Policy {}\n", SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertIn("without its Swift changes", out)
+
+    def test_a_repair_without_swift_never_asks_the_gate(self):
+        done, landed, out, calls = self.gated_push(1, {SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(calls, [])
+
+    def test_a_retry_onto_a_moved_tip_does_not_compile_the_same_change_again(self):
+        done, landed, out, calls = self.gated_push(
+            0, {NAMESPACE_SWIFT: "public struct Policy {}\n"}, moved={"README.md": "r2"}, move_again={"README.md": "r3"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public struct Policy {}")
+        self.assertIn("attempt 2 of", out)
+        self.assertEqual(len(calls), 1, out)
+
+    def test_the_workflow_gives_the_push_its_compile_gate(self):
+        job = DOC["jobs"]["autofix"]
+        self.assertEqual(job["permissions"].get("statuses"), "read")
+        push = next(step for step in job["steps"] if step.get("name") == "Push the repairs")
+        self.assertIn("COMPILE_GATE_TOKEN", push["env"])
+        land = (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text()
+        self.assertIn("base-autofix-compile-gate.sh", land)
+        gate = (ROOT / "scripts/cmux-next/base-autofix-compile-gate.sh").read_text()
+        self.assertIn("fleet-compile-check.yml", gate)
 
     def test_the_workflow_pushes_through_the_script(self):
         # base-autofix-land.sh pushes with base-autofix-push.sh, and makes a held repair again on the tip.
@@ -555,8 +617,65 @@ else:
 
 
 
+class CompileGate(unittest.TestCase):
+    """scripts/cmux-next/base-autofix-compile-gate.sh against a local remote and a fake gh."""
+
+    def gate(self, status: str, token: str = "t"):
+        work = Path(tempfile.mkdtemp())
+        os.environ.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                           "GIT_COMMITTER_EMAIL": "t@t"})
+        git_fixture_env.init_repo("remote.git", "--bare", cwd=work)
+        git(work, "clone", "-q", "remote.git", "repo")
+        repo = work / "repo"
+        (repo / "a.swift").write_text("struct A {}\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "candidate")
+        sha = git(repo, "rev-parse", "HEAD")
+        bin_dir = work / "bin"
+        bin_dir.mkdir()
+        calls = work / "gh-calls"
+        # `gh workflow run` records the dispatch; `gh api .../statuses` answers the --jq result: the status.
+        (bin_dir / "gh").write_text(
+            f'#!/bin/sh\necho "$*" >> "{calls}"\n'
+            f'case "$1" in workflow) exit 0 ;; api) echo "{status}" ;; esac\n')
+        (bin_dir / "gh").chmod(0o755)
+        seen = {}
+
+        done = subprocess.run(
+            ["bash", str(ROOT / "scripts/cmux-next/base-autofix-compile-gate.sh"), f"file://{work}/remote.git", sha],
+            cwd=repo, capture_output=True, text=True,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "COMPILE_GATE_TOKEN": token,
+                 "GITHUB_REPOSITORY": "o/r", "CMUX_BASE_AUTOFIX_COMPILE_WAIT": "3",
+                 "CMUX_BASE_AUTOFIX_COMPILE_POLL": "1"})
+        seen["calls"] = calls.read_text() if calls.exists() else ""
+        seen["branches"] = git(work / "remote.git", "for-each-ref", "--format=%(refname)", "refs/heads/")
+        return done, seen, sha
+
+    def test_a_pass_is_exit_zero_and_the_staging_branch_is_gone(self):
+        done, seen, sha = self.gate("success")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"workflow run fleet-compile-check.yml -R o/r --ref feat-cmux-next -f sha={sha}", seen["calls"])
+        self.assertEqual(seen["branches"], "")
+
+    def test_a_compile_failure_is_exit_one(self):
+        done, seen, _ = self.gate("failure")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(seen["branches"], "")
+
+    def test_no_verdict_is_exit_two(self):
+        for status in ("error", "pending"):
+            done, _, _ = self.gate(status)
+            self.assertEqual(done.returncode, 2, status + done.stdout + done.stderr)
+
+    def test_without_a_token_nothing_is_pushed_or_dispatched(self):
+        done, seen, _ = self.gate("success", token="")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertEqual(seen["calls"], "")
+        self.assertEqual(seen["branches"], "")
+
+
 BRANCH = "feat-cmux-next"
-SELF_COMMIT_PREFIXES = ("chore(next): base autofix at ", "chore(next): pin GhosttyKit for ghostty ")
+SELF_COMMIT_PREFIXES =("chore(next): base autofix at ", "chore(next): pin GhosttyKit for ghostty ")
 
 
 def workflow_docs():

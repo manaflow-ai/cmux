@@ -103,6 +103,7 @@ on:
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-push.sh
+      - scripts/cmux-next/base-autofix-compile-gate.sh
       - scripts/cmux-next/base-autofix-land.sh
       - scripts/cmux-next/base-autofix-repair.sh
       - scripts/cmux-next/base-autofix-settings-exports.sh
@@ -687,10 +688,12 @@ jobs:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
-    timeout-minutes: 20
+    # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
+    timeout-minutes: 65
     permissions:
-      actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head
+      actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head and fleet-compile-check.yml (the compile gate)
       contents: write
+      statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -850,6 +853,9 @@ jobs:
           # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
           # never to the repair it runs again on a moved tip.
           TOKEN: ${{ steps.push-token.outputs.token || github.token }}
+          # The compile gate (base-autofix-compile-gate.sh): a repair that changes Swift is pushed only after
+          # fleet-compile-check.yml passes its candidate. Like TOKEN, only the push sees it.
+          COMPILE_GATE_TOKEN: ${{ github.token }}
           ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           HEAD_SHA: ${{ github.sha }}
           # A taken pack's exports are this commit's own (pushed-exports made_at is the run's commit).

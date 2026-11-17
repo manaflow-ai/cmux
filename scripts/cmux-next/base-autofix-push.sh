@@ -195,6 +195,8 @@ held_exit=0
 trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
+# The compile gate's verdicts in this push ("pass|fail PATCH_ID" lines), and the Swift files it held this attempt.
+compile_verdicts=""
 for ((attempt = 1; attempt <= attempts; attempt++)); do
   git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
     echo "::error::cannot read $branch from the remote" >&2
@@ -206,6 +208,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     exit 1
   fi
   held=""
+  compile_held=""
   # Where the settings exports were made: BASE_SHA, or a commit between it and the tip.
   settings_from="$base"
   settings_unproven=""
@@ -415,6 +418,50 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     [[ -z "$held" ]] || message+=$'\n'"Left to the next run (newer commits changed them or their inputs): $(printf '%s' "$held" | tr '\n' ' ')"
     git commit --quiet -m "$message"
   fi
+  # The compile gate (CMUX_BASE_AUTOFIX_COMPILE_GATE, base-autofix-compile-gate.sh): a candidate whose
+  # repair changes a Swift file lands that Swift only after the build fleet compiles the candidate.
+  # 8f33d7030 pushed a namespace rewrite that did not compile, and every base compile stayed red. A
+  # verdict is kept per Swift patch (git patch-id), here and in CMUX_BASE_AUTOFIX_COMPILED across
+  # base-autofix-land.sh's rounds, so a retry onto a moved tip does not compile the same change again.
+  # Without a pass the Swift files are put back to the tip's, the rest lands, and the run fails.
+  if [[ -n "${CMUX_BASE_AUTOFIX_COMPILE_GATE:-}" ]]; then
+    swift_changed="$(git diff --name-only "$tip" HEAD -- '*.swift')"
+    if [[ -n "$swift_changed" ]]; then
+      swift_patch="$(git diff "$tip" HEAD -- '*.swift' | git patch-id --stable | cut -d' ' -f1)"
+      verdict="$(grep -h " $swift_patch\$" ${CMUX_BASE_AUTOFIX_COMPILED:+"$CMUX_BASE_AUTOFIX_COMPILED"} <(printf '%s' "${compile_verdicts:-}") 2>/dev/null | tail -n 1 | cut -d' ' -f1)" || verdict=""
+      if [[ -z "$verdict" ]]; then
+        gate=0
+        "$CMUX_BASE_AUTOFIX_COMPILE_GATE" "$remote" "$(git rev-parse HEAD)" || gate=$?
+        verdict=fail
+        ((gate == 0)) && verdict=pass
+        compile_verdicts+="$verdict $swift_patch"$'\n'
+        [[ -z "${CMUX_BASE_AUTOFIX_COMPILED:-}" ]] || echo "$verdict $swift_patch" >> "$CMUX_BASE_AUTOFIX_COMPILED"
+      else
+        echo "Compile gate: this Swift change already has a verdict in this run ($verdict)."
+      fi
+      if [[ "$verdict" != pass ]]; then
+        while IFS= read -r path; do
+          [[ -n "$path" ]] || continue
+          if git cat-file -e "$tip:$path" 2>/dev/null; then
+            git checkout --quiet "$tip" -- "$path"
+          else
+            git rm --quiet --cached --ignore-unmatch -- "$path"
+            rm -f -- "$path"
+          fi
+        done <<<"$swift_changed"
+        compile_held="$swift_changed"
+        if git diff --quiet "$tip" -- && git diff --cached --quiet "$tip" --; then
+          echo "::error::the build fleet did not pass this repair's Swift changes at ${tip:0:12}, and nothing else is left to push; not pushed:" >&2
+          printf '%s\n' "$swift_changed" | sed 's/^/  /' >&2
+          echo "next: fix the generator that wrote them (base-autofix.sh), or the base if it does not compile on its own." >&2
+          [[ -z "$held" ]] || held_exit=1
+          exit 1
+        fi
+        git add -A -- $(printf '%s\n' "$swift_changed")
+        git commit --quiet --amend --no-edit
+      fi
+    fi
+  fi
   # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
   # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
   # loop: a green result for the old candidate does not cover the next one.
@@ -422,7 +469,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     # land.sh injects its write token through git's config environment. Cargo executes
     # build scripts/tests: none may inherit publication credentials. The parent retains
     # its authentication for fetch/push; only this check runs without it.
-    unset TOKEN GH_TOKEN GITHUB_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
     for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
       [[ -z "$auth_var" ]] || unset "$auth_var"
     done
@@ -436,6 +483,13 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
     echo "Pushed $(git rev-parse --short HEAD) to $branch."
+    if [[ -n "${compile_held:-}" ]]; then
+      echo "::error::pushed the repair without its Swift changes, which the build fleet did not pass; not pushed:" >&2
+      printf '%s\n' "$compile_held" | sed 's/^/  /' >&2
+      echo "next: fix the generator that wrote them (base-autofix.sh), or the base if it does not compile on its own." >&2
+      [[ -z "$held" ]] || held_exit=1
+      exit 1
+    fi
     if [[ -n "$held" ]]; then
       held_exit=1
       echo "::error::pushed part of the repair; newer commits changed these or their inputs, so the next run repairs them:" >&2

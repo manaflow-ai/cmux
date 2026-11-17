@@ -72,6 +72,18 @@ main() {
     push_script="$work/push.sh"
     export CMUX_BASE_AUTOFIX_AREAS="$areas_script"
   fi
+  # The compile gate for Swift changes (base-autofix-compile-gate.sh), copied with the push. The workflow turns
+  # it on by passing COMPILE_GATE_TOKEN; like TOKEN, only the push sees the token, never the repair.
+  # CMUX_BASE_AUTOFIX_COMPILE_GATE names another gate (tests).
+  gate_token="${COMPILE_GATE_TOKEN:-}"
+  unset COMPILE_GATE_TOKEN
+  compile_gate="${CMUX_BASE_AUTOFIX_COMPILE_GATE:-}"
+  unset CMUX_BASE_AUTOFIX_COMPILE_GATE
+  if [[ -z "$compile_gate" && -n "$gate_token" ]]; then
+    cp "$here/base-autofix-compile-gate.sh" "$work/compile-gate.sh"
+    compile_gate="$work/compile-gate.sh"
+  fi
+  : > "$work/compiled"
   repair_script="${CMUX_BASE_AUTOFIX_REPAIR:-$root/scripts/cmux-next/base-autofix-repair.sh}"
 
   # A held file a round on the tip makes again (base-autofix-push.sh's output areas graph, sdk,
@@ -110,9 +122,12 @@ main() {
       auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
       env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
         GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" CMUX_BASE_AUTOFIX_HELD="$work/held" \
+        CMUX_BASE_AUTOFIX_COMPILE_GATE="$compile_gate" COMPILE_GATE_TOKEN="$gate_token" CMUX_BASE_AUTOFIX_COMPILED="$work/compiled" \
         "$push_script" "$remote" "$branch" "$@" || status=$?
     else
-      CMUX_BASE_AUTOFIX_HELD="$work/held" "$push_script" "$remote" "$branch" "$@" || status=$?
+      CMUX_BASE_AUTOFIX_HELD="$work/held" \
+        CMUX_BASE_AUTOFIX_COMPILE_GATE="$compile_gate" COMPILE_GATE_TOKEN="$gate_token" CMUX_BASE_AUTOFIX_COMPILED="$work/compiled" \
+        "$push_script" "$remote" "$branch" "$@" || status=$?
     fi
     return "$status"
   }
