@@ -71,7 +71,7 @@
           },
           "help": {
             "key": "settings.appearance.theme.help",
-            "text": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
+            "text": "Colors for terminals. A space, workspace or terminal theme overrides it."
           },
           "summary": {
             "key": "settings.appearance.theme.summary",
@@ -108,7 +108,7 @@
           },
           "help": {
             "key": "settings.appearance.appTheme.help",
-            "text": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
+            "text": "Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme."
           },
           "summary": {
             "key": "settings.appearance.appTheme.summary",
@@ -139,7 +139,7 @@
           },
           "help": {
             "key": "settings.appearance.themeEdits.help",
-            "text": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+            "text": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\"."
           },
           "kind": "string_map",
           "swift_owner": "ThemeEditsSetting",
@@ -194,7 +194,7 @@
           },
           "help": {
             "key": "settings.appearance.rotateFavoriteThemes.help",
-            "text": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
+            "text": "Switches the terminal theme to the next starred one. Needs two starred themes."
           },
           "summary": {
             "key": "settings.appearance.rotateFavoriteThemes.summary",
@@ -254,7 +254,7 @@
           },
           "help": {
             "key": "settings.appearance.accent.help",
-            "text": "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+            "text": "The color of selection, focus and the Send button."
           },
           "summary": {
             "key": "settings.appearance.accent.summary",
@@ -353,7 +353,7 @@
           },
           "help": {
             "key": "settings.appearance.themeFile.help",
-            "text": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+            "text": "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json."
           },
           "summary": {
             "key": "settings.appearance.themeFile.summary",
@@ -386,7 +386,7 @@
           },
           "help": {
             "key": "settings.appearance.highlightColor.help",
-            "text": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
+            "text": "The color of selected text everywhere. Unset uses the terminal theme's."
           },
           "summary": {
             "key": "settings.appearance.highlightColor.summary",
@@ -428,7 +428,7 @@
           },
           "help": {
             "key": "settings.appearance.backdropArt.help",
-            "text": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+            "text": "A painting behind the window. Lower Opacity to see it."
           },
           "summary": {
             "key": "settings.appearance.backdropArt.summary",
@@ -466,7 +466,7 @@
           },
           "help": {
             "key": "settings.appearance.background.help",
-            "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
+            "text": "A painting, your wallpaper or a macOS wallpaper behind the window."
           },
           "summary": {
             "key": "settings.appearance.background.summary",
@@ -531,7 +531,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundRotation.help",
-            "text": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
+            "text": "How often a shuffled background changes."
           },
           "summary": {
             "key": "settings.appearance.backgroundRotation.summary",
@@ -600,7 +600,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundLight.help",
-            "text": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."
+            "text": "Unset, it shows the dark picture."
           },
           "default_label": {
             "key": "settings.default.sameAsDark",
@@ -633,7 +633,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundDark.help",
-            "text": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."
+            "text": "Unset, it shows the light picture."
           },
           "default_label": {
             "key": "settings.default.sameAsLight",
@@ -666,7 +666,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundSchedule.help",
-            "text": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."
+            "text": "A time (07:00) or sun event (sunset-30m) for each picture."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -695,7 +695,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundDynamic.help",
-            "text": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."
+            "text": "Follow light and dark, or change with the sun through the day."
           },
           "summary": {
             "key": "settings.appearance.backgroundDynamic.summary",
@@ -747,7 +747,7 @@
           },
           "help": {
             "key": "settings.appearance.backgroundLocation.help",
-            "text": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."
+            "text": "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone."
           },
           "default_label": {
             "key": "settings.default.fromTimeZone",
@@ -781,7 +781,7 @@
           },
           "help": {
             "key": "settings.appearance.displayBackgrounds.help",
-            "text": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."
+            "text": "Display ID to daily, folder:<path>, desktop, a background or none."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -807,7 +807,7 @@
           },
           "help": {
             "key": "settings.appearance.displayBackgroundRotations.help",
-            "text": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."
+            "text": "Display ID to 15m, hourly or daily. Others use the global rotation."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -832,7 +832,7 @@
           },
           "help": {
             "key": "settings.appearance.paneBackgrounds.help",
-            "text": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+            "text": "One background behind the window, or a copy in each pane."
           },
           "summary": {
             "key": "settings.appearance.paneBackgrounds.summary",
@@ -881,7 +881,7 @@
           },
           "help": {
             "key": "settings.ui.reducedBackgrounds.help",
-            "text": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+            "text": "The plain theme color, without paintings, wallpapers or glass."
           },
           "kind": "toggle",
           "swift_owner": "ReducedBackgroundsSetting",
@@ -1046,7 +1046,7 @@
           },
           "help": {
             "key": "settings.appearance.inactiveWindowDim.help",
-            "text": "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+            "text": "How much windows behind the front one are tinted. 0 keeps them the same."
           },
           "kind": "number",
           "swift_owner": {
@@ -1078,7 +1078,7 @@
           },
           "help": {
             "key": "settings.appearance.wallpaperTint.help",
-            "text": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+            "text": "The glass takes the colors of your desktop picture."
           },
           "kind": "toggle",
           "swift_owner": "WallpaperTintSetting",
@@ -1313,7 +1313,7 @@
           },
           "help": {
             "key": "settings.appearance.uiScale.help",
-            "text": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+            "text": "Zoom for chat, Settings and other app pages."
           },
           "kind": "number",
           "swift_owner": "UIScaleSetting",
@@ -1344,7 +1344,7 @@
           },
           "help": {
             "key": "settings.appearance.textSize.help",
-            "text": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
+            "text": "Text size of tabs, the sidebar and chat. Terminals have their own size."
           },
           "kind": "number",
           "swift_owner": "InterfaceSizeSetting",
@@ -1371,14 +1371,14 @@
         },
         {
           "key": "appearance.fontSmoothing",
-          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.",
+          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.",
           "title": {
             "key": "settings.appearance.fontSmoothing",
             "text": "Text Smoothing"
           },
           "help": {
             "key": "settings.appearance.fontSmoothing.help",
-            "text": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+            "text": "How text draws. Some text changes after cmux restarts; terminals keep their own."
           },
           "kind": "choice",
           "swift_owner": "FontSmoothingSetting",
@@ -1729,7 +1729,7 @@
           },
           "help": {
             "key": "settings.appearance.focusIndicator.help",
-            "text": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."
+            "text": "How the focused pane stands out."
           },
           "summary": {
             "key": "settings.appearance.focusIndicator.summary",
@@ -1793,7 +1793,7 @@
           },
           "help": {
             "key": "settings.focus.inactiveTabStyle.help",
-            "text": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
+            "text": "How other panes' tabs look subtler when Focused Pane marks tabs."
           },
           "summary": {
             "key": "settings.focus.inactiveTabStyle.summary",
@@ -1908,7 +1908,7 @@
           },
           "help": {
             "key": "settings.appearance.chromeStyle.help",
-            "text": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+            "text": "Whether panes sit in one rounded card, and where lines are drawn."
           },
           "summary": {
             "key": "settings.appearance.chromeStyle.summary",
@@ -1954,7 +1954,7 @@
           },
           "help": {
             "key": "settings.appearance.titleAreaTone.help",
-            "text": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+            "text": "The title bar, tab bar and sidebar in the content's color, or shaded apart."
           },
           "summary": {
             "key": "settings.appearance.titleAreaTone.summary",
@@ -2010,7 +2010,7 @@
           },
           "help": {
             "key": "settings.appearance.titleAreaContrast.help",
-            "text": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+            "text": "How much darker the title bar, tab bar and sidebar are. 1 is the default."
           },
           "summary": {
             "key": "settings.appearance.titleAreaContrast.summary",
@@ -2058,7 +2058,7 @@
           },
           "help": {
             "key": "settings.ui.paneAnimations.help",
-            "text": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
+            "text": "Splits, closes, moves, zooms and column scrolls slide into place."
           },
           "kind": "toggle",
           "swift_owner": "PaneAnimationsSetting",
@@ -2140,7 +2140,7 @@
           },
           "help": {
             "key": "settings.layout.paneSeparation.help",
-            "text": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
+            "text": "How panes are told apart."
           },
           "summary": {
             "key": "settings.layout.paneSeparation.summary",
@@ -2237,7 +2237,7 @@
           },
           "help": {
             "key": "settings.layout.paneCornerRadius.help",
-            "text": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."
+            "text": "One radius for panes, tabs, panels, popovers and cards."
           },
           "kind": "number",
           "swift_owner": {

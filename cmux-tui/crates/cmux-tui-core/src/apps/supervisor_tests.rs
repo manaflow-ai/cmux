@@ -42,9 +42,16 @@ fn scripted_app_host() {
     };
     let mut next_cb = 1;
     let mut cb_mount: Vec<(u64, String)> = Vec::new();
+    // `renderHang`: the host stops answering anything (a render that never
+    // returns, in a host that does not honor its deadline) until shut down.
+    let mut hung = false;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+        let message = serde_json::from_str::<ToHost>(&line).expect("protocol");
+        if hung && !matches!(message, ToHost::Shutdown) {
+            continue;
+        }
+        match message {
             // A script that names THROW_AT_INIT fails to load, as a syntax error does.
             ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
                 send(FromHost::InitFailed {
@@ -74,6 +81,21 @@ fn scripted_app_host() {
                 }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
+                    continue;
+                }
+                if export == "renderHang" {
+                    hung = true;
+                    continue;
+                }
+                if export == "renderHuge" {
+                    // A scene of 20,000 nodes with a 100-byte text each (~3 MB).
+                    let text = "x".repeat(100);
+                    let mut ops: Vec<Value> = (0..20_000)
+                        .map(|n| json!({ "op": "create", "id": format!("h{n}"), "type": "Text", "props": { "text": text } }))
+                        .collect();
+                    ops.push(json!({ "op": "root", "id": "h0" }));
+                    send(FromHost::Scene { mount: mount.clone(), ops: Value::Array(ops) });
+                    send(FromHost::Mounted { mount, error: None });
                     continue;
                 }
                 if export == "renderLive" {
@@ -515,6 +537,38 @@ fn unverified_apps_start_sandboxed_with_read_scopes() {
     assert_eq!(spy["sandboxed"], true);
     assert_eq!(spy["grants"], json!(["workspace:read"]));
     assert_eq!(spy["source"], "local");
+}
+
+/// An App Store package (`CMUX_APPS_DIRS`, tier unverified) installed with
+/// one click: the consent card listed its `net:` scope, so the confirmed
+/// install grants it and the app reaches that host at once (base red: the
+/// install granted read scopes only and stayed sandboxed, so a weather
+/// widget fetched nothing until the person changed two settings).
+#[test]
+fn a_store_install_grants_the_scopes_its_consent_card_listed() {
+    let f = fixture();
+    let extra = f.state.parent().unwrap().join("extra");
+    write_app(
+        &extra,
+        "weather",
+        "acme/weather",
+        json!({ "workspace:read": "r", "net:api.example.com": "forecasts" }),
+    );
+    let path = extra.join("weather/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/weather");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/weather")["tier"], "unverified");
+    let args = json!({ "app": "acme/weather", "idempotency_key": "one-click" });
+    f.supervisor.store_call(CLIENT, "apps.install", args, Origin::User).unwrap();
+    let weather = app_entry(&f.supervisor.list(), "acme/weather");
+    assert_eq!(weather["grants"], json!(["net:api.example.com", "workspace:read"]), "{weather}");
+    assert_eq!(weather["sandboxed"], false, "{weather}");
+    f.mount("m1", "acme/weather", "cmux.section/1", json!({}));
+    let fetched = f.call("m1", "net.fetch", json!({ "url": "https://api.example.com/x" }), false);
+    assert_eq!(fetched["body"]["value"]["body"], "hi", "{fetched}");
 }
 
 #[test]
@@ -1175,3 +1229,6 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_scale_tests.rs"]
+mod at_scale;

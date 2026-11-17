@@ -55,6 +55,8 @@ mod load_trial;
 #[cfg(unix)]
 mod local_reload;
 #[cfg(unix)]
+mod locale;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;

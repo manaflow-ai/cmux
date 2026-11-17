@@ -402,6 +402,9 @@ impl Supervisor {
         }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
+            // A refused package is missing from the App Store: say so in the
+            // daemon log too, not only in the apps log nobody opens.
+            eprintln!("cmux-tui: app package {} refused: {issue}", dir.display());
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
                 level: "warn".into(),
                 message: format!("{}: {issue}", dir.display()),
