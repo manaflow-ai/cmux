@@ -291,6 +291,16 @@ fn next_burst(
             if event.need_rescan() {
                 burst.rebuild = true;
             }
+            // An open, a read or a close, and a write of a file's content,
+            // change no name and no kind: the listing's own walk (git's,
+            // and the looks) opens the folders it lists.
+            if matches!(
+                event.kind,
+                notify::EventKind::Access(_)
+                    | notify::EventKind::Modify(notify::event::ModifyKind::Data(_))
+            ) {
+                return;
+            }
             for path in &event.paths {
                 classify(path, root, git_dir, burst);
             }

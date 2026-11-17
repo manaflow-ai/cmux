@@ -637,7 +637,12 @@ fn kept_tree_equals_the_direct_path_through_random_edits() {
             }
             8 => {
                 let Some(file) = dice.pick(&tracked) else { continue };
-                if git(&repo).args(["rm", "--cached", "-q", "--", file]).status().unwrap().success()
+                if git(&repo)
+                    .args(["rm", "--cached", "-q", "--", file])
+                    .stderr(Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
                 {
                     index = true;
                 } else {
