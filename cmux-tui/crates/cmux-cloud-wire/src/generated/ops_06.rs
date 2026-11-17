@@ -463,6 +463,131 @@ wire_errors! {
 }
 
 wire_op! {
+    /// A cloud group's members and their roles (any member of the group reads it).
+    GroupMembersListOp {
+        name: "group.members.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: GroupMembersListParams,
+        result: GroupMembersListResult,
+        error: GroupMembersListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersListParams {
+    pub group: GroupId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersListResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.list declares.
+    GroupMembersListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op.
+    GroupMembersRemoveOp {
+        name: "group.members.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GroupMembersRemoveParams,
+        result: GroupMembersRemoveResult,
+        error: GroupMembersRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersRemoveParams {
+    pub group: GroupId,
+    pub user: UserId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersRemoveResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.remove declares.
+    GroupMembersRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        GroupLastOwner = "group.last_owner",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted.
+    GroupMembersSetOp {
+        name: "group.members.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GroupMembersSetParams,
+        result: GroupMembersSetResult,
+        error: GroupMembersSetError,
+    }
+}
+
+wire_enum! {
+    GroupMembersSetParamsRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersSetParams {
+    pub group: GroupId,
+    pub user: UserId,
+    pub role: GroupMembersSetParamsRole,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersSetResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.set declares.
+    GroupMembersSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        GroupLastOwner = "group.last_owner",
+        GroupMemberNotInTeam = "group.member_not_in_team",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Rename a cloud group (its owner only).
     GroupRenameOp {
         name: "group.rename",
@@ -773,124 +898,4 @@ wire_op! {
         result: HostNetworkPolicyView,
         error: HostNetworkPolicyError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPolicyParams {
-    pub host: HostId,
-    pub proof: ServerNetworkProof,
-}
-
-wire_errors! {
-    /// The error codes host.network.policy declares.
-    HostNetworkPolicyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        OwnerUnreachable = "owner.unreachable",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential.
-    HostNetworkTargetOp {
-        name: "host.network.target",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Install],
-        params: HostNetworkTargetParams,
-        result: HostNetworkTargetResult,
-        error: HostNetworkTargetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkTargetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<NativeMeshId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkTargetResult {
-    pub team: TeamId,
-    pub tenant: NativeTenantId,
-    pub project: String,
-    pub origin: String,
-    pub mesh: NativeMeshId,
-    pub ipv4_cidr: String,
-}
-
-wire_errors! {
-    /// The error codes host.network.target declares.
-    HostNetworkTargetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove a host from the team directory (its owner or a team admin).
-    HostRemoveOp {
-        name: "host.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: HostRemoveParams,
-        result: HostRemoveResult,
-        error: HostRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostRemoveParams {
-    pub host: HostId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostRemoveResult {
-    pub host: HostId,
-}
-
-wire_errors! {
-    /// The error codes host.remove declares.
-    HostRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.
-    HostReplicaPurgeOp {
-        name: "host.replica.purge",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: HostReplicaPurgeParams,
-        result: HostReplicaPurgeResult,
-        error: HostReplicaPurgeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostReplicaPurgeParams {
-    pub host: HostId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostReplicaPurgeResult {
-    pub host: HostId,
 }
