@@ -257,7 +257,9 @@ extension AgentPaneRequest {
             }
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
-                            settled: params?["settled"] as? Bool ?? false)
+                            settled: params?["settled"] as? Bool ?? false,
+                            pageMarks: (params?["pageMarks"] as? [String: Any] ?? [:])
+                                .compactMapValues { ($0 as? NSNumber)?.doubleValue }.filter { $0.value > 0 && $0.value.isFinite })
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
