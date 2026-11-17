@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4407093319901",
+  "notes": "notes/4407093319901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45453,
+      "title": "Settle the new chat's composer card and field from New Tab's, not just its box",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45444,
+      "title": "measure: launch-capture probe: picture the main window, prompts new since start, the app's own TCC requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45445,
+      "title": "cmux-next-ios: agent notes for the iPhone app (dev loop, terminal, landing iOS PRs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44739,
+      "title": "cmux-next iOS: chat reconnect in well under a second after foreground",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45303,
+      "title": "sync-bench: one pinned >20 GiB tree, push scenarios to a real daemon, before/after by commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44695,
+      "title": "iOS: lean frames stop waking the terminal engine's IO thread for every frame (no DEC 2026)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45110,
+      "title": "firstLoadWatch test: iterate the mutation callbacks without a spread copy (web lint no-useless-spread)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43830,
+      "title": "Palette: joined machines' Check, Rotate and Revoke rows after the re-pin (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45384,
+      "title": "Cloud MCP: noun_verb tool names with aliases, idempotency_key on agent_run, terminal_input_write and send_message",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
