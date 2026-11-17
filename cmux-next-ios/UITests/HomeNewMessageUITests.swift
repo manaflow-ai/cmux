@@ -82,7 +82,9 @@ final class HomeNewMessageUITests: XCTestCase {
 
             let again = launch(look: look)
             _ = openSheet(again, look)
-            again.buttons["conversation.composer.plus"].tap()
+            let plusAgain = again.buttons["conversation.composer.plus"]
+            XCTAssertTrue(plusAgain.waitForExistence(timeout: 10), "the + after relaunch")
+            plusAgain.tap()
             let photosAgain = again.descendants(matching: .any)["conversation.apps.photo.on.rectangle"]
             XCTAssertTrue(photosAgain.waitForExistence(timeout: 5), "apps menu again")
             photosAgain.tap()

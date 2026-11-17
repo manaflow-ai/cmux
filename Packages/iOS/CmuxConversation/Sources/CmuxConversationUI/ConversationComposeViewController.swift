@@ -291,12 +291,13 @@ public final class ConversationComposeViewController: UIViewController {
     /// `HomeNewMessageView` lays its list under the notice, so the Chiefs never hide it), and ends
     /// at the composer while it shows, else at the keyboard.
     private func updateListFrame() {
-        let underNotice = !notice.isHidden
-        listUnderField?.isActive = !underNotice
-        listUnderNotice?.isActive = underNotice
-        let aboveKeyboard = composerContainer.isHidden
-        listAboveComposer?.isActive = !aboveKeyboard
-        listAboveKeyboard?.isActive = aboveKeyboard
+        guard let listUnderField, let listUnderNotice, let listAboveComposer, let listAboveKeyboard else { return }
+        let top = notice.isHidden ? listUnderField : listUnderNotice
+        let bottom = composerContainer.isHidden ? listAboveKeyboard : listAboveComposer
+        // The outgoing pair goes first, so two tops (or bottoms) are never active together.
+        NSLayoutConstraint.deactivate([listUnderField, listUnderNotice, listAboveComposer, listAboveKeyboard]
+            .filter { $0 !== top && $0 !== bottom })
+        NSLayoutConstraint.activate([top, bottom])
     }
 
     private func sessionDidChange(_ change: ConversationComposeSession.Change) {
