@@ -6,9 +6,10 @@ import Observation
 ///
 /// A diff (`DiffFile(path:edits:)`, Myers over every line) of a large rewrite takes
 /// hundreds of milliseconds; the transcript used to run one per row body, on every
-/// streamed token. Rows ask here instead: a ready diff comes back at once; a missing one
-/// starts on a background task, the row draws without it, and `version` changes when it
-/// lands so the rows that waited are built again.
+/// streamed token. Rows ask here instead: a ready diff comes back at once; a small missing one
+/// (`isSmall`) is computed at once, so its row is drawn at its real height in its first frame; a
+/// large missing one starts on a background task, the row draws without it, and `version`
+/// changes when it lands so the rows that waited are built again.
 @MainActor
 @Observable
 public final class ChatDiffCache {
@@ -101,10 +102,19 @@ public final class ChatDiffCache {
         if let entry = callFiles[key], entry.inputs == inputs {
             return entry.value
         }
-        callFiles[key] = Entry(inputs: inputs, value: nil)
         running[key]?.cancel()
+        running[key] = nil
         computations += 1
         let compute = compute
+        // A small edit (most of them) is diffed here: its snippet is drawn at its real height in the
+        // first frame that shows it. Waiting for it made the row grow a frame or two later, moving
+        // the rows on screen as a chat opened or a call finished (layout shift).
+        if Self.isSmall(inputs) {
+            let previews = inputs.flatMap { compute([$0]) }.map(EditPreview.init)
+            callFiles[key] = Entry(inputs: inputs, value: previews)
+            return previews
+        }
+        callFiles[key] = Entry(inputs: inputs, value: nil)
         let work = Task.detached(priority: .userInitiated) {
             inputs.flatMap { compute([$0]) }.map(EditPreview.init)
         }
@@ -128,6 +138,16 @@ public final class ChatDiffCache {
         let key = "t-\(turn.id)"
         if let entry = turnSets[key], entry.inputs == inputs {
             return entry.value
+        }
+        // A small turn's changes are diffed here, as a small edit's snippet is (`files(for:)`): its
+        // edited-files card is in the first frame that shows the turn, not inserted a frame later.
+        if Self.isSmall(inputs) {
+            running[key]?.cancel()
+            running[key] = nil
+            computations += 1
+            let ready = Self.changeSet(turnID: turn.id, files: compute(inputs))
+            turnSets[key] = Entry(inputs: inputs, value: .some(ready))
+            return .some(ready)
         }
         turnSets[key] = Entry(inputs: inputs, value: nil)
         let turnID = turn.id
@@ -161,6 +181,26 @@ public final class ChatDiffCache {
     }
 
     // MARK: Work
+
+    /// Edits small enough to diff on the main thread (`files(for:)`, `changeSet(for:)`): at most
+    /// `smallLines` lines in all, old and new, and `smallCharacters` characters. Myers over 240 lines
+    /// is O((N + M) D), well under a millisecond even for a full rewrite; a large rewrite (hundreds of
+    /// milliseconds) still runs off the main thread and its row grows when it lands.
+    static let smallLines = 240
+    static let smallCharacters = 24_000
+
+    nonisolated static func isSmall(_ inputs: [EditInput]) -> Bool {
+        var lines = 0, characters = 0
+        for input in inputs {
+            for text in [input.oldText ?? "", input.newText] {
+                characters += text.utf8.count
+                guard characters <= smallCharacters else { return false }
+                lines += text.utf8.reduce(1) { $1 == 10 ? $0 + 1 : $0 }
+                guard lines <= smallLines else { return false }
+            }
+        }
+        return true
+    }
 
     private func start(_ key: String, inputs: [EditInput],
                        land: @escaping @MainActor (ChatDiffCache, [DiffFile]) -> Void) {
