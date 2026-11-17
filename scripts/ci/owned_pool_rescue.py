@@ -10,7 +10,7 @@ from the default branch, with Actions write, as one sweeper (SWEEP=1,
 sweep()): it finds the runs placed on an owned pool by their fixed-name
 markers and gives each a thread running follow(), the per-run watch described
 below. A dispatch with a run's id (WATCH_RUN_ID) watches that run alone,
-checked as a workflow_run event's run would be.
+at its current attempt, whatever its number, with attempt 1's rules (dispatch_target()).
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
@@ -2664,7 +2664,7 @@ class Target:
     # their own concurrency group, so a newer push does not cancel this one.
     push_branch: str = ""
     # cmux-next's bot attempt 3 (REFUSAL_RESCUE_ATTEMPT): still on the minis, so a
-    # refusal there goes to Blacksmith as attempt 4; a long queue is not moved.
+    # refusal there is re-run as attempt 4; a long owned wait is placed again (places_again()).
     refusals_only: bool = False
     # The run's event (pull_request, push, schedule, ...); "" when unread, which never_fails_over() treats as a
     # delivery event.
@@ -2672,6 +2672,10 @@ class Target:
     # Shared workflows carry delivery runs in their API name/display title.
     name: str = ""
     display_title: str = ""
+    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()) at an attempt past 1: its current attempt is
+    # watched with attempt 1's rules whatever its number, and the open-head failover may place it again past
+    # REFUSAL_RESCUE_ATTEMPT (places_again()). The watch ends at its one rescue, so a dispatch never loops.
+    dispatched: bool = False
 
     @property
     def picker_job(self) -> str:
@@ -2752,6 +2756,27 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
                   e2e=e2e, side=side or portable, path=str(path), attempt_started_at=attempt_started,
                   event=str(run.get("event") or ""), name=str(run.get("name") or ""),
                   display_title=str(run.get("display_title") or ""))
+
+
+def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
+    """The run a dispatch names (WATCH_RUN_ID) to watch, at its current attempt, or why it is none.
+
+    Attempt 1 is judged as its workflow_run event is (target_from_event()). A later attempt is judged as attempt 1
+    and then watched at its own number with attempt 1's rules (Target.dispatched): a dispatch is a person's or an
+    agent's ask about this run now. Before 2026-11-17 it answered "not watched: attempt N; its first attempt's
+    watch follows it", which no watch did: five cmux-next runs sat 5 to 7 hours on their bot attempt 3 on
+    glaeda-side-std-xcode-26.6 (cmux#44757's run 44018861106 among them) and a dispatch for each was a no-op. A
+    nightly, DEV or promote build past attempt 1 keeps the rules the sweeper resumes it by (sweep_target())."""
+    attempt = int(run.get("run_attempt") or 0)
+    if attempt <= 1:
+        return target_from_event({"workflow_run": run}, repository)
+    first = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
+    if isinstance(first, str):
+        return first
+    if is_delivery_target(first):
+        return (f"attempt {attempt} of a delivery build; the sweeper resumes the attempts its rules allow "
+                "(sweep_target())")
+    return dataclasses.replace(first, attempt=attempt, dispatched=True)
 
 
 def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
@@ -4279,8 +4304,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
                   log: Callable[[str], None]) -> PlacementRerun | None:
     """The placement-only rerun for a supported workflow, or ``None``.
 
-    cmux-next re-runs the placement of attempt 1, and of a pull request run's attempt 2 when the head's placement
-    runs on the bot's attempt 3 (placement_rerun()). Portable light workflows
+    cmux-next re-runs the placement of attempt 1, and of a pull request run's later attempt that places_again() allows when the head's placement
+    runs on the bot's next attempt (placement_rerun()). Portable light workflows
     use the same placement-only shape on any current pull-request attempt.
     The placement job must be proven current
     before the run can be cancelled; an older workflow without that graph
@@ -4293,10 +4318,10 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
             return None
         key, name = PORTABLE_PLACEMENT_KEY, PORTABLE_PLACEMENT_JOB
     elif cmux_next:
-        # Attempt 1, and a pull request run's attempt 2 when the head places the bot's attempt 3
-        # (CMUX_NEXT_LAST_PLACED_ATTEMPT, placement_rerun()).
+        # Attempt 1, and a pull request run's later attempt the failover may place again (places_again()) when the
+        # head places the bot's next attempt (placement_rerun()).
         if not (target.attempt == 1 and (target.pr_number or push_tip_failover(target))
-                or 1 < target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and target.pr_number):
+                or 1 < target.attempt and places_again(target) and target.pr_number):
             return None
         key, name = CMUX_NEXT_PLACEMENT_KEY, CMUX_NEXT_PLACEMENT_JOB
     else:
@@ -4322,13 +4347,25 @@ def job_key(job: Mapping[str, Any]) -> Any:
     return job.get("id") if job.get("id") is not None else str(job.get("name") or "")
 
 
+def places_again(target: "Target") -> bool:
+    """Whether the open-head failover may place this cmux-next attempt again (a placement re-run, failover_plan()):
+    attempts 1 to REFUSAL_RESCUE_ATTEMPT, the ones the sweeper watches for the bot (owned_rerun()), and any attempt a
+    dispatch names (Target.dispatched). The head's placement must still run on the bot's next attempt
+    (placement_rerun()). The loop guard: the sweeper never adopts the bot's attempt past REFUSAL_RESCUE_ATTEMPT, and a
+    dispatch's watch ends at its one rescue, so nothing re-places a run on its own past attempt 4. Before
+    2026-11-17 this stopped at attempt 2 (CMUX_NEXT_LAST_PLACED_ATTEMPT), though the head places every bot attempt
+    since 2026-11-15 (CMUX_NEXT_BOT_PLACEMENT): cmux#44757's run 44018861106 and four others waited 5 to 7 hours on
+    their bot attempt 3 on glaeda-side-std-xcode-26.6, and a dispatch naming one answered "not watched: attempt 3"."""
+    return target.attempt <= REFUSAL_RESCUE_ATTEMPT or target.dispatched
+
+
 def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: dt.datetime,
                     first_seen: dt.datetime | None = None) -> bool:
     """Whether a cmux-next pull request run's Mac job has waited OWNED_REPLACE_SECONDS on an owned (glaeda-) label,
-    on an attempt the bot's placement may place again (before CMUX_NEXT_LAST_PLACED_ATTEMPT). The label need not be
+    on an attempt the bot's placement may place again (places_again()). The label need not be
     dark: a saturated one whose queue the job is not getting through is as stuck for the job."""
     return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
-            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and label.startswith("glaeda-")
+            and places_again(target) and label.startswith("glaeda-")
             and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
 
 
@@ -4358,13 +4395,13 @@ def light_wait(target: "Target", job: Mapping[str, Any], label: str, snapshot: M
                now: dt.datetime, first_seen: dt.datetime | None = None) -> str:
     """The light side label a cmux-next pull request run's Mac job may move to, or "": it has waited
     LIGHT_MOVE_SECONDS on a std side label (glaeda-side-std-xcode-<v>), on an attempt the bot's placement may place
-    again (before CMUX_NEXT_LAST_PLACED_ATTEMPT), while the same version's light side label has a runner listening
+    again (places_again()), while the same version's light side label has a runner listening
     beyond its queue (light_room()). Only a placement re-run moves it, and only a job the head shows reads the
     re-run's light placement (PlacementRerun.light_readers, checked by open_head_failover()): the measured
     light-fit jobs (feat-cmux-next .github/runners.json `light_fit`). Never a push, nightly, DEV or promote run."""
     match = STD_SIDE_LABEL.fullmatch(label)
     if not (match and target.path == CMUX_NEXT_WORKFLOW_PATH and target.pr_number and not target.nightly
-            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT
+            and places_again(target)
             and queued_seconds(job, now, first_seen) >= LIGHT_MOVE_SECONDS):
         return ""
     light = f"glaeda-side-light-{match.group(1)}"
@@ -4485,7 +4522,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       fresh snapshot shows nothing running there (started_nothing()), or nothing started there since the job began
       waiting (label_quiet()). Or, for a cmux-next pull request run whose placement re-run is shown (failover_plan(),
       never the settled re-run), a Mac job has waited OWNED_REPLACE_SECONDS on an owned label, busy or not
-      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. Or, the same
+      (long_owned_wait()), on an attempt places_again() allows: the placement then runs again on the bot's next attempt. Or, the same
       way and sooner (the light move), a Mac job that has waited LIGHT_MOVE_SECONDS on the std side label while a
       light side runner listens (light_wait()), when the head shows the job reads the re-run's light placement
       (PlacementRerun.light_readers): the re-run gives it the idle light runner. A job's wait starts at the later of its created_at and when a watch first saw it
@@ -5514,7 +5551,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
-    target = completed_target(event, repository) if event.get("action") == "completed" else \
+    target = dispatch_target(event["workflow_run"] or {}, repository) if run_id else \
+        completed_target(event, repository) if event.get("action") == "completed" else \
         target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")

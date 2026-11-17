@@ -601,7 +601,8 @@ class Refusal(unittest.TestCase):
         for why, run in {
                 "a push run": event(event="push")["workflow_run"],
                 "a fork head": event(head_repository={"full_name": "someone/cmux"})["workflow_run"],
-                "a retry": event(run_attempt=2)["workflow_run"],
+                "a nightly's retry": event(path=rescue.NIGHTLY_WORKFLOW_PATH, event="schedule", head_branch="main",
+                                         run_attempt=2, pull_requests=[])["workflow_run"],
                 "another workflow": event(path=".github/workflows/other.yml")["workflow_run"]}.items():
             clock = Clock()
             api = FakeAPI(clock, refusing_run(), marker=True)
@@ -8342,7 +8343,7 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 # Attempt 2 (the rescue's re-run) is placed once more only where the head places the bot's attempt 3.
                 (2, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, True),
                 (2, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, False),
-                # Attempt 3 is the last placed attempt: bounded, nothing places it again for a busy label.
+                # A head whose placement stops at attempt 3 cannot place attempt 4: nothing places attempt 3 again.
                 (3, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, False)):
             with self.subTest(attempt=attempt, placed_on_3=workflow is attempt3, wait=wait):
                 clock, api, target = self.world(self.shape(), running=11, workflow=workflow,
@@ -8539,7 +8540,10 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         old = job("cmux-next fast tier", labels=[SIDE_STD], created=-rescue.OWNED_REPLACE_SECONDS)
         self.assertTrue(rescue.long_owned_wait(target, old, SIDE_STD, START))
         self.assertFalse(rescue.long_owned_wait(target, old, BLACKSMITH, START), "a Blacksmith label is not owned")
-        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, attempt=3), old, SIDE_STD, START))
+        self.assertTrue(rescue.long_owned_wait(dataclasses.replace(target, attempt=3), old, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, attempt=4), old, SIDE_STD, START))
+        self.assertTrue(rescue.long_owned_wait(dataclasses.replace(target, attempt=4, dispatched=True), old, SIDE_STD,
+                                               START))
         self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, pr_number=None), old, SIDE_STD, START))
         self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, path=rescue.CI_WORKFLOW_PATH), old,
                                                 SIDE_STD, START))
