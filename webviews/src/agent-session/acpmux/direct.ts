@@ -5379,6 +5379,11 @@ export class AcpmuxDirectClient {
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
+            // The method a host refusal refused (AcpmuxPaneMethods `refusal`), so the line can say
+            // what was blocked (opening, starting, sending) instead of "Something went wrong" (#42460).
+            ...(typeof (data as { method?: unknown } | undefined)?.method === "string"
+              ? { method: (data as { method: string }).method }
+              : {}),
             // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.
             ...(typeof data?.errorKind === "string" ? { errorKind: data.errorKind } : {}),
             ...(typeof data?.recovery === "string" ? { recovery: data.recovery } : {}),

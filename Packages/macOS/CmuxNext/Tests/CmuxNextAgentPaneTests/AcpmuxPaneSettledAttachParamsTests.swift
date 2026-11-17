@@ -28,18 +28,6 @@ struct AcpmuxPaneSettledAttachParamsTests {
         #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(Self.openParams), modeFields: nil))
     }
 
-    /// The hold a chat on the row store asks (webviews rows/holdKinds.ts `holdAttach`, exactly).
-    /// The params rule did not know `hold`, so after a restart every such chat's attach was
-    /// refused as `transport.intent_invalid` and said "Something went wrong" with Retry above the
-    /// composer (Leo's NIGHTLY, 2026-11-16 21:09Z).
-    @Test func theRowStoreHoldPassesTheParamsRule() {
-        let params: [String: Any] = [
-            "sessionId": "s", "hold": true, "eventStream": true,
-            "kinds": ["available_commands_update", "status"], "visible": true,
-        ]
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(params), modeFields: nil))
-    }
-
     @Test func anotherKeyOnAttachIsStillRefused() {
         var params = Self.openParams
         params["host"] = "peer"

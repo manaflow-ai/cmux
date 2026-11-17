@@ -5,34 +5,14 @@
 // composer. Leo: "it said something went wrong with a retry button just above the composer (weird,
 // unnecessary, idk what the root cause was)".
 //
-// Two holds here. The class: every attach the page builds passes the host's params rule, so a new
-// attach param cannot ship on the page without the host taking it (as `settled` did, cmux#42185).
-// The fallback: a host that still refuses the hold (a page newer than its app) gets the plain attach,
-// and the chat opens on v1 with no error.
+// The host now takes `hold` (#44842, whose attach-params contract holds the class). What this test
+// holds is the page's side for a host that still refuses it (a web layer newer than its app): the
+// plain attach follows at once, and the chat opens on v1 with no error line.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
-import { plainAttach } from "./attachParams";
-import { HOLD_KINDS, holdAttach, holdAttachRefused } from "./rows/holdKinds";
+import { holdAttachRefused } from "./rows/holdKinds";
 import { resetChatRowsReceiver } from "./rows/receiver";
-
-type Policy = { known_params: Record<string, { params: string[] }> };
-const policy = JSON.parse(
-  readFileSync(path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
-) as Policy;
-
-test("every attach the page builds passes the host's params rule", () => {
-  const known = new Set(policy.known_params["_acpmux/attach"]!.params);
-  const shapes = [
-    holdAttach("s", true, HOLD_KINDS)!,
-    ...[true, false].flatMap((settled) =>
-      [true, false].map((local) => plainAttach("s", { settled, visible: true, local, maxBytes: 131_072 })),
-    ),
-  ];
-  for (const params of shapes) expect(Object.keys(params).filter((key) => !known.has(key))).toEqual([]);
-});
 
 test("a refused hold is told apart from any other failure", () => {
   expect(holdAttachRefused({ code: "transport.intent_invalid" })).toBe(true);
