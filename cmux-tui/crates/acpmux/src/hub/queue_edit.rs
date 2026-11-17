@@ -104,6 +104,8 @@ impl Edit {
                 )
                 .with_data(serde_json::json!({"reason": "attach.edit"})));
             }
+            // Its inline images were cleaned of their metadata, or the edit refused, as the
+            // daemon took it (`image_privacy::sanitize_prompt`; #45031 review F3).
             return Ok(Self::Prompt(blocks.clone()));
         }
         let text = params
