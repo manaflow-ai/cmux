@@ -69,3 +69,79 @@ export function useLinkDownSaid(down: boolean, since?: number, ms: number = link
   }, [down, since, ms]);
   return down && (ms <= 0 || said);
 }
+
+/// How long a transient entry (a queued prompt or message that may go again within an event batch
+/// or two at a turn's boundary) stays out of sight before it paints (Leo, 2026-11-17: "i also dont
+/// like seeing the flicker flash of the Queued blah blah blah something"). 200 ms is past the gap
+/// between a turn's end and the queue's drain, and under what reads as a lag after a send.
+export const TRANSIENT_SHOW_MS = 200;
+
+type SettledState = {
+  scope: unknown;
+  /// Ids that have stayed `ms`, or were there when the list (or its scope) was first drawn.
+  settled: Set<string>;
+  /// One timer per id still waiting.
+  timers: Map<string, ReturnType<typeof setTimeout>>;
+  last: readonly unknown[] | undefined;
+};
+
+/// `items` less the ones that have not stayed present for `ms` yet: an entry added and removed
+/// within `ms` never shows, one that stays shows `ms` after it came. Items there at the first render,
+/// or when `scope` changes (another chat shown), show at once, as does any `immediate` one (an entry
+/// that waits on the person, never a transient). The same array comes back while nothing shown
+/// changed (`items` itself when all show), so memos downstream keep their identity. One timer per
+/// waiting id, cleared when it goes or the component does: nothing runs at idle.
+export function useSettledItems<T>(
+  items: readonly T[],
+  id: (item: T) => string,
+  scope: unknown,
+  ms: number = TRANSIENT_SHOW_MS,
+  immediate?: (item: T) => boolean,
+): readonly T[] {
+  const [, redraw] = useState(0);
+  const state = useRef<SettledState | undefined>(undefined);
+  let current = state.current;
+  if (!current || current.scope !== scope) {
+    current?.timers.forEach(clearTimeout);
+    current = { scope, settled: new Set(items.map(id)), timers: new Map(), last: undefined };
+    state.current = current;
+  }
+  const now = current;
+  useEffect(() => {
+    const present = new Set(items.map(id));
+    for (const [key, timer] of now.timers)
+      if (!present.has(key)) {
+        clearTimeout(timer);
+        now.timers.delete(key);
+      }
+    for (const key of now.settled) if (!present.has(key)) now.settled.delete(key);
+    if (ms <= 0) return;
+    for (const item of items) {
+      const key = id(item);
+      if (now.settled.has(key) || now.timers.has(key) || immediate?.(item)) continue;
+      now.timers.set(
+        key,
+        setTimeout(() => {
+          now.timers.delete(key);
+          now.settled.add(key);
+          redraw((count) => count + 1);
+        }, ms),
+      );
+    }
+  });
+  useEffect(
+    () => () => {
+      // Cleared and forgotten, so a remount (React's strict double mount) sets them again.
+      state.current?.timers.forEach(clearTimeout);
+      state.current?.timers.clear();
+    },
+    [],
+  );
+  if (ms <= 0) return items;
+  const shown = items.filter((item) => now.settled.has(id(item)) || immediate?.(item) === true);
+  if (shown.length === items.length) return (now.last = items);
+  const last = now.last;
+  if (last && last.length === shown.length && last.every((item, index) => item === shown[index]))
+    return last as readonly T[];
+  return (now.last = shown);
+}
