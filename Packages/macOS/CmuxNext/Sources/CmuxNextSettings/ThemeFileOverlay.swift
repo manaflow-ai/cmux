@@ -49,15 +49,30 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
+    /// Look keys outside those prefixes: the terminal font, the sidebar's shape and edges, and how its rows and
+    /// group headers draw (density, text size, status icons, timestamps, colors, grouping), so one file restyles the
+    /// sidebar as a whole (the shipped `minimal-sessions`). cmux-config's `theme_file::LOOK_KEYS` is the same list.
     static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
-                                        "sidebar.borderWidth", "sidebar.sectionLook"]
+                                        "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density", "sidebar.textSize",
+                                        "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+                                        "workspaceColors.indicatorStyle", "sidebar.groupBy", "sidebar.groupHeader.memberCount",
+                                        "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
+                                        "sidebar.groupPalette", "sidebar.groupGradient"]
+    /// The workspace row's own keys (`sidebar.workspaceRow.<name>`), one segment only: the per-kind overrides
+    /// (`sidebar.workspaceRow.<kind>.<name>`) stay in cmux-next.json.
+    static let rowPrefix = "sidebar.workspaceRow."
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
         let id = descriptor.id
         return SettingsSchema.agentSettableKeys.contains(id) && !excludedKeys.contains(id)
-            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) })
+            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) } || isRowKey(id))
+    }
+
+    static func isRowKey(_ id: String) -> Bool {
+        guard id.hasPrefix(rowPrefix) else { return false }
+        let name = id.dropFirst(rowPrefix.count)
+        return !name.isEmpty && !name.contains(".")
     }
 
     /// Reads `name`'s file, the user's or else the one cmux ships (`ThemeFileSetting.bundledFolder`): its

@@ -185,6 +185,65 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// The sidebar's rows are part of a look: density, text size, status icons,
+/// grouping and the row's own elements, so one file restyles the sidebar. A
+/// per-kind row override and what the sidebar holds (chats) stay out.
+#[test]
+fn a_theme_file_sets_how_the_sidebar_rows_draw() {
+    let file = overlay(
+        r#"{
+          "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+          "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+          "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+          "sidebar.workspaceRow.secondLineOrder": ["branch"],
+          "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false
+        }"#,
+    );
+    assert_eq!(
+        file.keys(),
+        [
+            "sidebar.density",
+            "sidebar.detailedStatusIcons",
+            "sidebar.groupBy",
+            "sidebar.showColors",
+            "sidebar.textSize",
+            "sidebar.workspaceRow.icon",
+            "sidebar.workspaceRow.secondLineOrder",
+            "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ]
+    );
+    let mut refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    refused.sort();
+    assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
+}
+
+/// The app's copy of the look lists (Swift `ThemeFileOverlay`) is this one:
+/// a key one reader takes and the other refuses would apply in the app and
+/// not in the CLI's `cmux theme check`, or the other way round.
+#[test]
+fn the_look_lists_match_the_apps() {
+    let swift =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ThemeFileOverlay.swift",
+        ))
+        .expect("ThemeFileOverlay.swift");
+    // The quoted strings of the Swift `static let NAME ... = [ ... ]` literal.
+    let literal = |name: &str| -> BTreeSet<String> {
+        let start = swift.find(&format!("static let {name}")).expect(name);
+        let body = &swift[start..];
+        let body = &body[body.find('[').expect("[") + 1..body.find(']').expect("]")];
+        // `joined(separator: ".")` is the one quoted string that is no key.
+        body.split('"').skip(1).step_by(2).filter(|s| *s != ".").map(str::to_owned).collect()
+    };
+    let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
+    assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
+    assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
+    // Swift names the theme file's own key through `ThemeFileSetting.configPath`.
+    assert_eq!(literal("excludedKeys"), set(&EXCLUDED_KEYS[1..]));
+    assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
@@ -228,7 +287,9 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] {
+    for look in
+        ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "minimal-sessions"]
+    {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
