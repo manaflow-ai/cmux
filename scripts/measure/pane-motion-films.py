@@ -6,7 +6,8 @@ a session with the repository's one session maker (scripts/perf-bench/session_re
 id of --films: a new workspace with the film's panes, the app's own recorder (`debug.motion` record_start: a movie of
 the display from the window's top left, written off the main thread), the film's keys, record_stop, and the close of
 what the film made. Out: <out>/<id>.mov, <out>/<id>.mov.frames.json (the display time of each frame) and
-<out>/films.json (one row for each film: `made`, or `not_run` with the reason).
+<out>/films.json (one row for each film: `made`; `not_made` = a check of the film's acts refused it; `not_run` = the
+tool did not start it or the app refused a key; each with the reason).
 
 The sources of the acts, and their limits (each row says which it used):
   keys     `debug.key`: real key events on the app's own queue; not the HID tap, not the window server. A held key
@@ -21,8 +22,15 @@ The sources of the acts, and their limits (each row says which it used):
            a Cmd-T, the New Tab page), else the shell window; each act's row says the word. The read of the focus
            and the keys are 2 calls, and after a Cmd-T the app moves the keys to the new page in that time. So when
            the app refuses the word (`... window did not become key`, `no Chromium page window for pane`), the
-           script reads the focus one more time and sends the keys one more time, no more; the first refusal is in
-           the act's row (`refused_as`) or in the PREFLIGHT line.
+           script reads the focus one more time and sends the keys one more time. An act has 3 sends at most, in
+           one case: when the app refuses `page` at that second send also (a tab whose page window the app does
+           not find, or 2 cmux windows), ONE last send goes to the shell window. Each refusal is in the act's
+           row (`refused_as`, a list) or in the PREFLIGHT line. By a read of the app's source, the app refuses a
+           word before it posts a key, so a send after such a refusal does not do the act 2 times. After each
+           other error (a call that timed out) the app can have the keys: a send that timed out is never sent
+           again, in each form. A limit: for a `shell` word that it refuses, the app has moved the shell window
+           to the front before the refusal, and a film can show that. A focus read that fails gives the word
+           `shell`; the act's row (`focus_not_read`) and the PREFLIGHT line say that no read gave the word.
            The launcher starts the app's binary directly, and on a display Mac such a process did not become the
            active app; so the `activate` form then asks
            LaunchServices one time (`open BUNDLE`, as a click on the Dock icon of an app that runs), and `PREFLIGHT activate:`
@@ -56,17 +64,51 @@ says `zoom by action.run, not by a key` in its row and in its `keys` words. If t
 the films with a zoom are `not_run`. In a film, a key or an action that the app refuses makes the film `not_run`
 with the app's words.
 
+The checks of a film (a row says `made` only after them; the script still judges no film: the checks say if the acts
+happened and if something was over the window, not how a motion looks). They use 3 debug reads of the app:
+`debug.dialog` (`dialogs`, each with `visible`), `debug.focus` (`windows[].model.overlays`: a sheet, the palette, a
+rename field, the group editor) and `debug.toast` (`windows[].toasts` = the messages on the screen; `refusals` = each
+refusal message of the app so far, the last 100).
+  before each take (after the set-up, before the recorder starts): a visible dialog or an overlay makes the film
+      `not_made` (`before the take: ...`, the dialog's title and lines word for word) and STOPS the launch: each later
+      film of it is `not_run` with that reason. For a message on the screen the script reads again for 18 s at most (a
+      message goes by itself; the script closes none, `message_waited` in the row), then the film is `not_made` and
+      the launch goes on. A read that fails, or a reply that does not say it (no list: an older app; a dialog with no
+      `visible` word; no window; a window with no list of its messages), is `not_made` too: the script does not know.
+      A read that fails in those 18 s has its own reason: it is not `a message stayed`.
+  after the acts: `not_made` for each new entry of `refusals` (`the app refused in the film: ...`), for a visible
+      dialog (`the app asked in the film: ...`), for an overlay, and when the pane count before and after does not
+      change by what the film's acts make (+1 a split, -1 a close of a pane, 0 each other film). More, only for the
+      films of a split with its close, a zoom and one tab (`act_check` in the row says which; each other row says
+      `act check: the refusal list, the dialogs and the pane count only`): the count of zoomed panes before the key
+      that goes back (1) and at the film's end (0); the tab count of the pane; for a film with a speed the count of
+      `layout` spans in its span record (`layout_spans`; a film with no speed has no span record: `not recorded`).
+      A count that the script could not read is `not read` in the row, never 0, and the film is `not_made`: a layout
+      read that gave no workspace (the pane count, the zoomed panes), a tab read that gave no tab.
+      A film of a split and then a close reads the pane with the focus between the 2 keys: when that is not a NEW
+      pane, the close is NOT sent (the app asks before it closes a terminal with a program) and the film is `not_made`.
+  a dialog that the film opened gets ONE `debug.dialog` `dismiss` (the app's Cancel) at the film's end, so that it is
+      not over the next film; the row says `the tool sent Cancel` (`dialog`). If the app does not take it, the launch
+      stops. A film that is `not_made` keeps its movie: it shows what the app did. The movie gets the name
+      `<id>.not-made.mov` (its frame file `<id>.not-made.mov.frames.json`), and the row has it as `take_file`, not as
+      `file`. So does the movie of a film that is `not_run` after its recorder started (a key that the app refused).
+
 The animation speed: the 6 films of the group `cap` have a speed (`fast`, the app's default, or `normal`; an id with
 `.N` is at `normal`). For such a film the script reads the speed that the app has (`speed_before`), sets the film's
 speed by `debug.motion` `speed` before the film's set-up (in the app's memory only: the app writes no settings
 file), and reads the app's reply into the row: its speed word (`speed`), and if a pane motion animates at all
-(`reduce_motion`, `animations_enabled`, `pane_animations`). It makes no film when the app gave back another word, or
-when a pane motion does not animate (Reduce Motion on the Mac, or a switch that is off: a motion is then one frame at
-each speed). At the film's end it sets the speed of before (`speed_after`); if the app does not give that word
-back, that row and the row of each film after it in the launch say so (`speed_fault`).
+(`reduce_motion`, `animations_enabled`, `pane_animations`, `disabled_categories`). It makes no film when the app
+gave back another word, or when a pane motion does not animate (Reduce Motion on the Mac, a switch that is off, or
+the category `panes` in `disabled_categories`: a motion is then one frame at each speed). An app whose reply has
+none of these fields gets its film: the script cannot know, and the row says `null`. At the film's end it sets the
+speed of before (`speed_after`); if the app does not give that word back, that row and the row of each film after
+it in the launch say so (`speed_fault`), and the run's end prints one line (`PANE-FILMS speed fault: ...`) with
+each film that was made after it with no speed call of its own. The exit code does not say it.
 A film shows no number, so the row also gets the app's own record of the motions from before the film's first act
-to its end (`spans`, by `debug.motion` `start` and `stop`: the name, `ms` and `at_ms` of each span that ended, the
-first 60; `spans_total` = how many the app gave; `speed_at_stop` = the app's speed word at the record's end: a load
+to its end (`spans`, by `debug.motion` `start` and `stop`: the name, `ms` and `at_ms` of each span that ended, 60
+at most: each span with the name `layout`, and the other spans while there is room, in the app's order;
+`spans_total` = how many the app gave, `spans_cut` = how many of them are not in the row; `speed_at_stop` = the
+app's speed word at the record's end: a load
 of the app's settings file in the film puts the file's speed back), and the times of the app's source for that
 speed (`source_ms`). The record has no name for an act: by a read of the app's source, each pane motion (a split, a
 close, a zoom, its way back) is one span with the name `layout`, from its first frame to rest, which can be later
@@ -84,7 +126,7 @@ none of these calls.
 (X01 to X16: each pane action with a default key that has no other film), `cap` (6 films: the split with its close,
 the zoom and the turned zoom, each at `fast` and at `normal`), `all`. Exit 0 = each film asked for is
 made; 2 = some are made and some are not; 1 = the preflight failed, or no film is made; 3 = not run (no app, an id
-that is not known).
+that is not known). Only `made` counts: a film that is `not_made` is not made.
 """
 import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
@@ -113,9 +155,16 @@ PREFLIGHT_S = 120
 LEAD_S, MIN_FILM_S, TAKE_S = 1.0, 4.5, 30
 DRAG_RATE = 120
 PING = "/sbin/ping -i 0.2 127.0.0.1"
+# How long the reads before a take go on while a message is on the screen. By a read of the app's source, with its
+# default tuning, a message shows for 2 times the seconds that its caller asks, and 6 s or more: a refusal 8 s, the
+# undo message of a close 12 s, a refusal with a sign-in offer 16 s (the longest one of a film's act). 16 s and 2 s
+# for the reads. The pointer on a message holds it, and a message with no end time does not go: `not_made` then.
+OVERLAY_S = 18
+ACT_ONLY = "act check: the refusal list, the dialogs and the pane count only"
+NO_NEW_PANE = "the split made no pane (the pane with the focus is not a new pane), so the close was not sent"
 SETUPS = {"T": ("row", ("redraw", "stream")), "B": ("row", ("page", "page")), "A": ("row", ("chat", "chat")),
           "M": ("row", ("redraw", "page", "chat")), "P": ("grid", ("redraw", "stream", "page", "chat")),
-          "R": ("row", ("redraw", "stream", "shell", "shell", "shell")), "C": ("row", ("redraw", "stream", "shell"))}
+          "R": ("row", ("redraw", "stream", "shell", "shell", "shell"))}
 MOCK_SETUPS = "AM"  # a film of these needs a chat thread that streams: only a launch with the page mock has one
 KINDS = {"T": "2 terminals with a program", "B": "2 loaded browser pages", "A": "2 chats with a thread that streams",
          "M": "a terminal, a page and a chat"}
@@ -144,15 +193,18 @@ def film(ident, title, setup, acts, **more):
 
 
 ZOOM = [K(ZOOM_CHORD), W(1.6), K(ZOOM_CHORD)]
+# ("tabs",): a read of the pane that the close takes. The close goes only to a NEW pane (a shell with no program): the
+# app asks before it closes a terminal with a foreground program, and a film behind that question is no film of a close.
+SPLIT_CLOSE = [K("cmd+d"), W(1.5), ("tabs",), K("cmd+w")]
 CANVAS, CANVAS_OFF = [K("ctrl+cmd+c"), W(1.2)], [K("ctrl+cmd+c"), W(0.6)]
 FILMS = [made for kind in "TBAM" for made in (
-    film(f"{kind}-D", f"Cmd-D on {KINDS[kind]}", kind, [K("cmd+d")]),
-    film(f"{kind}-SD", f"Cmd-Shift-D on {KINDS[kind]}", kind, [K("cmd+shift+d")]),
+    film(f"{kind}-D", f"Cmd-D on {KINDS[kind]}", kind, [K("cmd+d")], change=1),
+    film(f"{kind}-SD", f"Cmd-Shift-D on {KINDS[kind]}", kind, [K("cmd+shift+d")], change=1),
     film(f"{kind}-Z", f"Zoom in and out on {KINDS[kind]}", kind, ZOOM))]
 FILMS += [
-    film("P03", "Close a pane (its last tab)", "R", [K("cmd+w")], focus=2),
-    film("P04", "Close a tab with siblings", "P", [K("cmd+w")], tabs=3),
-    film("P05", "One new tab", "P", [K("cmd+t")]),
+    film("P03", "Close a pane (its last tab)", "R", [K("cmd+w")], focus=2, change=-1),
+    film("P04", "Close a tab with siblings", "P", [K("cmd+w")], tabs=3, tab_change=-1),
+    film("P05", "One new tab", "P", [K("cmd+t")], tab_change=1),
     film("P06", "New tab held 3 s", "P", [K("cmd+t", hold=3.0)], tail=2.0),
     film("P07", "New tab held, then 5 closes", "P", [K("cmd+t", hold=1.5), W(0.4), K("cmd+w", presses=5, gap=200)], tail=2.0),
     film("P08", "Close tab held", "P", [K("cmd+w", hold="tabs")], pre=[K("cmd+t", presses=12, gap=150), W(1.5)], tail=2.0),
@@ -160,7 +212,7 @@ FILMS += [
     film("P10", "Zoom in and out with 4 panes", "P", ZOOM),
     film("P11", "Resize by a held key", "P", [K("ctrl+shift+l", hold=1.0), W(0.3), K("ctrl+shift+h", hold=1.0)]),
     film("P12", "Divider drag, then a fast back-and-forth", "P", [("divider",)]),
-    film("P13", "A split, then a close, in a row of 5 panes", "R", [K("cmd+d"), W(1.5), K("cmd+w")], focus=2),
+    film("P13", "A split, then a close, in a row of 5 panes", "R", SPLIT_CLOSE, focus=2),
     film("P14", "A tab dragged to another pane", "P", [("tab",)], tabs=2),
     film("P15", "Focus moved pane to pane", "P", [K(f"opt+cmd+{way}") if way else W(0.5) for way in ("right", "", "down", "", "left", "", "up")]),
     film("P16", "A new window", "P", [K("shift+cmd+n")], crop="frame", tail=2.5),
@@ -173,9 +225,9 @@ FILMS += [
     film("P22", "A split, then a close after 60 ms", "P", [K("cmd+d,w", gap=60)]),
     film("P23", "Window cycle between 3 windows: 5 presses, then held", "P", [K("cmd+`", presses=5, gap=250), W(1.0), K("cmd+`", hold=1.0)],
          pre=[K("shift+cmd+n", presses=2, gap=1200), W(1.5)], crop="frame", tail=2.0),
-    film("X01", "New column", "P", [K("ctrl+cmd+x")]),
-    film("X02", "New row", "P", [K("ctrl+shift+cmd+x")]),
-    film("X03", "New pane, layout by the app", "P", [K("ctrl+cmd+n")]),
+    film("X01", "New column", "P", [K("ctrl+cmd+x")], change=1),
+    film("X02", "New row", "P", [K("ctrl+shift+cmd+x")], change=1),
+    film("X03", "New pane, layout by the app", "P", [K("ctrl+cmd+n")], change=1),
     film("X04", "Even sizes", "P", [K("ctrl+cmd+=")], pre=[K("ctrl+shift+l", hold=0.8), W(0.5)]),
     film("X05", "Focus by pane number", "P", [K("ctrl+cmd+2"), W(0.5), K("ctrl+cmd+3"), W(0.5), K("ctrl+cmd+4"), W(0.5), K("ctrl+cmd+1")]),
     film("X06", "Flash of the focused pane", "P", [K("shift+cmd+h")]),
@@ -199,14 +251,16 @@ SOURCE_MS = {"fast": {"zoom": "235 ms", "unzoom": "177 ms", "split": "101 ms", "
              "normal": {"zoom": "294 ms", "unzoom": f"about 266 ms ({ARITHMETIC})", "split": f"about 150 ms ({ARITHMETIC})",
                         "paneClose": f"about 113 ms ({ARITHMETIC})"}}
 ZOOM_MS = {"fast": 235, "normal": 294}  # the turned zoom sends its second key at the half of this time
-SPLIT_CLOSE = [K("cmd+d"), W(1.5), ("tabs",), K("cmd+w")]  # ("tabs",): a read of the tabs of the pane that the close takes
 FILMS += [made for speed, mark in (("fast", ""), ("normal", ".N")) for half in ((ZOOM_MS[speed] + 1) // 2,) for made in (
-    film("T-C" + mark, f"A split, then a close, in a row of 3 terminals, speed {speed}", "C", SPLIT_CLOSE, focus=1, speed=speed,
-         springs=("split", "paneClose")),
+    # The set-up `T`: in runs on a Mac its row of 2 took a third pane in the launcher's window with the docked column,
+    # and a row of 3 took no fourth one (by a read of the app's source, a split with no room is refused, not made).
+    film("T-C" + mark, f"A split, then a close, in a row of 2 terminals, speed {speed}", "T", SPLIT_CLOSE, speed=speed,
+         springs=("split", "paneClose"), layout=(2, 2)),
     # `T-Z.2`: a new take of the act of `T-Z`, with the speed set and read back; the id of a film does not change.
-    film("T-Z" + (mark or ".2"), f"Zoom in and out on {KINDS['T']}, speed {speed}", "T", ZOOM, speed=speed, springs=("zoom", "unzoom")),
+    film("T-Z" + (mark or ".2"), f"Zoom in and out on {KINDS['T']}, speed {speed}", "T", ZOOM, speed=speed, springs=("zoom", "unzoom"),
+         layout=(2, 2)),
     film("T-ZT" + mark, f"Zoom turned back at its half ({half} ms asked from key to key), speed {speed}", "T",
-         [K(ZOOM_CHORD, presses=2, gap=half)], speed=speed, springs=("zoom", "unzoom")))]
+         [K(ZOOM_CHORD, presses=2, gap=half)], speed=speed, springs=("zoom", "unzoom"), layout=(1, 2)))]  # a turned motion can stay ONE span
 CAP = [spec["id"] for spec in FILMS if spec.get("speed")]
 GROUPS = {"kinds": lambda i: i[0] in "TBA" and "-" in i and i not in CAP, "mixed": lambda i: i.startswith("M-"), "plist": lambda i: i[0] == "P",
           "extra": lambda i: i[0] == "X", "cap": lambda i: i in CAP, "all": lambda i: True}
@@ -267,24 +321,71 @@ def focus_word(rpc):
     page) in a child window that has the keys while the page has focus, and it gives the keys back to that window
     when the shell window takes them with no click; so it refuses `shell` then (`the shell window did not become
     key`). The word thus follows the focus at each key: a Cmd-T moves the keys to the new tab's page. The read:
-    `appkit.child_window_page` of the cmux window that is key, or of each window when none is (a page's window is)."""
+    `appkit.child_window_page` of the cmux window that is key, or of each window when none is (a page's window is).
+    Returns (the word, None); for a read that failed: (`shell`, the words of the fault), so that the caller can say
+    that no read gave the word."""
     focus = rpc("debug.focus")
-    windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
-    return "page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"
+    if not isinstance(focus, dict) or focus.get("error"):
+        return "shell", f"debug.focus: {str(focus.get('error') if isinstance(focus, dict) else focus)[:120]}"
+    windows = [w for w in focus.get("windows") or [] if isinstance(w, dict)]
+    return ("page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"), None
+
+
+def key_refusal(said):
+    """True when the app refused the `key_window` word of a send (KEY_REFUSALS). By a read of the app's source, it
+    refuses the word before it posts a key of that call."""
+    return any(text in str(said.get("error") or "") for text in KEY_REFUSALS)
+
+
+def shell_try(word, said):
+    """True when the keys of a `page` send can go to the shell window: the app refused the page's WINDOW, and no key
+    went before that refusal (in the `one-key` form each key is one call: `key_down_ms` has the time of each call
+    that went, the refused one also). After each other error the app can have the keys (a call that timed out):
+    a second send would do the act 2 times, so there is none."""
+    return word == "page" and key_refusal(said) and len(said.get("key_down_ms") or ()) <= 1
+
+
+def refusal_words(word, said):
+    """A refused send for `refused_as` and for a PREFLIGHT line: the word of the send, then the app's words."""
+    return f"{word}: {str(said['error'])[:120]}"
 
 
 def send_by_focus(rpc, chord, *more):
     """One key sequence of the `activate` form in the window that has the keys (`focus_word`). The read and the keys
     are 2 calls, and the app moves the keys to a new page in that time (directly after a Cmd-T). So when the app
-    refuses the word with one of its 2 refusals of a key window (KEY_REFUSALS): ONE new read and ONE more send, no
-    more, and no wait. Returns (what the app said of the last send, the word of that send, the first refusal as
-    `<word>: <the app's words>` or None). `more`: the arguments of `send_keys` after the key window."""
-    word = focus_word(rpc)
-    said, first = send_keys(rpc, "activate", chord, word, *more), None
-    if any(text in str(said.get("error") or "") for text in KEY_REFUSALS):
-        first, word = f"{word}: {str(said['error'])[:120]}", focus_word(rpc)
+    refuses the word with one of its 2 refusals of a key window (KEY_REFUSALS): ONE new read and ONE more send, and
+    no wait. When the app refuses `page` at that second send also, the focus is on a page and the app finds no
+    page window for it (a tab that is no Chromium child window, or 2 cmux windows): ONE last send in the shell
+    window. So 3 sends at most, in that one case, and none after an error that is no refusal of a key window.
+    Returns (what the app said of the last send, the word of that send, the refusals before it as a list of
+    `<word>: <the app's words>`). What the app said gets `focus_not_read` when a read of the focus failed. `more`:
+    the arguments of `send_keys` after the key window."""
+    word, unread = focus_word(rpc)
+    said, refusals = send_keys(rpc, "activate", chord, word, *more), []
+    if key_refusal(said):
+        refusals.append(refusal_words(word, said))
+        word, again = focus_word(rpc)
+        unread = unread or again
         said = send_keys(rpc, "activate", chord, word, *more)
-    return said, word, first
+        if shell_try(word, said):
+            refusals.append(refusal_words(word, said))
+            word = "shell"
+            said = send_keys(rpc, "activate", chord, word, *more)
+    if unread:
+        said["focus_not_read"] = unread
+    return said, word, refusals
+
+
+def tries(said, refusals):
+    """The end of a PREFLIGHT line of a key: the refusals before the send that the line is of, and a focus read
+    that failed. "" for a key that had one send with a word from a read."""
+    again = ""
+    if len(refusals) == 1:
+        again = f"; the second try, after the app refused the first one ({refusals[0]})"
+    elif refusals:
+        again = f"; the third try, in the shell window, after the app refused the word 2 times ({'; '.join(refusals)})"
+    unread = said.get("focus_not_read")
+    return again + (f"; the focus was not read ({unread}), so the word `shell` was sent" if unread else "")
 
 
 def motion_reply(rpc, value=None):
@@ -297,12 +398,93 @@ def motion_reply(rpc, value=None):
 
 def motion_spans(reply):
     """A `debug.motion` `stop` reply as fields of a film's row. `spans`: the name, the length and the start (ms from
-    the record's start) of each span that ended in the record, the first 60; `spans_total`: how many the app gave;
-    `speed_at_stop`: the app's speed word in that reply. Or `spans` = the words of a reply that has no span list."""
+    the record's start) of 60 spans at most that ended in the record: each span with the name `layout` (a pane
+    motion), and the other spans while there is room, in the app's order. `spans_total`: how many the app gave;
+    `spans_cut`: how many of them are not in the row; `speed_at_stop`: the app's speed word in that reply. Or
+    `spans` = the words of a reply that has no span list."""
     if not isinstance(reply, dict) or not isinstance(reply.get("spans"), list):
         return {"spans": f"not read: {str(reply)[:160]}"}
-    return {"spans": [{k: span.get(k) for k in ("name", "ms", "at_ms")} for span in reply["spans"][:60] if isinstance(span, dict)],
-            "spans_total": len(reply["spans"]), "speed_at_stop": reply.get("speed")}
+    spans = [(index, span) for index, span in enumerate(reply["spans"]) if isinstance(span, dict)]
+    layout = [index for index, span in spans if span.get("name") == "layout"][:60]
+    kept = set(layout + [index for index, span in spans if span.get("name") != "layout"][:60 - len(layout)])
+    return {"spans": [{k: span.get(k) for k in ("name", "ms", "at_ms")} for index, span in spans if index in kept],
+            "spans_total": len(reply["spans"]), "spans_cut": len(reply["spans"]) - len(kept), "speed_at_stop": reply.get("speed")}
+
+
+class NotKnown(RuntimeError):
+    """A debug read of what is over the window failed, or its reply has no list."""
+
+
+class NotMade(RuntimeError):
+    """A check before the take refused the film. `stop`: no other film of this launch can be made."""
+
+    def __init__(self, reason, stop=False):
+        super().__init__(reason)
+        self.stop = stop
+
+
+def over_window(rpc):
+    """What is over the app's window now, by the app's 3 debug reads: (each visible dialog, the overlays of each
+    window, the messages on the screen, each refusal message so far). NotKnown for a read that failed, for a reply
+    with no list (an older app) and for a reply that does not say it: a dialog with no `visible` word, no window (the
+    app gives one entry for each window), a window with no list of its messages. The caller then cannot say that the
+    window is clear."""
+    def listed(method, field):
+        reply = rpc(method)
+        if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get(field), list):
+            raise NotKnown(f"{method} `{field}`: {str(reply)[:160]}")
+        return reply
+    dialogs = listed("debug.dialog", "dialogs")["dialogs"]
+    for dialog in dialogs:
+        if not isinstance(dialog, dict) or not isinstance(dialog.get("visible"), bool):
+            raise NotKnown(f"debug.dialog `visible`: {str(dialog)[:160]}")
+    dialogs, overlays, messages = [dialog for dialog in dialogs if dialog["visible"]], [], []
+    windows = listed("debug.focus", "windows")["windows"]
+    if not windows:
+        raise NotKnown("debug.focus `windows`: the list has no window")
+    for window in windows:
+        found = (window.get("model") or {}).get("overlays") if isinstance(window, dict) else None
+        if not isinstance(found, list):
+            raise NotKnown(f"debug.focus `overlays`: {str(window)[:160]}")
+        overlays += [str(name) for name in found]
+    toast = listed("debug.toast", "windows")
+    if not isinstance(toast.get("refusals"), list):
+        raise NotKnown(f"debug.toast `refusals`: {str(toast)[:160]}")
+    if not toast["windows"]:
+        raise NotKnown("debug.toast `windows`: the list has no window")
+    for window in toast["windows"]:
+        found = window.get("toasts") if isinstance(window, dict) else None
+        if not isinstance(found, list) or not all(isinstance(entry, dict) for entry in found):
+            raise NotKnown(f"debug.toast `toasts`: {str(window)[:160]}")
+        messages += [str(entry.get("message")) for entry in found]
+    return dialogs, overlays, messages, [str(text) for text in toast["refusals"]]
+
+
+def dialog_words(dialog):
+    """A dialog for a row: its title and its lines, word for word."""
+    return f"{dialog.get('title')}: {' '.join(str(line) for line in dialog.get('lines') or [])}"[:300]
+
+
+def new_refusals(before, after):
+    """The entries that the app added to its refusal list between 2 reads. The app keeps the last 100, so the first
+    entries of `before` can be gone from `after`: the new ones are behind the longest end of `before` that `after`
+    starts with. (With 100 equal entries before and after, a new equal one is not seen.)"""
+    for gone in range(len(before) + 1):
+        kept = len(before) - gone
+        if after[:kept] == before[gone:]:
+            return after[kept:]
+    return list(after)
+
+
+def act_check(spec):
+    """The words of a row for the checks of this film's acts that the script makes after them."""
+    change = spec.get("change", 0)
+    checks = [f"the pane count ({change:+d})" if change else "the pane count"]
+    checks += ["the zoomed panes"] if any(act[0] == "keys" and act[1] == ZOOM_CHORD for act in spec["acts"]) else []
+    checks += ["the new pane before the close"] if ("tabs",) in spec["acts"] else []
+    checks += [f"the tab count ({spec['tab_change']:+d})"] if spec.get("tab_change") else []
+    checks += ["the `layout` spans"] if spec.get("layout") else []
+    return ACT_ONLY if checks == ["the pane count"] else "act check: the refusal list, the dialogs, " + ", ".join(checks)
 
 
 def app_said(said):
@@ -518,8 +700,8 @@ def preflight(app, st, out, mbps, form, display):
         """One chord as a film sends it; `read()` must become `want` in 10 s. Returns "" when it did; when it did
         not: raises with `must`, else prints the same lines and returns the fault."""
         before = read()
-        said, _, first = send_by_focus(rpc, chord) if form == "activate" else (send_keys(rpc, form, chord, "shell"), "shell", None)
-        again = f"; the second try, after the app refused the first one ({first})" if first else ""
+        said, _, refusals = send_by_focus(rpc, chord) if form == "activate" else (send_keys(rpc, form, chord, "shell"), "shell", [])
+        again = tries(said, refusals)
         fault = said.get("error") or (not wait(lambda: read() == want(before), 10, 0.05, cut=must) and f"{unit} {before} -> {read()} in 10 s, not {want(before)}")
         if fault:
             fault = f"{fault}; {app_said(said)}{again}" + (f"; {dry_run(rpc, chord)}" if form == "activate" else "")
@@ -612,6 +794,7 @@ class Films:
         self.app, self.opts, self.mock, self.form = app, opts, mock, form
         self.zoom = "key"  # the preflight's word: "key", BY_ACTION, or "none: <why>"
         self.speed_fault = ""  # the words of a film's end that did not give the animation speed back: for each row after it
+        self.stop = ""  # why no other film of this launch can be made (a dialog or an overlay that stays over the window)
         self.st = STRESS.Stress(app.rpc)
         self.program = redraw_program(opts.program)
         self.main_window = next(iter(self.windows()), None)
@@ -736,13 +919,53 @@ class Films:
         start = (pills[0][0] + pills[0][2] / 2, pills[0][1] + pills[0][3] / 2)
         return [start] + line(start, goal, int(DRAG_RATE * 0.6))
 
-    def play(self, acts, workspace, panes, focus, key_window, clock):
-        """Runs `acts`; returns one row for each act that is not a wait."""
-        rows = []
+    def layout(self, workspace):
+        """(the pane count, the count of zoomed panes) of `workspace` now, by ONE read of the layout. NotKnown when the
+        read gave no workspace: the session helper gives None for a read that failed and for a workspace that is gone,
+        and that is no count of 0. NotKnown also for a workspace with no pane: a workspace has 1 pane or more."""
+        found = self.st.workspace(workspace)
+        if not isinstance(found, dict):
+            raise NotKnown("the layout read gave no workspace")
+        panes = len(self.st.panes(found))
+        if not panes:
+            raise NotKnown("the layout read gave no pane of the workspace")
+        return panes, sum(1 for screen in found.get("screens") or [] if screen.get("zoomed_pane"))
+
+    def counts(self, workspace):
+        """As `layout`, with `not read` in the place of each count when the read gave no workspace."""
+        try:
+            return self.layout(workspace)
+        except NotKnown:
+            return "not read", "not read"
+
+    def aside(self, name, row):
+        """The movie of a film that is not `made` gets a name that says so: `<id>.not-made.mov`, and its frame file
+        with it. The step's artifact has each movie of the out folder, and a person who opens it has no row beside
+        it. `take_file` in the row = the movie's name now."""
+        old, new = (os.path.join(self.opts.out, name + mark + ".mov") for mark in ("", ".not-made"))
+        if not os.path.exists(old):
+            return
+        try:
+            os.replace(old, new)
+            if os.path.exists(old + ".frames.json"):
+                os.replace(old + ".frames.json", new + ".frames.json")
+        except OSError as error:
+            row["take_file_fault"] = f"the name of the movie or of its frame file was not changed: {error}"[:300]
+        row["take_file"] = os.path.basename(new if os.path.exists(new) else old)
+
+    def play(self, acts, workspace, panes, focus, key_window, clock, checks=False):
+        """Runs `acts`; returns one row for each act that is not a wait. With `checks` (the acts of the film itself):
+        the row of a zoom key gets the count of zoomed panes (`zoomed_after`) by a read at the end of the pause after
+        it, directly before the key that goes back; and a close after a split is not sent when the pane with the focus
+        is not a new pane (`not_sent` in the row of the read, and no act after it runs)."""
+        rows, zoom_row = [], None
         for act in acts:
             if act[0] == "wait":
                 time.sleep(act[1])  # the pause between 2 acts of the film
                 continue
+            zoom_key = checks and act[0] == "keys" and act[1] == ZOOM_CHORD and act[2] == 1
+            if zoom_key and zoom_row is not None:
+                zoom_row["zoomed_after"], zoom_row, zoom_key = self.counts(workspace)[1], None, False
             row = {"label": label(act, self.zoom), "at_s": round(time.monotonic() - clock, 3)}
             if act[0] == "keys" and act[1] == ZOOM_CHORD and self.zoom == BY_ACTION:
                 # The preflight's zoom key changed nothing in this launch: the zoom of the film's focused pane by the action.
@@ -754,20 +977,25 @@ class Films:
                 _, chord, presses, gap, hold = act
                 # "tabs": the key-down and its repeats close all but 2 tabs of the pane, so the pane stays.
                 delay, every = self.opts.repeat_delay_ms, max(self.opts.repeat_ms, 1)
-                repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
+                held = len(self.st.tabs(workspace, focus)) if hold == "tabs" else None
+                if held == 0:  # a pane has 1 tab or more: no tab = a read that failed, and 1 repeat would be a guess
+                    raise NotMade("the tab read gave no tab of the pane: no count for the held close")
+                repeats = max(1, held - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
                 more = (presses, gap, repeats, delay, every)
                 if self.form == "activate":
-                    # The window that has the keys now; a word that the app refuses gets ONE new read and ONE more send.
-                    said, word, first = send_by_focus(self.app.rpc, chord, *more)
+                    # The window that has the keys now. A word that the app refuses gets ONE new read and ONE more
+                    # send; a `page` word that it refuses again gets ONE last send in the shell window.
+                    said, _, refusals = send_by_focus(self.app.rpc, chord, *more)
                 else:
-                    word, first = key_window, None  # the word of the film's set-up
-                    said = send_keys(self.app.rpc, self.form, chord, word, *more)
-                if said.get("error") and word != "shell" and not first:
-                    # Each other refusal of `page`: ONE send in the shell window. An act has 2 sends at most.
-                    first = f"{word}: {str(said['error'])[:120]}"
-                    said = send_keys(self.app.rpc, self.form, chord, "shell", *more)
-                if first:
-                    row["refused_as"] = first
+                    refusals = []
+                    said = send_keys(self.app.rpc, self.form, chord, key_window, *more)  # the word of the film's set-up
+                    if shell_try(key_window, said):
+                        # The app refused the page's window before a key went: ONE send in the shell window.
+                        refusals.append(refusal_words(key_window, said))
+                        said = send_keys(self.app.rpc, self.form, chord, "shell", *more)
+                # No send after another error: the app can have the keys of a send that timed out.
+                if refusals:
+                    row["refused_as"] = refusals
                 if presses > 1:
                     row["gap_asked_ms"] = gap  # from key-down to key-down, as asked: the row has no true gap
                 row.update(said)
@@ -788,20 +1016,104 @@ class Films:
                 row.update(label="read: the tabs of the pane with the focus", focused_pane=pane, new_pane=pane not in panes if pane else None,
                            tab_kinds=None if tabs is None else [tab.get("kind") for tab in tabs],
                            provisional=None if tabs is None else any(str(tab.get("id") or "").startswith(STRESS.PROVISIONAL_TAB) for tab in tabs))
+                if checks and row["new_pane"] is not True:
+                    # The close would take a pane of the set-up, and the app asks before it closes a terminal with a program.
+                    rows.append({**row, "not_sent": NO_NEW_PANE})
+                    break
             else:
                 row["drag"] = self.drag(self.pointer(act[0], panes))
+            zoom_row = row if zoom_key else zoom_row
             rows.append(row)
         return rows
+
+    def clear(self, row):
+        """The check before a take: nothing is over the app's window. Returns the app's refusal list of now. NotMade
+        for a visible dialog or an overlay (with `stop`: it stays over each later film of the launch), for a message
+        that is on the screen after OVERLAY_S more seconds of reads, and for a read that says nothing (in those
+        seconds too: the helper's `wait` takes a read that raises as `no value`, so the last read's fault is kept)."""
+        failed = []
+
+        def again():
+            try:
+                now = over_window(self.app.rpc)
+            except Exception as error:  # noqa: BLE001  a read that failed is not `the message is still there`
+                failed[:] = [error]
+                return None
+            failed.clear()
+            return None if now[2] else now
+        try:
+            over = over_window(self.app.rpc)
+            if over[2] and not over[0] and not over[1]:
+                row["message_waited"] = over[2]  # a message goes by itself: the script closes none
+                over = STRESS.wait(again, OVERLAY_S, step=0.25)
+                if not over and failed:
+                    raise NotMade(f"before the take: the tool does not know what is over the window (a read failed in the wait for a message): {failed[0]}")
+                if not over:
+                    raise NotMade(f"before the take: a message stayed on the screen for {OVERLAY_S} s: {'; '.join(row['message_waited'])}")
+        except NotKnown as error:
+            raise NotMade(f"before the take: the tool does not know what is over the window: {error}") from error
+        dialogs, overlays, _, refusals = over
+        found = [f"a dialog was open: {dialog_words(dialog)}" for dialog in dialogs] + ([f"an overlay was open: {', '.join(overlays)}"] if overlays else [])
+        if found:
+            raise NotMade("before the take: " + "; ".join(found), stop=True)
+        return refusals
+
+    def unmade(self, spec, row, refusals):
+        """The checks after the acts of a film whose movie is written: each reason why the row cannot say `made`
+        ([] = none). `refusals`: the app's refusal list before the take. A dialog that the film opened gets ONE Cancel
+        (`dialog` in the row); if the app does not take it, the launch stops."""
+        faults = [act["not_sent"] for act in row["acts"] if act.get("not_sent")]
+        try:
+            dialogs, overlays, _, after = over_window(self.app.rpc)
+        except NotKnown as error:
+            dialogs, overlays, after = [], [], refusals
+            faults.append(f"after the acts the tool does not know what is over the window: {error}")
+        faults += [f"the app refused in the film: {message}" for message in new_refusals(refusals, after)]
+        faults += [f"the app asked in the film: {dialog_words(dialog)}" for dialog in dialogs]
+        faults += [f"the app showed an overlay in the film: {', '.join(overlays)}"] if overlays else []
+        change = spec.get("change", 0)
+        if row["panes_after"] == "not read":
+            faults.append("the pane count after the acts was not read")
+        elif row["panes_after"] - row["panes_before"] != change:
+            faults.append(f"the pane count went from {row['panes_before']} to {row['panes_after']}: the film's acts make a change of "
+                          + (f"{change:+d}" if change else "0"))
+        if row.get("tabs_after") == "not read":
+            faults.append("the tab count of the pane after the acts was not read")
+        elif "tabs_before" in row and row["tabs_after"] - row["tabs_before"] != spec["tab_change"]:
+            faults.append(f"the tab count of the pane went from {row['tabs_before']} to {row['tabs_after']}: the film's acts make a change of "
+                          f"{spec['tab_change']:+d}")
+        faults += [f"the zoomed panes after the act `{act['label']}` were not read" if act["zoomed_after"] == "not read" else
+                   f"{act['zoomed_after']} zoomed panes after the act `{act['label']}`, not 1" for act in row["acts"] if act.get("zoomed_after", 1) != 1]
+        if row.get("zoomed_end") == "not read":
+            faults.append("the zoomed panes at the film's end were not read")
+        elif row.get("zoomed_end"):
+            faults.append(f"{row['zoomed_end']} zoomed panes at the film's end, not 0")
+        row["layout_spans"] = "not recorded"  # a film with no speed has no span record
+        if spec.get("layout"):
+            (low, high), spans = spec["layout"], row.get("spans")
+            row["layout_spans"] = sum(1 for span in spans if span.get("name") == "layout") if isinstance(spans, list) else "not read"
+            if row["layout_spans"] == "not read" or not low <= row["layout_spans"] <= high:
+                faults.append(f"{row['layout_spans']} `layout` spans in the span record: the film's acts make {low if low == high else f'{low} or {high}'}")
+        if dialogs:
+            words = dialog_words(dialogs[-1])
+            reply = self.app.rpc("debug.dialog", {"id": dialogs[-1].get("id"), "dismiss": True})
+            if isinstance(reply, dict) and reply.get("dismissed") is True:
+                row["dialog"] = f"the tool sent Cancel: {words}"
+            else:
+                row["dialog"] = f"the tool sent Cancel, and the app did not take it: {words}"
+                self.stop = f"the app did not take the Cancel of its dialog ({words})"
+        return faults
 
     def take(self, spec):
         """One film: the row for films.json."""
         st, rpc, opts = self.st, self.app.rpc, self.opts
         zooms = any(act[0] == "keys" and act[1] == ZOOM_CHORD for part in ("pre", "acts", "post") for act in spec.get(part, ()))
+        zoom_acts = any(act[0] == "keys" and act[1] == ZOOM_CHORD for act in spec["acts"])
         row = {"id": spec["id"], "title": spec["title"], "setup": spec["setup"], "status": "not_run", "crop": spec.get("crop", "window"),
                "keys": ", ".join(filter(None, (label(a, self.zoom) for a in spec["acts"]))), "agent_page_mock": self.mock, "launch_form": self.form,
                **({"zoom": self.zoom[:400]} if zooms else {}), **({"speed_fault": self.speed_fault} if self.speed_fault else {})}
         # A film with a speed: the speed is set and read back before the set-up, and the app records the film's motions.
-        speed, before, traced = spec.get("speed"), None, False
+        speed, before, traced, recorded = spec.get("speed"), None, False, False
         turned = any(act[0] == "keys" and act[1] == ZOOM_CHORD and act[2] > 1 for act in spec["acts"])
         workspaces, windows = {w["id"] for w in st.workspaces()}, self.windows()
         try:
@@ -817,13 +1129,17 @@ class Films:
                 had = motion_reply(rpc).get("speed")
                 row["speed_before"], before = had or NOT_READ, had or "fast"
                 said = motion_reply(rpc, speed)
+                off = said.get("disabled_categories")
+                panes_off = isinstance(off, list) and "panes" in off  # the category of each pane motion
                 row.update(speed=said.get("speed"), source_ms={name: SOURCE_MS[speed][name] for name in spec.get("springs", ())},
-                           **{name: said.get(name) for name in MOVES})
+                           **{name: said.get(name) for name in MOVES}, disabled_categories=off)
                 if row["speed"] != speed:
                     raise RuntimeError(f"the app did not take the animation speed `{speed}`: its reply says `{row['speed']}`")
-                # Reduce Motion, the master switch or the pane switch: a pane motion is then one frame at each speed.
-                if said.get("reduce_motion") is True or said.get("animations_enabled") is False or said.get("pane_animations") is False:
-                    raise RuntimeError(f"{STILL}: " + ", ".join(f"{name} = {json.dumps(said.get(name))}" for name in MOVES))
+                # Reduce Motion, the master switch, the pane switch or the category `panes` off: a pane motion is then
+                # one frame at each speed. A reply with none of the fields (an older app) stops no film.
+                if said.get("reduce_motion") is True or said.get("animations_enabled") is False or said.get("pane_animations") is False or panes_off:
+                    names = MOVES + (("disabled_categories",) if panes_off else ())
+                    raise RuntimeError(f"{STILL}: " + ", ".join(f"{name} = {json.dumps(said.get(name))}" for name in names))
             workspace, panes, streams = self.build(spec, row)
             focus = panes[spec.get("focus", 0)]
             # A person's key on a page goes through the page's own window: the film's keys take that path when the
@@ -831,10 +1147,20 @@ class Films:
             # form each key sequence gets its word from the focus at that time (`focus_word`).
             key_window = "page" if SETUPS[spec["setup"]][1][spec.get("focus", 0)] == "page" else "shell"
             self.refused(self.play(spec.get("pre", ()), workspace, panes, focus, key_window, time.monotonic()))
-            row["panes_before"] = len(st.panes(st.workspace(workspace)))
+            refusals = self.clear(row)  # nothing is over the window: no dialog, no overlay, no message
+            try:
+                row["panes_before"] = self.layout(workspace)[0]
+            except NotKnown as error:  # no count: 0 panes before and 0 after would fit a film whose acts change no count
+                raise NotMade(f"before the take: {error}") from error
+            if spec.get("tab_change"):
+                tabs = len(st.tabs(workspace, focus))  # a pane has 1 tab or more: no tab = a read that failed
+                if not tabs:
+                    raise NotMade("before the take: the tab read gave no tab of the pane")
+                row["tabs_before"] = tabs
             started = rpc("debug.motion", {"action": "record_start", "path": os.path.join(opts.out, spec["id"] + ".mov"), "seconds": TAKE_S, "mbps": opts.mbps})
             if not isinstance(started, dict) or started.get("error"):
                 raise RuntimeError(f"record_start: {started}")
+            recorded = True
             try:
                 state = STRESS.wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("capturing") or r.get("error")) else None)(
                     rpc("debug.motion", {"action": "record_read"})), 10, step=0.1) or {}
@@ -845,7 +1171,7 @@ class Films:
                     rpc("debug.motion", {"action": "start"})
                 clock = time.monotonic()
                 time.sleep(LEAD_S)  # the film starts with the still window
-                row["acts"] = self.play(spec["acts"], workspace, panes, focus, key_window, clock)
+                row["acts"] = self.play(spec["acts"], workspace, panes, focus, key_window, clock, checks=True)
                 self.refused(row["acts"])
                 time.sleep(max(spec.get("tail", 1.5), MIN_FILM_S - (time.monotonic() - clock)))  # the motion's end is in the film
             finally:
@@ -854,7 +1180,11 @@ class Films:
                 rpc("debug.motion", {"action": "record_stop"})
                 read = STRESS.wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("written") or r.get("error")) else None)(
                     rpc("debug.motion", {"action": "record_read"})), 60, step=0.25) or {"error": "the movie was not written in 60 s"}
-            row["panes_after"] = len(st.panes(st.workspace(workspace)))
+            row["panes_after"], zoomed_end = self.counts(workspace)  # ONE read; `not read` is not a count of 0
+            if spec.get("tab_change"):
+                row["tabs_after"] = len(st.tabs(workspace, focus)) or "not read"
+            if zoom_acts:
+                row["zoomed_end"] = zoomed_end
             row["streams"] = ["still streamed at the film's end" if box["thread"].is_alive() else f"ended before the film's end: {str(box['reply'])[:200]}" for box in streams]
             row["recorder"] = {k: started.get(k) for k in ("width", "height", "scale", "rows", "columns", "filter", "source_rect")}
             row["recorder"].update({k: read.get(k) for k in ("frames", "first_t", "last_t", "complete", "stopped_by", "movie_status", "write_error", "error")
@@ -863,8 +1193,18 @@ class Films:
                 raise RuntimeError(f"the recorder gave no movie: frames {read.get('frames')}, {read.get('error') or read.get('write_error')}")
             span = (read.get("last_t") or 0) - (read.get("first_t") or 0)
             # The mean over the whole take, still parts too: the true rate of a motion is in the frames.json times.
-            row.update(status="made", file=spec["id"] + ".mov", mean_frames_per_s=round((read["frames"] - 1) / span, 2) if span > 0 else None)
+            row.update(mean_frames_per_s=round((read["frames"] - 1) / span, 2) if span > 0 else None, act_check=act_check(spec))
+            # The row says `made` only after the checks of the acts. A film that they refuse keeps its movie under
+            # another name (`take_file`, set at this film's end): it shows what the app did, and it is not in `file`.
+            faults = self.unmade(spec, row, refusals)
+            if faults:
+                row.update(status="not_made", reason="; ".join(faults)[:800])
+            else:
+                row.update(status="made", file=spec["id"] + ".mov")
             self.play(spec.get("post", ()), workspace, panes, focus, key_window, time.monotonic())
+        except NotMade as error:  # a check before the take (no movie), or a read for an act that gave no count
+            row.update(status="not_made", reason=str(error)[:800])
+            self.stop = str(error)[:800] if error.stop else self.stop
         except Exception as error:  # noqa: BLE001  one film's fault must not stop the other films
             traceback.print_exc()
             row["reason"] = str(error)[:400]
@@ -874,6 +1214,8 @@ class Films:
                 if row["speed_after"] != before:
                     self.speed_fault = row["speed_fault"] = (f"the animation speed did not go back to `{before}` after the film {spec['id']}: "
                                                              f"the app says `{row['speed_after']}`")
+            if recorded and row["status"] != "made":
+                self.aside(spec["id"], row)
             row["left_open"] = self.restore(workspaces, windows)
         print("PANE-FILM " + json.dumps(row), flush=True)
         return row
@@ -993,6 +1335,13 @@ def main():
             row["forms_not_run"] = other
     with open(os.path.join(opts.out, "films.json"), "w") as f:
         json.dump(report, f, indent=1)
+    # A speed that did not go back: the exit code does not say it, and a film after it can be at the wrong speed.
+    for fault in dict.fromkeys(row["speed_fault"] for row in report["films"] if row.get("speed_fault")):
+        after = [row["id"] for row in report["films"] if row.get("speed_fault") == fault and row["status"] == "made" and "speed" not in row]
+        print(f"PANE-FILMS speed fault: {fault}; made after it with no speed call of its own: {', '.join(after) or 'none'}", flush=True)
+    for row in report["films"]:
+        if row["status"] == "not_made":
+            print(f"PANE-FILMS not made: {row['id']}: {row.get('reason')}", flush=True)
     made = sum(1 for r in report["films"] if r["status"] == "made")
     print(f"PANE-FILMS made {made} of {len(wanted)} asked; failures {report['failures']}", flush=True)
     return 0 if made == len(wanted) else 2 if made else 1
@@ -1035,8 +1384,14 @@ def launch_films(opts, mock, idents, report, began, form):
                                     pins_refused=sum(1 for r in pins if isinstance(r, dict) and r.get("error")), pins_asked=len(pins))
             print("PANE-FILMS-SESSION " + json.dumps(facts["session"]), flush=True)
         facts["start_s"] = round(time.monotonic() - began, 1)
-        for ident in idents:
+        for at, ident in enumerate(idents):
             report["films"].append(maker.take(next(s for s in FILMS if s["id"] == ident)))
+            if maker.stop:
+                # A dialog or an overlay stays over the window: no other film of this launch.
+                reason = f"the launch stopped after the film {ident}: {maker.stop}"
+                report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
+                report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "launch_form": form, "reason": reason[:800]} for i in idents[at + 1:]]
+                break
     finally:
         facts["start_s"] = facts["start_s"] or round(time.monotonic() - began, 1)
         app.stop()
