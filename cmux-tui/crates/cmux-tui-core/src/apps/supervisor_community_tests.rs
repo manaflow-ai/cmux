@@ -135,6 +135,8 @@ fn installs_sync_here_and_offer_install_on_this_mac_for_the_rest() {
     assert!(installed["apps"].as_array().unwrap().iter().all(|a| a["app"] != "acme/notes"));
     let list = store(&f, "apps.catalog.list", json!({ "source": "community" }));
     assert_eq!(list["on_other_devices"][0]["ref"], "github.com/Acme/notes");
+    // That read started a refresh: let it finish before the state dir goes.
+    wait_refreshed(&f);
 
     let bad = f.supervisor.store_call(
         CLIENT,
