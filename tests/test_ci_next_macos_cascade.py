@@ -2335,6 +2335,39 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(self.placed(both, {LARGE: 0, SMALL: 0}).jobs[LARGE], ("fast-tier", "swift-canary"))
         self.assertIsNone(cascade.stale_seen(expired, NOW))
 
+    def test_both_labels_dead_with_jobs_left_waiting_take_no_job_and_no_retry_runner(self):
+        """Both macOS 26 labels run nothing, started nothing for an hour, and hold jobs queued past the stall
+        wait: neither is idle, so both are dead and every job stays on the owned route. Until this, every label
+        dead read as no label dead, and a dead label's free-looking slots took jobs."""
+        both = observed_dead(**{LARGE: {"queued": 180, "oldest_queued_minutes": 1399},
+                                SMALL: {"queued": 77, "running": 0, "oldest_queued_minutes": 552}})
+        both["label_started"] = {}
+        self.assertEqual(cascade.dead(both, NOW), frozenset({LARGE, SMALL}))
+        for live in ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0, "glaeda-side-std-xcode-26.6": 4}):
+            with self.subTest(live=live):
+                result = self.placed(both, live)
+                self.assertEqual((result.jobs[LARGE], result.jobs[SMALL]), ((), ()), result.why)
+                self.assertEqual(result.retry_runner, "", result.why)
+                result = self.placed(both, live, saturated=True, route_wait=float("inf"))
+                self.assertEqual((result.jobs[LARGE], result.jobs[SMALL]), ((), ()), result.why)
+                self.assertEqual(result.retry_runner, "", result.why)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0},
+                                             stall=tuple(cascade.dead(both, NOW))), "")
+        # Only the label holding a job left waiting is proven dead; the other may just be idle.
+        one = observed_dead(**{LARGE: {"queued": 3, "oldest_queued_minutes": 90}, SMALL: {"running": 0}})
+        one["label_started"] = {}
+        self.assertEqual(cascade.dead(one, NOW), frozenset({LARGE}))
+
+    def test_both_labels_idle_in_a_quiet_hour_are_not_dead(self):
+        """An idle healthy label looks dead too (blacksmith_dead()): with nothing queued, or only a job queued
+        too recently for any runner to have started it, both labels showing nothing proves nothing."""
+        for queued, oldest in ((0, 0), (1, 2)):
+            with self.subTest(queued=queued, oldest=oldest):
+                quiet = observed_dead(**{LARGE: {"queued": queued, "oldest_queued_minutes": oldest},
+                                         SMALL: {"running": 0}})
+                quiet["label_started"] = {}
+                self.assertEqual(cascade.dead(quiet, NOW), frozenset())
+
     def test_the_sign_runner_reads_the_same_rule(self):
         # The one module object other tests import (their patches are scoped to their own tests).
         if str(SCRIPTS) not in sys.path:
