@@ -231,8 +231,9 @@
      bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
      mirrors it. */
   /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
-     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
-  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+     the chat's text scale has beyond it (--cmux-chat-text-scale: Default's at Compact, user 2026-11-16, so the
+     bubble is Default's there too). */
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
@@ -8038,7 +8039,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
    anchored right and as wide as its words when they are wider than the bubble's text. */
 .cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
-  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   display: block;
   position: relative;

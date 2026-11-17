@@ -9,17 +9,25 @@
 #     [--arg=build=N] [--arg=video=midturn,tool] --artifact .build/quit-gamut/report.tgz --timeout 3600
 #   build=N      the nightly build to measure (default: the newest the NIGHTLY feed offers); the update rounds
 #                start on the feed's build before it
+#   head=SHA     instead of a nightly, an A/B of two commits built as launch-ready.sh's dmg=build builds them (a
+#                tagged Release app, ad-hoc signed): SHA is the head, base=SHA the base (default: this checkout).
+#                The controller runs this script only at a feat-cmux-next commit, so a PR's head is named here.
+#   rounds=N     with head=: gamut runs per side (1 to 10, default 3), interleaved base, head, base, ...
+#                Each run's update path reports not run (no older build). Prints QG-AB <side> <path>-<state> {medians}.
 #   paths=, states=, many=, long_turns=, video=, fresh_rounds=   passed to the check (--paths, --states, --many,
-#                --long-turns, --video, --fresh-rounds); the startup paths: paths=fresh-install,cold-cache,loaded
+#                --long-turns, --video, --fresh-rounds); the startup paths: paths=fresh-install,cold-cache,loaded,after-run
 # Prints GAMUT-ROUND lines, one GAMUT {json} and the table; keeps gamut.json, gamut.md, app.log and videos in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/quit-gamut"
 rm -rf "$out" && mkdir -p "$out"
-build="" extra=()
+build="" base="" headsha="" rounds=3 extra=()
 for arg in "$@"; do
   case "$arg" in
     build=*) build="${arg#build=}" ;;
+    base=*) base="${arg#base=}" ;;
+    head=*) headsha="${arg#head=}" ;;
+    rounds=*) rounds="${arg#rounds=}" ;;
     paths=*) extra+=(--paths "${arg#paths=}") ;;
     states=*) extra+=(--states "${arg#states=}") ;;
     many=*) extra+=(--many "${arg#many=}") ;;
@@ -29,7 +37,68 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+[[ "$rounds" =~ ^([1-9]|10)$ ]] || { echo "rounds must be 1 to 10" >&2; exit 2; }
 echo "GAMUT host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion)"
+
+# ab: build base and head, run the gamut on each, rounds times, interleaved; print each side's medians.
+ab() {
+  local here want side i rc=0 sides=(base head)
+  # nightly-fresh-launch.sh's build_dmg, without running its main (as launch-ready.sh sources it).
+  sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
+  source "$out/nightly-fresh-launch-lib.sh"
+  declare -F build_dmg >/dev/null || { echo "GAMUT build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
+  cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+  here="$(git rev-parse HEAD)"
+  [[ -n "$base" ]] || base="$here"
+  [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
+  for want in "$base" "$headsha"; do
+    git cat-file -e "$want^{commit}" 2>/dev/null \
+      || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
+  done
+  # Each build checks its commit out and comes back here, so the check below is always this checkout's.
+  for side in "${sides[@]}"; do
+    want="$base"; [[ "$side" == head ]] && want="$headsha"
+    echo "GAMUT build $side $want"
+    git -c advice.detachedHead=false checkout --quiet --detach "$want" || exit 3
+    build_dmg "$out" "$side" release; rc=$?
+    git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
+    [[ $rc == 0 ]] || { echo "GAMUT build $side failed (build-$side.log)"; exit "$rc"; }
+  done
+  # The builds are a commit's own code: no signing, publishing or GitHub credential reaches them (as launch-ready.sh).
+  source scripts/ci/lib/signing-runtime-guard.sh
+  cmux_signing_runtime_guard || exit 3
+  for ((i = 1; i <= rounds; i++)); do
+    for side in "${sides[@]}"; do
+      python3 scripts/ci/quit_gamut_check.py --dmg "$out/$side.dmg" --out "$out/run-$side-$i" ${extra[@]+"${extra[@]}"} 2>&1 \
+        | tee -a "$out/run.log" | sed "s/^/[$side $i] /"
+      [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
+    done
+  done
+  python3 -I - "$out" <<'PY'
+import json, statistics, sys
+from pathlib import Path
+FIELDS = ("first_window_ms", "settled_ms", "prior_chat_front_ms", "prior_chat_live_ms", "warm_switch_ms",
+          "live_over_warm_switch", "stream_words_in_2s")
+rows = {}
+for path in sorted(Path(sys.argv[1]).glob("run-*-*/gamut.json")):
+    side = path.parent.name.split("-")[1]
+    for r in json.loads(path.read_text())["rounds"]:
+        if not r.get("not_run"):
+            rows.setdefault((side, f"{r['path']}-{r['state']}"), []).append(r)
+for (side, key), done in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+    med = {"n": len(done), "failed": sum(1 for r in done if r.get("failures"))}
+    for field in FIELDS:
+        vals = [r[field] for r in done if isinstance(r.get(field), (int, float))]
+        med[field] = round(statistics.median(vals), 1) if vals else None
+    print("QG-AB", side, key, json.dumps(med), flush=True)
+PY
+  rm -f "$out"/*.dmg
+  tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz --exclude '*.app' . 2>/dev/null || true
+  exit "$rc"
+}
+[[ -n "$headsha" ]] && ab
+[[ -z "$base" ]] || { echo "base= needs head=" >&2; exit 2; }
+
 feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" \
   || { echo "GAMUT feed download failed"; exit 3; }
