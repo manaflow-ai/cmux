@@ -34,14 +34,16 @@ import Testing
         let tolerance: CGFloat = preset.omnibarScaleFactor == DensityPreset.compact.scaleFactor ? 0.5 : 1
         #expect(abs(reload.height - 14 * scale) <= tolerance, "\(preset): the reload glyph is \(reload.height) tall, want \(14 * scale)")
         #expect(abs(search.height - 12 * scale) <= tolerance, "\(preset): the search glyph is \(search.height) tall, want \(12 * scale)")
-        #expect(abs(caps - 10 * scale) <= 0.25, "\(preset): the URL's capitals are \(caps) tall, want \(10 * scale)")
+        let capsWant: CGFloat = preset == .cozy ? 11 : 10 * scale // Default's are a point taller (Lucas 2026-11-17)
+        #expect(abs(caps - capsWant) <= 0.25, "\(preset): the URL's capitals are \(caps) tall, want \(capsWant)")
     }
 
-    /// Lucas 2026-11-17: the URL's H at Compact (and Default, which shares its omnibar) is exactly 10 pt, 20 rows at 2x,
-    /// with no lit row above it. macOS font smoothing grows each glyph edge by about 0.31 pt, so the font's own capitals
-    /// are that much under 10 pt; at 14.01 pt a 21st row lit 39% above the H and it read taller than 10 pt.
-    @Test(arguments: [DensityPreset.compact, .cozy])
-    func theURLsCapitalsFillTenPointsWithSmoothing(preset: DensityPreset) throws {
+    /// Lucas 2026-11-17: the URL's H at Compact is exactly 10 pt, 20 rows at 2x, with no lit row above it, and at Default
+    /// 11 pt, 22 rows ("for default our font size has to be 1px taller in height"). macOS font smoothing grows each glyph
+    /// edge by about 0.31 pt, so the font's own capitals are that much under; at 14.01 pt a 21st row lit 39% above the
+    /// H and it read taller than 10 pt.
+    @Test(arguments: [(DensityPreset.compact, 20), (.cozy, 22)])
+    func theURLsCapitalsFillWholeRowsWithSmoothing(preset: DensityPreset, rows: Int) throws {
         let font = NSFont.systemFont(ofSize: OmnibarMetrics(tokens: preset.tokens).fontSize)
         let side = 48
         let ctx = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
@@ -60,7 +62,7 @@ import Testing
         let column = (0..<side).map { lit(stem, $0) }
         let full = column.filter { $0 > 0.97 }.count
         let first = try #require(column.firstIndex { $0 > 0.03 })
-        #expect(full == 20, "\(preset): the H fills \(full) rows at 2x, want 20 (10 pt)")
+        #expect(full == rows, "\(preset): the H fills \(full) rows at 2x, want \(rows)")
         #expect(column[first] > 0.97, "\(preset): a row lit \(column[first]) above the H's capitals")
     }
 }

@@ -47,14 +47,17 @@ import Testing
         // The bar and buttons: Helium's 28 pt at Compact, Chrome's 34 at Default (Lucas 2026-11-17).
         let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
         #expect(metrics.barHeight == bar && metrics.buttonSize == bar, "\(preset)")
-        #expect(abs(metrics.fontSize - CGFloat((10 - 0.31) / 0.70459 / 0.9) * t) < 0.000_001)
+        let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
+        #expect(abs(metrics.fontSize - font) < 0.000_001)
     }
 
-    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar and buttons.
+    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar and buttons
+    /// with 11 pt capitals.
     @Test func defaultsOmnibarIsCompacts() {
         var compact = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
         compact.barHeight = 34
         compact.buttonSize = 34
+        compact.fontSize = CGFloat((11 - 0.31) / 0.70459)
         #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == compact)
     }
 

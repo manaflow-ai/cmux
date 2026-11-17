@@ -128,6 +128,8 @@ test("duplicating and exporting a preset preserves the native chrome and compose
       expect(density.tokens?.sidebarTitleSize).toBeCloseTo(14 * factor);
       // Helium's 28 pt bar at Compact; Default's is Chrome's 34.
       expect(density.tokens?.omnibarHeight).toBe(factor === 1 ? 34 : Math.round((28 / 0.9) * factor * 2) / 2);
+      // Default's capitals are 11 pt, Compact's 10, with the smoothing's 0.31 pt.
+      if (factor === 1) expect(density.tokens?.omnibarFontSize).toBeCloseTo((11 - 0.31) / 0.70459);
       expect(density.tokens?.sidebarRowHeight).toBe([22.5, 26, 28, 30, 33.5][index]);
       expect(resolve(density)).toEqual(resolve(base));
     }
