@@ -681,7 +681,7 @@ impl MediaEngine {
         };
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_queued_bytes(seq, now_us, d.len());
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());

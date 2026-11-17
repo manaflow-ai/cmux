@@ -285,9 +285,6 @@ fn slope(points: &VecDeque<(f64, f64)>) -> Option<f64> {
 struct Sent {
     at_us: u64,
     bytes: u32,
-    /// Media is inserted when packetized but must not enter the sent-rate
-    /// window until the carrier reports its real departure.
-    departed: bool,
 }
 
 /// Delay-gradient bandwidth estimator.
@@ -443,38 +440,8 @@ impl CongestionController {
     /// A datagram recorded by `on_sent_bytes` really left now (a pacer held it): its
     /// delay counts from here. Unknown sequences are ignored.
     pub fn on_departed(&mut self, transport_seq: u16, now_us: u64) {
-        let bytes = {
-            let Some(sent) = self.sent.get_mut(&transport_seq) else { return };
-            if sent.departed {
-                return;
-            }
-            sent.at_us = now_us;
-            sent.departed = true;
-            sent.bytes
-        };
-        if bytes > 0 {
-            self.record_sent_window(now_us, bytes);
-        }
-    }
-
-    /// Records a media datagram that was queued by packetization. Its bytes and
-    /// timestamp stay out of the sent-rate window until [`Self::on_departed`]
-    /// observes the carrier's actual write.
-    pub fn on_queued_bytes(&mut self, transport_seq: u16, queued_us: u64, bytes: usize) {
-        let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);
         if let Some(sent) = self.sent.get_mut(&transport_seq) {
-            if !sent.departed {
-                sent.at_us = queued_us;
-                sent.bytes = sent.bytes.max(bytes);
-            }
-            return;
-        }
-        self.sent.insert(transport_seq, Sent { at_us: queued_us, bytes, departed: false });
-        self.sent_order.push_back(transport_seq);
-        while self.sent_order.len() > 4096 {
-            if let Some(old) = self.sent_order.pop_front() {
-                self.sent.remove(&old);
-            }
+            sent.at_us = now_us;
         }
     }
 
@@ -482,20 +449,14 @@ impl CongestionController {
     pub fn on_sent_bytes(&mut self, transport_seq: u16, now_us: u64, bytes: usize) {
         let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);
         if let Some(sent) = self.sent.get_mut(&transport_seq) {
-            let queued_bytes = {
-                let was_queued = !sent.departed;
-                sent.at_us = now_us;
-                sent.departed = true;
-                was_queued.then_some(sent.bytes).filter(|&bytes| bytes > 0)
-            };
-            if let Some(bytes) = queued_bytes {
-                self.record_sent_window(now_us, bytes);
-            }
+            sent.at_us = now_us;
             return;
         }
-        self.sent.insert(transport_seq, Sent { at_us: now_us, bytes, departed: true });
+        self.sent.insert(transport_seq, Sent { at_us: now_us, bytes });
         if bytes > 0 {
-            self.record_sent_window(now_us, bytes);
+            self.sent_window.push_back((now_us, bytes));
+            self.sent_window_bytes += u64::from(bytes);
+            self.prune_sent_window(now_us);
         }
         self.sent_order.push_back(transport_seq);
         while self.sent_order.len() > 4096 {
@@ -503,12 +464,6 @@ impl CongestionController {
                 self.sent.remove(&old);
             }
         }
-    }
-
-    fn record_sent_window(&mut self, now_us: u64, bytes: u32) {
-        self.sent_window.push_back((now_us, bytes));
-        self.sent_window_bytes += u64::from(bytes);
-        self.prune_sent_window(now_us);
     }
 
     /// A retransmission keeps the original transport sequence, so its
@@ -611,14 +566,7 @@ impl CongestionController {
             .iter()
             .filter_map(|a| {
                 let sent = self.sent.remove(&a.transport_seq)?;
-                if sent.departed {
-                    Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
-                } else {
-                    // Feedback can race the bounded departure-receipt drain.
-                    // Keep the sample until its real departure is observed.
-                    self.sent.insert(a.transport_seq, sent);
-                    None
-                }
+                Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
@@ -790,20 +738,5 @@ impl CongestionController {
             self.config.max_bps
         };
         self.target_bps = self.target_bps.clamp(self.config.min_bps, max.max(self.config.min_bps));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn queued_media_bytes_enter_the_sent_window_at_departure() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.on_queued_bytes(7, 10, 1200);
-        assert!(cc.sent_bps(500_000).is_none());
-
-        cc.on_departed(7, 200_000);
-        assert!(cc.sent_bps(500_000).is_some());
     }
 }
