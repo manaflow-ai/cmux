@@ -41,14 +41,8 @@ cmuxNextAppMain()
 typealias AppMain = @convention(c) () -> Void
 var entry = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "cmux_next_app_main") // RTLD_DEFAULT
 if entry == nil {
-    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX) + 1)
-    var length = UInt32(buffer.count)
-    guard _NSGetExecutablePath(&buffer, &length) == 0 else {
-        fputs("cmux: executable path not found\n", stderr); exit(1)
-    }
-    let executable = String(cString: buffer)
-    let macOS = executable[..<(executable.lastIndex(of: "/") ?? executable.endIndex)]
-    let framework = "\(macOS)/../Frameworks/CmuxNextApp.framework/CmuxNextApp"
+    // dyld expands @executable_path in dlopen to this executable's directory (Contents/MacOS).
+    let framework = "@executable_path/../Frameworks/CmuxNextApp.framework/CmuxNextApp"
     guard let handle = dlopen(framework, RTLD_NOW) else {
         fputs("cmux: dlopen \(framework): \(dlerror().map { String(cString: $0) } ?? "unknown")\n", stderr); exit(1)
     }
