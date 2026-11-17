@@ -165,7 +165,7 @@ fn live_desktop_end_to_end() {
         count: 1,
         modifiers: vec![],
         delivery: Delivery::Background,
-        gap: std::time::Duration::ZERO,
+        gap: Duration::ZERO,
         menu_item: None,
     };
     d.click(&PointerTarget::Point { window_id: w.id.clone(), point: center }, &spec)
