@@ -63,6 +63,8 @@ frames: the take is INVALID, with the refusals in its `invalid` entry and in the
 The record of a take has the word of its keys' send as `key_window`. The word names the window at the FIRST key of
 a sequence: the app's own focus moves the keys after that, as for a person (a Cmd-T moves them to the new tab's
 page).
+An other error of the send with no key is in `key_window_refusals_before_the_frames` too, with the app's words: the
+take's validity does not change by it.
 
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
@@ -372,10 +374,9 @@ def post_sequence(rpc, steps, pane, word=None):
 def key_window_ready(rpc, pane):
     """A take's word before its frames start (KEY WINDOW): the word of a sequence with no key, which the app takes
     or refuses as each other sequence, and each refusal of the app (2 sends at most; after 2 refusals the word is
-    the last one that the tool asked)."""
+    the last one that the tool asked). Each other error of that send is in the list too, with the app's words."""
     sent = post_sequence(rpc, [], pane)
-    refused = any(text in str(sent.get("error") or "") for text in KEY_REFUSALS)
-    return sent["key_window"], sent["key_window_refusals"] + ([f"{sent['key_window']}: {str(sent['error'])[:120]}"] if refused else [])
+    return sent["key_window"], sent["key_window_refusals"] + ([f"{sent['key_window']}: {str(sent['error'])[:120]}"] if sent.get("error") else [])
 
 
 def post_keys(source, rpc, steps, pane, form, word=None):
