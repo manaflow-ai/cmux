@@ -228,7 +228,7 @@ import UIKit
         print("CARDOPENGEOMETRY unmeasured turns=\(turns) worst over every frame=\(worstAny)")
         #expect(!settled.rows.isEmpty, "the card shows rows")
         #expect(settled.worst <= 0.5, "card vs settled page, per row: \(settled.line)")
-        #expect(worstAny <= 0.5, "card vs the page in every frame as it opens (\(opening.count + landed.count) frames)")
+        #expect(worstAny <= 0.5, "card vs the page in every frame as it opens (\(opening.count + landed.count) frames, worst \(worstAny)); first frame: \(firstLaidOut.line)")
     }
 }
 #endif
