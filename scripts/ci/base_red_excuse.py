@@ -5876,7 +5876,8 @@ TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
 TREE_HANDOFF_STEP = "Re-run the runs that deferred to this tree"
 TREE_HANDOFF_QUOTA = re.compile(
     r"^##\[error\]\[quota-only\] deferred runs not re-run for the published tree; run (?P<run>\d+); "
-    r"no attempt before (?P<retry>\d{2}:\d{2}Z); the repo installation's API limit refused its API call\.$")
+    r"no attempt before (?P<retry>\d{2}:\d{2}Z); the repo installation's API limit refused its API call\."
+    r"(?: Deferred markers remain for the next run\.)?$")
 
 
 class JobRateLimited(Refused):

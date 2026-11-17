@@ -44,6 +44,14 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
+if args[:3] == ["api", "rate_limit", "--jq"]:
+    reset = state.get("rate_limit_reset")
+    if reset is None:
+        print("rate limit endpoint unavailable", file=sys.stderr); sys.exit(1)
+    open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
+    open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
+    print(reset)
+    sys.exit(0)
 if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
     print("gh: API rate limit exceeded for the repo installation (HTTP 403)", file=sys.stderr); sys.exit(1)
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
@@ -271,7 +279,8 @@ class CommandTests(unittest.TestCase):
                 self.assertIn(f"::error title=tree not handed off::tree {KEY} was not handed off", result.stdout)
                 self.assertIn("no attempt before ", result.stdout)
                 self.assertIn("repo installation's API limit", result.stdout)
-                self.assertEqual(calls, [], "no call was answered, so nothing was re-run")
+                self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls),
+                                 "no call was answered, so nothing was re-run")
 
     def test_published_rate_limit_is_a_quota_only_error_with_retry_boundary(self):
         state = {"rate_limited": ["t"], "artifacts": [marker(31, 12)],
@@ -282,12 +291,20 @@ class CommandTests(unittest.TestCase):
         self.assertIn("run 99; no attempt before ", result.stdout)
         self.assertIn("the repo installation's API limit", result.stdout)
         self.assertNotIn("installation ID", result.stdout)
-        self.assertEqual(calls, [])
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
     def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):
-        now = datetime(2026, 11, 17, 4, 55, tzinfo=timezone.utc)
-        self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891600", now), "05:00Z")
-        self.assertEqual(handoff.quota_retry_before("API rate limit exceeded", now), "05:00Z")
+        now = datetime(2026, 11, 17, 4, 55, 31, tzinfo=timezone.utc)
+        self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891631", now), "05:01Z")
+        self.assertEqual(handoff.quota_retry_before("API rate limit exceeded", now), "05:56Z")
+
+    def test_rate_limit_endpoint_reset_is_used_and_rounded_up(self):
+        state = {"rate_limited": ["t"], "rate_limit_reset": "1794891631",
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no attempt before 05:01Z", result.stdout)
+        self.assertIn(["api", "rate_limit", "--jq", ".resources.core.reset"], calls)
 
     def test_other_refusals_do_not_spend_the_spare_token(self):
         # HTTP 403 without a rate limit (the fake's jobs_error) is not a quota refusal.

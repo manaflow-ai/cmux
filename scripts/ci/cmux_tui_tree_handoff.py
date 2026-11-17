@@ -85,17 +85,49 @@ class QuotaRefused(RuntimeError):
         super().__init__(retry_before)
 
 
-def quota_retry_before(text: str, now: datetime | None = None) -> str:
-    """Return a safe UTC HH:MMZ boundary from a response, or the next full-hour window."""
+def _ceil_minute(value: datetime) -> datetime:
+    """Round a UTC time up to the next minute boundary."""
+    value = value.astimezone(timezone.utc)
+    if value.second or value.microsecond:
+        value += timedelta(minutes=1)
+    return value.replace(second=0, microsecond=0)
+
+
+def _reset_time(text: str) -> datetime | None:
+    """Read a Unix reset timestamp from a GitHub response or rate_limit answer."""
     match = RATE_LIMIT_RESET.search(text)
-    if match:
-        try:
-            return datetime.fromtimestamp(int(match.group(1)), timezone.utc).strftime("%H:%MZ")
-        except (OverflowError, OSError, ValueError):
-            pass
+    raw = match.group(1) if match else (text.strip() if text.strip().isdigit() else None)
+    if raw is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(raw), timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def quota_retry_before(text: str, now: datetime | None = None) -> str:
+    """Return a safe UTC HH:MMZ boundary from a response or a one-hour fallback."""
+    reset = _reset_time(text)
+    if reset is not None:
+        return _ceil_minute(reset).strftime("%H:%MZ")
     current = now or datetime.now(timezone.utc)
-    boundary = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    boundary = _ceil_minute(current + timedelta(hours=1))
     return boundary.strftime("%H:%MZ")
+
+
+def _rate_limit_retry_before(refused: str) -> str:
+    """Ask GitHub once for the current core reset, then use a bounded local fallback."""
+    # GitHub documents this endpoint as available even when the resource it reports is exhausted.
+    answer = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core.reset"],
+                            capture_output=True, text=True)
+    reset = _reset_time(answer.stdout) if answer.returncode == 0 else None
+    if reset is not None:
+        return _ceil_minute(reset).strftime("%H:%MZ")
+    # Older gh versions and proxy refusals may still include the reset header. If not, do not guess :00:
+    # give the installation a full hour from this refusal instead.
+    if (reset := _reset_time(refused)) is not None:
+        return _ceil_minute(reset).strftime("%H:%MZ")
+    return quota_retry_before("", datetime.now(timezone.utc))
 
 
 def failed_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -151,7 +183,7 @@ def _gh(*args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
         refused = f"{result.stderr}\n{result.stdout}"
     if result.returncode != 0 and RATE_LIMIT_TEXT.search(refused):
-        raise QuotaRefused(quota_retry_before(refused))
+        raise QuotaRefused(_rate_limit_retry_before(refused))
     return result
 
 
