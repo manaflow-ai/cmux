@@ -340,6 +340,8 @@ public struct MobilePlansView: View {
 private struct RefundTarget: Hashable {
     let productID: String
     let transactionID: UInt64
+    /// One per tap, so a sheet StoreKit never finished cannot block the next tap.
+    let attempt = UUID()
 }
 
 /// Presents StoreKit's refund sheet for one transaction, built only after the
