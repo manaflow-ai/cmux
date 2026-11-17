@@ -397,19 +397,24 @@ function maskFades() {
       .filter((px) => px > 0);
   const top = values("--acpmux-fade-top");
   const bottom = values("--acpmux-fade-bottom");
-  return { top: Math.max(...top), bottom: Math.min(...bottom), jump: Math.max(...bottom) };
+  // No bottom band at all (Lucas, 2026-11-17: rows keep full ink down to the composer): 0 px.
+  return {
+    top: Math.max(...top),
+    bottom: bottom.length ? Math.min(...bottom) : 0,
+    jump: bottom.length ? Math.max(...bottom) : 0,
+  };
 }
 
 test("the rail keeps clear of the transcript's widest fades (the model reads the CSS's bands)", () => {
   const fades = maskFades();
   expect(fades.top).toBeGreaterThan(0);
-  expect(fades.bottom).toBeGreaterThan(0);
+  expect(fades.bottom).toBe(0);
   expect(TRANSCRIPT_FADE_TOP).toBeGreaterThanOrEqual(fades.top);
   expect(TRANSCRIPT_FADE_BOTTOM).toBe(fades.jump);
 });
 
 // The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
-// scrolled from the start, and 18 px above the foot while more lies below, including with Jump to latest.
+// scrolled from the start. The foot has no band; the mask only cuts the rows under the stack.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
