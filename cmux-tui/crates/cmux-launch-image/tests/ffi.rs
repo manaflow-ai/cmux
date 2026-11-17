@@ -257,3 +257,75 @@ fn page_region_paints_only_a_current_image() {
         assert_eq!(cmux_launch_image_page_region(ptr::null()), 1);
     }
 }
+
+/// The record's `image_key` the stage-0 window reads (cmux-launch-shell `ImageKey`): split on `/`
+/// into build, window key and generation, it names the very file the publish wrote,
+/// `<image dir>/<window key>.<generation>.png`, and never a path.
+#[test]
+fn record_key_names_the_published_file() {
+    let dir = dir("record-key");
+    for raw_id in ["front", "a window/with:odd id"] {
+        let id = CString::new(raw_id).unwrap();
+        let bytes = png(2880, 1800);
+        let mut out = blank();
+        // SAFETY: valid strings, buffer and output.
+        assert!(unsafe {
+            cmux_launch_image_publish(
+                dir.as_ptr(),
+                id.as_ptr(),
+                bytes.as_ptr(),
+                bytes.len(),
+                &mut out,
+            )
+        });
+        let (version, commit) = (CString::new("4294").unwrap(), CString::new("abc123").unwrap());
+        let mut key = [1 as c_char; CMUX_LAUNCH_IMAGE_KEY_CAPACITY];
+        // SAFETY: valid strings and a buffer of `key.len()` bytes.
+        assert!(unsafe {
+            cmux_launch_image_record_key(
+                version.as_ptr(),
+                commit.as_ptr(),
+                id.as_ptr(),
+                out.generation,
+                key.as_mut_ptr(),
+                key.len(),
+            )
+        });
+        // SAFETY: the ABI NUL-terminates `key`.
+        let key = unsafe { CStr::from_ptr(key.as_ptr()) }.to_str().unwrap().to_owned();
+        let parts: Vec<&str> = key.split('/').collect();
+        assert_eq!(parts.len(), 3, "{key}");
+        assert_eq!(parts[0], "4294+abc123");
+        assert_eq!(parts[1], cmux_launch_image::window_key(raw_id));
+        assert_eq!(parts[2], out.generation.to_string());
+        let named =
+            PathBuf::from(dir.to_str().unwrap()).join(format!("{}.{}.png", parts[1], parts[2]));
+        assert_eq!(named.to_str().unwrap(), path(&out), "the key names the published file");
+        assert!(!key.starts_with('/') && !key.contains(".png"), "a key, not a path: {key}");
+    }
+    let id = CString::new("front").unwrap();
+    let mut small = [1 as c_char; 8];
+    // SAFETY: a null version and commit are allowed; the buffer has `small.len()` bytes.
+    assert!(!unsafe {
+        cmux_launch_image_record_key(
+            ptr::null(),
+            ptr::null(),
+            id.as_ptr(),
+            1,
+            small.as_mut_ptr(),
+            small.len(),
+        )
+    });
+    assert_eq!(small[0], 0, "a key that does not fit leaves an empty string");
+    // SAFETY: as above.
+    assert!(!unsafe {
+        cmux_launch_image_record_key(
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            1,
+            small.as_mut_ptr(),
+            small.len(),
+        )
+    });
+}

@@ -42,6 +42,7 @@
 //! an error at launch.
 
 pub mod ffi;
+pub mod key;
 mod png;
 pub mod region;
 pub mod schedule;
@@ -52,6 +53,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub use key::{build_name, record_key};
 pub use png::png_pixel_size;
 
 /// The image file's extension.

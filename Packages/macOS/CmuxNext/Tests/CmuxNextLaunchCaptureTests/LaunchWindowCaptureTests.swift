@@ -1,4 +1,5 @@
 import AppKit
+import CCmuxLaunchRecordFFI
 import CmuxNextControl
 import CmuxNextScreenshots
 import Foundation
@@ -77,8 +78,8 @@ struct LaunchWindowCaptureTests {
     /// The record's image dictionary takes a hand-off from any thread and the writer's snapshot reads it.
     @Test func recordImagesTakeAHandOffOffTheMainActor() async {
         let images = LaunchRecordImages()
-        await Task.detached { images.set(LaunchRecordImage(path: "/x/w.1.png", pixelWidth: 4, pixelHeight: 2), forWindow: "w") }.value
-        #expect(images.all["w"]?.path == "/x/w.1.png")
+        await Task.detached { images.set(LaunchRecordImage(key: "1/w/1", pixelWidth: 4, pixelHeight: 2), forWindow: "w") }.value
+        #expect(images.all["w"]?.key == "1/w/1")
         images.set(nil, forWindow: "w")
         #expect(images.all["w"] == nil)
     }
@@ -89,7 +90,7 @@ struct LaunchWindowCaptureTests {
     @Test func publishHandsOffOnlyWhileCurrent() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "launch-capture-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = LaunchImageStore(directory: directory)
+        let store = LaunchImageStore(directory: directory, info: [:])
         let png = try #require(try Self.solid(4, red: 0, green: 0, blue: 1).pngData())
         let schedule = LaunchImageSchedule()
         _ = schedule.note(.shown, at: 1)
@@ -101,14 +102,63 @@ struct LaunchWindowCaptureTests {
         let first = store.publish(windowID: "w", png: png) { image in
             handed = schedule.whileCurrent(epoch) { images.set(image, forWindow: "w") }
         }
-        #expect(handed && images.all["w"]?.path == first?.path && first?.pixelWidth == 4)
+        #expect(handed && images.all["w"]?.key == first?.key && first?.pixelWidth == 4)
         // A change lands between the capture and its publish: nothing is handed over.
         _ = schedule.note(.changed, at: 10_001)
         handed = false
         let second = store.publish(windowID: "w", png: png) { image in
             handed = schedule.whileCurrent(epoch) { images.set(image, forWindow: "w") }
         }
-        #expect(second != nil && !handed && images.all["w"]?.path == first?.path)
+        #expect(second != nil && !handed && images.all["w"]?.key == first?.key)
+    }
+    #endif
+
+    /// What the record says of a window is what the stage-0 window checks (record v2, cmux-launch-shell): the
+    /// window's backing scale (never 0, which reads as a v1 record), its display's frame (`NSScreen.frame`), its
+    /// look and full screen state, and an image of frame x scale pixels within 1 px; written and read back
+    /// through the record's C ABI.
+    @Test func recordCarriesTheWindowsV2Fields() throws {
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 60, width: 301, height: 203), styleMask: [.titled, .resizable],
+                              backing: .buffered, defer: true)
+        defer { window.close() }
+        let (width, height) = LaunchWindowCapture.imagePixelSize(window.frame.size, scale: window.backingScaleFactor)
+        let snapshot = LaunchWindowCapture.recordWindow(
+            LaunchRecordWindowSnapshot(id: "w", frame: .zero, imageKey: "4294+abc123/w/3",
+                                       imagePixelSize: (UInt32(width), UInt32(height))),
+            of: window, dark: true, followsSystem: true)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "launch-record-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "launch-record.bin")
+        #expect(LaunchRecordEncoding.write(LaunchRecordSnapshot(windows: [snapshot]), to: url))
+        var read = CmuxLaunchWindow()
+        #expect(cmux_launch_record_windows(url.path, &read, 1) == 1)
+        let key = withUnsafeBytes(of: &read.image_key) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        #expect(key == "4294+abc123/w/3", "a key, never a path")
+        #expect(read.backing_scale == Double(window.backingScaleFactor) && read.backing_scale > 0)
+        let screen = window.screen?.frame ?? .zero
+        #expect(CGRect(x: read.screen_frame_x, y: read.screen_frame_y, width: read.screen_frame_width,
+                       height: read.screen_frame_height) == screen)
+        if let shown = window.screen { #expect(NSScreen.screens.contains { $0.frame == shown.frame }) }
+        #expect(CGRect(x: read.frame_x, y: read.frame_y, width: read.frame_width, height: read.frame_height) == window.frame)
+        #expect(read.appearance == 1 && read.appearance_follows_system == 1 && read.fullscreen == 0)
+        #expect(abs(Double(read.image_pixel_width) - read.frame_width * read.backing_scale) <= 1)
+        #expect(abs(Double(read.image_pixel_height) - read.frame_height * read.backing_scale) <= 1)
+    }
+
+    #if canImport(CCmuxLaunchImageFFI)
+    /// A published image's record key is `<build>/<window key>/<generation>` (the stage-0 window's
+    /// `ImageKey`), naming `<image dir>/<window key>.<generation>.png`, the file the publish wrote.
+    @Test func publishedImageKeyNamesItsFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "launch-capture-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LaunchImageStore(directory: directory, info: ["CFBundleVersion": "4294", "CMUXCommit": "abc123"])
+        let png = try #require(try Self.solid(4, red: 0, green: 0, blue: 1).pngData())
+        var handed: LaunchRecordImage?
+        let image = try #require(store.publish(windowID: "w", png: png) { handed = $0 })
+        let parts = image.key.split(separator: "/").map(String.init)
+        #expect(handed?.key == image.key && parts.count == 3 && parts[0] == "4294+abc123" && parts[1] == "w")
+        #expect(FileManager.default.fileExists(atPath: directory.appending(path: "\(parts[1]).\(parts[2]).png").path))
     }
     #endif
 }

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLaunchCapture
 import CmuxNextLayout
 import CmuxNextControl
 import CmuxNextWakeups
@@ -281,11 +282,10 @@ extension AppServices {
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
-            let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
-            return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
-                backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
-                imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
-                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
+            return LaunchWindowCapture.recordWindow(LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame,
+                backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "", imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
+                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs), of: window, dark: controller.themeScope.tokens.isDark,
+                followsSystem: controller.themeScope.effectiveSpec?.isPair ?? true)
         }
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }

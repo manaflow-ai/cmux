@@ -15,12 +15,18 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_LAUNCH_IMAGE_ABI_VERSION 3
+#define CMUX_LAUNCH_IMAGE_ABI_VERSION 4
 
 /*
  The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
  */
 #define CMUX_LAUNCH_IMAGE_PATH_CAPACITY 1025
+
+/*
+ The size `cmux_launch_image_record_key` needs at most, NUL included (a 128-byte build, a 66-byte
+ window key, a 20-digit generation and two `/`).
+ */
+#define CMUX_LAUNCH_IMAGE_KEY_CAPACITY 256
 
 /*
  The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
@@ -211,5 +217,23 @@ bool cmux_launch_image_schedule_is_current(const CmuxLaunchImageSchedule *schedu
  `region` is null or valid for reads of one `CmuxLaunchImagePageRegion`.
  */
 uint8_t cmux_launch_image_page_region(const CmuxLaunchImagePageRegion *region);
+
+/*
+ Writes the launch record's `image_key` for image `generation` of window `window_id` into `out`
+ (`cap` bytes, NUL-terminated): `<build>/<window key>/<generation>`, the build from the bundle's
+ `version` (`CFBundleVersion`) and `commit` (`CMUXCommit`), either null when the bundle has none
+ (`crate::key::build_name`). False, and `out[0]` 0, when `window_id` is null, empty or not UTF-8, or
+ the key does not fit `cap` (`CMUX_LAUNCH_IMAGE_KEY_CAPACITY` always fits). Does no I/O.
+
+ # Safety
+ `version`, `commit` and `window_id` are null or NUL-terminated strings; `out` is null or valid for
+ writes of `cap` bytes.
+ */
+bool cmux_launch_image_record_key(const char *version,
+                                  const char *commit,
+                                  const char *window_id,
+                                  uint64_t generation,
+                                  char *out,
+                                  size_t cap);
 
 #endif  /* CMUX_LAUNCH_IMAGE_H */

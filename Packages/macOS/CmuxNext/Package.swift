@@ -1494,6 +1494,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextLaunchCaptureTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextControl",
                 "CmuxNextLaunchCapture",
                 "CmuxNextScreenshots",

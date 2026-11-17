@@ -9,6 +9,8 @@
 //! - `cmux_launch_image_remove_window`, `cmux_launch_image_prune`: a closed window's images; every
 //!   image but the live windows'.
 //! - `cmux_launch_image_schedule_*`: one capture schedule per window (`crate::schedule`).
+//! - `cmux_launch_image_record_key`: the launch record's `image_key` for a published image
+//!   (`<build>/<window key>/<generation>`, `crate::key`): the record names the image, never its path.
 //! - `cmux_launch_image_page_region`: whether a page's cached image may fill its region of a
 //!   capture, else the region is plain (`crate::region`).
 //!
@@ -17,7 +19,7 @@
 //! used by one thread at a time. No function unwinds across the boundary.
 //!
 //! A capture: `take_due` (or `take_quit`) true, read `epoch`, capture and encode, then publish only
-//! while `is_current(epoch)` holds, with `publish_with` handing the path to the launch record, and
+//! while `is_current(epoch)` holds, with `publish_with` handing the image's key to the launch record, and
 //! note 7 (done); note 6 (failed) when nothing was published. Calls for one folder may run
 //! concurrently: a publish never reuses a path, never removes a path being handed to the record,
 //! and a prune leaves files younger than 60 s alone.
@@ -29,9 +31,12 @@ use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 3;
+pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 4;
 /// The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
 pub const CMUX_LAUNCH_IMAGE_PATH_CAPACITY: usize = 1025;
+/// The size `cmux_launch_image_record_key` needs at most, NUL included (a 128-byte build, a 66-byte
+/// window key, a 20-digit generation and two `/`).
+pub const CMUX_LAUNCH_IMAGE_KEY_CAPACITY: usize = 256;
 /// The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
 pub const CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS: u64 = 60_000;
 /// `cmux_launch_image_schedule_note`'s reply when no capture is due.
@@ -396,4 +401,47 @@ pub unsafe extern "C" fn cmux_launch_image_page_region(
         page_changed_ms: r.has_page_changed.then_some(r.page_changed_ms),
         composite_ms: r.composite_ms,
     }) as u8
+}
+
+/// Writes the launch record's `image_key` for image `generation` of window `window_id` into `out`
+/// (`cap` bytes, NUL-terminated): `<build>/<window key>/<generation>`, the build from the bundle's
+/// `version` (`CFBundleVersion`) and `commit` (`CMUXCommit`), either null when the bundle has none
+/// (`crate::key::build_name`). False, and `out[0]` 0, when `window_id` is null, empty or not UTF-8, or
+/// the key does not fit `cap` (`CMUX_LAUNCH_IMAGE_KEY_CAPACITY` always fits). Does no I/O.
+///
+/// # Safety
+/// `version`, `commit` and `window_id` are null or NUL-terminated strings; `out` is null or valid for
+/// writes of `cap` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_image_record_key(
+    version: *const c_char,
+    commit: *const c_char,
+    window_id: *const c_char,
+    generation: u64,
+    out: *mut c_char,
+    cap: usize,
+) -> bool {
+    guard(false, || {
+        if out.is_null() || cap == 0 {
+            return false;
+        }
+        // SAFETY: `out` is valid for writes of `cap` bytes (caller contract).
+        let out = unsafe { std::slice::from_raw_parts_mut(out, cap) };
+        out[0] = 0;
+        // SAFETY: caller contract.
+        let (version, commit, id) = unsafe { (string(version), string(commit), string(window_id)) };
+        let Some(key) = id.and_then(|id| {
+            crate::key::record_key(&crate::key::build_name(version, commit), id, generation)
+        }) else {
+            return false;
+        };
+        if key.len() >= cap {
+            return false;
+        }
+        for (slot, byte) in out.iter_mut().zip(key.bytes()) {
+            *slot = byte as c_char;
+        }
+        out[key.len()] = 0;
+        true
+    })
 }

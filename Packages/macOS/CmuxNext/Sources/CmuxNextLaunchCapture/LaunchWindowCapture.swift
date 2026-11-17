@@ -77,11 +77,32 @@ public final class LaunchWindowCapture {
         let timer = DemandTimer(owner: "launch-image.capture")
     }
 
-    /// - Parameter bundleID: The app's; the images go to `<Application Support>/<bundle id>/launch-images`.
-    public init(host: any LaunchCaptureHost, work: BackgroundWork, bundleID: String?) {
+    /// - Parameters:
+    ///   - bundleID: The app's; the images go to `<Application Support>/<bundle id>/launch-images`.
+    ///   - bundleInfo: The app's Info.plist: its `CFBundleVersion` and `CMUXCommit` name the build in each
+    ///     image's record key.
+    public init(host: any LaunchCaptureHost, work: BackgroundWork, bundleID: String?,
+                bundleInfo: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
         self.host = host
         self.work = work
-        store = bundleID.map(LaunchImageStore.init(bundleID:))
+        store = bundleID.map { LaunchImageStore(bundleID: $0, info: bundleInfo) }
+    }
+
+    /// `snapshot` with what the launch record v2 reads of `window` now, where the record's image was taken
+    /// at frame x scale pixels: its frame, display, backing scale, the display's frame (`NSScreen.frame`, zero
+    /// off screen), full screen, and the look (`dark`, and `followsSystem` for a light/dark theme pair). The
+    /// stage-0 window draws the image only when they still hold at launch.
+    public static func recordWindow(_ snapshot: LaunchRecordWindowSnapshot, of window: NSWindow, dark: Bool,
+                                    followsSystem: Bool) -> LaunchRecordWindowSnapshot {
+        var snapshot = snapshot
+        snapshot.frame = window.frame
+        snapshot.displayID = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+        snapshot.backingScale = Double(window.backingScaleFactor)
+        snapshot.screenFrame = window.screen?.frame ?? .zero
+        snapshot.fullscreen = window.styleMask.contains(.fullScreen)
+        snapshot.appearanceDark = dark
+        snapshot.appearanceFollowsSystem = followsSystem
+        return snapshot
     }
 
     // MARK: Events
@@ -189,8 +210,8 @@ public final class LaunchWindowCapture {
         }
         pruneOnce(host, store)
         let epoch = schedule.epoch
-        let size = window.frame.size, scale = window.backingScaleFactor
-        let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
+        let size = window.frame.size
+        let (width, height) = Self.imagePixelSize(size, scale: window.backingScaleFactor)
         let fill = host.launchCaptureBackground(id).flatMap(Self.fillImage)
         let layers = fill.map { pageLayers(in: window, pages: host.launchCaptureBrowserPages(id), fill: $0, compositeAt: now) } ?? []
         let images = host.launchRecordImages
@@ -250,6 +271,12 @@ public final class LaunchWindowCapture {
             layers.append(.page(fill, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip)))
         }
         return layers
+    }
+
+    /// The image's pixel size for a window `size` points large at `scale`: the frame times the scale, rounded,
+    /// which the stage-0 window requires of the record's image within 1 px.
+    nonisolated static func imagePixelSize(_ size: CGSize, scale: CGFloat) -> (width: Int, height: Int) {
+        (Int((size.width * scale).rounded()), Int((size.height * scale).rounded()))
     }
 
     /// What a Chromium page region shows: its cached image when Rust's age rule allows it, else the plain fill.

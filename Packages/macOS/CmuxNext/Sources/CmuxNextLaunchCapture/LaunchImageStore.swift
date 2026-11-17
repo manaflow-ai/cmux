@@ -88,35 +88,44 @@ nonisolated final class LaunchImageSchedule: Sendable {
 nonisolated struct LaunchImageStore: Sendable {
     static let directoryName = "launch-images"
     let directory: URL
+    /// The bundle's `CFBundleVersion` and `CMUXCommit`: the build part of each image's record key, so the
+    /// next launch of another build never draws this one's image.
+    let version: String?, commit: String?
 
-    init(bundleID: String) {
+    init(bundleID: String, info: [String: Any]) {
         self.init(directory: LaunchTimesFile.supportDirectory(bundleID: bundleID)
-            .appending(path: Self.directoryName, directoryHint: .isDirectory))
+            .appending(path: Self.directoryName, directoryHint: .isDirectory), info: info)
     }
 
-    init(directory: URL) { self.directory = directory }
+    init(directory: URL, info: [String: Any]) {
+        self.directory = directory
+        version = info["CFBundleVersion"] as? String; commit = info["CMUXCommit"] as? String
+    }
 
     /// Writes `png` as `windowID`'s newest image and calls `handOff` with it before any older image of the
-    /// folder is removed (publishes take turns until it returns): the launch record names the path there.
+    /// folder is removed (publishes take turns until it returns): the launch record names the image's key
+    /// there (`<build>/<window key>/<generation>`, record v2 `image_key`), never its path.
     /// Nil when nothing was written (the window keeps its previous image).
     func publish(windowID: String, png: Data, handOff: (LaunchRecordImage) -> Void) -> LaunchRecordImage? {
         #if canImport(CCmuxLaunchImageFFI)
         return withoutActuallyEscaping(handOff) { handOff in
-            let context = HandOff(handOff)
+            let context = HandOff { image in
+                if let image = record(image, windowID: windowID) { handOff(image) }
+            }
             var out = CmuxLaunchImage()
             let written = withExtendedLifetime(context) {
                 directory.path.withCString { dir in
                     windowID.withCString { id in
                         png.withUnsafeBytes { bytes in
                             cmux_launch_image_publish_with(dir, id, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &out, { image, context in
-                                guard let image, let context, let record = LaunchImageStore.record(image.pointee) else { return }
-                                Unmanaged<HandOff>.fromOpaque(context).takeUnretainedValue().body(record)
+                                guard let image, let context else { return }
+                                Unmanaged<HandOff>.fromOpaque(context).takeUnretainedValue().body(image.pointee)
                             }, Unmanaged.passUnretained(context).toOpaque())
                         }
                     }
                 }
             }
-            return written ? Self.record(out) : nil
+            return written ? record(out, windowID: windowID) : nil
         }
         #else
         return nil
@@ -146,19 +155,22 @@ nonisolated struct LaunchImageStore: Sendable {
     #if canImport(CCmuxLaunchImageFFI)
     /// The hand-off closure, passed through the C call's context pointer for the call only.
     private nonisolated final class HandOff {
-        let body: (LaunchRecordImage) -> Void
-        init(_ body: @escaping (LaunchRecordImage) -> Void) { self.body = body }
+        let body: (CmuxLaunchImage) -> Void
+        init(_ body: @escaping (CmuxLaunchImage) -> Void) { self.body = body }
     }
 
-    /// The record's view of a published image; nil for a path that is not UTF-8.
-    private static func record(_ image: CmuxLaunchImage) -> LaunchRecordImage? {
-        var path = image.path
-        let string = withUnsafeBytes(of: &path) { raw -> String? in
-            let end = raw.firstIndex(of: 0) ?? raw.count
-            return String(bytes: raw[..<end], encoding: .utf8)
+    /// The record's view of `windowID`'s published image: its key (Rust's `cmux_launch_image_record_key`)
+    /// and pixel size; nil when the key cannot be made.
+    func record(_ image: CmuxLaunchImage, windowID: String) -> LaunchRecordImage? {
+        var key = [CChar](repeating: 0, count: Int(CMUX_LAUNCH_IMAGE_KEY_CAPACITY))
+        let made = version.withOptionalCString { version in
+            commit.withOptionalCString { commit in
+                windowID.withCString { id in cmux_launch_image_record_key(version, commit, id, image.generation, &key, key.count) }
+            }
         }
-        guard let string, !string.isEmpty else { return nil }
-        return LaunchRecordImage(path: string, pixelWidth: image.pixel_width, pixelHeight: image.pixel_height)
+        guard made else { return nil }
+        return LaunchRecordImage(key: String(decoding: key.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self),
+                                 pixelWidth: image.pixel_width, pixelHeight: image.pixel_height)
     }
     #endif
 }
@@ -185,5 +197,15 @@ nonisolated struct LaunchPageRegion: Sendable {
         #else
         return false
         #endif
+    }
+}
+
+private extension Optional where Wrapped == String {
+    /// `body` with the string's C form, or null for nil.
+    nonisolated func withOptionalCString<R>(_ body: (UnsafePointer<CChar>?) -> R) -> R {
+        switch self {
+        case .some(let string): string.withCString { body($0) }
+        case .none: body(nil)
+        }
     }
 }
