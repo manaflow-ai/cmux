@@ -8,6 +8,16 @@ import {
   STALE_MS,
   DEV_API,
   DEV_PLATFORM,
+  DEV_DEVICE_HUB,
+  NO_REQUESTS,
+  SHARE_FRAME_LIMIT_MS,
+  SHARE_HOLD_MS,
+  SHARE_ONLINE_LIMIT_MS,
+  VIEWER_DISPLAY,
+  joinedDevice,
+  listedDevices,
+  parseArgs,
+  viewStats,
   type ChildResult,
   type Deps,
   type Options,
@@ -46,6 +56,28 @@ const opts: Options = {
   sha: "a".repeat(40)
 }
 const env = { CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD }
+const CMUX_RD = "/tmp/machine-join-e2e.test/bin/cmux-rd"
+const HOST_RD = `${HOME}/.local/bin/cmux-rd`
+const VIEWER_USER = "cmuxview-1-1"
+const VIEWER_HOME = "/tmp/machine-join-e2e.test/viewer"
+const shareOpts: Options = { ...opts, share: { cmuxRd: CMUX_RD, viewerUser: VIEWER_USER, viewerHome: VIEWER_HOME, hub: DEV_DEVICE_HUB } }
+/** What `cmux-rd view` writes to its --stats-file (view/stream.rs). */
+const VIEW_REPORT = {
+  view: {
+    ended: "viewer_disconnected",
+    connected: true,
+    path: "host",
+    welcome: { encoder: "openh264", width: 1920, height: 1080, caps: ["h264.baseline"] },
+    seconds: 5.2,
+    frames: 31,
+    decoded: 30,
+    decode_errors: 0,
+    mbit_per_s: 1.8412345,
+    decode_ms: { p50: 1.1, p95: 2.3 },
+    presented: 30,
+    host_stats_last: null
+  }
+}
 
 interface Knobs {
   /** What the --bench script prints and how it exits. */
@@ -119,6 +151,33 @@ interface Knobs {
   tarWarning?: string
   /** The join is this shell script, run as a real child by realDeps (its exit code and output are the join's). */
   joinScript?: string
+  /** Share mode's world: the host's enable, the hub's device list and the viewer. */
+  share?: ShareKnobs
+}
+
+interface ShareKnobs {
+  /** What the host's `linux-host enable --non-interactive` prints and exits with (default: signed in, installed). */
+  enable?: ChildResult
+  /** The host's device never shows online on the hub. */
+  neverOnline?: boolean
+  /** How long after the enable the device shows online (default 4 s). */
+  onlineAfterMs?: number
+  /** How long after its start the viewer prints its "Streaming" line (default 2 s). */
+  streamAfterMs?: number
+  /** The viewer never streams. */
+  noStream?: boolean
+  /** The viewer's report (its stats file), or null for no file. */
+  stats?: unknown
+  /** The viewer is told to wait for the host's person. */
+  prompted?: boolean
+  /** The viewer ends on its own at once, printing this. */
+  viewerEnds?: string
+  /** What `linux-host requests` prints. */
+  requests?: string
+  /** Where ~/.local/bin/cmux-rd resolves to. */
+  linkTarget?: string
+  /** Files the viewer leaves in its home (keys under HOME, for tarOf). */
+  viewerHomeFiles?: Record<string, string>
 }
 
 /** A GNU tar archive of `files` (path -> text) relative to HOME, as `tar -C HOME -cf - .` writes it. */
@@ -346,6 +405,45 @@ function world(k: Knobs = {}) {
     return { code: 64, stdout: "", stderr: "unknown\n" }
   }
 
+  // Share mode: the viewer's display, the host's enable and the hub's view of its device.
+  const sk = k.share ?? {}
+  let xvfb = false
+  let enabledAt: number | null = null
+  const viewerRuns: Array<{ cmd: string[]; stdin?: string }> = []
+  const viewerSpawns: Array<{ cmd: string[]; stdin?: string; startedAt: number }> = []
+  const hostCmds: string[][] = []
+  const deviceLines = () =>
+    "dev_mac1  macos  Old Mac  (offline)\n" +
+    (enabledAt !== null && !sk.neverOnline && clock - enabledAt >= (sk.onlineAfterMs ?? 4_000) ? "dev_host1  linux  ci-join-1\n" : "")
+  const viewerRun = (argv: string[], o: { stdin?: string; binary?: boolean }): ChildResult => {
+    if (argv[5] === "/usr/bin/env" && argv[6] === "-i" && argv.includes("tar")) return { code: 0, stdout: o.binary ? tarOf(sk.viewerHomeFiles ?? {}) : "", stderr: "" }
+    // sudo -n -u VIEWER -- /usr/bin/env -i -C HOME (6 assignments) PROGRAM ...
+    const cmd = argv.slice(15)
+    viewerRuns.push({ cmd, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
+    if (cmd[0] === "test") return { code: xvfb ? 0 : 1, stdout: "", stderr: "" }
+    if (cmd[0] === "cat") return sk.stats === null ? { code: 1, stdout: "", stderr: "No such file" } : { code: 0, stdout: `${JSON.stringify(sk.stats ?? VIEW_REPORT)}\n`, stderr: "" }
+    if (cmd[0] === CMUX_RD && cmd[1] === "view" && cmd[2] === "--list") {
+      if (o.stdin !== `${STACK_ACCESS}\n`) return { code: 1, stdout: "", stderr: "cmux-rd view: hub: 401 unauthorized\n" }
+      return { code: 0, stdout: deviceLines(), stderr: "" }
+    }
+    return { code: 1, stdout: "", stderr: "unknown viewer command\n" }
+  }
+  const hostRun = (cmd: string[]): ChildResult | undefined => {
+    if (cmd[0] === "id") return { code: 0, stdout: "1001\n", stderr: "" }
+    if (cmd[0] === "readlink") return { code: 0, stdout: `${sk.linkTarget ?? CMUX_RD}\n`, stderr: "" }
+    if (cmd[0] !== "/usr/bin/env" || cmd[1] !== "XDG_RUNTIME_DIR=/run/user/1001" || cmd[2] !== "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus") return undefined
+    const rest = cmd.slice(3)
+    hostCmds.push(rest)
+    if (rest[0] === "journalctl") return { code: 0, stdout: 'linux-host: serving "ci-join-1" (dev_host1)\n', stderr: "" }
+    if (rest[0] === HOST_RD && rest[1] === "linux-host" && rest[2] === "enable") {
+      const r = sk.enable ?? { code: 0, stdout: 'no graphical session on this machine; shares use a virtual display at :99, started when one is needed\nThis desktop is shared as "ci-join-1" (dev_host1), view and control; the host runs as cmux-screen-host.service.\n', stderr: "" }
+      if (r.code === 0 && !r.stdout.includes("not_installed:")) enabledAt = clock
+      return r
+    }
+    if (rest[0] === HOST_RD && rest[1] === "linux-host" && rest[2] === "requests") return { code: 0, stdout: `${sk.requests ?? NO_REQUESTS}\n`, stderr: "" }
+    return { code: 1, stdout: "", stderr: "unknown host command\n" }
+  }
+
   const deps: Deps = {
     fetch,
     run: async (argv, o) => {
@@ -355,6 +453,11 @@ function world(k: Knobs = {}) {
         if (k.killDelayMs) await after(k.killDelayMs)
         if (!k.launcherOnly) stopJoin()
         return { code: 0, stdout: "", stderr: "" }
+      }
+      if (k.share && argv[3] === VIEWER_USER) return viewerRun(argv, o)
+      if (k.share && argv[0] === "sudo" && argv[3] === opts.user && argv[5] === "/usr/bin/env") {
+        const r = hostRun(argv.slice(14))
+        if (r) return r
       }
       // Every child runs as the disposable user: sudo -n -u USER -- /usr/bin/env -i -C HOME (5 assignments) PROGRAM ...
       if (argv[0] !== "sudo" || argv[2] !== "-u" || argv[5] !== "/usr/bin/env") return { code: 1, stdout: "", stderr: "not as the user" }
@@ -383,8 +486,39 @@ function world(k: Knobs = {}) {
       }
       return { code: 1, stdout: "", stderr: "" }
     },
+    spawn: (argv, o) => {
+      runs.push({ argv, env: o.env, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
+      const startedAt = clock
+      viewerSpawns.push({ cmd: argv.slice(15), ...(o.stdin === undefined ? {} : { stdin: o.stdin }), startedAt })
+      let finish: (r: ChildResult) => void = () => undefined
+      const done = new Promise<ChildResult>((resolve) => (finish = resolve))
+      const stderrNow = () => {
+        if (o.stdin !== `${STACK_ACCESS}\n`) return "cmux-rd view: hub: 401 unauthorized\n"
+        if (sk.viewerEnds !== undefined) return sk.viewerEnds
+        if (sk.prompted) return "Asked ci-join-1 to view it. Waiting for its person to allow this...\n"
+        let text = "Connecting to ci-join-1 (view only)...\n"
+        if (!sk.noStream && clock - startedAt >= (sk.streamAfterMs ?? 2_000)) text += "Path: host, rtt 1.2 ms\nStreaming 1920x1080 (openh264, baseline)\n"
+        return text
+      }
+      if (sk.viewerEnds !== undefined) queueMicrotask(() => finish({ code: 1, stdout: "", stderr: stderrNow() }))
+      return {
+        output: () => ({ code: null, stdout: "", stderr: stderrNow() }),
+        term: () => finish({ code: 0, stdout: "", stderr: `${stderrNow()}${JSON.stringify(sk.stats ?? VIEW_REPORT)}\nSession ended: viewer_disconnected\n` }),
+        kill: () => finish({ code: null, stdout: "", stderr: "" }),
+        done
+      }
+    },
     start: (argv, o) => {
       runs.push({ argv, env: o.env })
+      if (argv.includes("Xvfb")) {
+        xvfb = true
+        return {
+          stop: async () => {
+            xvfb = false
+            return { code: 0, stdout: "", stderr: "" }
+          }
+        }
+      }
       daemonUp = true
       daemonStartedAt = clock
       return {
@@ -432,6 +566,10 @@ function world(k: Knobs = {}) {
     releasedAt: () => releasedAt,
     daemonStartedAt: () => daemonStartedAt,
     statusReads,
+    viewerRuns,
+    viewerSpawns,
+    hostCmds,
+    enabledAt: () => enabledAt,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
@@ -457,7 +595,7 @@ function assertCommandsIntact(w: ReturnType<typeof world>) {
 }
 
 /** What every run must hold, pass or fail. */
-function assertNoSecretEscaped(w: ReturnType<typeof world>) {
+function assertNoSecretEscaped(w: ReturnType<typeof world>, users: string[] = [opts.user]) {
   const evidence = w.evidenceText()
   expect(evidence.length).toBeGreaterThan(0)
   expect(evidenceLeaks(evidence, SECRETS)).toEqual([])
@@ -468,7 +606,9 @@ function assertNoSecretEscaped(w: ReturnType<typeof world>) {
     // Children get exactly a fixed PATH; argv never carries a secret.
     expect(r.env).toEqual({ PATH: CHILD_PATH })
     // Nothing runs as root: every child is the disposable user's.
-    expect(r.argv.slice(0, 5)).toEqual(["sudo", "-n", "-u", opts.user, "--"])
+    expect(r.argv.slice(0, 3)).toEqual(["sudo", "-n", "-u"])
+    expect(users).toContain(r.argv[3]!)
+    expect(r.argv[4]).toBe("--")
     for (const s of SECRETS) expect(r.argv.join("\0")).not.toContain(s)
   }
   // Only the add-mask commands (swallowed by the runner) carry a value; they come before any other mention.
@@ -1287,5 +1427,197 @@ describe("the bench", () => {
     const e = await runE2E(opts, env, w.deps)
     expect(w.benchRuns).toEqual([])
     expect(e.bench).toBeUndefined()
+  })
+})
+
+describe("the zero-touch share", () => {
+  const USERS = [opts.user, VIEWER_USER]
+  /** Every cmux-rd the joined user ran: the join's enable and the read-only requests, nothing else. */
+  const hostRdCalls = (w: ReturnType<typeof world>) => w.hostCmds.filter((c) => c[0] === HOST_RD).map((c) => c.slice(1).join(" "))
+
+  test("a joined headless machine is shared with no step on it: stream, a decoded frame, no request", async () => {
+    const w = world({ share: {} })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.reason).toBe("joined, heartbeat, listed, consent none, mode 600, shared with no step on the host, revoked, no secrets found")
+    expect(e.result).toBe("pass")
+    expect(e.share).toMatchObject({
+      hub: DEV_DEVICE_HUB,
+      viewerSignedIn: true,
+      enable: { code: 0, notInstalled: false },
+      deviceId: "dev_host1",
+      streamingMs: 2_000,
+      hostPrompted: false,
+      requestsEmpty: true,
+      viewerHomeHeld: 0,
+      view: { connected: true, decoded: 30, frames: 31, mbitPerS: 1.841, width: 1920, height: 1080, encoder: "openh264", path: "host" }
+    })
+    expect(e.share!.deviceOnlineMs).toBeGreaterThanOrEqual(4_000)
+    expect(e.share!.deviceOnlineMs).toBeLessThanOrEqual(SHARE_ONLINE_LIMIT_MS)
+    // Stopped SHARE_HOLD_MS after it began streaming (to the 250 ms poll).
+    expect(e.share!.firstFrameWithinMs).toBeGreaterThanOrEqual(2_000 + SHARE_HOLD_MS)
+    expect(e.share!.firstFrameWithinMs).toBeLessThanOrEqual(2_000 + SHARE_HOLD_MS + 250)
+    expect(e.share!.enable.lines[0]).toContain("shares use a virtual display at :99")
+    // The host side: only the join's enable, then the read-only request list. No approve, share on, grant or run.
+    expect(hostRdCalls(w)).toEqual([`linux-host enable --non-interactive --hub ${DEV_DEVICE_HUB}`, "linux-host requests"])
+    // The viewer asked to view the joined machine's device, on its own display, with the account token on stdin only.
+    expect(w.viewerSpawns).toHaveLength(1)
+    expect(w.viewerSpawns[0]!.cmd).toEqual([CMUX_RD, "view", "dev_host1", "--hub", DEV_DEVICE_HUB, "--stack-token-file", "-", "--display", VIEWER_DISPLAY, "--stats-file", `${VIEWER_HOME}/view-stats.json`, "--scope", "view"])
+    expect(w.viewerSpawns[0]!.stdin).toBe(`${STACK_ACCESS}\n`)
+    // The viewer signed in (its list) before the host's enable: the hub then knows the account.
+    const firstList = w.runs.findIndex((r) => r.argv.includes("--list"))
+    const enableAt = w.runs.findIndex((r) => r.argv.includes("enable"))
+    expect(firstList).toBeGreaterThanOrEqual(0)
+    expect(firstList).toBeLessThan(enableAt)
+    // The share ran while joined: the machine was revoked after it.
+    expect(e.revoke).toEqual({ revokedListed: true, statusRevoked: true })
+    // Cleanup ended every process of both users.
+    expect(w.kills.some((c) => c.includes(`-u ${VIEWER_USER} -- /bin/kill -KILL -1`))).toBe(true)
+    expect(w.kills.some((c) => c.includes(`-u ${opts.user} -- /bin/kill -KILL -1`))).toBe(true)
+    expect(w.lines.some((l) => l.includes("view: streaming after 2000 ms, 30 frame(s) decoded"))).toBe(true)
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("before the machine signs in (today): enable says not_installed and the run fails for that, still revoked", async () => {
+    const notInstalled = "not_installed: screen sharing is set up on this machine but not signed in: the device hub cannot sign a joined machine in with its machine credential yet\n"
+    const w = world({ share: { enable: { code: 0, stdout: `no graphical session on this machine; started a virtual display at :99 for sharing\n${notInstalled}`, stderr: "" } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toBe("share: the host did not sign in: linux-host enable --non-interactive said not_installed")
+    expect(e.share).toMatchObject({ viewerSignedIn: true, enable: { code: 0, notInstalled: true }, deviceId: null, streamingMs: null })
+    expect(w.viewerSpawns).toEqual([])
+    expect(e.revoke.revokedListed).toBe(true)
+    expect(e.revoke.statusRevoked).toBe(true)
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a device that never comes online fails after the online limit", async () => {
+    const w = world({ share: { neverOnline: true } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain(`share: the joined machine's device was not online and shared on the hub within ${SHARE_ONLINE_LIMIT_MS / 1000} s`)
+    expect(w.viewerSpawns).toEqual([])
+    expect(e.revoke.revokedListed).toBe(true)
+    // The host unit's log is printed with the failure.
+    expect(w.lines.some((l) => l.includes("host: linux-host: serving"))).toBe(true)
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a failed enable fails the run with its last line", async () => {
+    const w = world({ share: { enable: { code: 1, stdout: "", stderr: `cmux-rd linux-host: hub: 403 account_not_on_hub ${CREDENTIAL}\n` } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: linux-host enable --non-interactive exited 1: cmux-rd linux-host: hub: 403 account_not_on_hub secret")
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a request that waits for the host's person fails at once", async () => {
+    const w = world({ share: { prompted: true } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: the request waited for a person on the host")
+    expect(e.share!.hostPrompted).toBe(true)
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("no stream within the frame limit fails, stopping the viewer at the limit", async () => {
+    const w = world({ share: { noStream: true, stats: { view: { ...VIEW_REPORT.view, decoded: 0, frames: 0, welcome: null } } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain(`share: the viewer did not stream within ${SHARE_FRAME_LIMIT_MS / 1000} s`)
+    expect(e.reason).toContain("share: no frame decoded")
+    expect(e.share!.firstFrameWithinMs).toBeNull()
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a stream with no decoded frame fails", async () => {
+    const w = world({ share: { stats: { view: { ...VIEW_REPORT.view, decoded: 0, decode_errors: 12 } } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: no frame decoded")
+    expect(e.share!.view).toMatchObject({ decoded: 0, decodeErrors: 12 })
+  })
+
+  test("a viewer that ends on its own fails with its last line, made plain", async () => {
+    const w = world({ share: { viewerEnds: "cmux-rd view: no shared device is called dev_host1::stop-commands::x ##[error]\n", stats: null } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("(it ended: cmux-rd view: no shared device is called dev_host1: :stop-commands: :x  error)")
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a request left waiting on the host fails", async () => {
+    const w = world({ share: { requests: "ab12cd  ci-viewer  view  asks" } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: linux-host requests on the host is not empty")
+  })
+
+  test("a host cmux-rd that is not the run's build stops the share before any step", async () => {
+    const w = world({ share: { linkTarget: "/usr/local/bin/cmux-rd" } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
+    expect(hostRdCalls(w)).toEqual([])
+  })
+
+  test("the viewer's home must keep nothing of the sign-in", async () => {
+    const w = world({ share: { viewerHomeFiles: { [`${HOME}/.config/cmux/screen-viewer/token`]: STACK_ACCESS } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.share!.viewerHomeHeld).toBeGreaterThan(0)
+    expect(e.reason).toContain("the viewer's home holds a value of this run's sign-in")
+  })
+
+  test("share options are refused unless they name the development hub and a viewer of its own", () => {
+    expect(refusal(shareOpts)).toBeUndefined()
+    expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, hub: "https://cmux-device-hub.debussy.workers.dev" } })).toContain("device hub")
+    expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, viewerUser: opts.user } })).toContain("viewer user")
+    expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, viewerUser: "root" } })).toContain("viewer user")
+    expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, viewerHome: HOME } })).toContain("viewer home")
+    expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, cmuxRd: "cmux-rd" } })).toContain("cmux-rd")
+  })
+
+  test("share flags parse; without them there is no share", () => {
+    const base = ["--origin", DEV_PLATFORM, "--acpmux", opts.acpmux, "--user", opts.user, "--home", HOME, "--name", "ci-join-1", "--evidence", opts.evidence, "--run", "1", "--sha", opts.sha]
+    expect(parseArgs(base).share).toBeUndefined()
+    expect(parseArgs([...base, "--share-cmux-rd", CMUX_RD, "--viewer-user", VIEWER_USER, "--viewer-home", VIEWER_HOME, "--device-hub", DEV_DEVICE_HUB]).share).toEqual(shareOpts.share)
+  })
+
+  test("the list, the device and the report parsers", () => {
+    const listed = listedDevices("dev_mac1  macos  Old Mac  (offline)\ndev_host1  linux  ci-join-1\nNo other device of this account shares its screen.\n")
+    expect(listed).toEqual([
+      { id: "dev_mac1", platform: "macos", name: "Old Mac", online: false },
+      { id: "dev_host1", platform: "linux", name: "ci-join-1", online: true }
+    ])
+    expect(joinedDevice([], listed, "ci-join-1")?.id).toBe("dev_host1")
+    // Not by name: the one new online linux device.
+    expect(joinedDevice([], listed, "other")?.id).toBe("dev_host1")
+    expect(joinedDevice([listed[1]!], listed, "other")).toBeUndefined()
+    // An offline device of that name is not the joined machine online.
+    expect(joinedDevice([], [{ ...listed[1]!, online: false }], "ci-join-1")).toBeUndefined()
+    expect(viewStats(`Streaming 1920x1080\n${JSON.stringify(VIEW_REPORT)}\nSession ended: x\n`)).toMatchObject({ decoded: 30, mbitPerS: 1.841, encoder: "openh264" })
+    expect(viewStats("nothing\n")).toBeNull()
+    // Token-shaped words never reach the evidence.
+    expect(viewStats(JSON.stringify({ view: { ended: `bye ${TOKEN}`, welcome: { encoder: "eyJabc" } } }))).toMatchObject({ ended: null, encoder: null })
+  })
+
+  test("no share without --share-cmux-rd", async () => {
+    const w = world()
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.share).toBeUndefined()
+    expect(w.viewerSpawns).toEqual([])
+    expect(w.hostCmds).toEqual([])
+  })
+})
+
+describe("the share's lines", () => {
+  test("a token shape no secret matches is replaced, so the evidence stays whole", async () => {
+    const w = world({ share: { enable: { code: 1, stdout: "", stderr: "hub: 403 cmm_notOneOfOursButShaped_0123456789 eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln Bearer x\n" } } })
+    const e = await runE2E(shareOpts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("exited 1: hub: 403 (token) jwt.c2ln (auth) x")
+    // Not the bare evidence a redaction failure leaves.
+    expect(e.share?.enable.code).toBe(1)
+    assertNoSecretEscaped(w, [opts.user, VIEWER_USER])
   })
 })

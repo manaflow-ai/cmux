@@ -1532,7 +1532,7 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         return STEP_NAMES_UNKNOWN
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
-    named, unread = [], []
+    named, rendered, unread = [], [], []
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
             return STEP_NAMES_UNKNOWN
@@ -1541,11 +1541,21 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         except Refused:
             # A name _check_matcher does not read (two expressions: 'Reviewer path (${{ needs.plan.outputs.lane }},
             # ${{ matrix.family }})') still names JOB when JOB's name is its text with each expression rendered.
-            (named if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
+            (rendered if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
             continue
         if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
                                                        for start in matcher["prefixes"])):
             named.append(spec)
+    # A name that only renders as JOB's names it only when no workflow job is named JOB outright; beside one that is,
+    # it is a job whose name is not read, like any other (its steps, if they fit, must give the same marks). A name
+    # that is one expression and no text (cmux-next.yml's cmux-scheme-compile, `${{ inputs.dev_daily == true && ...
+    # || 'cmux app scheme compile (Debug)' }}`) renders as anything: read as a second job named JOB, it left every log
+    # of 'cmux-next checks (god files, concurrency, crash safety, l10n)' with no headers and unplaced (cmux#44442 at
+    # 656af9e3, #44349, #44164 on 2026-11-16), so each of its reds was compared whole.
+    if named:
+        unread += rendered
+    else:
+        named = rendered
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
@@ -2099,6 +2109,93 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
                             f"'{other.get('name')}' ({url}), in the same steps")
         fixed |= passed
     return None
+
+# A sub-check the base ran and passed (2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5). One step runs
+# many checks, concurrently through scripts/ci/run-checks-concurrently.sh, which prints one
+# `::group::<command>: ok, <n>s` line per check that passed and `::error title=check failed::<command>` for each that
+# failed. Both heads' only red was 'cmux-next checks (god files, concurrency, crash safety, l10n)', failing
+# ./scripts/lint-ios-package-conventions.sh on three namespace-type violations in files neither PR touches, which base
+# commit f48280ea767 justified after their merge-base. The base ran that lint and passed it, so compared whole each
+# head had error lines the base lacked, and both reds read as the PRs' own with nothing said about what to do: the
+# fix was already on the base and a base merge would have cleared them. So when every base verdict read ran and
+# passed the script the head's extra error lines name, the refusal says that by name, and says to merge the base. It
+# excuses nothing by itself: a red is still only excused by a base verdict that fails the same lines.
+# Read from the extension back, never forward from a path's start: a line of "scripts/scripts/scripts/..." makes
+# every start scan the whole rest of it, which is quadratic in the line (PrLogPatternsScale). Each backward
+# walk stops at the end of the previous match, so the whole reading is linear.
+SUB_CHECK_END = re.compile(r"\.(?:sh|py|mjs|js|ts)(?![\w.-])")
+# What a path of a script a step runs is made of.
+SUB_CHECK_PATH = "_./-"
+
+
+def sub_checks(error: str) -> frozenset:
+    """The scripts an error line names (`./scripts/lint-ios-package-conventions.sh`), which is how a step's log says
+    which check printed it; empty when the line names none. Only a script a step runs (`scripts/...`, with or without
+    a leading `./`), so a compiler error naming a source file is no sub-check."""
+    found: set = set()
+    stop = 0
+    for end in SUB_CHECK_END.finditer(error):
+        begin = end.start()
+        while begin > stop and (error[begin - 1].isalnum() or error[begin - 1] in SUB_CHECK_PATH):
+            begin -= 1
+        stop = end.end()
+        path = error[begin:end.end()].removeprefix("./")
+        if path.startswith("scripts/") and "//" not in path:
+            found.add(path)
+    return frozenset(found)
+
+
+# What scripts/ci/run-checks-concurrently.sh prints for a check that passed: `::group::<command>: ok, <n>s`, which the
+# runner renders as `##[group]<command>: ok, 22s`. Not a step header (STEP_START reads `##[group]Run `), and the one
+# line that tells a check that ran and passed from a name a step merely echoes.
+CHECK_GROUP = "##[group]"
+
+
+def check_passed_in(log: str, marker: str) -> bool:
+    """Whether LOG says the concurrent check runner ran MARKER and it passed (`##[group]<command>: ok, 22s`)."""
+    return any(line.startswith(CHECK_GROUP) and not STEP_START.match(line) and f"{marker}: ok," in line
+               for line in lines_of(log))
+
+
+def passed_on_base_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
+                           seen: "list[tuple[dict, dict, UnplacedSignature]]", github) -> None:
+    """Raises Refused naming the script when the head's extra error lines over every base verdict read (SEEN:
+    (run, job, signature)) name one that each of those verdicts ran and passed; returns None when no base log says
+    so. A refusal only: it never excuses a red."""
+    markers: set = set()
+    # Whether merging the base clears the whole red, so whether that is said: no extra error line of the head names
+    # another script, and no failed step is the head's alone. A line naming no script at all (a check's own summary,
+    # `FAIL: convention violations found`) cannot be told from the passed check's own output, so it does not count
+    # against it; a line naming a script that did not pass on the base is other work a base merge leaves.
+    whole = True
+    for _, job, found in seen:
+        extra = sorted((head.errors - found.errors).elements())
+        if not extra:
+            return None
+        asked = {marker for error in extra for marker in sub_checks(error)}
+        log = github.log(repo, job) or ""
+        asked = {marker for marker in asked if check_passed_in(log, marker)}
+        if not asked:
+            return None
+        whole = whole and not any(sub_checks(error) and not (sub_checks(error) & asked) for error in extra)
+        markers = asked if not markers else markers & asked
+        if not markers:
+            return None
+    # No base verdict was read at all (every log read failed): there is nothing to name.
+    if not seen or not markers:
+        return None
+    if head.steps - sum((found.steps for _, _, found in seen), Counter()):
+        whole = False  # a failed step of its own, beside these lines
+    run = seen[0][0]
+    url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+    said = "; ".join(sorted(markers))[:200]
+    raise Refused(f"'{name}': {base} run {run['id']} ran {said} in '{name}' and it passed there ({url}), so this red "
+                  f"is not {base}'s"
+                  + (f"; when {base} fixed what it reports after this PR's merge-base, merge {base} into the branch "
+                     "and the red goes" if whole
+                     else f"; {base} may have fixed what it reports after this PR's merge-base, and this head fails "
+                          "more besides, which a base merge does not clear"))
+
 
 
 # A setup red another pull request shares (2026-11-15, cmux#41892 at d1631b27, run 43737949394). ios-e2e.yml runs on
@@ -5764,6 +5861,27 @@ def infra(name: str, job: dict, why: str) -> Infra:
 # steps keeps the refusal below.
 RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 
+# A job whose failed steps printed nothing but GitHub's API rate-limit refusal decided nothing about the PR either:
+# cmux#44387 at cf31af39 (2026-11-16, job 133700254405), whose push-only `re-run the runs that deferred to the
+# published tree` could not list the tree's deferred markers ("gh: API rate limit exceeded for installation ID ...",
+# HTTP 403) on either token. Its base runs were green, so it was refused "not red on feat-cmux-next ...; fix it on this
+# head", and merge_hold named an update-branch that reruns every check for a quota red. Such a red is Infra too, with
+# or without a base verdict: refused (never excused: the job did not run), named as the re-run it needs. Any other
+# error line beside it, or a failing test, keeps the comparison.
+GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
+
+
+def github_quota_only(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
+    and no test failed, else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
+
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
@@ -7421,6 +7539,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
+        # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
+        # its comparison below, which may excuse it as the base's.
+        quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
+        if quota is not None:
+            raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
             if (asked := asks_only_rerun(view)) is not None:
                 raise infra(name, job, f"its check could not run and printed only {asked!r}")
@@ -7548,6 +7671,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                     evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
                                 audit.append(same)
                                 break
+                            # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
+                            # the head fails, and to merge the base (passed_on_base_verdict).
+                            passed_on_base_verdict(repo, base, name, mine, seen, github)
                             raise
                         read += 1
                         base_run, base_job = run, found
