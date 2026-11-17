@@ -36,7 +36,7 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            let tab = entry.tab.id.rawValue
+            let tab = entry.key
             window.focus.send(.toggleBrowserFocusMode(tab: tab))
             // Entering puts the keyboard in the page (classic cmux parity): from the
             // address bar or find bar, focus mode would wait for a click otherwise.
