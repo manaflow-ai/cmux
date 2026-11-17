@@ -1238,8 +1238,17 @@ impl Peer {
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         Frame::Pong(payload) => {
-                            if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
-                                self.path_pong(via, rtt);
+                            let read_to_handler = heard.as_ref().map(Heard::read_to_handler);
+                            if let Some(rtt) = carriers::pong_rtt(&payload) {
+                                tracing::debug!(
+                                    peer = %self.name,
+                                    rtt_ms = rtt.as_secs_f64() * 1000.0,
+                                    read_to_handler_ms = read_to_handler.map(|d| d.as_secs_f64() * 1000.0),
+                                    "peer keepalive pong handled",
+                                );
+                                if let Some(via) = self.serving() {
+                                    self.path_pong(via, rtt);
+                                }
                             }
                             continue;
                         }

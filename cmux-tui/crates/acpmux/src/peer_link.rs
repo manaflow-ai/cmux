@@ -425,6 +425,15 @@ impl Heard {
         self.origin.elapsed().saturating_sub(at)
     }
 
+    /// How long the current task has run since the transport read the last bytes.
+    ///
+    /// The transport marks the read before `WebSocketStream::next()` parses the frame. A
+    /// keepalive pong handled with a near-zero value therefore reached this task in the same
+    /// poll; a large value would show that the runtime queued the task after the socket read.
+    pub fn read_to_handler(&self) -> Duration {
+        self.silent()
+    }
+
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
         HeardStream { inner, heard: self.clone() }
     }
