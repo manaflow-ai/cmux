@@ -247,9 +247,17 @@ pub fn stdio_view(home: &Path, session: &str, mut config: Value) -> Value {
     let kept = || -> Option<Kept> {
         serde_json::from_slice(&std::fs::read(launch_path(home, session)).ok()?).ok()
     };
+    // Only this chat's own gateway entry: another HTTP server is the user's, whatever its path.
+    let Some(listener) = std::fs::read(home.join("run").join("mcp-gateway.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Listener>(&b).ok())
+    else {
+        return config;
+    };
+    let ours = format!("http://127.0.0.1:{}/mcp/{session}", listener.port);
     for server in servers.values_mut() {
         if server.get("type").and_then(Value::as_str) != Some("http")
-            || !server.get("url").and_then(Value::as_str).is_some_and(|u| u.contains("/mcp/"))
+            || server.get("url").and_then(Value::as_str) != Some(ours.as_str())
         {
             continue;
         }
@@ -518,7 +526,12 @@ impl Server {
             .stdin(cmux_process::Stdio::piped())
             .stdout(cmux_process::Stdio::piped())
             .stderr(cmux_process::Stdio::null());
-        if let Some(cwd) = launch.cwd.as_ref().filter(|c| c.is_dir()) {
+        // As the harness's own stdio launch: a chat folder that is gone fails the start, never
+        // runs the tools in the daemon's folder.
+        if let Some(cwd) = &launch.cwd {
+            if !cwd.is_dir() {
+                return Err(anyhow!("the chat's folder {} is not there", cwd.display()));
+            }
             command.current_dir(cwd);
         }
         let mut child = command.spawn()?;

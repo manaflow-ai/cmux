@@ -248,7 +248,11 @@ async fn a_closed_chats_server_ends_with_it() {
 /// as its tool allowlist when set.
 fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
     let socket = socket.to_string_lossy().into_owned();
-    let base = |session_env: &str| json!({session_env: session, "ACPMUX_SOCKET": socket, "ACPMUX_HOME": "/nonexistent"});
+    let base = |session_env: &str| {
+        let mut env = json!({"ACPMUX_SOCKET": socket, "ACPMUX_HOME": "/nonexistent"});
+        env[session_env] = json!(session);
+        env
+    };
     let caller = |mut env: Value| {
         // What the daemon that registered the chat gave it: this gateway puts its own run's
         // token in its place.
@@ -438,10 +442,36 @@ fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
         &serde_json::to_vec(&kept).unwrap(),
     )
     .unwrap();
-    let config = json!({"mcpServers": {"cmux": {"type": "http", "url": "http://127.0.0.1:1/mcp/chat-h", "headers": {}}}});
+    let listener = Listener { port: 1, key: String::new() };
+    crate::agent_tools::write_private(
+        &home.path().join("run").join("mcp-gateway.json"),
+        &serde_json::to_vec(&listener).unwrap(),
+    )
+    .unwrap();
+    // A user's own HTTP server whose path also holds `/mcp/`, and one on another port: not ours.
+    let theirs = json!({"type": "http", "url": "http://127.0.0.1:9/mcp/chat-h", "headers": {}});
+    let config = json!({"mcpServers": {
+        "cmux": {"type": "http", "url": "http://127.0.0.1:1/mcp/chat-h", "headers": {}},
+        "users": {"type": "http", "url": "https://example.test/mcp/v1", "headers": {}},
+        "other-port": theirs,
+    }});
     let view = stdio_view(home.path(), "chat-h", config);
     assert_eq!(view.pointer("/mcpServers/cmux/command"), Some(&json!("python3")));
     assert_eq!(view.pointer("/mcpServers/cmux/env/FAKE_ENV"), Some(&json!("1")));
+    assert_eq!(view.pointer("/mcpServers/users/type"), Some(&json!("http")), "the user's stays");
+    assert_eq!(view.pointer("/mcpServers/other-port"), Some(&theirs), "another port stays");
+}
+
+#[tokio::test]
+async fn a_chat_whose_folder_is_gone_gets_an_error_not_a_server_in_the_daemons_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let gone = home.path().join("removed-checkout");
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-z", launch(&gone)).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}});
+    let answer = rpc(&g, "chat-z", init).await;
+    assert!(answer.get("error").is_some(), "an error, not an answer: {answer}");
+    assert_eq!(g.server_pid("chat-z").await, None, "no server started anywhere");
 }
 
 #[test]
