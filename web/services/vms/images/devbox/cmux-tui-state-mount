@@ -4,7 +4,14 @@
 # consume the daemon's state budget and leave SQLite/WAL writes with no room.
 # When the state filesystem is low, this helper grows it in bounded steps while
 # preserving root-filesystem headroom. The VM's provisioned disk size is
-# unchanged.
+# unchanged. Growth is best effort: when the root disk is full or the cap is
+# reached, the daemon keeps running on the room the state filesystem still has,
+# because a deferred daemon leaves the machine unreachable.
+#
+# `ensure` also bind-mounts the daemon's remote state (its lifecycle records,
+# Noise identity and sockets) from this filesystem over its usual path. The
+# daemon writes those records on every start and exits if it cannot, so on the
+# root filesystem a full disk stops it no matter how much room this one has.
 
 set -eu
 
@@ -14,7 +21,12 @@ STATE_RESERVATION_MARKER=/etc/cmux/cmux-tui-state-reservation
 STATE_SIZE_BYTES=1073741824
 STATE_MAX_BYTES=8589934592
 STATE_MIN_FREE_KB=131072
+# Below this the daemon cannot make progress, so startup is deferred.
+STATE_CRITICAL_FREE_KB=16384
 ROOT_MIN_FREE_KB=1048576
+# The supervisor's BOUND_INSTANCE_FILE and REMOTE_SESSION_COMPONENT.
+REMOTE_INSTANCE_FILE=/etc/cmux/daemon-instance-id
+REMOTE_SESSION_COMPONENT=Y2xvdWQ
 
 usage() {
   echo "usage: $0 ensure|create HOME USER" >&2
@@ -43,9 +55,154 @@ free_kb() {
   df -Pk "$1" | awk 'NR == 2 { print $4; exit }'
 }
 
+# df output that is not a plain count must never pass a headroom comparison.
+is_count() {
+  case "$1" in ""|*[!0-9]*) return 1 ;; esac
+}
+
+# True when a shutdown record says the previous daemon finished cleanly. Must
+# match the check in cmux-devbox-boot's recover_rebooted_daemon_state: a failed
+# or malformed record stays behind as an acknowledgement fence.
+shutdown_record_succeeded() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate object key")
+        result[key] = value
+    return result
+
+def reject_constant(value):
+    raise ValueError("non-standard JSON constant")
+
+def contains_surrogate(value):
+    if isinstance(value, str):
+        return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+    if isinstance(value, dict):
+        return any(contains_surrogate(key) or contains_surrogate(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(contains_surrogate(item) for item in value)
+    return False
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = json.load(
+            stream,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+if (
+    contains_surrogate(value)
+    or type(value) is not dict
+    or type(value.get("version")) is not int
+    or value["version"] != 1
+    or type(value.get("lifecycle_id")) is not str
+    or not value["lifecycle_id"]
+    or value.get("status") != "succeeded"
+):
+    raise SystemExit(1)
+PY
+}
+
+# Remembers which machine the reserved remote state belongs to. A short write
+# must not look like another machine's record, so it lands whole or not at all.
+record_remote_instance() {
+  [ -s "$REMOTE_INSTANCE_FILE" ] || return 0
+  cmp -s "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id" && return 0
+  cp "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id.new" && chown "$user:$user" "$reserved/.instance-id.new" && mv -f "$reserved/.instance-id.new" "$reserved/.instance-id" || {
+    rm -f "$reserved/.instance-id.new"
+    echo "cmux-tui-state-mount: could not record the remote state's machine" >&2
+  }
+}
+
+# The bind does not survive a reboot, and the supervisor's own boot steps run
+# before it comes back, so they only reach the path underneath. Apply the two
+# that matter to the reserved copy here.
+prepare_reserved_remote_state() {
+  # A kernel reboot leaves no live predecessor: drop its stale runtime marker,
+  # exactly as recover_rebooted_daemon_state does.
+  session_state="$reserved/sessions/$REMOTE_SESSION_COMPONENT"
+  if [ ! -e "$session_state/shutdown.json" ] || shutdown_record_succeeded "$session_state/shutdown.json"; then
+    rm -f "$session_state/runtime.json" "$session_state/shutdown.json"
+  fi
+  # A clone booted from this disk must not keep its parent's Noise identity.
+  if [ -s "$REMOTE_INSTANCE_FILE" ] && [ -s "$reserved/.instance-id" ] && ! cmp -s "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id"; then
+    find "$reserved/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
+    rm -rf "$reserved/connections"
+  fi
+}
+
+# Best effort: a daemon on the root filesystem still runs while that has room.
+bind_remote_state() {
+  [ -f "$STATE_RESERVATION_MARKER" ] || return 0
+  # Never into a state dir that is really the root filesystem.
+  is_mounted || return 0
+  remote="$home/.local/state/cmux/remote"
+  reserved="$state/.cmux-remote"
+  if mountpoint -q "$remote" 2>/dev/null; then
+    record_remote_instance
+    return 0
+  fi
+  # The daemon holds files in the current directory; it binds at the next start.
+  if pgrep -f 'cmux-tui server [s]tart --session cloud' >/dev/null 2>&1; then
+    echo "cmux-tui-state-mount: daemon is running; remote state moves at its next start" >&2
+    return 0
+  fi
+  if [ ! -d "$remote" ]; then
+    mkdir -p "$remote" && chown "$user:$user" "$(dirname "$remote")" "$remote" || return 1
+  fi
+  if [ -d "$reserved" ]; then
+    prepare_reserved_remote_state
+  else
+    rm -rf "$reserved.new"
+    if ! { mkdir "$reserved.new" && cp -a "$remote/." "$reserved.new/" && chown "$user:$user" "$reserved.new" && chmod 0700 "$reserved.new" && mv "$reserved.new" "$reserved"; }; then
+      rm -rf "$reserved.new"
+      return 1
+    fi
+  fi
+  # Keep one copy. One hidden under the bind would escape a fork's identity reset
+  # and come back if this machine ever ran without the bind. Flush first: a power
+  # cut must not leave an unwritten identity here with the only good copy deleted.
+  # A machine with nothing to remove skips the flush, which New Machine would wait for.
+  if [ -n "$(find "$remote" -mindepth 1 -print -quit 2>/dev/null)" ] && sync -f "$reserved"; then
+    find "$remote" -mindepth 1 -delete || true
+  fi
+  mount --bind "$reserved" "$remote" || return 1
+  record_remote_instance
+}
+
+# Boot empties /tmp, and an unprivileged mkdir there needs a free block the daemon
+# cannot get on a full root filesystem. Root can still use ext4's reserved blocks,
+# so make the daemon's private directories here; it accepts them as its own.
+# An existing path is the daemon's to judge, so it is never replaced.
+prepare_daemon_tmp_dirs() {
+  [ -f "$STATE_RESERVATION_MARKER" ] || return 0
+  daemon_uid=$(id -u "$user") || return 0
+  for tmp_dir in "/tmp/cmux-tui-$daemon_uid" "/tmp/cmux-th-$daemon_uid" "/tmp/cmux-image-paste-$daemon_uid"; do
+    [ -e "$tmp_dir" ] && continue
+    [ -L "$tmp_dir" ] && continue
+    { mkdir -m 0700 "$tmp_dir" && chown "$user:$user" "$tmp_dir"; } 2>/dev/null ||
+      echo "cmux-tui-state-mount: could not create $tmp_dir" >&2
+  done
+}
+
+ensure_and_bind_locked() {
+  # Not in a condition: `set -e` must stop here when the image cannot mount.
+  ensure_locked
+  bind_remote_state || echo "cmux-tui-state-mount: remote state stays on the root filesystem" >&2
+  prepare_daemon_tmp_dirs
+}
+
 grow_if_needed() {
   state_free_kb=$(free_kb "$state")
-  [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot read state filesystem free space" >&2; return 1; }
+  is_count "$state_free_kb" || { echo "cmux-tui-state-mount: cannot read state filesystem free space" >&2; return 1; }
   [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
 
   command -v findmnt >/dev/null 2>&1 || { echo "cmux-tui-state-mount: findmnt is required for state growth" >&2; return 1; }
@@ -60,13 +217,13 @@ grow_if_needed() {
     /dev/loop*) ;;
     *) echo "cmux-tui-state-mount: state mount is not backed by a loop device" >&2; return 1 ;;
   esac
-  losetup -c "$loop_device"
-  resize2fs "$loop_device" >/dev/null
+  losetup -c "$loop_device" || return 1
+  resize2fs "$loop_device" >/dev/null || return 1
   state_free_kb=$(free_kb "$state")
-  [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot reread state filesystem free space" >&2; return 1; }
+  is_count "$state_free_kb" || { echo "cmux-tui-state-mount: cannot reread state filesystem free space" >&2; return 1; }
   [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
 
-  current_bytes=$(stat -c %s "$STATE_IMAGE")
+  current_bytes=$(stat -c %s "$STATE_IMAGE") || return 1
   [ "$current_bytes" -lt "$STATE_MAX_BYTES" ] || {
     echo "cmux-tui-state-mount: state filesystem reached its ${STATE_MAX_BYTES}-byte cap" >&2
     return 1
@@ -75,7 +232,7 @@ grow_if_needed() {
   [ "$next_bytes" -le "$STATE_MAX_BYTES" ] || next_bytes=$STATE_MAX_BYTES
   growth_kb=$(((next_bytes - current_bytes + 1023) / 1024))
   root_free_kb=$(free_kb "$STATE_IMAGE")
-  [ -n "$root_free_kb" ] || { echo "cmux-tui-state-mount: cannot read root filesystem free space" >&2; return 1; }
+  is_count "$root_free_kb" || { echo "cmux-tui-state-mount: cannot read root filesystem free space" >&2; return 1; }
   if [ "$root_free_kb" -lt $((growth_kb + ROOT_MIN_FREE_KB)) ]; then
     echo "cmux-tui-state-mount: insufficient root headroom to grow state image (free=${root_free_kb}KiB required=$((growth_kb + ROOT_MIN_FREE_KB))KiB)" >&2
     return 1
@@ -84,9 +241,32 @@ grow_if_needed() {
   command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required for state growth" >&2; return 1; }
 
   echo "cmux-tui-state-mount: growing state image from ${current_bytes} to ${next_bytes} bytes" >&2
-  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE")
-  losetup -c "$loop_device"
-  resize2fs "$loop_device" >/dev/null
+  # A failed fallocate can leave the file partly extended. Shrink it back so a
+  # later resize cannot absorb blocks the root headroom check never approved;
+  # the filesystem inside still ends at current_bytes.
+  # If that shrink fails too, the extra blocks are already the image's; the next
+  # resize puts them to use rather than deferring the daemon over them.
+  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE") || {
+    truncate -s "$current_bytes" "$STATE_IMAGE" 2>/dev/null ||
+      echo "cmux-tui-state-mount: could not shrink the state image back to ${current_bytes} bytes" >&2
+    return 1
+  }
+  losetup -c "$loop_device" || return 1
+  resize2fs "$loop_device" >/dev/null || return 1
+}
+
+# grow_if_needed runs inside `||`, where `set -e` does not apply, so every step
+# above returns its own failure. A failed grow still refuses startup when the
+# state filesystem has no working room left.
+grow_or_keep_room() {
+  grow_if_needed && return 0
+  state_free_kb=$(free_kb "$state")
+  if is_count "$state_free_kb" && [ "$state_free_kb" -ge "$STATE_CRITICAL_FREE_KB" ]; then
+    echo "cmux-tui-state-mount: state growth unavailable; continuing with ${state_free_kb}KiB free" >&2
+    return 0
+  fi
+  echo "cmux-tui-state-mount: state filesystem is full (free=${state_free_kb:-unknown}KiB)" >&2
+  return 1
 }
 
 ensure_locked() {
@@ -95,13 +275,13 @@ ensure_locked() {
   [ -f "$STATE_IMAGE" ] || return 0
   mkdir -p "$state"
   if is_mounted; then
-    grow_if_needed
-    return 0
+    grow_or_keep_room
+    return
   fi
   mount -o loop "$STATE_IMAGE" "$state"
   chown "$user:$user" "$state"
   chmod 0700 "$state"
-  grow_if_needed
+  grow_or_keep_room
 }
 
 create_locked() {
@@ -161,7 +341,7 @@ with_state_lock() {
   "$@"
 }
 
-ensure() { with_state_lock ensure_locked; }
+ensure() { with_state_lock ensure_and_bind_locked; }
 create() { with_state_lock create_locked; }
 
 case "$action" in
