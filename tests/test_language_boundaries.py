@@ -121,7 +121,7 @@ class KeepTests(unittest.TestCase):
     def test_modifying_files_passes(self) -> None:
         self.assertEqual(run(f"M\t{HOME}/A.swift\nM\t{PANE}/x.tsx\nM\t{ACPMUX}/lib.rs\n")[0], 0)
 
-    def test_deleting_a_swift_home_file_fails(self) -> None:
+    def test_deleting_a_swift_home_file_fails_with_nothing_added(self) -> None:
         code, lines = run(f"D\t{HOME}/Messages/HomeComposerIntake.swift\n")
         self.assertEqual(code, 1)
         self.assertIn("imessage-home: loses 1 swift", lines[0])
@@ -163,14 +163,34 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("chat-ui", lines[0])
 
-    def test_deleting_react_chat_ui_fails(self) -> None:
-        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\n")[0], 1)
+    def test_deleting_react_chat_ui_for_swift_or_rust_fails(self) -> None:
+        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\nA\tPackages/macOS/X/Toast.swift\n")[0], 1)
+        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\nA\tcmux-tui/crates/x/src/toast.rs\n")[0], 1)
+        renamed = f"R090\t{PANE}/acpmux/toastAvoidance.ts\tPackages/macOS/X/ToastAvoidance.swift\n"
+        self.assertEqual(run(renamed)[0], 1)
+
+    def test_deleting_dead_react_chat_ui_passes(self) -> None:
+        # #41593: four dead React experiments and galleries deleted, one new gallery added, nothing ported.
+        dead = (f"D\t{PANE}/acpmux/conversation/OneFoldPerTurn.gallery.ts\n"
+                f"D\t{PANE}/acpmux/conversation/TurnFoldReplies.gallery.ts\n"
+                f"D\t{PANE}/acpmux/conversation/turnFoldReplies.experiment.ts\n"
+                f"D\t{PANE}/acpmux/conversation/turnFoldSteered.experiment.ts\n"
+                f"A\t{PANE}/acpmux/conversation/FoldInPlace.gallery.ts\n"
+                f"M\t{PANE}/acpmux/conversation/turns.ts\n")
+        self.assertEqual(run(dead), (0, run(dead)[1]))
+        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\n")[0], 0)
+        # A Swift file changed, not added, is no destination.
+        self.assertEqual(run(f"D\t{PANE}/acpmux/a.ts\nM\tPackages/macOS/X/A.swift\n")[0], 0)
 
     def test_rust_areas_refuse_swift_but_not_their_typescript_runtimes(self) -> None:
         self.assertEqual(run(f"A\t{ACPMUX}/bridge.swift\n")[0], 1)
         self.assertEqual(run("A\tcmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/x.ts\n")[0], 0)
-        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\n")[0], 1)
-        self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\n")[0], 1)
+        # Rust lost to Swift is a port; dead Rust deleted with nothing in its place is not.
+        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\nA\tPackages/macOS/X/Old.swift\n")[0], 1)
+        self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\nA\tPackages/macOS/X/A.swift\n")[0], 1)
+        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\n")[0], 0)
+        # Web code is no destination for a Rust area (crates carry TypeScript runtimes).
+        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\nA\twebviews/src/x.ts\n")[0], 0)
 
     def test_paths_outside_every_area_pass(self) -> None:
         self.assertEqual(run("D\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/X.swift\nA\twebviews/src/x.swift\n")[0], 0)
