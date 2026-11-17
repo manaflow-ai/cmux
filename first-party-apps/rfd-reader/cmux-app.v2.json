@@ -1,0 +1,30 @@
+{
+  "$schema": "../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/rfd-reader",
+  "name": { "en": "RFDs" },
+  "version": "0.1.0",
+  "description": { "en": "Read a repository's design documents (docs/rfd/NNNN-slug.md): a list by last update with state filters, full-text search, review comments beside the lines they refer to, previews of linked RFDs, a Cmd-/ jump-to, and a new RFD as a pull request without a clone." },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "doc.text.magnifyingglass" },
+  "categories": ["developer-tools", "productivity"],
+  "keywords": ["rfd", "rfc", "design", "docs", "review"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "web": { "root": "web" } },
+  "implements": {
+    "cmux.pane/1": {
+      "web": "web/index.html",
+      "title": { "en": "RFDs" },
+      "symbol": "doc.text.magnifyingglass"
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read the RFD files, their pull requests and review comments through your own GitHub sign-in.",
+    "storage:local": "Keep the RFDs you read, so the list opens at once and works offline.",
+    "workspace:write": "Open a pull request or a link in a browser tab when you click it."
+  },
+  "activation": ["onInterface:cmux.pane/1"],
+  "files": ["web/"]
+}

@@ -211,7 +211,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
-        state.onProfileChange = { [weak self] in self?.spaceDidChange() }
+        state.onProfileChange = { [weak self] in self?.registry.spaceEntered(windowID); self?.spaceDidChange() }
         states[windowID] = state
         return state
     }
@@ -283,7 +283,7 @@ final class WindowManager {
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil {
             let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
-            state.onProfileChange = { [weak self] in self?.spaceDidChange() }
+            state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
             states[record.id] = state
         }
         rememberMachines(of: document)
