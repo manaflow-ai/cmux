@@ -112,8 +112,8 @@ pub(super) fn carry(local: &Path, from_root: &str, to_root: &str) -> anyhow::Res
     Ok(true)
 }
 
-/// The base kept for `local` synced to `remote_root`, unchecked; None when none is.
-pub(super) fn kept(local: &Path, remote_root: &str) -> anyhow::Result<Option<Manifest>> {
+/// The base kept for `local` synced to `remote_root`, unchecked; None when none is ([`kept`] only asks whether one is).
+pub(super) fn kept_base(local: &Path, remote_root: &str) -> anyhow::Result<Option<Manifest>> {
     let path = path_of(local, remote_root)?;
     match std::fs::read(&path) {
         Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),

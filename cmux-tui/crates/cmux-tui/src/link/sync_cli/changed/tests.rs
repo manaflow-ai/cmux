@@ -321,7 +321,7 @@ fn a_file_new_on_both_sides_is_kept() {
     assert_eq!(std::fs::read_to_string(Path::new(&root).join("new.txt")).unwrap(), "only here\n");
     let again = on_send(&machine, &local, &root);
     assert_eq!(again["conflicts"], json!(["NOTES.md"]), "{again}");
-    let kept = super::super::base::kept(&local, &root).unwrap().unwrap();
+    let kept = super::super::base::kept_base(&local, &root).unwrap().unwrap();
     assert!(!kept.files.contains_key("NOTES.md"));
     assert!(kept.files.contains_key("new.txt"));
 }
@@ -500,7 +500,7 @@ fn random_edits_then_push_on_send_equal_a_full_push() {
         assert_eq!(tree(Path::new(&changed)), tree(Path::new(&full)), "round {round}");
         assert_eq!(tree(&local), tree(Path::new(&changed)), "round {round}");
         // This Mac's base copy is what a full push leaves too (a pull merges against it).
-        let kept = |root: &str| super::super::base::kept(&local, root).unwrap().unwrap().files;
+        let kept = |root: &str| super::super::base::kept_base(&local, root).unwrap().unwrap().files;
         let shape =
             |files: BTreeMap<String, super::super::Pushed>| -> BTreeMap<String, (String, u32)> {
                 files

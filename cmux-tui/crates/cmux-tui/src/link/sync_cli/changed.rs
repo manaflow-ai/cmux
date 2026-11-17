@@ -344,7 +344,7 @@ pub(super) fn run_detached(args: &[String]) -> i32 {
     let answer = run_worker(place.as_ref(), &local, &remote, &|only| {
         // A folder `cmux link sync push` copied has no seed record, only the copy's own.
         if !super::super::seed_cli::has_record(&local, &remote)
-            && base::kept(&local, &remote).is_ok_and(|kept| kept.is_some())
+            && base::kept_base(&local, &remote).is_ok_and(|kept| kept.is_some())
         {
             let summary = super::push_changed(&socket, &local, &remote, only)?;
             return Ok(Pushed {

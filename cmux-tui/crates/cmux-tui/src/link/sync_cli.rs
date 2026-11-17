@@ -1269,7 +1269,7 @@ fn push_inner(
     // A push of what changed with nothing to send ends here, before any request: this Mac's
     // copy of the last push's record is what the machine has ([`changed`]).
     if let Some(only) = only
-        && base::kept(&local, remote_root)
+        && base::kept_base(&local, remote_root)
             .is_ok_and(|kept| kept.is_some_and(|kept| only.nothing_to_send(&kept, &set)))
     {
         summary.unchanged = (set.files.len() + set.links.len()) as u64;
