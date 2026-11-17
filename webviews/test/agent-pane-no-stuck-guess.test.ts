@@ -54,9 +54,12 @@ await requireBrowserLane("agent-pane-no-stuck-guess.test.ts", async () => {
     const text = document.body.textContent ?? "";
     return {
       stuckNodes: document.querySelectorAll(".acpmux-stuck-banner, .acpmux-stuck-nudge, [data-stuck]").length,
-      stuckWords: ["may be stuck", "Nudge with hint", "try a different approach", "the same error in auth.rs:88"].filter(
-        (words) => text.includes(words),
-      ),
+      stuckWords: [
+        "may be stuck",
+        "Nudge with hint",
+        "try a different approach",
+        "the same error in auth.rs:88",
+      ].filter((words) => text.includes(words)),
       draft:
         document
           .querySelector(".acpmux-composer > .acpmux-composer-box [contenteditable='true']")

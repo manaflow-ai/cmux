@@ -13,7 +13,7 @@ import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { ANSWER_HOLD_MS, RETRY_HOLD_MS, useAnswerHold, useAnswerHoldSet } from "./answerHold";
 import { AcpmuxRestartGate, RESTART_DEADLINE_MS } from "./hostRetry";
-import { liveAutoResume, stuckNotice, turnPhase } from "./turnPhase";
+import { liveAutoResume, turnPhase } from "./turnPhase";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -151,24 +151,6 @@ test("a Needs you row answered but never taken off the list comes back, so its c
 });
 
 // --- Live-turn notices read one phase ----------------------------------------------------------------
-
-const looping = { loopEpisode: { diagnosis: "The agent repeats the same tool call." } };
-
-test("the stuck banner never shows beside Reconnecting…, nor after the turn ended", () => {
-  // Order: a loop is detected, then the pane's link drops: the summary is frozen with the episode.
-  expect(stuckNotice(turnPhase({ connection: "disconnected", isWorking: true }), looping, "silent")).toBeUndefined();
-  expect(stuckNotice(turnPhase({ connection: "connecting…", isWorking: true }), looping, "silent")).toBeUndefined();
-  // The turn ended (or a Stop is ending it): nothing is stuck.
-  expect(stuckNotice(turnPhase({ connection: "turn_end", isWorking: false }), looping, "silent")).toBeUndefined();
-  expect(
-    stuckNotice(turnPhase({ connection: "stopping", isWorking: true, stopping: true }), looping, "silent"),
-  ).toBeUndefined();
-  // A turn that runs and that the pane hears says it.
-  expect(stuckNotice(turnPhase({ connection: "agent_message_chunk", isWorking: true }), looping, "silent")).toBe(
-    looping.loopEpisode.diagnosis,
-  );
-  expect(stuckNotice("working", { stalledSince: 5 }, "silent")).toBe("silent");
-});
 
 test("an automatic retry's line says nothing frozen and nothing about a turn that ended", () => {
   const retry = { retry: { attempt: 2, of: 3, nextAt: 10 } };
