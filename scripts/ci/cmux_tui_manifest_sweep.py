@@ -21,6 +21,15 @@ minutes spent waiting on owners). Only commits whose workflow has the
 adopt-commit-manifest job are re-run: an older commit's re-run runs that
 commit's workflow, which would rebuild on macOS or write nothing.
 
+The commits' runs come from one listing of the branch's newest 100 push runs,
+not one call per commit; a commit past it is asked for by itself. A GitHub rate
+limit does not fail the sweep (2026-11-17: feat-cmux-next run 44024006431 went
+red on "could not list the runs of 298219a6b387: gh: API rate limit
+exceeded"): the sweep stops spending the quota, warns naming the commits it
+did not judge and passes, and the next push's sweep looks again. It does not
+wait for the limit to lift. A refused re-run that is not the rate limit, or a
+malformed answer, still fails the step.
+
 usage: cmux_tui_manifest_sweep.py --repo OWNER/NAME [--window N] [--tip-branch B]
 Needs GH_TOKEN with actions: write; GH_TOKEN_SPARE as cmux_tui_tree_handoff.py.
 """
@@ -96,6 +105,38 @@ def sweep(
     return rerun_commits, problems
 
 
+def make_find_run(repo: str, tip_branch: str) -> Callable[[str], Mapping[str, Any] | None]:
+    """find_run for sweep(): the newest push run of a commit on tip_branch. The first commit asked for reads
+    the branch's newest 100 push runs in one call, and it answers every commit in it; a commit past those
+    is asked for by itself."""
+    base = f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?event=push&branch={tip_branch}"
+    listed: dict[str, Mapping[str, Any]] | None = None
+
+    def runs_of(query: str, what: str) -> list[Mapping[str, Any]]:
+        result = handoff._gh("api", f"{base}&{query}")
+        if handoff.rate_limited(result):
+            raise handoff.RateLimited(f"could not list the runs of {what}: {result.stderr.strip()}")
+        if result.returncode != 0:
+            raise RuntimeError(f"could not list the runs of {what}: {result.stderr.strip()}")
+        try:
+            return list(json.loads(result.stdout).get("workflow_runs") or [])
+        except (ValueError, AttributeError) as error:
+            raise RuntimeError(f"the runs of {what} are not a GitHub answer: {error}") from None
+
+    def find_run(rev: str) -> Mapping[str, Any] | None:
+        nonlocal listed
+        if listed is None:
+            listed = {}
+            for run in sorted(runs_of("per_page=100", tip_branch), key=lambda run: int(run["id"])):
+                listed[str(run.get("head_sha"))] = run  # newest last, so it wins
+        if rev in listed:
+            return listed[rev]
+        runs = runs_of(f"head_sha={rev}&per_page=5", rev[:12])
+        return max(runs, key=lambda run: int(run["id"])) if runs else None
+
+    return find_run
+
+
 def git_revs(window: int, tip_branch: str) -> list[str]:
     def rev_list(ref: str) -> list[str]:
         return subprocess.run(["git", "rev-list", "--first-parent", "-n", str(window), ref],
@@ -128,23 +169,33 @@ def main(argv: list[str]) -> int:
         print("::error::the manifest sweep needs GH_TOKEN")
         return 2
 
-    def find_run(rev: str) -> Mapping[str, Any] | None:
-        result = handoff._gh("api", f"repos/{args.repo}/actions/workflows/cmux-tui-artifacts.yml/runs"
-                                    f"?head_sha={rev}&event=push&branch={args.tip_branch}&per_page=5")
-        if result.returncode != 0:
-            raise RuntimeError(f"could not list the runs of {rev[:12]}: {result.stderr.strip()}")
-        runs = json.loads(result.stdout).get("workflow_runs") or []
-        return max(runs, key=lambda run: int(run["id"])) if runs else None
+    # The sweep never waits (each push sweeps again): a rate limit ends it at once.
+    handoff.RATE_LIMIT_WAIT_S = 0
+    find_run = make_find_run(args.repo, args.tip_branch)
 
     def rerun(run_id: int) -> bool:
         result = handoff._gh("run", "rerun", str(run_id), "--repo", args.repo)
+        if handoff.rate_limited(result):
+            raise handoff.RateLimited(f"could not re-run run {run_id}: {result.stderr.strip()}")
         if result.returncode != 0:
             print(f"::warning::could not re-run run {run_id}: {result.stderr.strip()}")
         return result.returncode == 0
 
+    revs = git_revs(args.window, args.tip_branch)
+    judged: list[str] = []
+
+    def find_run_judged(rev: str) -> Mapping[str, Any] | None:
+        judged.append(rev)
+        return find_run(rev)
+
     try:
-        rerun_commits, problems = sweep(git_revs(args.window, args.tip_branch), adopts=adopts,
-                                        status=cdn_status, find_run=find_run, rerun=rerun)
+        rerun_commits, problems = sweep(revs, adopts=adopts, status=cdn_status, find_run=find_run_judged, rerun=rerun)
+    except handoff.RateLimited as error:
+        # The commit asked for last was not judged; with every commit after it, the next push's sweep looks again.
+        left = revs[revs.index(judged[-1]):] if judged else revs
+        print(f"::warning title=manifest sweep stopped (rate limit)::{error}. Not judged this run, left for the next "
+              f"push's sweep: {', '.join(rev[:12] for rev in left)}")
+        return 0
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(f"::error title=manifest sweep failed::{error}")
         return 1

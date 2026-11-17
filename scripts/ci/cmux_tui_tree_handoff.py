@@ -39,6 +39,18 @@ it. A re-run that finds the tree published never defers again, so the markers
 A run still in progress is left with its marker: its own adopt step, after its
 marker, reads the tree this run already published.
 
+The --published re-run is best-effort, and a rate limit does not fail it
+(2026-11-17: feat-cmux-next run 44024006431 went red on "API rate limit
+exceeded" with both tokens spent, and merge gates read that red as a base
+failure). A call refused for the rate limit, on the spare token too, is retried
+within TREE_HANDOFF_RATE_LIMIT_WAIT_S seconds (default 90): up to the core
+quota's reset when /rate_limit names one inside the budget, else a doubling
+backoff from 2s. Past the budget the step warns, naming the runs it did not
+re-run, keeps their markers and passes: the next push's sweep
+(cmux_tui_manifest_sweep.py) re-runs a commit whose manifest is still missing.
+Any other refusal, or a malformed answer, still fails the step. The build
+hand-off (no --published) keeps failing its job: no other run builds the tree.
+
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
 GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
@@ -51,6 +63,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -70,6 +83,17 @@ RATE_LIMIT_TEXT = re.compile(
 MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+# Seconds a call refused for the rate limit may wait, in all, for the limit to lift (0: no wait).
+RATE_LIMIT_WAIT_S = float(os.environ.get("TREE_HANDOFF_RATE_LIMIT_WAIT_S") or 90)
+FIRST_BACKOFF_S = 2.0
+
+
+class RateLimited(RuntimeError):
+    """GitHub refused a call for the rate limit, on every token, past the wait budget."""
+
+
+def rate_limited(result: subprocess.CompletedProcess[str]) -> bool:
+    return result.returncode != 0 and bool(RATE_LIMIT_TEXT.search(result.stderr or ""))
 
 
 def failed_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -113,14 +137,51 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
+def _core_reset_in() -> float | None:
+    """Seconds until the token's core quota resets, when /rate_limit (which costs no quota) says it is spent."""
+    result = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
+    try:
+        core = json.loads(result.stdout)["resources"]["core"]
+        if result.returncode == 0 and int(core["remaining"]) == 0:
+            return max(0.0, float(core["reset"]) - time.time())
+    except (ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _wait_out(started: float, backoff: float) -> float | None:
+    """Sleep before the next try of a rate-limited call; None when the wait would pass the budget."""
+    left = RATE_LIMIT_WAIT_S - (time.monotonic() - started)
+    reset_in = _core_reset_in()
+    wait = reset_in + 1 if reset_in is not None else backoff
+    if wait > left:
+        return None
+    print(f"GitHub rate limit: trying again in {wait:.0f}s ({left:.0f}s of the wait budget left)")
+    time.sleep(wait)
+    return wait
+
+
+_wait_started: float | None = None
+
+
 def _gh(*args: str) -> subprocess.CompletedProcess[str]:
+    global _wait_started
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
-    if result.returncode != 0 and spare and spare != os.environ.get("GH_TOKEN") and RATE_LIMIT_TEXT.search(result.stderr):
+    if rate_limited(result) and spare and spare != os.environ.get("GH_TOKEN"):
         # One switch for the whole hand-off: the spare token is now GH_TOKEN, so a second refusal is final.
         print("::notice title=tree hand-off token::GH_TOKEN is rate limited; the hand-off continues on GH_TOKEN_SPARE")
         os.environ["GH_TOKEN"] = spare
         del os.environ["GH_TOKEN_SPARE"]
+        result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    # One wait budget for the whole script, not per call: a step can't outlast its timeout on retries.
+    backoff = FIRST_BACKOFF_S
+    while rate_limited(result) and RATE_LIMIT_WAIT_S > 0:
+        _wait_started = time.monotonic() if _wait_started is None else _wait_started
+        waited = _wait_out(_wait_started, backoff)
+        if waited is None:
+            break
+        backoff *= 2
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
     return result
 
@@ -130,6 +191,8 @@ def _list(path: str, key: str) -> list[dict]:
     (scripts/ci/gh_pages.py; the gh quota wrapper refuses an unbounded paginating call)."""
     def fetch(url: str) -> Any:
         result = _gh("api", url)
+        if rate_limited(result):
+            raise RateLimited(f"gh api {url} failed: {result.stderr.strip()}")
         if result.returncode != 0:
             raise RuntimeError(f"gh api {url} failed: {result.stderr.strip()}")
         return {key: json.loads(result.stdout)[key]}
@@ -157,18 +220,25 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
         print(f"No run of tree {key} deferred to it.")
         return
     failed = []
-    for artifact, deferred, branch in candidates:
+    for index, (artifact, deferred, branch) in enumerate(candidates):
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
-        if result.returncode != 0 or not result.stdout.strip():
+        if not rate_limited(result) and (result.returncode != 0 or not result.stdout.strip()):
             failed.append(f"could not read run {deferred} ({branch}): {result.stderr.strip()}")
             continue
-        allowed, why = may_rerun(json.loads(result.stdout), PUBLISHED_MAX_ATTEMPT)
-        if not allowed:
-            print(f"Not re-running run {deferred} ({branch}): {why}.")
-            continue
-        rerun = _gh("run", "rerun", str(deferred), "--repo", repo)
-        if rerun.returncode != 0:
-            failed.append(f"could not re-run run {deferred} ({branch}): {rerun.stderr.strip()}")
+        if not rate_limited(result):
+            allowed, why = may_rerun(json.loads(result.stdout), PUBLISHED_MAX_ATTEMPT)
+            if not allowed:
+                print(f"Not re-running run {deferred} ({branch}): {why}.")
+                continue
+            result = _gh("run", "rerun", str(deferred), "--repo", repo)
+        if rate_limited(result):
+            # Stop spending the quota: this run and every one after it keep their markers for a later run.
+            left = ", ".join(f"{run} ({where})" for _, run, where in candidates[index:])
+            if failed:  # a real failure before the limit is still the step's red
+                raise RuntimeError("; ".join([*failed, f"rate limited before re-running {left}"]))
+            raise RateLimited(f"runs {left} were not re-run: {result.stderr.strip()}")
+        if result.returncode != 0:
+            failed.append(f"could not re-run run {deferred} ({branch}): {result.stderr.strip()}")
             continue
         print(f"Re-ran run {deferred} ({branch}, {why}): tree {key} is published, and that run writes its commit manifest from it.")
         _delete_marker(repo, artifact, deferred)
@@ -231,6 +301,11 @@ def main(argv: list[str]) -> int:
     if args.published:
         try:
             rerun_published(args.repo, args.run_id, args.key)
+        except RateLimited as error:  # best-effort: a later run, or the next push's sweep, re-runs them
+            print(f"::warning title=deferred runs not re-run (rate limit)::tree {args.key} is published, but GitHub's "
+                  f"rate limit outlasted the {RATE_LIMIT_WAIT_S:.0f}s wait and runs were not re-run: {error}. Their "
+                  "markers are kept; the next push's manifest sweep re-runs a commit whose manifest is missing.")
+            return 0
         except Exception as error:  # the step fails its job: a deferred commit is left without its manifest
             print(f"::error title=deferred runs not re-run::tree {args.key} is published, but {error}. Those "
                   "commits have no cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
