@@ -5,8 +5,6 @@ import {
 } from "../../../../../services/billing/apple/notificationHealth";
 import { captureBillingError } from "../../../../../services/errors";
 
-export const dynamic = "force-dynamic";
-
 const NO_STORE = { "cache-control": "no-store" };
 const MIN_TOKEN_LENGTH = 32;
 
