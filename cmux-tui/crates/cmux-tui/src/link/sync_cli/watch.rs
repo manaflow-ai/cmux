@@ -178,8 +178,13 @@ pub(super) fn ask(place: &Place, root: &Path, since: Option<&Mark>, wait: Durati
             }
         }
     };
+    // `wait` bounds the whole question: the connect above, the flush and the answer.
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Seen::rescan("no time was left to ask the watcher");
+    }
     let question = Question { v: VERSION, root: root.to_path_buf(), since: since.cloned() };
-    match exchange(stream, &question, FLUSH_WAIT + Duration::from_secs(1)) {
+    match exchange(stream, &question, left.min(FLUSH_WAIT + Duration::from_secs(1))) {
         Ok(answer) => match (answer.rescan, answer.mark) {
             (None, Some(mark)) => Seen::Paths { paths: answer.paths.into_iter().collect(), mark },
             (why, mark) => Seen::Rescan { why: why.unwrap_or_else(|| "no mark".into()), mark },

@@ -300,6 +300,32 @@ fn a_machine_edit_since_the_last_push_is_kept() {
     assert_eq!(std::fs::read_to_string(local.join("both.txt")).unwrap(), "mac edit\n");
 }
 
+/// A file made on both sides since the last push (the agent's on the machine, the person's
+/// here) is never written over: it is a conflict on every send until settled, and the record
+/// leaves it out, so this Mac's base never claims the machine had the Mac's file.
+#[test]
+fn a_file_new_on_both_sides_is_kept() {
+    let (_dir, local) = folder(&[("a.txt", "a\n")]);
+    let machine = machine();
+    let root = machine.root("work");
+    full_push(&machine, &local, &root);
+    std::fs::write(Path::new(&root).join("NOTES.md"), "the agent's\n").unwrap();
+    write(&local, "NOTES.md", "mine\n");
+    write(&local, "new.txt", "only here\n");
+    let answer = on_send(&machine, &local, &root);
+    assert_eq!(answer["conflicts"], json!(["NOTES.md"]), "{answer}");
+    assert_eq!(
+        std::fs::read_to_string(Path::new(&root).join("NOTES.md")).unwrap(),
+        "the agent's\n"
+    );
+    assert_eq!(std::fs::read_to_string(Path::new(&root).join("new.txt")).unwrap(), "only here\n");
+    let again = on_send(&machine, &local, &root);
+    assert_eq!(again["conflicts"], json!(["NOTES.md"]), "{again}");
+    let kept = super::super::base::kept(&local, &root).unwrap().unwrap();
+    assert!(!kept.files.contains_key("NOTES.md"));
+    assert!(kept.files.contains_key("new.txt"));
+}
+
 /// More paths changed than an answer names: the push rescans, and everything still goes.
 #[test]
 fn too_many_changes_rescan() {
@@ -343,7 +369,7 @@ fn a_mark_of_another_watcher_session_rescans() {
 fn a_slow_push_answers_arriving() {
     let (_dir, local) = folder(&[("a.txt", "a\n")]);
     let answer = on_send_with(None, &local, "/r", Duration::from_millis(50), &|within| {
-        assert_eq!(within, Duration::from_millis(50));
+        assert!(within <= Duration::from_millis(50), "{within:?}");
         Ok(None)
     });
     assert_eq!(answer["state"], "arriving", "{answer}");

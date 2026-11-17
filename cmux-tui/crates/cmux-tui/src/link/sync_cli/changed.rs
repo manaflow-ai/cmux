@@ -43,8 +43,9 @@ use super::local::{LocalFile, LocalSet, Source};
 use super::watch::{self, Mark, Place, Seen};
 use super::{Manifest, base, hash};
 
-/// How long a question to the watcher may take, its start included.
-const ASK_WAIT: Duration = Duration::from_millis(1500);
+/// How long a push's question to the watcher may take in all: its start, a flush and the
+/// answer. A send's first question takes the send's own bound instead ([`on_send_with`]).
+const ASK_WAIT: Duration = Duration::from_millis(4500);
 /// The bound of a send when the caller gives none.
 pub(crate) const WITHIN: Duration = Duration::from_secs(3);
 
@@ -191,11 +192,11 @@ fn watchable(local: &Path) -> bool {
 }
 
 /// What changed in `local` since the push `kept` names, as the watcher says.
-fn seen(place: Option<&Place>, local: &Path, kept: &Kept) -> Seen {
+fn seen(place: Option<&Place>, local: &Path, kept: &Kept, wait: Duration) -> Seen {
     let Some(place) = place else {
         return Seen::Rescan { why: "no watcher on this Mac".into(), mark: None };
     };
-    let seen = watch::ask(place, local, kept.mark.as_ref(), ASK_WAIT);
+    let seen = watch::ask(place, local, kept.mark.as_ref(), wait);
     if watchable(local) {
         return seen;
     }
@@ -207,7 +208,7 @@ fn seen(place: Option<&Place>, local: &Path, kept: &Kept) -> Seen {
 pub(super) fn before_push(local: &Path, remote_root: &str) -> Option<(Place, Option<Mark>)> {
     let place = Place::here()?;
     forget(&place, local, remote_root);
-    let mark = seen(Some(&place), local, &Kept::default()).mark().cloned();
+    let mark = seen(Some(&place), local, &Kept::default(), ASK_WAIT).mark().cloned();
     Some((place, mark))
 }
 
@@ -225,7 +226,8 @@ pub(super) fn after_push(
 /// `cmux link sync on-send`'s answer for `local` (canonical) pushed to
 /// `remote_root`: `unchanged` at once when the watcher saw nothing, else the
 /// answer of `worker` (which pushes, [`run_worker`]) if it comes within
-/// `within`, else `arriving` (the worker goes on).
+/// `within`, else `arriving` (the worker goes on). `within` bounds it all,
+/// the first question to the watcher included: the worker gets what is left.
 pub(super) fn on_send_with(
     place: Option<&Place>,
     local: &Path,
@@ -233,16 +235,17 @@ pub(super) fn on_send_with(
     within: Duration,
     worker: &dyn Fn(Duration) -> anyhow::Result<Option<Value>>,
 ) -> Value {
+    let deadline = std::time::Instant::now() + within;
     if let Some(place) = place {
         let kept = load(place, local, remote_root);
         if kept.conflicts.is_empty()
-            && let Seen::Paths { paths, .. } = seen(Some(place), local, &kept)
+            && let Seen::Paths { paths, .. } = seen(Some(place), local, &kept, within)
             && paths.is_empty()
         {
             return json!({"ok": true, "state": "unchanged"});
         }
     }
-    match worker(within) {
+    match worker(deadline.saturating_duration_since(std::time::Instant::now())) {
         Ok(Some(answer)) => answer,
         Ok(None) => json!({"ok": true, "state": "arriving", "notice": notice(local, remote_root)}),
         Err(error) => json!({"ok": false, "error": format!("the push: {error:#}"),
@@ -274,7 +277,7 @@ pub(super) fn run_worker(
 ) -> Value {
     let _lock = lock(place, local, remote_root);
     let kept = place.map(|place| load(place, local, remote_root)).unwrap_or_default();
-    let (paths, mark) = match seen(place, local, &kept) {
+    let (paths, mark) = match seen(place, local, &kept, ASK_WAIT) {
         Seen::Paths { mut paths, mark } => {
             if paths.is_empty() && kept.conflicts.is_empty() {
                 return json!({"ok": true, "state": "unchanged"});

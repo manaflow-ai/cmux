@@ -83,6 +83,19 @@ import Testing
 
     static let firstPush = Mutex(false)
 
+    /// A send that never ends holds the next one only for the bound, never for good.
+    @Test func aHungEarlierSendHoldsTheNextOnlyForTheBound() async throws {
+        // task-owner: stands for a send whose prompt never answers; cancelled at the test's end
+        let hung = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        defer { hung.cancel() }
+        let clock = ContinuousClock()
+        let started = clock.now
+        await RemoteAcpmuxWire.settled(hung, within: .milliseconds(100))
+        let waited = clock.now - started
+        #expect(waited >= .milliseconds(100) && waited < .seconds(5))
+        await RemoteAcpmuxWire.settled(Task {}, within: .seconds(30))
+    }
+
     private static func waitUntil(_ condition: @Sendable () -> Bool) async throws {
         for _ in 0..<500 where !condition() { try await Task.sleep(for: .milliseconds(5)) }
         #expect(condition())

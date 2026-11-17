@@ -98,7 +98,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         /// daemon in the order the person made them (a model switch can reset its options).
         var lastPick: Task<Void, Never>?
         /// The latest send of a wire with a ``BeforeSend``: the next one waits for it, so a send whose
-        /// files take a moment to push is never overtaken by the person's next message.
+        /// files take a moment to push is never overtaken by the person's next message (waited on at most
+        /// ``RemoteAcpmuxWire/earlierSendBound``, so a hung send never holds the next for good).
         var lastSend: Task<Void, Never>?
     }
 
@@ -762,7 +763,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 let earlier = state.lastSend
                 // task-owner: one send (its files' push, then the prompt), after the one before it; its reply ends it
                 state.lastSend = Task { [weak self] in
-                    await earlier?.value
+                    await Self.settled(earlier, within: Self.earlierSendBound)
                     await self?.answer(id, client, work)
                 }
             }
@@ -778,6 +779,30 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             state.lastPick = Task { [weak self] in
                 await earlier?.value
                 await self?.answer(id, client, work)
+            }
+        }
+    }
+
+    /// How long a send waits for the one before it: past its push's own bound (3 s, killed at 5 s)
+    /// and its prompt's acceptance, so a hung earlier send never holds the person's next message.
+    static let earlierSendBound: Duration = .seconds(10)
+
+    /// Returns once `earlier` ends or `bound` passes, whichever comes first (`earlier` goes on).
+    static func settled(_ earlier: Task<Void, Never>?, within bound: Duration) async {
+        guard let earlier else { return }
+        let once = AgentPaneResumeOnce()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // task-owner: the bound; cancelled when the earlier send ends first
+            let timer = Task {
+                // wakeup-allow: one one-shot bound per send that follows another; never ends a send
+                guard (try? await Task.sleep(for: bound)) != nil else { return }
+                once.run { continuation.resume() }
+            }
+            // task-owner: reads the earlier send's end; ends when it ends
+            Task {
+                await earlier.value
+                timer.cancel()
+                once.run { continuation.resume() }
             }
         }
     }

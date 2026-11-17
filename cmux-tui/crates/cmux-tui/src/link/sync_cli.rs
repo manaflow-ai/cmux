@@ -1089,7 +1089,35 @@ pub(super) fn push_head(
     let mut printer = progress_printer();
     let in_head = |relative: &str| cmux_git::harness_head::in_head(relative, subpath);
     let head = |relative: &str, _: bool| in_head(relative);
-    push_inner(socket, local, remote_root, &head, false, Some(&in_head), None, Some(&mut printer))
+    partly(local, remote_root, || {
+        push_inner(
+            socket,
+            local,
+            remote_root,
+            &head,
+            false,
+            Some(&in_head),
+            None,
+            Some(&mut printer),
+        )
+    })
+}
+
+/// A push of part of a folder (a head, a copy for `cmux link access`): one push of the
+/// folder pair at a time, as [`push`] and a push-on-send, and the watcher's mark is
+/// dropped, so the next push-on-send rescans rather than trust a mark this push never took.
+fn partly<T>(
+    local: &Path,
+    remote_root: &str,
+    push: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let canonical = std::fs::canonicalize(local).unwrap_or_else(|_| local.to_path_buf());
+    let place = watch::Place::here();
+    let _one = changed::lock(place.as_ref(), &canonical, remote_root);
+    if let Some(place) = &place {
+        changed::forget(place, &canonical, remote_root);
+    }
+    push()
 }
 
 /// The files the head links (`head`) of the folder `top` end at, read through every link
@@ -1158,7 +1186,9 @@ pub(super) fn push_kept(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
-    push_inner(socket, local, remote_root, keep, true, None, None, None)
+    partly(local, remote_root, || {
+        push_inner(socket, local, remote_root, keep, true, None, None, None)
+    })
 }
 
 /// A push. With `only` ([`changed`]) the files it does not name are recorded as
@@ -1396,6 +1426,16 @@ fn push_inner(
                 tally.step(bytes);
                 continue;
             }
+        }
+        // New here since the last push while the machine made something at the same path
+        // (the agent's file): never written over, and not recorded, so a pull sees both added.
+        if only.is_some()
+            && !previous.files.contains_key(relative)
+            && listings.kind(&mut remote, &target)?.is_some()
+        {
+            tally.summary.conflicts.push(relative.clone());
+            tally.step(bytes);
+            continue;
         }
         if let Some(pushed) = previous.files.get(relative)
             && pushed.sha256 == sha256
