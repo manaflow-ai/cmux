@@ -68,9 +68,10 @@ fn cmux_next_an_idle_port_watch_worker_does_not_keep_a_dropped_mux() {
     let mux = open();
     mux.reconcile_terminal_ports();
     // The reconcile pass ran and the worker gave its mux back. The worker
-    // takes its mux before it takes the request, with the watch locked, so a
-    // taken request with one mux left, read under that lock, is a pass that
-    // ended.
+    // takes its mux before it takes the request, with the watch locked, and
+    // a pass that met a busy registry puts the request back before it gives
+    // its mux back. So a taken request with one mux left, read under that
+    // lock, is a pass that ran to its end.
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let state = mux.terminal_port_watch.lock();
@@ -128,7 +129,8 @@ fn cmux_next_a_port_watch_worker_that_waits_for_the_registry_does_not_keep_the_m
     };
     let mux = open();
     mux.reconcile_terminal_ports();
-    // The first pass ran and the worker is in its idle wait.
+    // The worker took the first request: that pass ended, or it runs now
+    // and meets the hold below as the busy pass.
     assert!(
         reached(&mux, &|state, _| state.worker && !state.reconcile && state.last_pass.is_some()),
         "the first pass never ran"

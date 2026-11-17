@@ -482,14 +482,21 @@ impl TerminalPortWatch {
 /// shutdown; its waits are bounded.
 ///
 /// It holds the mux only for the shutdown check and for a pass, never across
-/// a wait: a mux its owner dropped is freed at once (with the registry's
-/// session lease), not after [`IDLE_LINGER`]. A pass that meets a busy
-/// registry does not wait for it with the mux: it gives the mux back, keeps
-/// its work queued and looks again after [`REGISTRY_BUSY_LOOK`]. The watch
-/// it waits on is its own `Arc`. The strong mux is let go before the watch
-/// is locked, so a mux whose last reference ends here never drops under
-/// that lock. A pass takes its mux before it lets the watch's lock go, so a
-/// reader of the watch's state never sees a taken request with no mux held.
+/// a wait on the watch: a mux its owner dropped is freed at once (with the
+/// registry's session lease), not after [`IDLE_LINGER`]. A pass whose read
+/// of the stale entries meets a busy registry does not wait for it with the
+/// mux: it puts its work back, gives the mux back and looks again after
+/// [`REGISTRY_BUSY_LOOK`]. Each look is one try and the worker is no waiter
+/// of the registry, so a registry that stays busy holds the pass back with
+/// no bound. The other waits of a pass keep the mux: a terminal's privacy
+/// read that is not cached and the write of an entry wait for the registry.
+///
+/// The watch it waits on is its own `Arc`. The strong mux is let go after
+/// the watch's lock, so a mux whose last reference ends here never drops
+/// under that lock. A pass takes its mux before it lets the watch's lock
+/// go, and a pass that met a busy registry puts its request back before it
+/// lets its mux go. So a taken request with no mux of the worker, read
+/// under the watch's lock, is a pass that ran to its end.
 fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
     // A pass that panics leaves no stale `worker`: the next output starts one.
     struct OnPanic<'a>(&'a TerminalPortWatch);
@@ -536,12 +543,14 @@ fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
         let reconcile = std::mem::take(&mut state.reconcile);
         drop(state);
         let Err(queued) = mux.terminal_ports_pass(queued, reconcile) else { continue };
-        // The registry was busy. The mux goes before the watch is locked.
-        drop(mux);
+        // The registry was busy. The request goes back first, then the
+        // watch's lock goes, then the mux: it never drops under that lock.
         let mut state = watch.lock();
         state.queued.extend(queued);
         state.reconcile = true;
         state.look_again = Some(Instant::now() + REGISTRY_BUSY_LOOK);
+        drop(state);
+        drop(mux);
     }
 }
 
