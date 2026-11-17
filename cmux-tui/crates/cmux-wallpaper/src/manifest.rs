@@ -45,6 +45,8 @@ pub struct Variant {
     pub params: BTreeMap<String, f32>,
     /// `"dark"` and/or `"light"`; empty means both.
     pub themes: Vec<String>,
+    /// This variant's own still; none means the manifest's.
+    pub still: Option<Still>,
 }
 
 /// A checked `wallpaper.json`.
@@ -270,7 +272,7 @@ impl Manifest {
             None => Vec::new(),
             Some(p) => parse_params(p)?,
         };
-        let still = parse_still(required(o, "", "still")?)?;
+        let still = parse_still(required(o, "", "still")?, "/still")?;
         let variants = match o.get("variants") {
             None => Vec::new(),
             Some(p) => parse_variants(p, &params)?,
@@ -320,12 +322,21 @@ impl Manifest {
                 "max": p.max,
             })).collect::<Vec<_>>(),
             "still": { "time": self.still.time, "pointer": self.still.pointer },
-            "variants": self.variants.iter().map(|v| json!({
-                "name": v.name,
-                "accent": v.accent,
-                "params": v.params,
-                "themes": if v.themes.is_empty() { vec!["dark".to_string(), "light".to_string()] } else { v.themes.clone() },
-            })).collect::<Vec<_>>(),
+            "variants": self.variants.iter().map(|v| {
+                let mut out = Map::new();
+                out.insert("name".into(), json!(v.name));
+                out.insert("params".into(), json!(v.params));
+                let themes = if v.themes.is_empty() { vec!["dark".to_string(), "light".to_string()] } else { v.themes.clone() };
+                out.insert("themes".into(), json!(themes));
+                // An absent key, not null: the parser refuses null.
+                if let Some(a) = &v.accent {
+                    out.insert("accent".into(), json!(a));
+                }
+                if let Some(s) = v.still {
+                    out.insert("still".into(), json!({ "time": s.time, "pointer": s.pointer }));
+                }
+                Value::Object(out)
+            }).collect::<Vec<_>>(),
         })
     }
 }
@@ -384,18 +395,19 @@ fn parse_params(v: &Value) -> Result<Vec<Param>> {
     Ok(out)
 }
 
-fn parse_still(v: &Value) -> Result<Still> {
-    let o = object(v, "/still")?;
-    only_keys(o, "/still", &["time", "pointer"])?;
-    let time = number(required(o, "/still", "time")?, "/still/time", 0.0, 1.0e6)?;
-    let p = required(o, "/still", "pointer")?
+fn parse_still(v: &Value, at: &str) -> Result<Still> {
+    let o = object(v, at)?;
+    only_keys(o, at, &["time", "pointer"])?;
+    let time = number(required(o, at, "time")?, &format!("{at}/time"), 0.0, 1.0e6)?;
+    let p_at = format!("{at}/pointer");
+    let p = required(o, at, "pointer")?
         .as_array()
-        .ok_or_else(|| err(ManifestErrorKind::WrongType, "/still/pointer", "must be [x, y]"))?;
+        .ok_or_else(|| err(ManifestErrorKind::WrongType, &p_at, "must be [x, y]"))?;
     let [x, y] = p.as_slice() else {
-        return Err(err(ManifestErrorKind::OutOfRange, "/still/pointer", "must be [x, y]"));
+        return Err(err(ManifestErrorKind::OutOfRange, p_at, "must be [x, y]"));
     };
-    let x = number(x, "/still/pointer/0", 0.0, 1.0)?;
-    let y = number(y, "/still/pointer/1", 0.0, 1.0)?;
+    let x = number(x, &format!("{p_at}/0"), 0.0, 1.0)?;
+    let y = number(y, &format!("{p_at}/1"), 0.0, 1.0)?;
     Ok(Still { time, pointer: [x, y] })
 }
 
@@ -414,7 +426,7 @@ fn parse_variants(v: &Value, params: &[Param]) -> Result<Vec<Variant>> {
     for (i, item) in items.iter().enumerate() {
         let at = format!("/variants/{i}");
         let o = object(item, &at)?;
-        only_keys(o, &at, &["name", "accent", "params", "themes"])?;
+        only_keys(o, &at, &["name", "accent", "params", "themes", "still"])?;
         let name = string(required(o, &at, "name")?, &format!("{at}/name"), 60)?;
         if out.iter().any(|v| v.name == name) {
             return Err(err(
@@ -477,7 +489,11 @@ fn parse_variants(v: &Value, params: &[Param]) -> Result<Vec<Variant>> {
                 themes.push(theme.to_string());
             }
         }
-        out.push(Variant { name, accent, params: values, themes });
+        let still = match o.get("still") {
+            None => None,
+            Some(s) => Some(parse_still(s, &format!("{at}/still"))?),
+        };
+        out.push(Variant { name, accent, params: values, themes, still });
     }
     Ok(out)
 }
@@ -521,6 +537,25 @@ mod tests {
         let back = Manifest::from_value(&m.to_json()).unwrap();
         assert_eq!(back.id, m.id);
         assert_eq!(back.params[0].title.as_deref(), Some("Speed"));
+    }
+
+    #[test]
+    fn a_variant_may_carry_its_own_still() {
+        let mut v = base();
+        v["variants"][0]["still"] = json!({ "time": 3.0, "pointer": [0.2, 0.8] });
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!(m.variants[0].still, Some(Still { time: 3.0, pointer: [0.2, 0.8] }));
+        let back = Manifest::from_value(&m.to_json()).unwrap();
+        assert_eq!(back.variants[0].still, m.variants[0].still);
+        let plain = Manifest::from_value(&base()).unwrap();
+        assert_eq!(plain.variants[0].still, None);
+        assert_eq!(Manifest::from_value(&plain.to_json()).unwrap(), plain);
+        let mut bare = base();
+        bare["variants"][0].as_object_mut().unwrap().remove("accent");
+        let bare = Manifest::from_value(&bare).unwrap();
+        assert_eq!(Manifest::from_value(&bare.to_json()).unwrap(), bare);
+        let e = refuse(|v| v["variants"][0]["still"] = json!({ "time": 3.0, "pointer": [0.2, 2] }));
+        assert_eq!(e.pointer, "/variants/0/still/pointer/1");
     }
 
     #[test]
