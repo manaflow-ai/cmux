@@ -411,7 +411,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands
-        controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's pinned buttons and Exit Zoom
+        controller.view.toolbar = PaneToolbar(pane: controller, view: spare?.toolbarView) // the tab bar's pinned buttons and Exit Zoom
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
@@ -450,8 +450,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         services.paneMounts.changed()
     }
 
-    /// A springing close hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this update, so
-    /// no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
+    /// A close took `pane` out of the layout; its host goes after the frame that shows the close. It leaves `panes` (what the
+    /// window shows) in this update, so no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
     func retainContentView(_ view: NSView, for pane: LayoutPaneID, retired: Bool) {
         if retired { retiredPanes[pane] = panes.removeValue(forKey: pane) } else if let back = retiredPanes.removeValue(forKey: pane) { panes[pane] = back; sendTopology() }
         services.paneMounts.changed()
