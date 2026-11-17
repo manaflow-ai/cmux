@@ -135,6 +135,110 @@ function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
+test.each(["minimal", "default"] as const)("%s home offers creation only as matching suggestions", async (template) => {
+  const creates: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        template={template}
+        onCreate={(kind) => creates.push(kind)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-create]")).toBeNull();
+  expect(document.querySelector(".nt-popover")).toBeNull();
+  await typePrompt("unrelated question");
+  for (const kind of ["terminal", "browser", "chat"] as const)
+    expect(document.querySelector(".nt-popover")?.textContent).not.toContain(translateNewTab(`create.${kind}`));
+  for (const kind of ["terminal", "browser", "chat"] as const) {
+    const field = await typePrompt(translateNewTab(`create.${kind}`));
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
+    expect(index).toBeGreaterThanOrEqual(0);
+    if (kind !== "chat") continue;
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+  }
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[1]).toBe("");
+  expect(creates).toEqual([]);
+});
+
+test.each(["terminal", "browser", "chat"] as const)(
+  "Enter on %s with staged attachments runs the creation command",
+  async (kind) => {
+    const creates: string[] = [];
+    const asks: unknown[][] = [];
+    const attachment: ComposerAttachment = {
+      id: "staged",
+      kind: "text",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      text: "hello",
+    };
+    await act(async () =>
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          takeDraft={() => ({
+            text: translateNewTab(`create.${kind}`) + inlineToken(attachment.id),
+            attachments: [attachment],
+          })}
+          onCreate={(value) => creates.push(value)}
+          onAsk={(...args) => asks.push(args)}
+        />,
+      ),
+    );
+    const field = await promptField();
+    await settleReact();
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex(
+      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
+    if (kind === "chat") {
+      expect(asks[0]?.[1]).toBe("");
+      expect(asks[0]?.[5]).toEqual([attachment]);
+    }
+  },
+);
+
+test("Add harness keeps the typed draft through setup", async () => {
+  const asks: unknown[][] = [];
+  let resume: ((harness: string) => void) | undefined;
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        chips={({ onAddAgent }) => (
+          <button className="acpmux-add-harness" onClick={onAddAgent}>
+            Add harness
+          </button>
+        )}
+        onAsk={(...args) => asks.push(args)}
+        onSetup={(continuation) => {
+          resume = continuation;
+        }}
+      />,
+    ),
+  );
+  await typePrompt("keep my draft");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-add-harness")!.click());
+  expect(resume).toBeDefined();
+  await act(async () => resume!("claude"));
+  expect(asks[0]?.[1]).toBe("keep my draft");
+});
+
 test("New Tab suggestions keep the composer's page glass", async () => {
   await act(async () => {
     root!.render(
@@ -251,7 +355,7 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
-  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  // An unset template is Minimal.
   template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
@@ -1332,8 +1436,17 @@ test.each(
       />,
     );
   await act(async () => render("sandboxed"));
-  const create = (kind: string) => container.querySelector<HTMLButtonElement>(`[data-create="${kind}"]`)!;
-  await act(async () => create("chat").click());
+  const create = async (kind: "chat" | "terminal" | "browser") => {
+    await typePrompt(translateNewTab(`create.${kind}`));
+    const row = [...document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')].find((item) =>
+      item.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(row).toBeTruthy();
+    await act(async () =>
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+  };
+  await create("chat");
   if (setup) {
     expect(resume).toBeDefined();
     await act(async () => resume!("claude"));
@@ -1341,7 +1454,7 @@ test.each(
   expect(sandboxed.length).toBe(1);
   expect(asks).toEqual([]);
   await act(async () => render("persistent"));
-  await act(async () => create(kind).click());
+  await create(kind);
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });

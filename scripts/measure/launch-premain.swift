@@ -15,7 +15,9 @@
 // (sysctl p_starttime). At the mark (in exec mode with the process stopped there; in open mode as the mark arrives,
 // a few ms late) the probe reads the process's rusage: pageins, user and system CPU ms. resident_before and
 // resident_at_main are the executable's resident fraction (mincore over a mapping of the file, which faults nothing
-// in), before the launch and at main; pages_touched is the difference in pages.
+// in), before the launch and at main; pages_touched is the difference in pages. On a build whose executable is a stub
+// and whose code is Contents/Frameworks/CmuxNextApp.framework (cmux#44204), fw_resident_before, fw_resident_at_main
+// and fw_pages_touched say the same of the framework's binary.
 import AppKit
 import Darwin
 
@@ -87,6 +89,20 @@ func executable(_ app: URL) -> String {
     return app.appendingPathComponent("Contents/MacOS/\(name)").path
 }
 
+// The framework that holds the app's code when the executable is a stub (cmux#44204), if the bundle has one.
+func codeFramework(_ app: URL) -> String? {
+    let path = app.appendingPathComponent("Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp").resolvingSymlinksInPath().path
+    return FileManager.default.fileExists(atPath: path) ? path : nil
+}
+
+// fw_resident_at_main and fw_pages_touched into row, against the framework's residency before the launch.
+func frameworkAtMain(_ path: String?, before: Resident?) {
+    guard let path else { return }
+    let atMain = resident(path)
+    row["fw_resident_at_main"] = fraction(atMain)
+    if let atMain, let before { row["fw_pages_touched"] = atMain.resident - before.resident }
+}
+
 var retained: [AnyObject] = []
 
 // The marks FIFO, opened read-write first: the app's nonblocking open for writing finds a reader, and with the
@@ -129,10 +145,14 @@ func environment(_ homeRoot: URL, fifo: String) -> [String: String] {
         try? FileManager.default.createDirectory(at: home.appendingPathComponent(sub), withIntermediateDirectories: true)
     }
     try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    // The control socket under /tmp: a fleet worker's HOME_ROOT is longer than sun_path's 104 bytes, and an app given a
+    // longer path runs with no control socket at all, unlike a person's launch.
+    let socket = "/tmp/cmux-lp-\(getuid()).sock"
+    unlink(socket)
     var env: [String: String] = [
         "HOME": home.path, "CFFIXED_USER_HOME": home.path, "TMPDIR": tmp.path + "/",
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8", "SHELL": "/bin/zsh",
-        "CMUX_NEXT_SOCKET_PATH": homeRoot.appendingPathComponent("app.sock").path, "CMUX_NEXT_SOCKET_MODE": "allowAll",
+        "CMUX_NEXT_SOCKET_PATH": socket, "CMUX_NEXT_SOCKET_MODE": "allowAll",
         "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
     ]
     if let user = ProcessInfo.processInfo.environment["USER"] { env["USER"] = user; env["LOGNAME"] = user }
@@ -182,6 +202,7 @@ case "exec":
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
     let hold = args.count > 5 ? args[5] : nil
     let exe = executable(app), before = resident(exe)
+    let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
     let fifo = marksFIFO(homeRoot) { name, ms in
         guard name == "main_start", mainAt == nil else { return }
         kill(child, SIGSTOP) // stopped at main: rusage and residency below are the pre-main ones
@@ -190,6 +211,7 @@ case "exec":
         let atMain = resident(exe)
         row["resident_at_main"] = fraction(atMain)
         if let atMain, let before { row["pages_touched"] = atMain.resident - before.resident }
+        frameworkAtMain(fw, before: fwBefore)
     }
     let env = environment(homeRoot, fifo: fifo).map { strdup("\($0.key)=\($0.value)") } + [nil]
     let argv: [UnsafeMutablePointer<CChar>?] = [strdup(exe), nil]
@@ -220,6 +242,7 @@ case "exec":
                                  "resident_before": fraction(before), "held": hold != nil,
                                  "request_to_start": json(start.map { round1($0 - requested) })]
     row.merge(fields) { $1 }
+    if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if mainAt == nil { row["error"] = "no main_start in 30 s" }
     emit(row)
     exit(mainAt == nil ? 1 : 0)
@@ -229,12 +252,14 @@ case "open":
     let endWithTerm = args.count > 6 && args[6] == "term"
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
     let exe = executable(app), before = resident(exe)
+    let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
     let fifo = marksFIFO(homeRoot) { name, ms in
         guard name == "main_start", mainAt == nil else { return }
         mainAt = ms
         if running == nil { running = runningCopy(app) }
         if let pid = running?.processIdentifier, pid > 0 { row = usage(pid) }
         row["resident_at_main"] = fraction(resident(exe))
+        frameworkAtMain(fw, before: fwBefore)
     }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.createsNewApplicationInstance = true
@@ -274,6 +299,7 @@ case "open":
                                  "window_on_screen": json(window.flatMap { w in start.map { round1(w - $0) } }), "run_s": runFor,
                                  "request_to_start": json(start.map { round1($0 - requested) }), "quit": quit]
     row.merge(fields) { $1 }
+    if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 30 s" }
     emit(row)
     exit(window == nil ? 1 : 0)

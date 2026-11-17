@@ -949,14 +949,6 @@
     },
     {
       "agent": "privacy",
-      "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
-      "keys": [
-        "cloud.useMyClaudeLoginOnMyCloudMachines",
-        "cloud.useMyCodexLoginOnMyCloudMachines"
-      ]
-    },
-    {
-      "agent": "privacy",
       "keys": [
         "agents.chats.roots",
         "agents.chats.discovery"
@@ -1635,6 +1627,13 @@
       "keys": [
         "browser.verificationAutofill.enabled",
         "browser.verificationAutofill.accounts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
+      "keys": [
+        "models.spreadUsage"
       ]
     }
   ]
