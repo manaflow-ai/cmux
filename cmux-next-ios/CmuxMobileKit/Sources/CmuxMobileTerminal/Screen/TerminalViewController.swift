@@ -1519,7 +1519,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         pendingRestore = nil
         olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else {
+            #if DEBUG
+            if pending != nil, !model.isTUI { TerminalHistoryWindowProbe.shared.note("T") }
+            #endif
+            return
+        }
         let total = scrollbar.total
         let reader = rowReader
         // Every row of the replay, read once (the whole-screen read is not
@@ -1538,6 +1543,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             olderRowsAsked = true
             let fromEnd = restore.mark.rowsFromEnd
             let loads = restore.olderLoads
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("S")
+            #endif
             sizingLog.notice("reading mark \(fromEnd, privacy: .public) rows from the end, above the \(total, privacy: .public) replayed: older rows asked (\(loads, privacy: .public))")
             return
         }
@@ -1545,6 +1553,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
         restoredMark = (placed, anchor)
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("P")
+        #endif
     }
 
     /// Where the reader is, for the tab's next host when the warm set cools
@@ -1571,6 +1582,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard pendingRestore != nil else { return }
         pendingRestore = nil
         olderRowsAsked = false
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("D")
+        #endif
         sizingLog.notice("reading mark dropped: the person moved the page")
     }
 
@@ -2574,7 +2588,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let top = originRow + Int(floor(minY / cell.height))
             let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
             if let need = gap.need(visibleTop: top, visibleBottom: bottom, movingDown: gapOffsetY > lastY) {
-                model.session.loadNewerHistory(toTheScreen: need == .newest)
+                let asked = model.session.loadNewerHistory(toTheScreen: need == .newest)
+                #if DEBUG
+                if asked { TerminalHistoryWindowProbe.shared.note(need == .newest ? "N" : "R") }
+                #endif
+                _ = asked
             }
         }
         // A fling that reaches the bottom follows from there: while output
@@ -2668,7 +2686,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
         #endif
         applyScroll()
+        #if DEBUG
+        noteTopRowForProbe()
+        #endif
     }
+
+    #if DEBUG
+    /// The first word of the page's first row with text, for
+    /// `TerminalHistoryWindowProbe` (the history demo's rows start with
+    /// their number, so a UI test reads which row the reader rests on).
+    private func noteTopRowForProbe() {
+        guard let document, cell.height > 0 else { return }
+        let first = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height).row
+        let reader = rowReader
+        for row in max(0, first)..<(max(0, first) + max(1, Int(scrollView.bounds.height / cell.height))) {
+            guard let text = reader.text(TerminalAbsoluteRow(row)) else { continue }
+            if let word = text.split(separator: " ", omittingEmptySubsequences: true).first {
+                TerminalHistoryWindowProbe.shared.topWord = String(word)
+                return
+            }
+        }
+    }
+    #endif
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {

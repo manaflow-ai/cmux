@@ -73,12 +73,14 @@ final class TerminalHistoryWindowDemo {
     }
 
     /// What the mirror holds: the Mac's rows above it, the window's first
-    /// row (or `tail`), the rows between it and the screen, and the most
-    /// history rows any replay carried.
+    /// row (or `tail`), the rows between it and the screen, the most
+    /// history rows any replay carried, and the screen's probe.
     var state: String {
         let window = session.historyWindowStart.map(String.init) ?? "tail"
         return "omitted=\(session.historyRowsOmitted) window=\(window) skipped=\(session.historyRowsSkipped) "
-            + "fetches=\(daemon.attachCount) down=\(daemon.windowStepsDown) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows)"
+            + "fetches=\(daemon.attachCount) down=\(daemon.windowStepsDown) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows) "
+            // What the screen did with the reader's place (`TerminalHistoryWindowProbe`).
+            + TerminalHistoryWindowProbe.shared.caption
     }
 }
 
