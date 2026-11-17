@@ -44,6 +44,12 @@ pub enum ReceiverError {
 pub const FEEDBACK_INTERVAL_US: u64 = 50_000;
 /// Feedback is sent at least this often while the session lives (keepalive).
 pub const KEEPALIVE_US: u64 = 1_000_000;
+/// The shortest time between two feedbacks that ask for a keyframe, or two
+/// round trips when that is longer: the keyframe the first request gets
+/// answers every request sent before it lands. On a path that holds every
+/// datagram for 50-100 ms (Wi-Fi away from the access point), requests one
+/// round trip apart turned each burst of late frames into another keyframe.
+pub const MIN_RECOVERY_REQUEST_INTERVAL_US: u64 = 250_000;
 /// Frames waiting for the caller. A keyframe replaces every older waiting
 /// frame (newest wins); a reference chain longer than this means the caller
 /// fell behind: the chain is dropped and a keyframe requested.
@@ -78,6 +84,8 @@ pub struct Receiver {
     /// The current recovery request already went out in a feedback; a new
     /// request goes out at once instead of on the feedback interval.
     recovery_sent: bool,
+    /// When a feedback last asked for a keyframe.
+    last_recovery_request_us: Option<u64>,
     released_since_feedback: bool,
     last_feedback_us: Option<u64>,
     frames_released: u64,
@@ -125,6 +133,7 @@ impl Receiver {
             keyframe_requested: false,
             chain_broken: false,
             recovery_sent: false,
+            last_recovery_request_us: None,
             released_since_feedback: false,
             last_feedback_us: None,
             frames_released: 0,
@@ -248,6 +257,26 @@ impl Receiver {
         self.need_recovery() && !self.recovery_sent
     }
 
+    /// How long after a keyframe request the next one may go out:
+    /// [`MIN_RECOVERY_REQUEST_INTERVAL_US`], or two round trips if longer.
+    pub fn recovery_request_interval_us(&self) -> u64 {
+        self.reassembler
+            .rtt_us()
+            .map_or(0, |rtt| rtt.saturating_mul(2))
+            .max(MIN_RECOVERY_REQUEST_INTERVAL_US)
+    }
+
+    /// When the next keyframe request may go out (0: now).
+    fn recovery_allowed_at(&self) -> u64 {
+        self.last_recovery_request_us
+            .map_or(0, |at| at.saturating_add(self.recovery_request_interval_us()))
+    }
+
+    /// Whether a feedback sent at `now_us` asks for a keyframe.
+    fn asks_recovery(&self, now_us: u64) -> bool {
+        self.need_recovery() && now_us >= self.recovery_allowed_at()
+    }
+
     /// Counters for the status line.
     pub fn stats(&self) -> Stats {
         Stats {
@@ -268,11 +297,11 @@ impl Receiver {
             return u64::MAX;
         }
         let Some(last) = self.last_feedback_us else { return 0 };
-        if self.released_since_feedback
-            || self.arrivals.len() > MAX_ARRIVALS
-            || self.recovery_unsent()
-        {
+        if self.released_since_feedback || self.arrivals.len() > MAX_ARRIVALS {
             return 0;
+        }
+        if self.recovery_unsent() {
+            return self.recovery_allowed_at();
         }
         let mut deadline = last.saturating_add(KEEPALIVE_US);
         if !self.arrivals.is_empty() || self.need_recovery() {
@@ -303,7 +332,7 @@ impl Receiver {
             || keepalive
             || overflow
             || nack_due
-            || self.recovery_unsent()
+            || (self.recovery_unsent() && now_us >= self.recovery_allowed_at())
             || (due && (!self.arrivals.is_empty() || self.need_recovery())))
         {
             return None;
@@ -320,11 +349,15 @@ impl Receiver {
         } else {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
-            self.recovery_sent = self.need_recovery();
+            let need_recovery = self.asks_recovery(now_us);
+            if need_recovery {
+                self.recovery_sent = true;
+                self.last_recovery_request_us = Some(now_us);
+            }
             Feedback {
                 acked_frame: self.reassembler.last_released(),
                 decode_us: self.median_decode_us(),
-                need_recovery: self.need_recovery(),
+                need_recovery,
                 arrivals,
                 nacks: self.nacks(now_us),
             }

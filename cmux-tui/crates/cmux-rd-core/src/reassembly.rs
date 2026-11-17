@@ -43,10 +43,16 @@ struct Timing {
     deadline_us: u64,
     window_us: u64,
     retry_us: u64,
+    /// The link's silence so far ([`Reassembler::hold_us_at`]): the give-up
+    /// clock stands still for it.
+    hold_us: u64,
 }
 
 #[derive(Debug)]
 struct Pending {
+    /// [`Reassembler::hold_us`] when this frame's first shard arrived: the
+    /// silence since then is what this frame's give-up clock skips.
+    hold_base_us: u64,
     first_seen_us: u64,
     last_seen_us: u64,
     highest_index: u16,
@@ -96,6 +102,11 @@ pub struct Reassembler {
     pending_bytes: usize,
     /// Recently released frames that a recovery frame may reference.
     released_recent: VecDeque<u32>,
+    /// When the last datagram of any kind arrived.
+    last_arrival_us: Option<u64>,
+    /// Total silence of the link beyond [`Self::silence_after_us`], over
+    /// every silence that ended (a hold: nothing at all arrived).
+    hold_us: u64,
 }
 
 /// Most payload bytes held for incomplete frames; shards beyond it are ignored.
@@ -133,6 +144,14 @@ pub const REPAIR_WINDOWS: u64 = 2;
 /// before the first repair could arrive: a duplicate shard costs less than
 /// a lost request waiting a whole window.
 pub const NACK_RETRY_MAX_US: u64 = 50_000;
+
+/// The most of a link silence one frame's give-up clock skips. A silence
+/// (no datagram of any kind for two round trips) is a hold on the path, not
+/// loss: every shard and repair is late together, and giving the frame up
+/// only turns a late frame into a recovery frame that the same hold delays.
+/// Past this much silence the link is treated as gone and the frame waits
+/// no more.
+pub const MAX_HOLD_PAUSE_US: u64 = 500_000;
 
 /// The frame interval assumed until frames arrive (60 fps).
 pub const DEFAULT_FRAME_INTERVAL_US: u64 = 16_667;
@@ -226,7 +245,32 @@ impl Reassembler {
             need_recovery: false,
             pending_bytes: 0,
             released_recent: VecDeque::new(),
+            last_arrival_us: None,
+            hold_us: 0,
         }
+    }
+
+    /// How long the link may be silent before the silence counts as a hold:
+    /// two round trips, at least [`MIN_REPAIR_FRAMES`] frame intervals (a
+    /// frame's datagrams normally arrive at least that often).
+    pub fn silence_after_us(&self) -> u64 {
+        let frames = self.frame_interval_us().saturating_mul(MIN_REPAIR_FRAMES);
+        self.rtt_us().map_or(frames, |rtt| rtt.saturating_mul(2).max(frames))
+    }
+
+    /// The link's hold time at `now_us`: the silences that ended plus the
+    /// part of the current one past [`Self::silence_after_us`].
+    fn hold_us_at(&self, now_us: u64) -> u64 {
+        let current = self
+            .last_arrival_us
+            .map_or(0, |at| now_us.saturating_sub(at).saturating_sub(self.silence_after_us()));
+        self.hold_us.saturating_add(current)
+    }
+
+    /// Records a datagram's arrival: a silence that just ended joins the hold time.
+    fn note_arrival(&mut self, now_us: u64) {
+        self.hold_us = self.hold_us_at(now_us);
+        self.last_arrival_us = Some(self.last_arrival_us.map_or(now_us, |at| at.max(now_us)));
     }
 
     /// The session's round trip as measured outside reassembly (clock pings,
@@ -289,6 +333,7 @@ impl Reassembler {
         payload: &[u8],
         now_us: u64,
     ) -> Vec<CompleteFrame> {
+        self.note_arrival(now_us);
         self.expire(now_us);
         let too_far = self.finished_through != 0
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
@@ -313,7 +358,9 @@ impl Reassembler {
             }
             None => self.newest_started = Some((header.frame, now_us)),
         }
+        let hold_base_us = self.hold_us;
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
+            hold_base_us,
             first_seen_us: now_us,
             last_seen_us: now_us,
             highest_index: header.index,
@@ -397,7 +444,13 @@ impl Reassembler {
             deadline_us: self.deadline_us,
             window_us: self.repair_window_us(),
             retry_us: self.retry_us(),
+            hold_us: self.hold_us,
         }
+    }
+
+    /// [`Self::timing`] with the hold time at `now_us`, current silence included.
+    fn timing_at(&self, now_us: u64) -> Timing {
+        Timing { hold_us: self.hold_us_at(now_us), ..self.timing() }
     }
 
     /// When a gap not requested yet is due: an observed gap after the reorder
@@ -494,12 +547,27 @@ impl Reassembler {
     /// The earliest time at which [`Self::tick`] drops an incomplete frame,
     /// or `None` when no frame waits. Callers arm one timer for it instead of
     /// ticking on a fixed period.
+    ///
+    /// A silence that starts before a frame's give-up time holds its clock,
+    /// so with nothing arriving it is given up only once the pause runs out
+    /// ([`MAX_HOLD_PAUSE_US`]); an arrival moves the time again.
     pub fn next_expiry_us(&self) -> Option<u64> {
         let t = self.timing();
+        let silence_counts_from =
+            self.last_arrival_us.map(|at| at.saturating_add(self.silence_after_us()));
         self.pending
             .values()
             .filter(|p| !Self::decodable(p))
-            .map(|p| Self::give_up_at(p, &t).saturating_add(1))
+            .map(|p| {
+                let unpaused = Self::give_up_unpaused_at(p, &t);
+                let at = Self::give_up_at(p, &t).saturating_add(1);
+                match silence_counts_from {
+                    Some(from) if at > from => {
+                        unpaused.saturating_add(MAX_HOLD_PAUSE_US).saturating_add(1)
+                    }
+                    _ => at,
+                }
+            })
             .min()
     }
 
@@ -507,8 +575,14 @@ impl Reassembler {
     /// windows after its newest gap was first requested (or is due to be, or
     /// after the time its tail would be NACKed when shards kept arriving),
     /// and never later than the deadline from its first shard: the base's
-    /// wait is the most a frame waits.
+    /// wait is the most a frame waits. Both stand still while the link is
+    /// silent (a hold), for at most [`MAX_HOLD_PAUSE_US`].
     fn give_up_at(p: &Pending, t: &Timing) -> u64 {
+        let paused = t.hold_us.saturating_sub(p.hold_base_us).min(MAX_HOLD_PAUSE_US);
+        Self::give_up_unpaused_at(p, t).saturating_add(paused)
+    }
+
+    fn give_up_unpaused_at(p: &Pending, t: &Timing) -> u64 {
         let tail_nack = p.last_seen_us.saturating_add(t.nack_after_us);
         let newest_first_request = (0..usize::from(p.count))
             .filter(|&i| Self::missing_requests(p, i).is_some())
@@ -529,7 +603,7 @@ impl Reassembler {
     }
 
     fn expire(&mut self, now_us: u64) {
-        let t = self.timing();
+        let t = self.timing_at(now_us);
         let expired: Vec<u32> = self
             .pending
             .iter()

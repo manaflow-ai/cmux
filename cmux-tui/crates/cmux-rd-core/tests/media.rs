@@ -487,3 +487,67 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
     assert!(r.need_recovery());
 }
+
+/// A hold on the path (nothing at all arrives for 300 ms, then everything at
+/// once, as on Wi-Fi away from the access point) is not loss: the frame in
+/// flight completes when the burst lands, with no loss and no recovery
+/// request. Before, the round-trip-sized give-up (about 67 ms here) dropped
+/// it mid-hold and asked for a keyframe that the same hold delayed.
+#[test]
+fn a_hold_then_a_burst_completes_the_frame_in_flight_without_recovery() {
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_path_rtt_us(Some(8_000));
+    let mut now = 0;
+    // Steady 60 fps before the hold sets the frame interval.
+    for frame in 1..=10 {
+        let out = p.packetize(frame, 0, &body(frame, 600, frame == 1), 0).expect("packetize");
+        let mut released = Vec::new();
+        for d in &out.datagrams {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            released.extend(r.push(&h, payload, now));
+        }
+        assert_eq!(released.len(), 1, "frame {frame} released");
+        now += 16_667;
+    }
+    let out = p.packetize(11, 0, &body(11, 600, false), 0).expect("packetize");
+    assert!(out.datagrams.len() >= 3);
+    let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    assert!(r.push(&h, payload, now).is_empty());
+    // The hold: the caller's timers keep firing; requests go out, nothing arrives.
+    let hold_end = now + 300_000;
+    let mut t = now;
+    while t < hold_end {
+        t += 5_000;
+        assert!(r.tick(t).is_empty());
+        let _ = r.take_nacks(t);
+        assert!(r.next_expiry_us().is_none_or(|at| at > t), "a timer due in the past spins");
+    }
+    assert!(r.take_losses().is_empty(), "the frame in flight was given up during the hold");
+    assert!(!r.need_recovery(), "a hold asked for a recovery frame");
+    let mut released = Vec::new();
+    for d in &out.datagrams[1..] {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        released.extend(r.push(&h, payload, hold_end));
+    }
+    assert_eq!(released.len(), 1, "the frame in flight completes after the hold");
+    assert!(r.take_losses().is_empty());
+    assert!(!r.need_recovery());
+}
+
+/// A link that stays silent past the pause gives the frame up after all.
+#[test]
+fn a_silence_longer_than_the_pause_still_gives_the_frame_up() {
+    use cmux_rd_core::reassembly::MAX_HOLD_PAUSE_US;
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_path_rtt_us(Some(8_000));
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 600, true), 0).expect("packetize");
+    let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    assert!(r.push(&h, payload, 0).is_empty());
+    let at = r.next_expiry_us().expect("an expiry");
+    assert!(at <= 200_000 + MAX_HOLD_PAUSE_US + 1, "expiry {at}");
+    assert!(r.tick(at).is_empty());
+    assert_eq!(r.take_losses().len(), 1);
+    assert!(r.need_recovery());
+}
