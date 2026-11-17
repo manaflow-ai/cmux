@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "build": "4401252575901",
+  "notes": "notes/4401252575901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44052,
+      "title": "iOS: draw an agent CLI's terminal from the Mac's cell changes, off by default (agent-cli-hybrid-v1)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44052/lean-bench-claude-code-opencode.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 43766,
+      "title": "The Mac app stops linking CMUXMobileCore, the iPhone core (-21,512 Swift logic lines)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44768,
+      "title": "Screen Sharing: signed out says sign in, not that the device hub address is invalid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44976,
+      "title": "acpmux: per-link path counters (first byte, route, switches, RTT p50/p95, direct upgrades)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44710,
+      "title": "cmux next: chat rows read like the Codex app (reads, commentary, background finishes, composer edge)",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45043,
+      "title": "measure: launch-ready keeps cloud_env, app, daemon and launch_snapshot marks on every launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44934,
+      "title": "cmux mcp serve: an upstream server may be a loopback HTTP endpoint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45088,
+      "title": "fix(next): the agent pane imports LaunchPriorChat as a struct, so the Swift package compiles",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45003,
+      "title": "Sidebar settings: keep hide, order and group settings past 256 workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44456,
+      "title": "hot-verify: a merged PR with no look gets one at its merge commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45067,
+      "title": "base_red_excuse: excuse a red from the pull request's old base after a retarget",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45050,
+      "title": "launch-premain: threshold arms t1, t3, t6 (how long a run until the next launch turns slow)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45076,
+      "title": "app-ffi-release: a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS (hq#3690)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44957,
+      "title": "cloud-vm-dogfood: an agent-VM lifecycle leg (fork, snapshot, stop/start, auto-delete, self-delete, key revoke; API and CLI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44877,
+      "title": "cmux ext new makes a publishable git repo with a Get it on cmux badge; cmux ext publish checks it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44981,
+      "title": "Agent chat: a chat at rest after a switch stops reading every frame for its first-load record (idle wakeups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45034,
+      "title": "measure: launch-reveal-capture.sh's app path no longer carries its download log lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44847,
+      "title": "cmux-weft: delete the coordinator and relay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44900,
+      "title": "Community themes and snippets install from git repositories",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44918,
+      "title": "tab-switch check: actually measures (CuaDriver checked before the build, head fetched without submodules)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44970,
+      "title": "fix(cmux-tui terminal hosts): a replacement host waits for the PTY fence of the dead host",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44503,
+      "title": "cmux-rd linux-host: enable downloads Cisco's OpenH264, so a new Linux desktop's first session can encode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45008,
+      "title": "ui text budget: --seed-allowlist and --write-allowlist create the list's folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44969,
+      "title": "base_red_excuse: a GitHub API rate-limit red is infra, never 'fix it on this head'",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44992,
+      "title": "measure: quit-gamut A/Bs two builds (head=SHA base=SHA rounds=N) (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44892,
+      "title": "perf(launch): launch-times records prior_chat_painted_ms and prior_chat_live_ms (CMUX-119)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
