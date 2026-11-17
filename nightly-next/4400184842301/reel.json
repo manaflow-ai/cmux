@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "build": "4400184842301",
+  "notes": "notes/4400184842301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44993,
+      "title": "measure: chat-open and cef-tab build the app at another commit (--build-at=SHA)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44983,
+      "title": "launch-premain: run 5 of the pre-main study as a fleet bench (CMUX-629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44865,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-2bd4478a with the ABI-4 acpmux test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44813,
+      "title": "ci(web): react-doctor gets 30 min, since it now runs 14-20 of its 15",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44750,
+      "title": "measure: quit gamut on a published nightly (CMUX-630)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44925,
+      "title": "cmux-tui: decide the credential-like names every_credential_env_name_is_stripped_or_allowed found undecided",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44731,
+      "title": "Sidebar: revert the screen button on every workspace row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44973,
+      "title": "measure: launch-ready prerun=S launches after a full run, and records each launch's load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44862,
+      "title": "measure: a test that every harness a measure script copies has the local modules it imports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44914,
+      "title": "measure: mcp-fanout bench, MCP tool-server processes per kind at N open chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44912,
+      "title": "test(mux): the point reads test holds the terminal publisher while it compares the cursor",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44795,
+      "title": "updater: the staged update's Chromium pre-warm no longer crashes in CefShutdown (CMUX-119)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44439,
+      "title": "Agent chat: typing while a reply streams no longer restyles every message on screen",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44439/hv-7044b0eac2ac-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 44069,
+      "title": "cmux NEXT: screen sharing in its own signed helper app, so a grant never relaunches cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
