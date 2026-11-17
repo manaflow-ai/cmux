@@ -654,7 +654,7 @@ try:
         visible, occluded = reachable(wait(lambda: rows() if len(rows()) >= 2 else None, 10) or [])
         if occluded:
             REPORT["notes"].append(f"{count} workspaces: {occluded['rows']} rows under {', '.join(occluded['by'])}")
-        runs =[sample(count, i, *visible[i % len(visible)]) for i in range(opts.samples)] if visible else []
+        runs = [sample(count, i, *visible[i % len(visible)]) for i in range(opts.samples)] if visible else []
         shown = [r["shown_ms"] for r in runs if r["shown_ms"] is not None]
         pending = [r["pending_ms"] for r in runs if r["pending_ms"] is not None]
         after = [r["after_delay_ms"] for r in runs if r["after_delay_ms"] is not None]
@@ -668,7 +668,8 @@ try:
         safe_print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
                    f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms, past the {DELAY_MS:g} ms "
                    f"delay p50 {cell['after_delay_p50']} p95 {cell['after_delay_p95']} ms", flush=True)
-    status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
+    # A cell every row of which is covered has no samples: unknown, which fails nothing (review F1 on #45318).
+    status = 0 if REPORT["cells"] and all(c["shown"] or not c["samples"] for c in REPORT["cells"]) else 1
 finally:
     if CUA is not None:
         CUA.close()
