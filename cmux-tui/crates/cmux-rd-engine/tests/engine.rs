@@ -605,15 +605,10 @@ fn no_recovery_keyframe_while_the_path_is_away() {
     );
     assert!(out.outage_ended.is_some());
     assert!(out.encode.as_ref().is_none_or(|r| !r.force_idr), "a keyframe into the hold: {out:?}");
-    if let Some(req) = out.encode {
-        send(&mut e, &req, false, 500, 430_000);
-    }
-    let third = e.damage(0, small, 431_000);
-    let fresh = match third {
-        Some(req) => send(&mut e, &req, false, 500, 431_000),
-        None => Vec::new(),
-    };
-    let fresh = if fresh.is_empty() { sent[2..4].to_vec() } else { fresh };
+    // A frame sent after the outage (the one the outage end asked for, or new damage).
+    let next =
+        out.encode.or_else(|| e.damage(0, small, 430_000)).expect("a frame after the outage");
+    let fresh = send(&mut e, &next, false, 500, 430_000);
     let newest = DatagramHeader::decode(&fresh[0]).expect("header").0.frame;
     let out = e.on_datagram(
         &feedback(&Feedback {
@@ -623,7 +618,7 @@ fn no_recovery_keyframe_while_the_path_is_away() {
             ..Feedback::default()
         }),
         false,
-        700_000,
+        450_000,
     );
     let req = out.encode.expect("the recovery ask is answered once the path is back");
     assert!(req.force_idr);
