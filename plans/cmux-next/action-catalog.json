@@ -32209,7 +32209,7 @@
           "kind" : "string",
           "name" : "harness",
           "suggestions" : null,
-          "title" : "Harness"
+          "title" : "Agent"
         },
         {
           "isAskedInPalette" : false,
@@ -67794,7 +67794,7 @@
           "kind" : "string",
           "name" : "harness",
           "suggestions" : null,
-          "title" : "Harness"
+          "title" : "Agent"
         },
         {
           "isAskedInPalette" : false,
@@ -69148,7 +69148,7 @@
       "targets" : [
 
       ],
-      "title" : "Integrate a Harness with an Agent…",
+      "title" : "Add Agent…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -75723,7 +75723,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Harness Session ID",
+      "title" : "Copy Agent Session ID",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -76225,7 +76225,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Harness Config File",
+      "title" : "Copy Agent Config File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -76296,7 +76296,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Harness Settings File",
+      "title" : "Copy Agent Settings File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
