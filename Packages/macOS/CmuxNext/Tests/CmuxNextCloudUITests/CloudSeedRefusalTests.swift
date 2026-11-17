@@ -30,8 +30,9 @@ struct CloudSeedRefusalTests {
         #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: true), machine: "m") == nil)
     }
 
-    /// A machine's room is its disk less what its image and work keep: 4 GiB on the old 16 GB disk, 52 GiB on a
-    /// 64 GB one; a machine whose size is not known is taken for the smallest.
+    /// A machine's room is its disk less what its image and work keep (the floor, never the half-again disk a start
+    /// asks): 4 GiB on the old 16 GB disk, 52 GiB on a 64 GB one; a machine whose size is not known is taken for the
+    /// smallest.
     @Test func aMachinesRoomFollowsItsDisk() {
         let gib: Int64 = 1_073_741_824
         #expect(CloudSeedRefusal.room(diskMb: 16_384) == 4 * gib)
@@ -140,6 +141,8 @@ struct CloudSeedRefusalTests {
         let message = try #require(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(needed: .xl)))
         #expect(message.contains("xl") && message.contains("16") && message.contains("32") && message.contains("Max"))
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked()) == nil)
+        let next = CloudSizeLocked(upgradePlan: "next_max", upgradeNamed: true, needed: .xl)
+        #expect(CloudStartSessionStrings.sizeLocked(next)?.contains("cmux NEXT Max") == true)
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(upgradeNamed: true, needed: .lg))?.contains("Pro") == false)
     }
 }

@@ -1,13 +1,13 @@
 import Foundation
 
-/// The pricing card's Subscribe (`cloud.plan.subscribe {plan}`, webviews CloudStartView.tsx): Pro or Max, through the one
-/// upgrade path, on the person's click.
+/// The pricing card's Subscribe (`cloud.plan.subscribe {plan}`, webviews CloudStartView.tsx): cmux NEXT Pro or Max (or a
+/// classic Pro or Max a server named), through the one upgrade path, on the person's click.
 extension AgentPaneModel {
     /// The plans `cloud.plan.subscribe` takes.
-    static let subscribablePlans: Set<String> = Set(AgentPaneCloudMachines.Plan.offered)
+    static let subscribablePlans: Set<String> = Set(AgentPaneCloudMachines.Plan.subscribable)
 
     /// `cloud.plan.subscribe {plan}`: the pricing card's Subscribe runs the one upgrade path (`palette.pro.upgrade`,
-    /// its checkout opening in the browser) with that plan, on the person's click. Any plan but `pro` or `max` is refused.
+    /// its checkout opening in the browser) with that plan, on the person's click. Any plan but ``subscribablePlans`` is refused.
     func subscribeToCloudPlan(_ plan: String) -> [String: Any] {
         guard Self.subscribablePlans.contains(plan), let onRunAction else { return Self.unsupported("cloud.plan.subscribe") }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
