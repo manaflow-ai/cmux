@@ -240,6 +240,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `blocking-probe-report.py` | Ranks the main-thread blocking the probe recorded. | - | 2026-10-24 | active |
 | `ios-sim-density.sh` | iOS simulators per fleet Mac: N clones of one booted base running the same UI suites at once, jobs per hour, failures, memory per simulator, CPU, swap, pressure. | Leo 2026-11-16, simulator density | 2026-11-17 | active |
 | `ios-sim-density.py` | Python driver for ios-sim-density.sh. | Leo 2026-11-16 | 2026-11-17 | active |
+| `gui-user-per-job.sh` | One macOS account per GUI job: whether a pool account with no login of its own gets WindowServer, capture and AX input, TCC routes, cost per account, setup and teardown times. Pool stages need root (fleet-sudo). | Leo 2026-11-17, GUI CI partitioning | 2026-11-17 | active |
 | `tui-kit-selftest.sh` | Self-test of the journeys TUI load kit on a Mac. | - | 2026-11-11 | active |
 | `tests` | Shell and Python tests for the harnesses in this directory (28 files). | - | 2026-11-15 | active |
 | `export-action-catalog-dump.sh` | Regenerates action-catalog.json from the Swift catalog (generator). | CMUX-383 | 2026-11-14 | active |
