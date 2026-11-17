@@ -53,12 +53,13 @@ pub enum Ask {
     /// The session host's relay Register ticket (`carrier_ticket.rs`).
     CarrierTicket(Result<(), String>),
     /// One apps route as this machine (`apps_call.rs`).
-    AppsCall(Result<super::apps_call::AppsCall, String>),
+    /// Boxed, like the other large asks: the minter's queue moves `Ask`s by value.
+    AppsCall(Box<Result<super::apps_call::AppsCall, String>>),
     /// The process on a port, for `cmux app publish --port` (`apps_call.rs`), read under the
     /// machine's `proc` directory.
     AppsListener(Result<u16, String>, std::path::PathBuf),
     /// Start, check or stop a published version as the app user (`apps_spawn.rs`).
-    AppsRun(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths),
+    AppsRun(Box<(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths)>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -192,12 +193,13 @@ fn run<H: Http>(
                         Ask::CarrierTicket(ask) => {
                             answer_carrier(client.as_deref_mut(), ask, now())
                         }
-                        Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), ask, now()),
+                        Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), *ask, now()),
                         Ask::AppsListener(port, proc_root) => {
                             let peer = super::apps_call::peer_uid(&stream);
                             super::apps_call::listener_reply(&proc_root, port, peer)
                         }
-                        Ask::AppsRun(ask, paths) => {
+                        Ask::AppsRun(run) => {
+                            let (ask, paths) = *run;
                             let peer = super::apps_call::peer_uid(&stream);
                             super::apps_spawn::answer(
                                 &paths,

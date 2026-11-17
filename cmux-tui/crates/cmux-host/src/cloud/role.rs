@@ -1491,7 +1491,7 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }
     if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
-        return Some(Ask::AppsCall(super::apps_call::check_call(ask)));
+        return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
     }
     if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
         // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
@@ -1503,7 +1503,7 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
         if let Some(ask) = msg.get(key) {
             let run =
                 RunPaths { proc_root: paths.root().join("proc"), run_root: paths.at(RUN_ROOT) };
-            return Some(Ask::AppsRun(check_run(key, ask), run));
+            return Some(Ask::AppsRun(Box::new((check_run(key, ask), run))));
         }
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
