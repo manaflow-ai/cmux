@@ -65,6 +65,62 @@ fn publish_then_current_then_remove() {
 }
 
 #[test]
+fn publish_with_hands_the_new_image_to_the_record_only_when_written() {
+    unsafe extern "C" fn record(image: *const CmuxLaunchImage, context: *mut std::ffi::c_void) {
+        // SAFETY: the ABI passes a valid image for the call; `context` is the test's `Vec<String>`.
+        let (image, seen) = unsafe { (&*image, &mut *context.cast::<Vec<String>>()) };
+        assert!(std::path::Path::new(&path(image)).exists());
+        seen.push(path(image));
+    }
+    let dir = dir("handoff");
+    let id = CString::new("win").unwrap();
+    let bytes = png(4, 3);
+    let mut seen: Vec<String> = Vec::new();
+    let mut out = blank();
+    let context = ptr::from_mut(&mut seen).cast();
+    // SAFETY: valid strings, buffer, output, and a hand-off that reads `context` as `seen`.
+    assert!(unsafe {
+        cmux_launch_image_publish_with(
+            dir.as_ptr(),
+            id.as_ptr(),
+            bytes.as_ptr(),
+            bytes.len(),
+            &mut out,
+            Some(record),
+            context,
+        )
+    });
+    assert_eq!(seen, [path(&out)]);
+    // Not a PNG: nothing written, no hand-off.
+    // SAFETY: as above.
+    assert!(!unsafe {
+        cmux_launch_image_publish_with(
+            dir.as_ptr(),
+            id.as_ptr(),
+            b"nope".as_ptr(),
+            4,
+            &mut out,
+            Some(record),
+            context,
+        )
+    });
+    assert_eq!(seen.len(), 1);
+    // A null hand-off publishes like `cmux_launch_image_publish`.
+    // SAFETY: as above.
+    assert!(unsafe {
+        cmux_launch_image_publish_with(
+            dir.as_ptr(),
+            id.as_ptr(),
+            bytes.as_ptr(),
+            bytes.len(),
+            &mut out,
+            None,
+            ptr::null_mut(),
+        )
+    });
+}
+
+#[test]
 fn bad_arguments_write_nothing() {
     let dir = dir("bad");
     let id = CString::new("win").unwrap();

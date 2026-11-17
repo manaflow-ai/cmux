@@ -30,7 +30,10 @@ fn png(width: u32, height: u32, len: usize) -> Vec<u8> {
 fn files(dir: &std::path::Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .map(|r| {
-            r.filter_map(Result::ok).filter_map(|e| e.file_name().into_string().ok()).collect()
+            r.filter_map(Result::ok)
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n != ".publish.lock")
+                .collect()
         })
         .unwrap_or_default();
     names.sort();

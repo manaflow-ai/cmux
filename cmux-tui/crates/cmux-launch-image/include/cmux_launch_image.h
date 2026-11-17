@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_LAUNCH_IMAGE_ABI_VERSION 1
+#define CMUX_LAUNCH_IMAGE_ABI_VERSION 2
 
 /*
  The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).

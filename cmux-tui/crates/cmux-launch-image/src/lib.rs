@@ -59,6 +59,8 @@ pub const TMP_SUFFIX: &str = ".tmp";
 /// How old a `.tmp` file or another window's image must be before [`Store::prune`] removes it, so a
 /// prune never takes a publish in progress or a window that opened after its live list was read.
 pub const PRUNE_GRACE: Duration = Duration::from_millis(ffi::CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS);
+/// The folder's publish lock ([`Store::publish_with`]); not an image name, never pruned.
+const LOCK_NAME: &str = ".publish.lock";
 /// How many generations a publish tries when another publish took its name.
 const PUBLISH_ATTEMPTS: u64 = 8;
 
@@ -219,17 +221,16 @@ impl Store {
     }
 
     /// [`Self::publish`], calling `hand_off` with the new image before any old one is dropped: the
-    /// launch record names the path there, so the caps never remove a path a record is about to
-    /// name.
+    /// launch record names the path there. Publishes to the folder take turns (one lock file, held
+    /// from choosing the name through `hand_off` and the caps), so an overlapping publish never
+    /// removes a path a record is about to name.
     pub fn publish_with(
         &self,
         window_id: &str,
         png: &[u8],
         hand_off: impl FnOnce(&Image),
     ) -> Result<Image, PublishError> {
-        let image = self.publish_at(window_id, png, now_nanos())?;
-        hand_off(&image);
-        Ok(image)
+        self.publish_locked(window_id, png, now_nanos(), hand_off)
     }
 
     /// [`Self::publish`] with the clock's nanoseconds given (tests).
@@ -238,6 +239,16 @@ impl Store {
         window_id: &str,
         png: &[u8],
         now_nanos: u64,
+    ) -> Result<Image, PublishError> {
+        self.publish_locked(window_id, png, now_nanos, |_| {})
+    }
+
+    fn publish_locked(
+        &self,
+        window_id: &str,
+        png: &[u8],
+        now_nanos: u64,
+        hand_off: impl FnOnce(&Image),
     ) -> Result<Image, PublishError> {
         if window_id.is_empty() {
             return Err(PublishError::EmptyWindowId);
@@ -248,6 +259,14 @@ impl Store {
         }
         let (pixel_width, pixel_height) = png_pixel_size(png).ok_or(PublishError::NotPng)?;
         let key = window_key(window_id);
+        fs::create_dir_all(&self.dir)?;
+        // Released when the file closes, a crashed holder's too.
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.dir.join(LOCK_NAME))?;
+        lock.lock()?;
         let entries = self.entries();
         let newest =
             entries.iter().filter(|e| e.key == key).map(|e| e.generation).max().unwrap_or(0);
@@ -256,7 +275,6 @@ impl Store {
         if longest.as_os_str().len() > MAX_PATH_BYTES {
             return Err(PublishError::PathTooLong);
         }
-        fs::create_dir_all(&self.dir)?;
         static NONCE: AtomicU64 = AtomicU64::new(0);
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let tmp = self.dir.join(format!(".{key}.{}.{nonce}{TMP_SUFFIX}", std::process::id()));
@@ -292,8 +310,11 @@ impl Store {
         // The rename is durable once the folder is synced; a failure here only risks the newest
         // image after a power loss, which reads as the previous one or none.
         let _ = File::open(&self.dir).and_then(|dir| dir.sync_all());
+        let image = Image { path, generation, pixel_width, pixel_height, bytes };
+        hand_off(&image);
         self.enforce_caps(&key);
-        Ok(Image { path, generation, pixel_width, pixel_height, bytes })
+        drop(lock);
+        Ok(image)
     }
 
     /// Drops each window's images past [`Caps::keep_per_window`], then whole windows past
