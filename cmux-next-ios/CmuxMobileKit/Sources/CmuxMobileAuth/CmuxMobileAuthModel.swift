@@ -105,7 +105,16 @@ public final class CmuxMobileAuthModel {
         // A non-DEBUG staging build (project.yml TestFlightStaging) signs in to
         // the development Stack project: Info.plist CmuxMobileStackEnvironment.
         let stagingStack = Bundle.main.object(forInfoDictionaryKey: "CmuxMobileStackEnvironment") as? String == "development"
-        let config = AuthConfig(environment: isDebug || stagingStack ? .development : .production)
+        #if DEBUG && targetEnvironment(simulator)
+        let simulator = true
+        #else
+        let simulator = false
+        #endif
+        let developmentStack = Self.usesDevelopmentStack(
+            environment: environment, isDebug: isDebug, isSimulator: simulator, stagingStack: stagingStack,
+            defaults: .standard
+        )
+        let config = AuthConfig(environment: developmentStack ? .development : .production)
         let tokenStore = KeychainStackTokenStore(
             service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
             legacyProjectID: config.stack.projectId
@@ -165,9 +174,9 @@ public final class CmuxMobileAuthModel {
         #endif
         let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
-        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(developmentStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
         let teamCreationRoute = TeamCreationRoute(
-            productionAccount: !(isDebug || stagingStack),
+            productionAccount: !developmentStack,
             teamAPIBase: URL(string: config.apiBaseURL),
             mobileServiceBase: apiBase
         )
@@ -191,6 +200,28 @@ public final class CmuxMobileAuthModel {
         }
         #endif
         return primary
+    }
+
+    /// The UserDefaults key that keeps a simulator's `CMUX_MOBILE_STACK_ENVIRONMENT` across launches
+    /// the system makes (a notification action wakes the app with no launch variables).
+    static let stackEnvironmentOverrideKey = "cmuxMobile.dev.stackEnvironment"
+
+    /// Whether this launch signs in to the development Stack project. DEBUG and staging builds do,
+    /// except a DEBUG simulator build launched with `CMUX_MOBILE_STACK_ENVIRONMENT=production`
+    /// (kept for later launches; `development` or an empty value clears it): the always-on
+    /// simulator (scripts/ios-live) mirrors a person's own Macs, which sign in to production, and
+    /// pairing admits only the Mac's own account. A device build, or any non-DEBUG build, never
+    /// reads the variable.
+    static func usesDevelopmentStack(
+        environment: [String: String], isDebug: Bool, isSimulator: Bool, stagingStack: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard isDebug else { return stagingStack }
+        guard isSimulator else { return true }
+        if let value = environment["CMUX_MOBILE_STACK_ENVIRONMENT"] {
+            defaults.set(value == "production" ? "production" : nil, forKey: stackEnvironmentOverrideKey)
+        }
+        return defaults.string(forKey: stackEnvironmentOverrideKey) != "production"
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG

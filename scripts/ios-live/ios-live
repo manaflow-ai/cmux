@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# ios-live: the always-on cmux NEXT iOS simulator, from any checkout (README.md beside this file).
+#
+#   ios-live status                  what runs: base, patch, owner, last timings; who holds the lease
+#   ios-live shot [OUT.png]          screenshot of the live sim (default ./ios-live.png)
+#   ios-live lease take [MIN]        become the one driver (default 20 min, at most 120); beat to extend
+#   ios-live lease beat|release|show
+#   ios-live swift                   your Swift edits, live in ~2 s: no build, no relaunch (lease)
+#   ios-live swap                    your whole change (anything): warm rebuild + relaunch (lease)
+#   ios-live up [REF]                rebuild at REF (default origin/feat-cmux-next), no patch (lease)
+#   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
+#   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
+#   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
+#
+# "Your change" is this checkout against its merge base with origin/feat-cmux-next: commits,
+# staged, unstaged and untracked files. Nothing is pushed.
+#
+# IOS_LIVE_HOST picks the host (default air-blue). IOS_LIVE_OWNER names you on the lease
+# (default HOST/session). Every call goes through `reach`.
+set -euo pipefail
+
+host="${IOS_LIVE_HOST:-air-blue}"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+owner="${IOS_LIVE_OWNER:-$(hostname -s)/${CLAUDE_SESSION_ID:-${CODEX_SESSION_ID:-$PPID}}}"
+remote_root='~/ios-live'
+
+die() { echo "ios-live: $*" >&2; exit 1; }
+quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
+on_host() { reach "$host" "$@" 2> >(quiet); }
+host_sh() { on_host "bash $remote_root/bin/host.sh $(printf '%q ' "$@")"; }
+
+install_host() {
+  on_host "mkdir -p $remote_root/bin $remote_root/incoming"
+  rsync -q -c -e reach "$here/host.sh" "$host:ios-live/bin/host.sh" 2> >(quiet)
+}
+
+# make_patch OUT: prints the base sha; OUT gets this checkout's change against it (binary diff).
+make_patch() {
+  local out="$1" top base idx
+  top="$(git rev-parse --show-toplevel)" || die "run from a cmux checkout"
+  git -C "$top" fetch -q origin feat-cmux-next 2>/dev/null || true
+  base="$(git -C "$top" merge-base HEAD origin/feat-cmux-next)" || die "no merge base with origin/feat-cmux-next"
+  idx="$(mktemp)"
+  cp "$(git -C "$top" rev-parse --git-path index)" "$idx"
+  GIT_INDEX_FILE="$idx" git -C "$top" add -A -- cmux-next-ios scripts >/dev/null 2>&1 || true
+  GIT_INDEX_FILE="$idx" git -C "$top" diff --cached --binary "$base" >"$out"
+  rm -f "$idx"
+  echo "$base"
+}
+
+send_patch() {  # prints "BASE REMOTE_PATCH"
+  local tmp base name
+  tmp="$(mktemp)"
+  base="$(make_patch "$tmp")"
+  name="$(shasum -a 256 "$tmp" | cut -c1-16).patch"
+  rsync -q -e reach "$tmp" "$host:ios-live/incoming/$name" 2> >(quiet)
+  rm -f "$tmp"
+  echo "$base ios-live/incoming/$name"
+}
+
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+  status|log|tree|udid) install_host; host_sh "$cmd" "$@" ;;
+  shot)
+    out="${1:-ios-live.png}"
+    install_host
+    host_sh shot ios-live/shot.png >/dev/null
+    rsync -q -e reach "$host:ios-live/shot.png" "$out" 2> >(quiet)
+    echo "$out" ;;
+  lease)
+    sub="${1:-show}"; install_host
+    case "$sub" in show) host_sh lease show ;; *) host_sh lease "$sub" "$owner" "${2:-20}" ;; esac ;;
+  up) install_host; host_sh up "$owner" "${1:-origin/feat-cmux-next}" ;;
+  swap|swift)
+    install_host
+    read -r base patch < <(send_patch)
+    t0=$(python3 -c 'import time; print(time.time())')
+    host_sh "$cmd" "$owner" "$base" "$patch"
+    python3 -c 'import sys,time; print("ios-live: %s end to end (send + apply): %.1f s" % (sys.argv[1], time.time()-float(sys.argv[2])))' "$cmd" "$t0" ;;
+  undo|relaunch) install_host; host_sh "$cmd" "$owner" "$@" ;;
+  tap) install_host; host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;
+  type) install_host; host_sh type "$owner" "${1:?text}" ;;
+  ffi-sync)
+    from="${1:?ffi-sync FROM_HOST}"
+    install_host
+    rel=cmux-next-ios/CmuxMobileKit
+    reach "$from" "tar -C ~/ios-live/src/$rel -cf - Frameworks/CmuxMobileLinkFFI.xcframework Sources/CmuxMobileLinkFFI" 2> >(quiet) \
+      | reach "$host" "rm -rf ~/ios-live/ffi && mkdir -p ~/ios-live/ffi && tar -C ~/ios-live/ffi -xf - && echo $from > ~/ios-live/ffi/synced" 2> >(quiet)
+    echo "ios-live: FFI copied from $from" ;;
+  -h|--help|help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command $cmd (ios-live help)" ;;
+esac
