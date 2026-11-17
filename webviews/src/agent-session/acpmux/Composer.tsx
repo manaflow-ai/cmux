@@ -2539,6 +2539,7 @@ function ComposerFrame({
       route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
+      cloudStartOut={cloudStarting}
     />
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />

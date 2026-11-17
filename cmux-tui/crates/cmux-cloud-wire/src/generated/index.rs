@@ -107,6 +107,9 @@ pub mod op_names {
     pub const GROUP_CREATE: &str = "group.create";
     pub const GROUP_GET: &str = "group.get";
     pub const GROUP_LIST: &str = "group.list";
+    pub const GROUP_MEMBERS_LIST: &str = "group.members.list";
+    pub const GROUP_MEMBERS_REMOVE: &str = "group.members.remove";
+    pub const GROUP_MEMBERS_SET: &str = "group.members.set";
     pub const GROUP_RENAME: &str = "group.rename";
     pub const HOME_REQUESTS_LIST: &str = "home.requests.list";
     pub const HOME_SEARCH: &str = "home.search";
@@ -180,10 +183,21 @@ pub mod op_names {
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
+    pub const TEAM_AGENT_KEY_REMOVE: &str = "team.agent_key.remove";
+    pub const TEAM_AGENT_KEY_SET: &str = "team.agent_key.set";
+    pub const TEAM_AGENT_KEY_STATUS: &str = "team.agent_key.status";
     pub const TEAM_AI_LIMIT_GET: &str = "team.ai_limit.get";
     pub const TEAM_AI_LIMIT_MEMBER_SET: &str = "team.ai_limit.member.set";
     pub const TEAM_AI_LIMIT_SET: &str = "team.ai_limit.set";
     pub const TEAM_AUDIT_LIST: &str = "team.audit.list";
+    pub const TEAM_CLOUD_SESSION_ARCHIVE: &str = "team.cloud.session.archive";
+    pub const TEAM_CLOUD_SESSION_FOLLOW: &str = "team.cloud.session.follow";
+    pub const TEAM_CLOUD_SESSION_GET: &str = "team.cloud.session.get";
+    pub const TEAM_CLOUD_SESSION_LIST: &str = "team.cloud.session.list";
+    pub const TEAM_CLOUD_SESSION_PUBLISH: &str = "team.cloud.session.publish";
+    pub const TEAM_CLOUD_SESSION_REASSIGN: &str = "team.cloud.session.reassign";
+    pub const TEAM_CLOUD_SESSION_REMOVE: &str = "team.cloud.session.remove";
+    pub const TEAM_CLOUD_SESSION_VIEWING: &str = "team.cloud.session.viewing";
     pub const TEAM_DEVICE_COMPLIANCE: &str = "team.device.compliance";
     pub const TEAM_DEVICE_ENROLL: &str = "team.device.enroll";
     pub const TEAM_DEVICE_POLICY: &str = "team.device.policy";
@@ -197,6 +211,8 @@ pub mod op_names {
     pub const TEAM_INTEGRATION_RELEASE_LOCK: &str = "team.integration.release_lock";
     pub const TEAM_MEMBERS_LIST: &str = "team.members.list";
     pub const TEAM_MEMBERS_REMOVE: &str = "team.members.remove";
+    pub const TEAM_MODELS_POLICY_GET: &str = "team.models_policy.get";
+    pub const TEAM_MODELS_POLICY_SET: &str = "team.models_policy.set";
     pub const TEAM_POLICY_GET: &str = "team.policy.get";
     pub const TEAM_POLICY_HISTORY: &str = "team.policy.history";
     pub const TEAM_POLICY_ROLLBACK: &str = "team.policy.rollback";
@@ -336,6 +352,9 @@ pub mod op_names {
         GROUP_CREATE,
         GROUP_GET,
         GROUP_LIST,
+        GROUP_MEMBERS_LIST,
+        GROUP_MEMBERS_REMOVE,
+        GROUP_MEMBERS_SET,
         GROUP_RENAME,
         HOME_REQUESTS_LIST,
         HOME_SEARCH,
@@ -409,10 +428,21 @@ pub mod op_names {
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
+        TEAM_AGENT_KEY_REMOVE,
+        TEAM_AGENT_KEY_SET,
+        TEAM_AGENT_KEY_STATUS,
         TEAM_AI_LIMIT_GET,
         TEAM_AI_LIMIT_MEMBER_SET,
         TEAM_AI_LIMIT_SET,
         TEAM_AUDIT_LIST,
+        TEAM_CLOUD_SESSION_ARCHIVE,
+        TEAM_CLOUD_SESSION_FOLLOW,
+        TEAM_CLOUD_SESSION_GET,
+        TEAM_CLOUD_SESSION_LIST,
+        TEAM_CLOUD_SESSION_PUBLISH,
+        TEAM_CLOUD_SESSION_REASSIGN,
+        TEAM_CLOUD_SESSION_REMOVE,
+        TEAM_CLOUD_SESSION_VIEWING,
         TEAM_DEVICE_COMPLIANCE,
         TEAM_DEVICE_ENROLL,
         TEAM_DEVICE_POLICY,
@@ -426,6 +456,8 @@ pub mod op_names {
         TEAM_INTEGRATION_RELEASE_LOCK,
         TEAM_MEMBERS_LIST,
         TEAM_MEMBERS_REMOVE,
+        TEAM_MODELS_POLICY_GET,
+        TEAM_MODELS_POLICY_SET,
         TEAM_POLICY_GET,
         TEAM_POLICY_HISTORY,
         TEAM_POLICY_ROLLBACK,
@@ -568,6 +600,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "group.create" => visitor.visit::<GroupCreateOp>(),
         "group.get" => visitor.visit::<GroupGetOp>(),
         "group.list" => visitor.visit::<GroupListOp>(),
+        "group.members.list" => visitor.visit::<GroupMembersListOp>(),
+        "group.members.remove" => visitor.visit::<GroupMembersRemoveOp>(),
+        "group.members.set" => visitor.visit::<GroupMembersSetOp>(),
         "group.rename" => visitor.visit::<GroupRenameOp>(),
         "home.requests.list" => visitor.visit::<HomeRequestsListOp>(),
         "home.search" => visitor.visit::<HomeSearchOp>(),
@@ -641,10 +676,21 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),
+        "team.agent_key.remove" => visitor.visit::<TeamAgentKeyRemoveOp>(),
+        "team.agent_key.set" => visitor.visit::<TeamAgentKeySetOp>(),
+        "team.agent_key.status" => visitor.visit::<TeamAgentKeyStatusOp>(),
         "team.ai_limit.get" => visitor.visit::<TeamAiLimitGetOp>(),
         "team.ai_limit.member.set" => visitor.visit::<TeamAiLimitMemberSetOp>(),
         "team.ai_limit.set" => visitor.visit::<TeamAiLimitSetOp>(),
         "team.audit.list" => visitor.visit::<TeamAuditListOp>(),
+        "team.cloud.session.archive" => visitor.visit::<TeamCloudSessionArchiveOp>(),
+        "team.cloud.session.follow" => visitor.visit::<TeamCloudSessionFollowOp>(),
+        "team.cloud.session.get" => visitor.visit::<TeamCloudSessionGetOp>(),
+        "team.cloud.session.list" => visitor.visit::<TeamCloudSessionListOp>(),
+        "team.cloud.session.publish" => visitor.visit::<TeamCloudSessionPublishOp>(),
+        "team.cloud.session.reassign" => visitor.visit::<TeamCloudSessionReassignOp>(),
+        "team.cloud.session.remove" => visitor.visit::<TeamCloudSessionRemoveOp>(),
+        "team.cloud.session.viewing" => visitor.visit::<TeamCloudSessionViewingOp>(),
         "team.device.compliance" => visitor.visit::<TeamDeviceComplianceOp>(),
         "team.device.enroll" => visitor.visit::<TeamDeviceEnrollOp>(),
         "team.device.policy" => visitor.visit::<TeamDevicePolicyOp>(),
@@ -658,6 +704,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team.integration.release_lock" => visitor.visit::<TeamIntegrationReleaseLockOp>(),
         "team.members.list" => visitor.visit::<TeamMembersListOp>(),
         "team.members.remove" => visitor.visit::<TeamMembersRemoveOp>(),
+        "team.models_policy.get" => visitor.visit::<TeamModelsPolicyGetOp>(),
+        "team.models_policy.set" => visitor.visit::<TeamModelsPolicySetOp>(),
         "team.policy.get" => visitor.visit::<TeamPolicyGetOp>(),
         "team.policy.history" => visitor.visit::<TeamPolicyHistoryOp>(),
         "team.policy.rollback" => visitor.visit::<TeamPolicyRollbackOp>(),

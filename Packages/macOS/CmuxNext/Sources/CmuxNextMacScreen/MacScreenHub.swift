@@ -285,7 +285,13 @@ extension SessionScope {
 @MainActor @Observable
 final class MacScreenHubBox {
     var hub: DeviceHub?
-    var configured = false
+    /// The hub address is valid. True until `DeviceHubService` reads an address that is not:
+    /// a launch that has not read it yet, a sign-out or a restore never reads as a bad address.
+    var configured = true
+    /// The saved sign-in is still being restored (``MacScreenPages/hubRestoring``).
+    var restoring = false
+    /// Signed in, and the hub for that account is still starting (``MacScreenPages/hubConnecting``).
+    var connecting = false
     var startupError: String?
     var startupMessage: String? {
         guard startupError != nil else { return nil }

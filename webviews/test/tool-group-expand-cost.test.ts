@@ -226,7 +226,8 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
   // Rows of mixed heights (a long lead thought, failures, later thoughts, images) drawn after the
   // fold take their own heights: with the reader scrolled to the run's foot before they draw, nothing
   // in view moves as each held draw lands (ToolGroupRow.tsx `StepList`, review of cmux#37152).
-  for (const variant of ["n100", "mixed-commands", "mixed-reads"] as const)
+  // (Reads never group since 2026-11-17, readPath.ts: no run of reads to open.)
+  for (const variant of ["n100", "mixed-commands"] as const)
     test(`${variant}: the rows drawn after the fold move nothing in view`, async () => {
       const page = await open(variant);
       await page.evaluate(() => window.cmuxStepDraws!.hold(true));
