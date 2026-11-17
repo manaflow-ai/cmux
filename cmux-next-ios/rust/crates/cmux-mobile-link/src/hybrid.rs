@@ -188,8 +188,14 @@ impl MediaManager {
     /// the tunnel; the manager dials again as after any failure).
     #[doc(hidden)]
     pub fn kill(&self) {
-        // Only a session up now; no permit is kept for a later one.
-        self.kill.notify_waiters();
+        // Only a session up now, and as a permit, not notify_waiters: the hold
+        // loop is in another arm most of the time (demand, path, the RTT
+        // ticker), and a wake-up only for parked waiters was lost, so the
+        // session never died (browser_video_rides_the_media_session_beside_wireguard).
+        // No permit while nothing is up, so it cannot kill the next session.
+        if matches!(*self.status.borrow(), MediaStatus::Up { .. }) {
+            self.kill.notify_one();
+        }
     }
 }
 
