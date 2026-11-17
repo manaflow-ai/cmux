@@ -172,6 +172,7 @@ def main(argv: list[str]) -> int:
     # The sweep never waits (each push sweeps again): a rate limit ends it at once.
     handoff.RATE_LIMIT_WAIT_S = 0
     find_run = make_find_run(args.repo, args.tip_branch)
+    refused: list[int] = []
 
     def rerun(run_id: int) -> bool:
         result = handoff._gh("run", "rerun", str(run_id), "--repo", args.repo)
@@ -179,6 +180,7 @@ def main(argv: list[str]) -> int:
             raise handoff.RateLimited(f"could not re-run run {run_id}: {result.stderr.strip()}")
         if result.returncode != 0:
             print(f"::warning::could not re-run run {run_id}: {result.stderr.strip()}")
+            refused.append(run_id)
         return result.returncode == 0
 
     revs = git_revs(args.window, args.tip_branch)
@@ -193,6 +195,10 @@ def main(argv: list[str]) -> int:
     except handoff.RateLimited as error:
         # The commit asked for last was not judged; with every commit after it, the next push's sweep looks again.
         left = revs[revs.index(judged[-1]):] if judged else revs
+        if refused:  # a real refusal before the limit is still the step's red
+            print(f"::error title=commit manifests missing::could not re-run runs {', '.join(map(str, refused))}; "
+                  f"then {error}")
+            return 1
         print(f"::warning title=manifest sweep stopped (rate limit)::{error}. Not judged this run, left for the next "
               f"push's sweep: {', '.join(rev[:12] for rev in left)}")
         return 0

@@ -2875,6 +2875,19 @@ def test_sweep_real_rerun_failure_stays_red():
     assert "::error title=commit manifests missing::" in out
 
 
+def test_sweep_real_rerun_failure_before_a_rate_limit_stays_red():
+    def answer(args):
+        if args[:2] == ("run", "rerun"):
+            return (1, "", "HTTP 422: run cannot be rerun") if args[2] == "10" else (1, "", "HTTP 429: Too Many Requests")
+        runs = [{"id": 10 + i, "head_sha": rev, "status": "completed", "run_attempt": 1}
+                for i, rev in enumerate(["a" * 40, "b" * 40])]
+        return 0, json.dumps({"workflow_runs": runs}), ""
+
+    code, out, _, _ = run_sweep_main(answer)
+    assert code == 1, out
+    assert "::error title=commit manifests missing::could not re-run runs 10" in out, out
+
+
 def test_sweep_malformed_listing_stays_red():
     code, out, _, _ = run_sweep_main(lambda args: (0, "<html>", ""))
     assert code == 1, out
