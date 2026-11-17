@@ -14,7 +14,8 @@ Output (the stream, or growth of --log or a --follow file) counts as progress. W
 --heartbeat seconds, it prints `TAG-PROGRESS NAME Ns, output Ms ago: <latest line>`. Past --deadline seconds it prints
 `TAG-TIMEOUT NAME ...`, and after --stall seconds with no progress `TAG-STALL NAME ...`; either way it ends the group
 (SIGTERM, then SIGKILL after --grace) and exits 124. Otherwise it exits with COMMAND's status. A SIGTERM or SIGINT it
-gets is passed to the group, so a cancelled step ends the phase too.
+gets is passed to the group, so a cancelled step ends the phase too, and the group's leader ends the group when this
+process dies without a word (a SIGKILL), so no build or app outlives the step.
 """
 import argparse
 import os
@@ -23,6 +24,7 @@ import select
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -54,27 +56,68 @@ def file_state(path):
         return None
 
 
+def signal_group(pgid, sig, say=None):
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        pass
+    except PermissionError as e:  # a member runs as another user: say so, the phase may outlive this
+        if say:
+            say(f"cannot send {signal.Signals(sig).name} to process group {pgid}: {e}")
+
+
+def guard(read_fd, grace, command):
+    """The group's leader: runs COMMAND and exits with its status, and ends the whole group when the pipe from
+    bounded-phase.py closes without a word, as when that process is SIGKILLed (the controller's hard stop): a build
+    or an app must never outlive the phase that owns it on an exclusive Mac."""
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        signal.pthread_sigmask(signal.SIG_SETMASK, [])
+        os.execvp(command[0], command)
+    # The group's SIGTERM is for COMMAND; this leader stays to report its status, and goes with the SIGKILL.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.pthread_sigmask(signal.SIG_SETMASK, [])
+
+    def watch():
+        try:
+            data = os.read(read_fd, 1)
+        except OSError:
+            data = b""
+        if data:  # bounded-phase.py said it is done with the group
+            return
+        signal_group(0, signal.SIGTERM)
+        time.sleep(grace)
+        signal_group(0, signal.SIGKILL)
+
+    threading.Thread(target=watch, daemon=True).start()
+    _, status = os.waitpid(child, 0)
+    if os.WIFSIGNALED(status):
+        return 128 + os.WTERMSIG(status)
+    return os.WEXITSTATUS(status)
+
+
 def end_group(proc, grace, say):
     """SIGTERM to COMMAND's process group, SIGKILL to what is left after GRACE seconds."""
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(proc.pid, sig)
-        except (ProcessLookupError, PermissionError):
-            pass
+        signal_group(proc.pid, sig, say)
         try:
             proc.wait(wait)
             break
         except subprocess.TimeoutExpired:
             if sig == signal.SIGTERM:
                 say(f"still running {grace:.0f} s after SIGTERM; sending SIGKILL")
+    else:
+        say(f"the phase's leader {proc.pid} still runs after SIGKILL")
     # Members of the group may outlive the leader (a daemon the phase started): give them the same end.
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    signal_group(proc.pid, signal.SIGKILL, say)
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--guard"]:  # internal: the group leader bounded-phase.py starts, see guard()
+        return guard(int(argv[1]), float(argv[2]), argv[4:])
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--name", required=True, help="what the phase is, as the log names it")
     ap.add_argument("--deadline", type=float, required=True, help="seconds the phase may take in all")
@@ -98,9 +141,14 @@ def main(argv=None):
 
     log_file = open(a.log, "ab") if a.log else None
     started = time.monotonic()
-    proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+    # No SIGTERM or SIGINT between starting the group and the handlers that pass them on to it.
+    signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGTERM, signal.SIGINT])
+    alive_r, alive_w = os.pipe()  # the guard's line to this process: EOF without a byte means it died
+    proc = subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "--guard", str(alive_r), str(a.grace),
+                             "--", *command], stdin=subprocess.DEVNULL,
                             stdout=log_file if log_file else subprocess.PIPE, stderr=subprocess.STDOUT,
-                            start_new_session=True)
+                            start_new_session=True, pass_fds=(alive_r,))
+    os.close(alive_r)
     if log_file:
         log_file.close()
 
@@ -108,13 +156,11 @@ def main(argv=None):
 
     def forward(signum, _frame):
         received.append(signum)
-        try:
-            os.killpg(proc.pid, signum)
-        except (ProcessLookupError, PermissionError):
-            pass
+        signal_group(proc.pid, signum)
 
     signal.signal(signal.SIGTERM, forward)
     signal.signal(signal.SIGINT, forward)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGTERM, signal.SIGINT])
 
     watched = [p for p in ([a.log] if a.log else []) + a.follow]
     states = {p: file_state(p) for p in watched}

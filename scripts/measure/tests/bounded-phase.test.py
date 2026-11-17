@@ -61,6 +61,25 @@ class BoundedPhaseTests(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse(alive(grandchild), "the phase's process group outlived it")
 
+    def test_a_sigkilled_phase_takes_its_build_with_it(self):
+        """The controller's hard stop SIGKILLs the step: what the phase started must not keep the Mac busy."""
+        pidfile = self.tmp / "build.pid"
+        p = subprocess.Popen([sys.executable, "-I", str(PHASE), "--tag", "UCA", "--name", "base app build",
+                              "--deadline", "600", "--grace", "1", "--log", str(self.tmp / "b.log"), "--",
+                              "bash", "-c", f"sleep 1000 & echo $! > {pidfile}; wait"])
+        for _ in range(100):
+            if pidfile.exists() and pidfile.read_text().strip():
+                break
+            time.sleep(0.1)
+        build = int(pidfile.read_text())
+        p.kill()
+        p.wait(10)
+        for _ in range(100):
+            if not alive(build):
+                break
+            time.sleep(0.1)
+        self.assertFalse(alive(build), "the build outlived its SIGKILLed phase")
+
     def test_a_phase_past_its_deadline_ends_as_a_named_timeout(self):
         # Output every 0.2 s: never a stall, but it never ends either.
         r, took = run_phase("--name", "base app build", "--deadline", "2", "--stall", "30", "--grace", "2", "--",
