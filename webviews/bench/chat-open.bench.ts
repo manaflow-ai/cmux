@@ -775,6 +775,8 @@ try {
       const gaps: string[] = [];
       let gapFrom = -1;
       const runs: { task: string; at: number; ms: number }[] = [];
+      const byOuter = new Map<string, number>();
+      const byFileSelf = new Map<string, number>();
       profile.samples.forEach((id, index) => {
         const delta = (profile.timeDeltas[index] ?? 0) / 1000;
         clockAt += delta;
@@ -794,20 +796,27 @@ try {
           gaps.push(`${(gapFrom - from).toFixed(0)}+${(clockAt - delta - gapFrom).toFixed(0)}`);
         gapFrom = -1;
         busy += delta;
-        // The task timeline: each sample's outermost page function and React phase, merged into runs.
+        // The task timeline: each sample's React phase (render, commit, passive effects) or, outside
+        // React, its outermost page function, merged into runs; and per phase, the time under each
+        // outermost page function (in a render, the component rendering; in a commit, the effect).
         let outer = "";
         let phase = "";
         for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
           const fn = up.callFrame.functionName;
-          if (!phase && (fn === "renderRootSync" || fn === "renderRootConcurrent")) phase = " render";
-          else if (!phase && fn === "commitRoot") phase = " commit";
-          else if (!phase && fn === "flushPassiveEffects") phase = " passive effects";
-          if (up.callFrame.url.includes("/src/")) outer = name(up.callFrame);
+          if (!phase && (fn === "renderRootSync" || fn === "renderRootConcurrent")) phase = "render";
+          else if (!phase && fn === "commitRoot") phase = "commit";
+          else if (!phase && fn === "flushPassiveEffects") phase = "passive effects";
+          const named = name(up.callFrame);
+          if (named.includes(" src/")) outer = named;
         }
-        const task = `${outer || name(node.callFrame)}${phase}`;
+        const task = phase ? `React ${phase}` : outer || name(node.callFrame);
         const last = runs.at(-1);
         if (last && last.task === task && clockAt - delta - (last.at + last.ms) < 1) last.ms = clockAt - last.at;
         else runs.push({ task, at: clockAt - delta, ms: delta });
+        const under = `${phase || "other"}: ${outer || name(node.callFrame)}`;
+        byOuter.set(under, (byOuter.get(under) ?? 0) + delta);
+        const file = name(node.callFrame).split(" ").pop()!.replace(/:\d+$/, "");
+        byFileSelf.set(file, (byFileSelf.get(file) ?? 0) + delta);
         windowSelf.set(name(node.callFrame), (windowSelf.get(name(node.callFrame)) ?? 0) + delta);
         const seen = new Set<string>();
         for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
@@ -824,6 +833,12 @@ try {
       for (const run of runs.filter((each) => each.ms >= 1))
         console.log(`  ${(run.at - from).toFixed(1)}\t${run.ms.toFixed(1)}\t${run.task.slice(0, 140)}`);
       console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);
+      console.log("  by phase and outermost page function (in a render, the component) (ms):");
+      for (const [key, ms] of [...byOuter].sort((a, b) => b[1] - a[1]).slice(0, 40))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+      console.log("  self time by file (ms):");
+      for (const [key, ms] of [...byFileSelf].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
       console.log("  top self time (ms):");
       for (const [key, ms] of [...windowSelf].sort((a, b) => b[1] - a[1]).slice(0, 30))
         console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
