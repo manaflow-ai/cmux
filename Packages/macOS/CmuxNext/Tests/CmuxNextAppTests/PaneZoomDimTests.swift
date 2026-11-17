@@ -291,6 +291,68 @@ import Testing
         #expect(grid.isShown(by: Commit.shown(screen)) && Self.dim(harness) == nil, "the page's end did not show the grid in its first frame, or a dim shows over it")
     }
 
+    /// The frame ticks the dim's fade takes: its time in display frames, a whole number of frames counted as that number.
+    static func ticks(of fade: TimeInterval) -> Int {
+        Int((fade / Self.dt - 1e-6).rounded(.up))
+    }
+
+    /// While the dim comes, each pane stays live at the size it shows: the pane that zooms hears its new size only in
+    /// the frame where the dim's fade is spent, and the zoom shows after it as any layout change does. A pane that
+    /// heard its size in the key's turn kept its old picture, with no new output and no key echo, for the dim's time.
+    @Test func whileTheDimComesThePaneThatZoomsHearsNoSize() throws {
+        let harness = Commit.Harness(Zoom.screens(), focused: "p4", holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let ticks = Self.ticks(of: try Self.fade())
+        let surface = try #require(harness.provider.surface("p4"), "SETUP: the pane that zooms has no producer")
+        let asked = surface.asks.count
+
+        harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
+        let zoomed = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        #expect(surface.asks.count == asked, "the zoom's own turn told the pane that zooms its new size: its picture is held from the key on")
+        for tick in 1..<ticks {
+            _ = harness.root.advanceFrame(Self.dt)
+            #expect(surface.asks.count == asked, "tick \(tick): the pane that zooms heard a size while the dim still comes")
+        }
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(surface.asks.count == asked + 1, "in the frame where the dim's fade is spent the pane that zooms heard \(surface.asks.count - asked) sizes, not 1")
+        #expect(!zoomed.isShown(by: Commit.shown(screen)), "the zoom showed in the frame that told its pane the size, before its producer reported")
+        surface.report()
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(zoomed.isShown(by: Commit.shown(screen)) && Self.dim(harness) == nil, "the frame after the producer's report does not show the zoom alone with no dim")
+    }
+
+    /// A split while the dim comes ends the dim and is a change of its own: it waits for its producers as any change
+    /// does, at most 3 frame ticks. The dim's time was no wait for content, so it uses up none of that bound.
+    @Test func aSplitWhileTheDimComesWaitsForItsProducers() throws {
+        let harness = Commit.Harness(Commit.pair, focused: Commit.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        _ = try Self.fade()
+        let pair = Commit.Rest(harness.model.screens, in: screen, style: style)
+        harness.model.apply(screens: Commit.pairZoomed)
+        harness.root.syncWithModel()
+        for _ in 0..<5 { _ = harness.root.advanceFrame(Self.dt) }
+        try #require(Self.dim(harness) != nil && pair.isShown(by: Commit.shown(screen)), "SETUP: five frames after the zoom key the dim does not show over the pair")
+
+        // The pane that was to zoom splits: the zoom is gone, and the split resizes that pane.
+        harness.model.apply(screens: Commit.pairSplit(.horizontal))
+        let split = Commit.Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        #expect(Self.dim(harness) == nil, "the dim stays after the split")
+        #expect(harness.root.advanceFrame(Self.dt), "the split asks for no frame while its producer has not reported")
+        #expect(pair.isShown(by: Commit.shown(screen)), "the split showed in its first frame, before its producer reported: the dim's frames used up its wait")
+        let left = try #require(harness.provider.surface(Commit.left), "SETUP: the pane that splits has no producer")
+        left.report()
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(split.isShown(by: Commit.shown(screen)), "the frame after the producer's report does not show the split: \(Commit.shown(screen).panes)")
+        #expect(screen.lateSurfaceCommits == 0, "the split counts \(screen.lateSurfaceCommits) late panes")
+    }
+
     /// With no pane animation there is no dim: a zoom and an unzoom each show in their first frame.
     @Test func withNoPaneAnimationAZoomShowsNoDim() throws {
         let harness = Commit.Harness(Zoom.screens(), focused: "p4", holds: false)
