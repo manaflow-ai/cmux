@@ -111,20 +111,16 @@ final class TerminalChatToggleSettingUITests: XCTestCase {
     /// The page menu opens from its glyph, or from the title pill where the glyph is hidden.
     @MainActor
     private func openPageMenu(_ app: XCUIApplication, title: String) {
+        // The title pill sits at the toolbar's center, on the Page Menu glyph's row; a tap on it
+        // opens the page menu (the glyph itself is hidden on a terminal's title-only pill).
         let glyph = app.buttons["Page Menu"].firstMatch
-        if glyph.isHittable {
-            glyph.tap()
-        } else {
-            let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).allElementsBoundByIndex
-                .last { $0.frame.minY > app.frame.height * 0.8 }
-            if let pill {
-                pill.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            } else {
-                XCTFail("no title pill '\(title)'\n\(app.debugDescription)")
-            }
-        }
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Copy Tab Link")).firstMatch
-            .waitForExistence(timeout: 5), "the page menu opened\n\(app.debugDescription)")
+        let window = app.windows.firstMatch.frame
+        let row = glyph.exists ? glyph.frame.midY : window.maxY - 56
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.midX, dy: row)).tap()
+        let marker = NSPredicate(format: "label BEGINSWITH 'Copy Tab' OR label BEGINSWITH 'Files and Links'")
+        XCTAssertTrue(app.buttons.matching(marker).firstMatch.waitForExistence(timeout: 5),
+                      "the page menu opened (\(title))\n\(app.debugDescription)")
         Thread.sleep(forTimeInterval: 0.5)
     }
 
