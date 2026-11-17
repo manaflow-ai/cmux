@@ -1,15 +1,45 @@
-ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
-==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: emit-module command failed with exit code 1 (use -v to see invocation)
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: fatalError
-ci-step focus-audit-58539eb6edf8-v1 exited 1
+ci-step restore-visible-b6022c3883cd-suites: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext MultiWindowRestoreTests,SavedWindowsLaunchTests,LaunchSessionCountTests,RestoreClosedWindowsTests,RestorePreviousLaunchTests,WindowFrameRestoreTests at b6022c3883cd6c3054f0f0290747571d04204c67: exit 1
+==> same-tree cmux-tui: source=local-set fallback_seconds=825 total_seconds=828
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+142 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:18: error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+   |                  `- error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:77: error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+   |                                                                             `- error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:18: error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+   |                  `- error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:77: error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+   |                                                                             `- error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:18: error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+   |                  `- error: main actor-isolated property 'windows' can not be referenced from a nonisolated context
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/PreviousLaunch.swift:22:77: error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+   |                                                                             `- error: main actor-isolated property 'openRecency' can not be referenced from a nonisolated context
+ci-step restore-visible-b6022c3883cd-suites exited 1
