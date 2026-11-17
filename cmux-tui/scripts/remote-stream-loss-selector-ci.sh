@@ -4,7 +4,7 @@
 # own network namespace inside an ephemeral Linux guest that has netem (the
 # guest recipe of remote-stream-netem-ci.sh; the CI host kernel may lack it).
 set -euo pipefail
-: "${FAST_CHECKS_OUT:?Run through cmux-ci test --artifact DIR}"
+FAST_CHECKS_OUT=${FAST_CHECKS_OUT:-$(mktemp -d)}
 runs=${RUNS:-3} secs=${SECS:-8}
 sudo -n apt-get update -qq
 sudo -n apt-get install -y -qq --no-install-recommends qemu-system-x86 busybox-static cpio kmod iproute2 ethtool zstd
