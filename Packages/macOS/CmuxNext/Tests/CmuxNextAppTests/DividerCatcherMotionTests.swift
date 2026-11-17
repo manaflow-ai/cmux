@@ -9,7 +9,7 @@ import Testing
 /// (`DividerMouseCatchers`). Each frame of a layout motion (the same panes going to another ratio
 /// or width on a spring, a keyboard resize, a column scroll) moves the dividers, so each frame
 /// moved every moving divider's panel (one window server move each) and re-ran divider hover: at
-/// 30 panes 64 % of `advanceFrame` (PL-motion-core profile, cmux10s, b553d0648b1). Nobody grabs a
+/// 30 panes 64 % of `advanceFrame` (a profile at b553d0648b1). Nobody grabs a
 /// divider on a spring: the window's catcher areas, which every panel follows, change once when
 /// the layout lands and never during the motion. A split, a close and a zoom have no motion: each
 /// is one commit (`PaneLayoutCommitTests`).
@@ -81,6 +81,26 @@ import Testing
         #expect(layout.catcherAreas == layout.dividerAreas, "at rest the catchers cover the dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
         #expect(layout.catcherAreas.count == before.count && layout.catcherAreas != before,
                 "the divider's area did not follow it to its place at rest: \(before) -> \(layout.catcherAreas)")
+    }
+
+    /// A split gives its new divider a catcher area in the frame that shows the split. A split is one commit with no
+    /// motion, so no landing brings the catchers along: the frame tick that places the new divider does.
+    @Test func aSplitGivesTheNewDividerItsCatcherAreaInTheFrameThatShowsTheSplit() throws {
+        let layout = Layout()
+        defer { layout.window.close() }
+        let before = layout.catcherAreas
+        try #require(!before.isEmpty, "the split's divider has a catcher area: \(layout.window.overlayLayer.dividerAreas)")
+
+        // The right pane splits: a third pane, and a second divider.
+        let halves = SplitNode.split("new", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("added"))
+        let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: halves))
+        layout.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))])
+        layout.root.syncWithModel()
+        _ = layout.root.advanceFrame(1.0 / 120)
+
+        #expect(layout.catcherAreas == layout.dividerAreas,
+                "the frame that shows the split left the catchers off the dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
+        #expect(layout.catcherAreas.count == before.count + 1, "the new divider has no catcher area: \(before) -> \(layout.catcherAreas)")
     }
 
     /// What one divider drag event costs the layout and the window (`LayoutWorkProbe`), for a split divider and a

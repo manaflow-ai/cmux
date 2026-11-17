@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// A page pane's ground is its page's own background (CLOSE MOTION 2 case 3, cmux-ad m48). A pane shows its ground
+/// A page pane's ground is its page's own background (CLOSE MOTION 2 case 3). A pane shows its ground
 /// (`NSView.paneGroundColor`) where its content does not cover it: around content that keeps one size while its pane
 /// moves, and over a content area whose producer is late for a layout change (`PaneHostView.showsLateGround`). A
 /// browser's chrome paints the window's own color under its page, so a page pane's ground was the window's color

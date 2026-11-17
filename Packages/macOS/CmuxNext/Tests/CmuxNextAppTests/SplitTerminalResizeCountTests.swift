@@ -10,7 +10,7 @@ import CmuxNextTerminalGeometry
 import Foundation
 import Testing
 
-/// One Cmd-D resizes each terminal's PTY once (review of pl-motion-core b14). A split is one commit: its own
+/// One Cmd-D resizes each terminal's PTY once. A split is one commit: its own
 /// turn changes no pane on screen and resizes no PTY, and the first frame after it shows every pane at its
 /// place, where each terminal the split resizes sends its grid. The new pane gets its terminal from the
 /// daemon's echo some frames later (~75 ms): that terminal joins a pane at rest, and its PTY is resized

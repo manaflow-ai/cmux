@@ -10,7 +10,7 @@ import Testing
 /// frame: with only the New Tab spare's page, parked 100 000 pt outside the window (`PageOffscreenParking`), neither
 /// moves, parks or makes a panel.
 /// History, RESIZE VIDEOS Z1 (feat e34fecc1312, 4 of 4 films: one frame of 29-33 ms at each zoom and unzoom landing of
-/// 12 terminal panes; Time Profiler rz1-xtp-tip round 1, cmux22: 13-14 ms of that frame's 14-15 ms main thread, idle,
+/// 12 terminal panes; Time Profiler: 13-14 ms of that frame's 14-15 ms main thread, idle,
 /// in `setLayoutInMotion(false)` -> `WindowOverlayLayer.syncCatchers` -> `DividerMouseCatchers.update`): the zoom parked
 /// 11 divider catcher panels and the unzoom showed or made 11 again (a window server order, frame or new window each),
 /// though no pane showed a page.

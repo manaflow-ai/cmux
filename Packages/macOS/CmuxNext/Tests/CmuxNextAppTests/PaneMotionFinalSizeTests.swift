@@ -109,7 +109,7 @@ import Testing
     }
 
     /// Reduce Motion turned on while a pane spring runs (a column's width on its way): the next frame shows the final
-    /// layout and no more frames run (PL-burst finding).
+    /// layout and no more frames run.
     @Test func reduceMotionTurnedOnMidSpringLandsInTheNextFrame() throws {
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let root = LayoutRootView(model: model, contentProvider: Panes())
