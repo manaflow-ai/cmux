@@ -46,6 +46,19 @@ extension ScreenContentView {
         zoomDim = PaneZoomDim()
     }
 
+    /// The layout lands now (Reduce Motion turned on, the window out of sight): no motion from here on. A zoom's dim
+    /// leaves, the springs settle and the canvas camera rests. A zoom that waited behind a dim shows in the pass that
+    /// follows.
+    func land() {
+        endZoomDim()
+        if hasMotion || resizeGesture == .landing { settleMotion() }
+        settleCanvasCamera()
+    }
+
+    /// A zoom's dim goes (it fades out after an unzoom showed): it keeps the frames coming until it left. It is no
+    /// motion of the layout: no pane moves, and what waits for the layout to land does not wait for it.
+    var zoomDimGoes: Bool { zoomDim.phase == .going }
+
     /// One frame tick of the dim's time. A dim that goes leaves when its fade is over. Returns whether a dim shows.
     func stepZoomDim(_ dt: Double) -> Bool {
         guard zoomDim.phase != .off else { return false }

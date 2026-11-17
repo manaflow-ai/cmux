@@ -573,12 +573,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
         input.apply()
-        for view in screenViews.values {
-            // No motion from here on: a zoom's dim leaves, and a zoom that waited behind one shows in this pass.
-            view.endZoomDim()
-            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            view.settleCanvasCamera()
-        }
+        for view in screenViews.values { view.land() }
         let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
         highlight.settle()
         updateVisibility()
@@ -617,8 +612,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             _ = view.stepZoomDim(dt)
         }
         let snapWaits = input.presentWaiting()
-        // A zoom's dim that goes keeps the frames coming until it left. It is no motion of the layout: no pane moves.
-        let dimming = screenViews.values.contains { $0.zoomDim.phase == .going }
         if highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
@@ -630,7 +623,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits || dimming
+        return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDimGoes)
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
