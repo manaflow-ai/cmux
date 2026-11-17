@@ -8344,10 +8344,14 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 (2, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, True),
                 (2, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, False),
                 # A head whose placement stops at attempt 3 cannot place attempt 4: nothing places attempt 3 again.
-                (3, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, False)):
-            with self.subTest(attempt=attempt, placed_on_3=workflow is attempt3, wait=wait):
+                (3, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, False),
+                # Blacksmith macOS off: the re-run's placement defers the job to the side label it waits on, so the
+                # re-placement would only put it back at the back of that queue (rerun_side, below).
+                (1, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, None)):
+            with self.subTest(attempt=attempt, placed_on_3=workflow is attempt3, wait=wait, same_label=moved is None):
                 clock, api, target = self.world(self.shape(), running=11, workflow=workflow,
-                                                extra={"attempt": attempt})
+                                                extra={"attempt": attempt,
+                                                       "rerun_side": SIDE_STD if moved is None else ""})
                 rows = self.shape()(0)
                 rows[-1] = job("cmux-next fast tier", labels=[SIDE_STD], created=-wait)
                 api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
@@ -8366,6 +8370,9 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                                         for line in lines), lines)
                 else:
                     assert_left_at_open_head(self, api, result, number=27797)
+                if moved is None:
+                    self.assertTrue(any(f"its placement re-run would put it back on {SIDE_STD}" in line
+                                        for line in lines), lines)
 
     # The head's placement as feat-cmux-next has it since 2026-11-15: it runs on every bot attempt
     # (rescue.CMUX_NEXT_BOT_PLACEMENT), so a placement re-run of any attempt is placed afresh.
@@ -8404,11 +8411,17 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 # adopts the bot's attempt 4 or later, and a dispatch's watch ends at its one rescue).
                 (4, self.BOT_PLACED, False, False),
                 (4, self.BOT_PLACED, True, True),
-                (7, self.BOT_PLACED, True, True)):
-            with self.subTest(attempt=attempt, bounded=workflow is bounded, dispatched=dispatched):
+                (7, self.BOT_PLACED, True, True),
+                # Blacksmith macOS off (rerun_side: the side label the re-run's placement defers to): a job waiting
+                # on that label is never re-placed onto it, whatever the attempt or dispatch.
+                (3, self.BOT_PLACED, False, None),
+                (4, self.BOT_PLACED, True, None)):
+            with self.subTest(attempt=attempt, bounded=workflow is bounded, dispatched=dispatched,
+                              same_label=moved is None):
                 clock, api, target = self.busy_side_world(attempt, workflow=workflow,
                                                           extra={"dispatched": dispatched,
-                                                                 "refusals_only": attempt == 3 and not dispatched})
+                                                                 "refusals_only": attempt == 3 and not dispatched,
+                                                                 "rerun_side": SIDE_STD if moved is None else ""})
                 result, lines = self.run_rescue(api, clock, target)
                 if moved:
                     self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
@@ -8442,7 +8455,8 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                          "run_started_at": stamp(-600), "name": "cmux-next", "display_title": "a change"}
                 api.run = lambda run_id, named=named, live_run=live_run: {**named, **live_run(run_id)}
                 api.pull = lambda number, api=api: (api.calls.append("pull"), {"state": "open", "head": {"sha": HEAD}})[1]
-                code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID),
+                                                                "STALL_BLACKSMITH_MACOS": "on"},
                                          payload={"inputs": {"run_id": str(RUN_ID)}})
                 self.assertEqual(code, 0, summary)
                 self.assertNotIn("not watched", summary)
@@ -8478,13 +8492,36 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                  "run_started_at": stamp(-600), "name": "cmux-next", "display_title": "a change"}
         api.run = lambda run_id: {**named, **live_run(run_id)}
         api.pull = lambda number: (api.calls.append("pull"), {"state": "open", "head": {"sha": HEAD}})[1]
-        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID), "STALL_BLACKSMITH_MACOS": "on"},
                                  payload={"inputs": {"run_id": str(RUN_ID)}})
         self.assertEqual(code, 0, summary)
         self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (summary, api.calls))
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertGreaterEqual(api.first_cancel, rescue.OWNED_REPLACE_SECONDS, "dated from the watch's first look")
+
+    def test_a_dispatch_never_re_places_a_job_onto_the_side_label_it_waits_on(self):
+        # 2026-11-17 16:22Z, controller feed: with Blacksmith macOS off the placement re-run finds no idle runner and
+        # defers the job to SIDE_LANE_RUNNER again, so each long-wait re-placement only put it back at the back of
+        # glaeda-side-std-xcode-26.6's queue (46-58 joins an hour; 124 of 222 queued on attempt 3). A dispatched
+        # watch of such a run now cancels nothing: it looks again until the watch limit.
+        clock, api, target = self.busy_side_world(1, workflow=self.BOT_PLACED)
+        rows = [{**row, "conclusion": "success"} if row.get("conclusion") == "failure" else row
+                for row in api.jobs_at(0)]
+        api.jobs_at = api.rerun_jobs = with_ids(lambda seconds, rows=rows: [dict(row) for row in rows])
+        live_run = api.run
+        named = {"id": RUN_ID, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "event": "pull_request",
+                 "head_sha": HEAD, "head_branch": "feature", "head_repository": {"full_name": "manaflow-ai/cmux"},
+                 "pull_requests": [{"number": 27797}], "triggering_actor": {"login": CMUX_BOT},
+                 "run_started_at": stamp(-600), "name": "cmux-next", "display_title": "a change"}
+        api.run = lambda run_id: {**named, **live_run(run_id)}
+        api.pull = lambda number: (api.calls.append("pull"), {"state": "open", "head": {"sha": HEAD}})[1]
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID), "SIDE_LANE_RUNNER": SIDE_STD},
+                                 payload={"inputs": {"run_id": str(RUN_ID)}})
+        self.assertEqual(code, 0, summary)
+        self.assertNotIn("cancel", api.calls, summary)
+        self.assertFalse([call for call in api.calls if call.startswith("rerun")], api.calls)
+        self.assertIn(f"its placement re-run would put it back on {SIDE_STD}", summary)
 
     def test_a_dispatched_watch_looks_again_until_the_long_owned_wait_places_the_run_again(self):
         # Run 44018861106's dispatched watch (2026-11-17 15:46Z, after #45601): its fast tier had waited on
