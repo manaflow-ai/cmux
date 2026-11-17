@@ -51,6 +51,8 @@ extension CEFEngine {
     @discardableResult
     static func removeCaches(in directory: URL, since: Date?) -> Task<Void, Never>? {
         let manager = FileManager.default
+        // main-actor-ok: one listing of one profile directory, not recursive, at a person's own
+        // clear action. It runs here with the renames below, before Chromium can open the profile.
         var aside = ((try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasPrefix(movedAsidePrefix) }
         for name in cacheDirectories + (since == nil ? [cacheStorageDirectory] : []) {
