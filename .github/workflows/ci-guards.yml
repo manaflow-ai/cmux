@@ -720,6 +720,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py
 
+      - name: Validate main's scheduled readers read as cmux-bot and name GitHub's refusal
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_reads_bot_token.py
+
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
