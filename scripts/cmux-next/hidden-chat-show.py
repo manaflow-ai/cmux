@@ -208,13 +208,13 @@ def trusted(call):
     held = isinstance(reply, dict) and reply.get("pending") and not reply.get("sessionId")
     if held:
         clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
-            agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+            agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 30)
         note(f"trust (held start): {short(clicked, 160)}")
         return reply
     if "trust.pending" not in json.dumps(reply):
         return reply
     clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
-        agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+        agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 30)
     note(f"trust: {short(clicked, 160)}")
     return wait(lambda: (lambda r: r if "trust.pending" not in json.dumps(r) else None)(call()), 30) or reply
 
@@ -243,7 +243,11 @@ def show(chat):
 
 def send(text):
     reply = trusted(lambda: agent("send_prompt", text=text, timeout=60))
-    note(f"send {text[:60]!r}: {short(reply, 200)}")
+    # acpmux holds the first prompt in an untrusted folder behind a "Trust folder" card (the chat
+    # has no session until then); the person clicks it, so the probe does.
+    card = wait(lambda: (lambda r: r if not r.get("error") else None)(
+        agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 8)
+    note(f"send {text[:60]!r}: {short(reply, 200)} trust card: {short(card, 120)}")
     return reply
 
 
