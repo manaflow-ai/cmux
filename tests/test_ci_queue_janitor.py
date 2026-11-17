@@ -3789,8 +3789,6 @@ class UnclaimedLegPlanTests(unittest.TestCase):
                 decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
                 self.assertEqual(decision.action, action, decision.note)
 
-
-
     def test_bot_re_runs_failed_runs_and_newer_runs_are_never_re_run(self):
         run, jobs = unclaimed_world(age=50, attempt=2, actor="github-actions[bot]")
         self.assertEqual(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run).action, "skip")
