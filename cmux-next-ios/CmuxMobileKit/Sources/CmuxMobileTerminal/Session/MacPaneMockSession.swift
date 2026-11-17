@@ -32,10 +32,12 @@ public final class MacPaneMockSession: TerminalSession {
     private var line = ""
     private var transcript: [String]
 
-    public init(columns: Int = 120, rows: Int = 40) {
+    /// `transcript`: the pane's history (lines, oldest first); a short shell
+    /// session by default.
+    public init(columns: Int = 120, rows: Int = 40, transcript: [String]? = nil) {
         paneGrid = (columns, rows)
         ptyGrid = paneGrid
-        transcript = Self.session
+        self.transcript = transcript ?? Self.session
     }
 
     public var remoteRows: Int? { ptyGrid.rows }
