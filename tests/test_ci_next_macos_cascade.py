@@ -2301,6 +2301,26 @@ class DeadLabel(unittest.TestCase):
             snapshot=mock.Mock(return_value=observed_dead(38))))), now=NOW, log=lambda _: None)
         self.assertEqual(cascade.place(feed, (), None, None, seen).jobs[SMALL], ("cmux-scheme-compile",))
 
+    def test_a_stale_snapshot_keeps_a_feed_compile_off_a_6_vcpu_queued_at_its_slot_count(self):
+        """2026-11-17 (cmux#44204's DEV Release compile, run 44018999063): no count under 15 minutes sent a
+        compile to 6 vCPU blind while it ran 10 with 56 queued. Its queue is judged against its slots."""
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile",
+                   SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux")
+
+        def placed(queued: int, minutes_old: float):
+            late = observed_dead(minutes_old, dead=LARGE, **{SMALL: {"queued": queued, "running": 10,
+                                                                     "oldest_queued_minutes": 4}})
+            _, _, seen = cascade.read(feed, mock.Mock(GitHub=mock.Mock(return_value=mock.Mock(
+                snapshot=mock.Mock(return_value=late)))), now=NOW, log=lambda _: None)
+            return cascade.place(feed, (), None, None, seen)
+        result = placed(56, 38)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn("slots or more", result.why)
+        self.assertEqual(cascade.queued_full(observed_dead(38, **{SMALL: {"queued": 10}}), NOW), frozenset({SMALL}))
+        # Under its slot count it stays the feed's last resort; a snapshot past 45 minutes counts nothing.
+        self.assertEqual(placed(9, 38).jobs[SMALL], ("cmux-scheme-compile",))
+        self.assertEqual(cascade.queued_full(observed_dead(50, **{SMALL: {"queued": 56}}), NOW), frozenset())
+
     def test_no_evidence_changes_nothing(self):
         """A truncated listing, a snapshot past the six-hour evidence window, or every label dead proves nothing."""
         truncated = dict(observed_dead(), truncated=True)
