@@ -3841,4 +3841,4 @@ A same-repository pull request labelled `stack-blocker` (a base-red repair, or a
 jobs on the std minis' nightly slot, which no other PR job asks for, so it skips the side label's queue
 (side_lane_placement.STACK_SLOT; glaeda's runner hook admits it there and ranks it right after nightly jobs). Attempt
 1 only: a rescue re-run is placed as before. The label is read from the run's own payload, so adding it takes effect
-on the PR's next push. `vars.CI_STACK_SLOT_RUNNER` overrides the slot label.
+on the PR's next push.

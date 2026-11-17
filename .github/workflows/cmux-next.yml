@@ -1433,7 +1433,7 @@ jobs:
           NIGHTLY_POOL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL || '' }}
           NIGHTLY_RUNNER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER || '' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-408
-          STACK_SLOT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && contains(github.event.pull_request.labels.*.name, 'stack-blocker') && (vars.CI_STACK_SLOT_RUNNER || 'glaeda-nightly-std-xcode-26.6') || '' }}
+          STACK_SLOT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && contains(github.event.pull_request.labels.*.name, 'stack-blocker') && 'glaeda-nightly-std-xcode-26.6' || '' }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-120
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
