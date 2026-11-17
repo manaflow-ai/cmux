@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/png_fixture.rs"]
+mod png_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -97,8 +99,7 @@ async fn send_message_carries_attachments_to_a_child() {
     p.ok("_acpmux/wait", ready.clone()).await;
 
     // What the tool sends once it read the file (`attach::blocks_for`).
-    let mut shot = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    shot.resize(1024, 5);
+    let shot = png_fixture::png_of_len(1024, 5);
     let blocks = vec![acpmux::attach::block("shot.png", &shot)];
     // `send_message` asks first whether this agent may send files; the check sends nothing.
     let check = json!({"sessionId": child, "text": "", "attachCheck": true});
@@ -124,8 +125,7 @@ async fn send_message_carries_attachments_to_a_child() {
     assert_eq!(std::fs::metadata(&saved).unwrap().permissions().mode() & 0o777, 0o600);
 
     // A file too large to go inline: uploaded to the child first, then named by reference.
-    let mut large = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    large.resize(6 << 20, 6);
+    let large = png_fixture::png_of_len(6 << 20, 6);
     use base64::Engine;
     let begin = json!({"sessionId": child, "fileName": "large.png", "size": large.len()});
     let up = p.ok("_acpmux/file_put_begin", begin).await["uploadId"].as_str().unwrap().to_owned();

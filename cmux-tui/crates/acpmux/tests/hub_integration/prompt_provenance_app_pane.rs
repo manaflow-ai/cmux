@@ -19,7 +19,7 @@ async fn the_app_panes_prompt_before_it_proved_the_person_is_theirs_with_text_an
     let session = owner.new_session(json!({"harness": "fake"})).await;
     // A fresh pane connection after the restart: LocalApp, no `person_prove` yet.
     let mut pane = Client::open_as(&hub, Origin::LocalApp);
-    let image = json!({"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=", "name": "image.png"});
+    let image = json!({"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "name": "image.png"});
     let with_image = |id: &str, text: &str| {
         let mut p = prompt(&session, id, text, None);
         p["prompt"].as_array_mut().unwrap().push(image.clone());

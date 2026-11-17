@@ -7,6 +7,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/png_fixture.rs"]
+mod png_fixture;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -74,8 +76,7 @@ fn send_attach_delivers_an_image_to_the_lane_and_saves_it_owner_only() {
     let _shutdown = Shutdown(&dir);
     let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
     assert!(made.status.success(), "the session: {}", text(&made));
-    let mut shot = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    shot.resize(2048, 3);
+    let shot = png_fixture::png_of_len(2048, 3);
     let sha: String = sha2::Sha256::digest(&shot).iter().map(|b| format!("{b:02x}")).collect();
     // Named .txt: the type comes from the bytes.
     fs::write(dir.join("p/screen.txt"), &shot).unwrap();
@@ -123,15 +124,13 @@ fn send_attach_sends_files_of_any_size_and_number_by_reference() {
     assert!(made.status.success(), "the session: {}", text(&made));
     let big: Vec<u8> = (0..24usize << 20).map(|i| (i as u8) ^ (i >> 12) as u8).collect();
     fs::write(dir.join("p/big.bin"), &big).unwrap();
-    let mut large = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-    large.resize(6 << 20, 9);
+    let large = png_fixture::png_of_len(6 << 20, 9);
     fs::write(dir.join("p/large.png"), &large).unwrap();
     let mut args = vec!["send", "-q", "lane", "all of these", "--attach", "big.bin"];
     args.extend(["--attach", "large.png"]);
     let mut shots = Vec::new();
     for n in 0..20u8 {
-        let mut shot = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-        shot.resize(64 << 10, n);
+        let shot = png_fixture::png_of_len(64 << 10, n);
         fs::write(dir.join(format!("p/shot{n}.png")), &shot).unwrap();
         shots.push(shot);
     }

@@ -885,8 +885,7 @@ async fn the_owner_reads_a_held_prompt_whole_at_its_revision() {
     let hub = hub();
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
-    let image =
-        json!({"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=", "name": "a.png"});
+    let image = json!({"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "name": "a.png"});
     let link = json!({"type": "resource_link", "uri": "file:///tmp/notes.md", "name": "notes.md"});
     let mut sent = held(&session, "g-1", "guest words");
     sent["prompt"] = json!([{"type": "text", "text": "guest words"}, image, link]);
