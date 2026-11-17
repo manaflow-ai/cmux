@@ -252,11 +252,15 @@ fn overlay_lone_docks(
 /// `((screen id, column id), [(row id, height)])` as read from the table.
 type StoredColumnRows = ((String, String), Vec<(String, i64)>);
 
-/// `screens` with docks ([`with_column_docks`]) and rows overlaid.
+/// `screens` with docks ([`with_column_docks`]) and rows overlaid. No
+/// statement runs for an empty `screens`.
 pub(super) fn with_side_tables(
     connection: &Connection,
     screens: Vec<RegistryScreen>,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
+    if screens.is_empty() {
+        return Ok(screens);
+    }
     let mut screens = with_column_docks(connection, screens)?;
     let mut statement = connection.prepare(
         "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows
