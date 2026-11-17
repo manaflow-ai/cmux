@@ -1815,6 +1815,26 @@
       "title" : "Let Statuses Choose Their Style",
       "type" : "boolean"
     },
+    "appearance.statusIndicator.iconSet" : {
+      "default" : "codex",
+      "description" : "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges.",
+      "enum" : [
+        "codex",
+        "current",
+        "still",
+        "symbols",
+        "symbolsOutline",
+        "pips",
+        "rings",
+        "badges",
+        "signs",
+        "shapes",
+        "bars",
+        "letters"
+      ],
+      "title" : "Status Icons",
+      "type" : "string"
+    },
     "appearance.statusIndicator.showAgentWorkingOnTabs" : {
       "default" : true,
       "description" : "Three dots take the tab's icon place while an agent works.",
@@ -5399,6 +5419,16 @@
       },
       "title" : "Second Line Order",
       "type" : "array"
+    },
+    "sidebar.workspaceRow.statusPlacement" : {
+      "default" : "trailing",
+      "description" : "Where the row's status mark draws: at the row's end, or before the name in the icon's place.",
+      "enum" : [
+        "trailing",
+        "leading"
+      ],
+      "title" : "Status Position",
+      "type" : "string"
     },
     "sidebar.workspaceRow.tabCount" : {
       "default" : false,

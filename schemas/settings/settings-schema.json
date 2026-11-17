@@ -331,6 +331,7 @@
             "rows" : [
               "appearance.statusIndicator.style",
               "appearance.statusIndicator.animation",
+              "appearance.statusIndicator.iconSet",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
               "appearance.statusIndicator.color",
@@ -502,7 +503,8 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.statusPlacement"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -44640,6 +44642,240 @@
     },
     {
       "accepts" : [
+        "codex",
+        "current",
+        "still",
+        "symbols",
+        "symbolsOutline",
+        "pips",
+        "rings",
+        "badges",
+        "signs",
+        "shapes",
+        "bars",
+        "letters"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "statusIconSet.codex",
+            "text" : "Codex-like"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.current",
+            "text" : "Dots (original)"
+          },
+          "value" : "current"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.still",
+            "text" : "Static"
+          },
+          "value" : "still"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.symbols",
+            "text" : "Symbols"
+          },
+          "value" : "symbols"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.symbolsOutline",
+            "text" : "Outlined Symbols"
+          },
+          "value" : "symbolsOutline"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.pips",
+            "text" : "Minimal Pips"
+          },
+          "value" : "pips"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.rings",
+            "text" : "Rings"
+          },
+          "value" : "rings"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.badges",
+            "text" : "Badges"
+          },
+          "value" : "badges"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.signs",
+            "text" : "Signs"
+          },
+          "value" : "signs"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.shapes",
+            "text" : "Shapes"
+          },
+          "value" : "shapes"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.bars",
+            "text" : "Pulse Bars"
+          },
+          "value" : "bars"
+        },
+        {
+          "title" : {
+            "key" : "statusIconSet.letters",
+            "text" : "Letters"
+          },
+          "value" : "letters"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "codex",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.iconSet.help",
+        "text" : "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.iconSet",
+      "keywords" : [
+        "icons",
+        "glyphs",
+        "status",
+        "working",
+        "blocked",
+        "done",
+        "error",
+        "spinner"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "iconSet"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.statusIndicator.iconSet"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.statusIndicator.iconSet",
+        "text" : "Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         1.5,
         1
@@ -74476,6 +74712,160 @@
       "title" : {
         "key" : "settings.workspaceRow.secondLineOrder",
         "text" : "Second Line Order"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "trailing",
+        "leading"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.statusPlacement.trailing",
+            "text" : "At the End"
+          },
+          "value" : "trailing"
+        },
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.statusPlacement.leading",
+            "text" : "Before the Name"
+          },
+          "value" : "leading"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "trailing",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.statusPlacement.help",
+        "text" : "Where the row's status mark draws: at the row's end, or before the name in the icon's place."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.statusPlacement",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "status",
+        "spinner",
+        "leading",
+        "left",
+        "position"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "statusPlacement"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.statusPlacement"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.statusPlacement",
+        "text" : "Status Position"
       },
       "validation" : "portable"
     },

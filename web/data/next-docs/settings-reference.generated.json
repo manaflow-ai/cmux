@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -2843,6 +2843,28 @@
           "group": "Loading Indicator"
         },
         {
+          "key": "appearance.statusIndicator.iconSet",
+          "title": "Status Icons",
+          "help": "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges.",
+          "kind": "choice",
+          "default": "codex",
+          "group": "Loading Indicator",
+          "values": [
+            "codex",
+            "current",
+            "still",
+            "symbols",
+            "symbolsOutline",
+            "pips",
+            "rings",
+            "badges",
+            "signs",
+            "shapes",
+            "bars",
+            "letters"
+          ]
+        },
+        {
           "key": "appearance.statusIndicator.showAgentWorkingOnTabs",
           "title": "Show Agent Working on Tabs",
           "help": "Three dots take the tab's icon place while an agent works.",
@@ -4381,6 +4403,18 @@
             "lastActivity"
           ],
           "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.statusPlacement",
+          "title": "Status Position",
+          "help": "Where the row's status mark draws: at the row's end, or before the name in the icon's place.",
+          "kind": "choice",
+          "default": "trailing",
+          "group": "Workspace Rows",
+          "values": [
+            "trailing",
+            "leading"
+          ]
         },
         {
           "key": "sidebar.workspaceRow.tabCount",
