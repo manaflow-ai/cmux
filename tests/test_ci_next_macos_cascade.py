@@ -2323,7 +2323,8 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(cascade.queued_full(observed_dead(50, **{SMALL: {"queued": 56}}), NOW), frozenset())
 
     def test_no_evidence_changes_nothing(self):
-        """A truncated listing, a snapshot past the six-hour evidence window, or every label dead proves nothing."""
+        """A truncated listing, a snapshot past the six-hour evidence window, or every label dead with no job left
+        waiting proves nothing."""
         truncated = dict(observed_dead(), truncated=True)
         expired = observed_dead(7 * 60)
         both = observed_dead(**{SMALL: {"running": 0}})
