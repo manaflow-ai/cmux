@@ -298,8 +298,7 @@ final class CreationInputCoordinator {
         let made = lane.madeSurface.map { SurfaceID(rawValue: $0) }, listed = made == nil ? lane.machine.flatMap { services.locateTab(lane.tab, onMachine: $0) } : nil
         let daemon = made == nil ? listed.map { services.daemon(for: $0.1) } : lane.machine.flatMap { services.machines.daemon(machine: $0) }
         guard let daemon, let surface = made ?? (listed?.0.kind == .pty ? listed?.0.surface : nil) else { return holdEnds.wentWithTerminal(events.count) } // lost: no terminal gets them, and the hold's end counts them
-        let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue)
-        if skipped > 0 { holdEnds.keysHadNoDaemonKeyName(skipped) }
+        let inputs = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue, log: holdEnds)
         daemon.sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {
