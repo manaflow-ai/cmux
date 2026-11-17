@@ -524,13 +524,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
+    // `_modify`, not `set`: a write through a get/set pair (`rows[id] = row`) copied the whole
+    // dictionary first (the getter's copy and the lookup's own share storage), so weighing N rows
+    // on open copied N dictionaries of N rows on the main thread: the open's long frame.
     private var rows: [String: ChatRow] {
         get { lookup.rows }
-        set { lookup.rows = newValue }
+        _modify { yield &lookup.rows }
     }
     private var revisions: ChatRowRevisions {
         get { lookup.revisions }
-        set { lookup.revisions = newValue }
+        _modify { yield &lookup.revisions }
     }
     private var shownIDs: [String] = []
     /// Rows to reconfigure on the next reload although their content is the same (a code
