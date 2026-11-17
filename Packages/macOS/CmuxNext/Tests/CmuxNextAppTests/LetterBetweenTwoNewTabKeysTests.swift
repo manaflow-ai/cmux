@@ -10,12 +10,24 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// New Tab key, a letter key, New Tab key, with no turn of the app between them: the app types the letter into the
-/// page of the first new tab. The field of that page is not ready at the letter key and not at the second New Tab
-/// key.
+/// New Tab key, a letter key, New Tab key: the app types the letter into the page of the first new tab. The letter
+/// key and the second New Tab key come with no turn of the app between them.
 ///
 /// Decision of 2026-11-17: a letter that is lost here is a fault. A person who holds New Tab and types gets each
 /// letter in the tab of the New Tab key before it.
+///
+/// 2 rows. A New Tab page gets its view at the next frame of the app, for the tab that the pane has selected then
+/// (decision of 2026-11-16), and the pool of ready pages is empty here, so each page is made by that rule.
+///
+/// - The letter key comes after the first frame of the first new tab: the page of that tab has its view, and its
+///   field is not ready at the letter key and not at the second New Tab key. At a key each 30 ms a frame comes
+///   between 2 keys, so this is the state of a held New Tab key.
+/// - The letter key comes before that frame: the first new tab has no page view at the letter key. The page of the
+///   second new tab then reports its field ready first. After that the pane selects the first new tab, its page
+///   gets its view at the next frame, and its field reports ready.
+///
+/// A frame is the app's own. The test waits for one by an event: a probe that stands in the presentation
+/// scheduler's queue behind the pane. That wait does not poll and reads no clock.
 ///
 /// A whole window of the `large` session with no daemon. No creation is answered before the checks end. Each key is
 /// a key-down event through the app's key router (`KeyRouter.interceptKeyDown`), as the app gets a key: none comes
@@ -100,10 +112,42 @@ struct LetterBetweenTwoNewTabKeysTests {
         }
     }
 
-    /// Where the key router's type-ahead queue has a letter now, in words.
-    private static func queue(of router: KeyRouter, page: PageInputReadiness) -> String {
+    /// Stands in the presentation scheduler's queue: its show is the event that a frame's drain ran. Its content is
+    /// alive, so it spends nothing of the frame's budget, and it has no focus, so the focused pane shows before it.
+    @MainActor private final class FrameProbe: PresentablePane {
+        var onShow: () -> Void = {}
+        var selectedContentIsAlive: Bool { true }
+        var isFocusedInWorkspace: Bool { false }
+        func showSelected() { onShow() }
+        func showWhileWaiting() {}
+    }
+
+    /// Returns when the app's next frame showed what waited for it.
+    private static func frame(_ services: AppServices) async {
+        let probe = FrameProbe()
+        await withCheckedContinuation { (shown: CheckedContinuation<Void, Never>) in
+            probe.onShow = { shown.resume() }
+            services.presentation.setNeedsShowSelected(probe)
+        }
+    }
+
+    /// The page of the tab `key`, with the test's read of what the app types into it: nil when the tab has no page
+    /// with a field.
+    private static func page(of key: String, in pane: PaneController, into typed: Typed) -> PageInputReadiness? {
+        guard let page = pane.existingContent(for: key)?.inputReadiness else { return nil }
+        page.editor = { edit, _ in
+            typed.edits.append(edit)
+            return true
+        }
+        return page
+    }
+
+    /// Where the key router's type-ahead queue has a letter now, in words. `first`: the page of the first new tab,
+    /// when that tab has one.
+    private static func queue(of router: KeyRouter, first: PageInputReadiness?) -> String {
         guard !router.typeAhead.text.isEmpty else { return "in no queue of the key router" }
-        let own = router.typeAhead.surface == String(describing: ObjectIdentifier(page))
+        guard let first else { return "in the key router's queue for a page (the first new tab had no page view then)" }
+        let own = router.typeAhead.surface == String(describing: ObjectIdentifier(first))
         return own ? "in the key router's queue for the page of the first new tab" : "in the key router's queue for another page"
     }
 
@@ -152,7 +196,17 @@ struct LetterBetweenTwoNewTabKeysTests {
         }
     }
 
+    /// The letter key comes after the first frame of the first new tab.
     @Test func aLetterBetweenTwoNewTabKeysIsTypedIntoTheFirstNewTab() async throws {
+        try await Self.aLetterBetweenTwoNewTabKeys(beforeTheFirstFrame: false)
+    }
+
+    /// The letter key comes before the first frame of the first new tab: that tab has no page view at the key.
+    @Test func aLetterBeforeTheFirstFrameOfTheFirstNewTabIsTypedIntoThatTab() async throws {
+        try await Self.aLetterBetweenTwoNewTabKeys(beforeTheFirstFrame: true)
+    }
+
+    private static func aLetterBetweenTwoNewTabKeys(beforeTheFirstFrame early: Bool) async throws {
         // An inert address for each New Tab page: the pages load nothing.
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
         try await LargeSessionWindowFixture.withController(.large, agentPaneEnvironment: environment) { _, controller in
@@ -169,6 +223,10 @@ struct LetterBetweenTwoNewTabKeysTests {
                 await held.wait()
                 throw CancellationError()
             }
+            // No ready page in the pool: each New Tab page of the test gets its view by the frame rule.
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.makeSpare = { _ in nil }
             let router = services.keyRouter
             let input = router.newTabInputCoordinator
             // The hold's limit is a time on the clock: it never passes in this test.
@@ -191,15 +249,20 @@ struct LetterBetweenTwoNewTabKeysTests {
                 try #require(first.took, "setup: the key router passed the first New Tab key on")
                 let made = pane.orderedIDs.map(\.rawValue).filter { !start.contains($0) }
                 try #require(made.count == 1, "setup: the first New Tab key added \(made.count) tabs to the strip in its own call, want 1")
-                let page = try #require(pane.existingContent(for: made[0])?.inputReadiness, "setup: the first new tab has no page with a field")
-                try #require(!page.isReady, "setup: the field of the first new tab's page is ready in the key's own call")
-                let typed = Typed()
-                page.editor = { edit, _ in
-                    typed.edits.append(edit)
-                    return true
+                try #require(pane.existingContent(for: made[0])?.inputReadiness == nil,
+                             "setup: the first new tab has a page with a field in the key's own call, with no ready page in the pool")
+                let typed = Typed(), other = Typed()
+                var page: PageInputReadiness?
+                if !early {
+                    // One frame of the app: the page of the first new tab gets its view.
+                    await Self.frame(services)
+                    let shown = try #require(Self.page(of: made[0], in: pane, into: typed),
+                                             "setup: the first new tab has no page with a field after one frame of the app")
+                    try #require(!shown.isReady, "setup: the field of the first new tab's page is ready after one frame, with no report")
+                    page = shown
                 }
 
-                // The letter key, before the app's next turn: the window's key hold takes it.
+                // The letter key: the window's key hold takes it.
                 let letter = try keys.press("x", code: 7, command: false)
                 try #require(letter.took && input.log.last?.hasPrefix("hold key #") == true,
                              "setup: the window's key hold did not take the letter key. The hold's log ends: \(input.log.suffix(6))")
@@ -208,7 +271,7 @@ struct LetterBetweenTwoNewTabKeysTests {
                 // The second New Tab key, in the same turn. The test reads the router at the trace line of the key's decision.
                 let strip = Set(pane.orderedIDs.map(\.rawValue))
                 let focusBefore = controller.focus.state.resolved
-                let couldQueue = focusBefore.mayQueueTyping && pane.currentContent?.inputReadiness === page
+                let couldQueue = focusBefore.mayQueueTyping && page != nil && pane.currentContent?.inputReadiness === page
                 seen.read = {
                     BeforeTheAction.Reading(queued: !router.typeAhead.text.isEmpty, focusMoved: controller.focus.state.resolved != focusBefore)
                 }
@@ -222,22 +285,43 @@ struct LetterBetweenTwoNewTabKeysTests {
                 try #require(second.took, "setup: the key router passed the second New Tab key on")
                 let more = pane.orderedIDs.map(\.rawValue).filter { !strip.contains($0) }
                 try #require(more.count == 1, "setup: the second New Tab key added \(more.count) tabs to the strip in its own call, want 1")
-                let atKey = Self.queue(of: router, page: page)
+                let atKey = Self.queue(of: router, first: page)
                 let queuedAfterTheKey = !router.typeAhead.text.isEmpty
                 let decidedAfter = router.decided.contains(letter.event)
                 let holdLog = input.log.suffix(8).joined(separator: " | ")
 
-                // The app's next turn, then the page of the first new tab reports its field ready.
+                // The app's next turn.
                 await LargeSessionWindowFixture.drainMain()
-                let afterTurn = Self.queue(of: router, page: page)
+                let afterTurn = Self.queue(of: router, first: page)
                 let queuedAfterTheTurn = !router.typeAhead.text.isEmpty
-                page.receive(true)
-                try #require(page.isReady, "setup: the page of the first new tab is not ready after its report")
+                var state = early ? " The first new tab had no page view at the letter key and at the second New Tab key." : ""
+                if page == nil {
+                    // One frame: the tab that the pane has selected (the second new tab) gets its page view, and its
+                    // field reports ready first.
+                    await Self.frame(services)
+                    if let late = Self.page(of: more[0], in: pane, into: other) {
+                        late.receive(true)
+                        await LargeSessionWindowFixture.drainMain()
+                        state += " The page of the second new tab reported its field ready before the first new tab had a page view."
+                    } else {
+                        state += " The second new tab had no page with a field after one frame."
+                    }
+                    // The pane selects the first new tab: its page gets its view at the next frame.
+                    let tab = try #require(pane.orderedIDs.first { $0.rawValue == made[0] }, "setup: the first new tab is not in the strip")
+                    pane.select(tab)
+                    await Self.frame(services)
+                    page = Self.page(of: made[0], in: pane, into: typed)
+                }
+                // The page of the first new tab reports its field ready.
+                let field = try #require(
+                    page, "setup: the first new tab has no page with a field after the pane selected it and one frame came")
+                field.receive(true)
+                try #require(field.isReady, "setup: the page of the first new tab is not ready after its report")
                 await LargeSessionWindowFixture.drainMain()
-                let got = typed.edits
+                let got = typed.edits, gotOther = other.edits
 
                 // The test still reads what the app types into the page.
-                let reads = await page.insert("seam")
+                let reads = await field.insert("seam")
                 try #require(reads && typed.edits.last == .insert("seam"), "setup: the test no longer reads what the app types into the page")
 
                 let way = Way(decidedAtHold: decidedAtHold, decidedAfter: decidedAfter, couldQueue: couldQueue, beforeTheAction: seen.first,
@@ -245,14 +329,17 @@ struct LetterBetweenTwoNewTabKeysTests {
                 #expect(old.keys == 0, "the view that had the keyboard before the first New Tab key got \(old.keys) keys, want 0")
                 #expect(got == [.insert("x")],
                         """
-                        the app typed \(got) into the page of the first new tab, want the letter one time. \(way.rule) The letter was \
-                        \(atKey) directly after the second New Tab key, and \(afterTurn) after the app's next turn. The hold's log ends: \
-                        \(holdLog)
+                        the app typed \(got) into the page of the first new tab, want the letter one time.\(state) \(way.rule) The \
+                        letter was \(atKey) directly after the second New Tab key, and \(afterTurn) after the app's next turn. The app \
+                        typed \(gotOther) into the page of the second new tab. The hold's log ends: \(holdLog)
                         """)
+                #expect(gotOther.isEmpty,
+                        "the app typed \(gotOther) into the page of the second new tab, want nothing: the letter is the first new tab's")
             } catch {
                 failure = error
             }
             router.trace = traceBefore
+            pool.makeSpare = nil
             // Each creation ends before the window closes.
             held.release()
             await LargeSessionWindowFixture.drainMain()
