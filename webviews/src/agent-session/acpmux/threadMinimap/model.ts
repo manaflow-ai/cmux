@@ -317,12 +317,12 @@ export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
-/// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
-/// while Jump to latest shows: that control keeps its own glass and does not widen the transcript mask.
+/// (the bottom stack's top) while more lies below. The composer edge has no band: rows keep full ink
+/// down to the stack's top, as the Codex app's do (Lucas, 2026-11-17), Jump to latest or not.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
 export const TRANSCRIPT_FADE_TOP = 18;
-export const TRANSCRIPT_FADE_BOTTOM = 18;
+export const TRANSCRIPT_FADE_BOTTOM = 0;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
 /// above `viewportHeight` (a composer grown while the view follows the latest row).
