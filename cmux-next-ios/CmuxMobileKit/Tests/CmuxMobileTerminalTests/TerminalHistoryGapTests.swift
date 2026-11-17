@@ -30,10 +30,19 @@ import Testing
     /// reader coming down, the newest only for one coming up.
     @Test func onlyAReaderComingDownMovesTheWindowDown() {
         let gap = TerminalHistoryGap(shift: 100, windowRows: 4_000)
-        // Going up past the window's end: nothing.
+        // Going up in the window, near its end: nothing.
         #expect(gap.need(visibleTop: 4_030, visibleBottom: 4_070, movingDown: false) == nil)
-        #expect(gap.need(visibleTop: 4_080, visibleBottom: 4_120, movingDown: false) == nil)
+        #expect(gap.need(visibleTop: 4_060, visibleBottom: 4_100, movingDown: false) == nil)
         // Going down on the Mac's screen, just below the gap: nothing.
         #expect(gap.need(visibleTop: 4_120, visibleBottom: 4_160, movingDown: true) == nil)
+    }
+
+    /// Simulator run ae896fc1853e1768108fe50e: from the Mac's screen a drag
+    /// up of a third of the page put the gap mid-page, and nothing was asked.
+    /// A reader coming up with rows past the window on screen gets the newest.
+    @Test func aReaderComingUpFromTheScreenGetsTheNewestWithTheGapOnThePage() {
+        let gap = TerminalHistoryGap(shift: 100, windowRows: 4_000)
+        #expect(gap.need(visibleTop: 4_085, visibleBottom: 4_125, movingDown: false) == .newest)
+        #expect(gap.need(visibleTop: 4_062, visibleBottom: 4_102, movingDown: false) == .newest)
     }
 }
