@@ -129,12 +129,55 @@ fn plain_relative(path: &str) -> bool {
 
 /// A variable name an app may get: `[A-Za-z_][A-Za-z0-9_]*`, not `HOME` or `PORT`.
 pub fn env_key_allowed(key: &str) -> bool {
-    unimplemented!("red: env_key_allowed")
+    let mut bytes = key.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && !RESERVED.contains(&key)
 }
 
 /// The `apps.spawn` object of a socket line, checked.
 pub fn check_spawn(value: &Value) -> Result<SpawnAsk, String> {
-    unimplemented!("red: check_spawn")
+    let VersionAsk { slug, version } = version_of(value)?;
+    let version_dir = PathBuf::from(text(value, "versionDir").unwrap_or_default());
+    if !version_dir.is_absolute() {
+        return Err("apps.spawn: versionDir must be an absolute path".to_owned());
+    }
+    let subdir = text(value, "subdir").unwrap_or_default();
+    if !subdir.is_empty() && !plain_relative(&subdir) {
+        return Err("apps.spawn: subdir must be a plain relative path".to_owned());
+    }
+    let cmd = text(value, "cmd").unwrap_or_default();
+    if cmd.trim().is_empty() || cmd.len() > MAX_TEXT || cmd.contains('\0') {
+        return Err("apps.spawn: cmd must be a command".to_owned());
+    }
+    let setup = text(value, "setup").filter(|s| !s.trim().is_empty());
+    if setup.as_ref().is_some_and(|s| s.len() > MAX_TEXT || s.contains('\0')) {
+        return Err("apps.spawn: setup must be a command".to_owned());
+    }
+    let port = value
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p >= 1024)
+        .ok_or_else(|| "apps.spawn: port must be from 1024 to 65535".to_owned())?;
+    let mut env = vec![];
+    if let Some(map) = value.get("env").and_then(Value::as_object) {
+        if map.len() > MAX_ENV {
+            return Err(format!("apps.spawn: at most {MAX_ENV} variables"));
+        }
+        for (key, value) in map {
+            let Some(value) = value.as_str() else {
+                return Err(format!("apps.spawn: {key} must be a string"));
+            };
+            if !env_key_allowed(key) || value.contains('\0') || value.len() > MAX_TEXT {
+                return Err(format!(
+                    "apps.spawn: {key} can't be set (HOME and PORT are the agent's)"
+                ));
+            }
+            env.push((key.clone(), value.to_owned()));
+        }
+    }
+    Ok(SpawnAsk { slug, version, version_dir, subdir, cmd, setup, port, env })
 }
 
 /// The ask of an `apps.spawn`, `apps.status` or `apps.stop` line.
@@ -148,33 +191,90 @@ pub fn check_run(key: &str, value: &Value) -> Result<AppsRun, String> {
 
 /// The app process's whole environment: the asker's allowed variables, `HOME` and `PORT`.
 pub fn spawn_env(asked: &[(String, String)], home: &Path, port: u16) -> Vec<(String, String)> {
-    unimplemented!("red: spawn_env")
+    let mut env: Vec<(String, String)> =
+        asked.iter().filter(|(k, _)| env_key_allowed(k)).cloned().collect();
+    env.push(("HOME".to_owned(), home.display().to_string()));
+    env.push(("PORT".to_owned(), port.to_string()));
+    env.sort();
+    env
 }
 
 /// Whether an account with `groups` (its own and supplementary) is kept off the agent socket.
 pub fn isolated(user: &AppUser, groups: &[u32], agent_gid: Option<u32>, asker: u32) -> bool {
-    unimplemented!("red: isolated")
+    user.uid != 0 && user.uid != asker && agent_gid.is_none_or(|gid| !groups.contains(&gid))
 }
 
 /// The staged directory of the asker's version: `.../apps/<slug>/v<n>`, not a symlink, and the
 /// asker's own; then its `src.tar`, opened without following a link, a regular file of theirs.
 pub fn staged_archive(ask: &SpawnAsk, asker: u32) -> Result<File, String> {
-    unimplemented!("red: staged_archive")
+    let dir = &ask.version_dir;
+    let tail = [format!("v{}", ask.version), ask.slug.clone(), "apps".to_owned()];
+    let mut names = dir.components().rev().filter_map(|c| match c {
+        Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+        _ => None,
+    });
+    if !tail.iter().all(|want| names.next().as_deref() == Some(want.as_str())) {
+        return Err(format!(
+            "{} is not a version directory (.../apps/{}/v{})",
+            dir.display(),
+            ask.slug,
+            ask.version
+        ));
+    }
+    let meta = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !meta.is_dir() || meta.uid() != asker {
+        return Err(format!("{} is not a directory of the asking user", dir.display()));
+    }
+    let archive = dir.join("src.tar");
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&archive)
+        .map_err(|e| format!("{}: {e}", archive.display()))?;
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", archive.display()))?;
+    if !meta.is_file() || meta.uid() != asker {
+        return Err(format!("{} is not a file of the asking user", archive.display()));
+    }
+    Ok(file)
 }
 
 /// `path` for appending, refusing a symbolic link or a second hard link, then owned by `uid`.
 pub fn open_log(path: &Path, uid: u32, gid: u32) -> Result<File, String> {
-    unimplemented!("red: open_log")
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o644)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|e| match e.raw_os_error() {
+            Some(libc::ELOOP) => format!("{} is a symbolic link; refused", path.display()),
+            _ => format!("{}: {e}", path.display()),
+        })?;
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(format!("{} is not a plain file; refused", path.display()));
+    }
+    std::os::unix::fs::fchown(&file, Some(uid), Some(gid))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(file)
 }
 
 /// `/proc/<pid>/stat`: its state letter and start time (field 22, clock ticks after boot).
 pub fn stat_of(proc_root: &Path, pid: u32) -> Option<(char, u64)> {
-    unimplemented!("red: stat_of")
+    let text = fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
+    let (_, rest) = text.rsplit_once(')')?;
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    // Fields 4 to 21 lie between the state (3) and the start time (22).
+    let start = fields.nth(18)?.parse().ok()?;
+    Some((state, start))
 }
 
 /// Whether `pid` is still the process started at `start_time` as `uid`, and not a zombie.
 pub fn still_running(proc_root: &Path, pid: u32, start_time: u64, uid: u32) -> bool {
-    unimplemented!("red: still_running")
+    let owner = fs::metadata(proc_root.join(pid.to_string())).map(|m| m.uid()).ok();
+    matches!(stat_of(proc_root, pid), Some((state, start)) if start == start_time && state != 'Z')
+        && owner == Some(uid)
 }
 
 fn dir_at(path: &Path, mode: u32) -> io::Result<()> {
@@ -366,7 +466,32 @@ pub fn answer(
     peer_uid: Option<u32>,
     users: &dyn AppUsers,
 ) -> Value {
-    unimplemented!("red: answer")
+    reap();
+    let ask = match ask {
+        Ok(ask) => ask,
+        Err(why) => return refusal("request.invalid", &why),
+    };
+    let Some(asker) = peer_uid else {
+        return refusal("request.invalid", "apps: the asking user is unknown");
+    };
+    match ask {
+        AppsRun::Spawn(ask) => {
+            spawn(paths, asker, &ask, users).unwrap_or_else(|e| refusal("app.spawn", &e))
+        }
+        AppsRun::Status(ask) => {
+            let pid = running(paths, asker, &ask);
+            json!({"ok": true, "alive": pid.is_some(), "pid": pid})
+        }
+        AppsRun::Stop(ask) => {
+            let pid = running(paths, asker, &ask);
+            if let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()) {
+                // SAFETY: kill has no memory preconditions; the group is the app's session,
+                // proven by its recorded start time.
+                unsafe { libc::kill(-pid, libc::SIGTERM) };
+            }
+            json!({"ok": true, "stopped": pid.is_some()})
+        }
+    }
 }
 
 /// [`AppUsers`] on this machine: `getpwnam`, else `useradd --system`, and the account's
