@@ -6,6 +6,7 @@ tests/test_preflight_trust.py and every workflow lint) but skips pull requests i
 feat-cmux-next, and ci-guards.yml's routed matrix leaves the group to it. So nothing ran it
 for the branch: test_preflight_trust.py errored in all five tests there unseen (#23006).
 """
+import json
 import os
 from pathlib import Path
 import sys
@@ -263,12 +264,15 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
+        # A fork pull request takes the first member of that size's pool (scripts/ci/linux_runner_labels.py).
+        pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
+        fork_label = pools[f"linux_{measured['size']}"]["members"][0]
         self.assertNotIn("needs", self.job())
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
+            f" && github.event.pull_request.head.repo.full_name != github.repository && '{fork_label}'"
             " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
             " || " + pool_route + " }}",
         )

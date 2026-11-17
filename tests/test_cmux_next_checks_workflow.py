@@ -1810,7 +1810,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         mac, cargo = jobs["fast-tier"], jobs["fast-tier-cargo"]
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
+        # A fork pull request takes the first member of the linux_8 pool (scripts/ci/linux_runner_labels.py).
+        fork_label = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]["linux_8"]["members"][0]
+        self.assertIn(f"github.event.pull_request.head.repo.full_name != github.repository && '{fork_label}'", runs_on)
         # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
         self.assertTrue(runs_on.endswith(
             "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
