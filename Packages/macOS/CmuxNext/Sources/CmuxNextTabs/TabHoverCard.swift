@@ -143,7 +143,10 @@ final class TabHoverCardController: HoverCardSource {
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
         guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
-        return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+        // Within the strip's bounds too: its visible rect can pass them (`geometryDidChange`, cx-3wu5), and a
+        // point past the strip (on its tab's card, which is not enterable) is off the strip, not between tabs.
+        let point = strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        return strip.bounds.intersection(strip.visibleRect).contains(point)
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
