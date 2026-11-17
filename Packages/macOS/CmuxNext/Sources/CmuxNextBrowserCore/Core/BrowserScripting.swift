@@ -16,4 +16,7 @@ public nonisolated enum BrowserTabError: Error, Hashable, Sendable {
     case unsupported(String)
     /// The engine did not answer in time (what, deadline).
     case timedOut(String)
+    /// The page is frozen while hidden (WebKit's suspended page), and runs no script, snapshot or find
+    /// until it thaws.
+    case frozen
 }

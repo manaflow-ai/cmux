@@ -270,6 +270,7 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
+        floating_panes::FLOATING_PANES_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -483,6 +484,7 @@ pub(super) fn advertised_capabilities(
         crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
+        crate::mux::tab_strip::tab_place::CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
     ];
