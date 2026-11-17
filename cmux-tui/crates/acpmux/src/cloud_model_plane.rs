@@ -169,16 +169,19 @@ fn host_of(url: &str) -> Option<&str> {
 const RESOLVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long an answer is reused, so a burst of spawns resolves once.
 const RESOLVE_REUSE: std::time::Duration = std::time::Duration::from_secs(60);
+/// How long "the resolver gave no answer" is reused, so a hung resolver costs one wait per burst
+/// of spawns, not one per spawn.
+const RESOLVE_HUNG_REUSE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Whether `host` resolves, answered from a short cache. A resolver that gives no answer within
-/// [`RESOLVE_WAIT`] counts as unreachable for this spawn and is not cached.
-fn edge_resolves(host: &str) -> bool {
+/// [`RESOLVE_WAIT`] counts as unreachable for [`RESOLVE_HUNG_REUSE`].
+pub(crate) fn edge_resolves(host: &str) -> bool {
     use std::sync::Mutex;
     use std::time::Instant;
     static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
-    if let Some((h, at, ok)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+    if let Some((h, until, ok)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         && h == host
-        && at.elapsed() < RESOLVE_REUSE
+        && Instant::now() < *until
     {
         return *ok;
     }
@@ -193,14 +196,13 @@ fn edge_resolves(host: &str) -> bool {
     if spawned.is_err() {
         return false;
     }
-    match rx.recv_timeout(RESOLVE_WAIT) {
-        Ok(ok) => {
-            *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((host.to_owned(), Instant::now(), ok));
-            ok
-        }
-        Err(_) => false,
-    }
+    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
+        Ok(ok) => (ok, RESOLVE_REUSE),
+        Err(_) => (false, RESOLVE_HUNG_REUSE),
+    };
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((host.to_owned(), Instant::now() + reuse, ok));
+    ok
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.
