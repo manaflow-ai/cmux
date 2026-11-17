@@ -645,8 +645,21 @@ impl MediaEngine {
                     .filter(|_| self.profile.is_ultra())
                     .filter_map(|s| s.refine_due_us),
             )
-            .chain(self.probe_planner.next_deadline_us())
-            .chain(self.last_probe_start_us.map(|t| t.saturating_add(IDLE_PROBE_INTERVAL_US)))
+            // A startup probe is emitted by the caller's next tick. Once a
+            // refinement is scheduled, its media deadline wins so the probe
+            // train cannot mask the encoder's one-frame interval.
+            .chain(self.probe_planner.next_deadline_us().filter(|_| {
+                self.profile.is_ultra()
+                    && self.frames == 0
+                    && !self.streams.values().any(|state| state.refine_due_us.is_some())
+            }))
+            .chain(
+                (self.profile.is_ultra() && self.frames == 0)
+                    .then(|| {
+                        self.last_probe_start_us.map(|t| t.saturating_add(IDLE_PROBE_INTERVAL_US))
+                    })
+                    .flatten(),
+            )
             .min()
     }
 

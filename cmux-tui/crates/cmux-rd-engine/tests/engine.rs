@@ -493,7 +493,11 @@ fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
         MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
     e.set_profile(EncodeProfile::Ultra);
     let req = e.start(0).expect("first frame");
-    assert!(e.target_bps() > u64::from(req.target_kbps) * 1_000, "pacer gets the full wire budget");
+    assert_eq!(
+        e.target_bps(),
+        u64::from(req.target_kbps) * 1_000,
+        "pacer gets the full wire budget"
+    );
 }
 
 #[test]
