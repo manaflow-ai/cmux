@@ -5,8 +5,8 @@ public import CoreGraphics
 /// `floating-panes-v1`).
 public nonisolated struct LayoutFloatingPane: Hashable, Sendable {
     public var pane: PaneID
-    /// The frame as fractions of the screen's pane area: a rect inside the
-    /// unit square, with its origin at the top left.
+    /// The frame as fractions of the screen's pane area, with its origin at the top left. It can be outside
+    /// the pane area: a floating pane can be beside its window (``limited(_:)``).
     public var frame: CGRect
 
     public init(pane: PaneID, frame: CGRect) {
@@ -16,6 +16,17 @@ public nonisolated struct LayoutFloatingPane: Hashable, Sendable {
 
     /// The smallest width and height of a floating pane, as a fraction of the pane area (the daemon's rule).
     public static let minimumExtent: CGFloat = 0.15
+
+    /// The largest width and height of a floating pane, and how far its corner can be from the corner of the pane
+    /// area to either side, as multiples of the pane area (the daemon's rule).
+    public static let maximumExtent: CGFloat = 8, maximumOffset: CGFloat = 16
+
+    /// `frame` held to the daemon's limits, and not moved into the pane area: a size from ``minimumExtent`` to
+    /// ``maximumExtent`` and a corner not farther than ``maximumOffset`` from the corner of the pane area.
+    public static func limited(_ frame: CGRect) -> CGRect {
+        CGRect(x: min(max(frame.minX, -maximumOffset), maximumOffset), y: min(max(frame.minY, -maximumOffset), maximumOffset),
+               width: min(max(frame.width, minimumExtent), maximumExtent), height: min(max(frame.height, minimumExtent), maximumExtent))
+    }
 
     /// `frame` moved and resized into the unit square, not smaller than ``minimumExtent`` (the daemon's rule: the
     /// size first, then the corner).

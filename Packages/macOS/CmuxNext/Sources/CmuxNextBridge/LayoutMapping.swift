@@ -51,7 +51,7 @@ public struct LayoutMapping {
         for entry in screen.floating {
             guard let id = paneIDs[entry.pane], seen.insert(id).inserted else { continue }
             let frame = CGRect(x: entry.frame.x, y: entry.frame.y, width: entry.frame.w, height: entry.frame.h)
-            list.append(LayoutFloatingPane(pane: id, frame: LayoutFloatingPane.clamped(frame)))
+            list.append(LayoutFloatingPane(pane: id, frame: LayoutFloatingPane.limited(frame)))
         }
         return list.count < paneIDs.count ? list : []
     }
