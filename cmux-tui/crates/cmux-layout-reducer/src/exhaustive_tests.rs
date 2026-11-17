@@ -285,20 +285,23 @@ fn keyed(kind: LayoutOpKind) -> LayoutOp {
 
 /// I1 (stated without the crate's checker), I2 and I3, no reliance on the
 /// `Reject::Invariant` safety net, and I5 for every applied op.
-fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
-    // `apply` is this copy plus `apply_mut`; one copy serves both outcomes.
-    let mut after = state.clone();
-    match apply_mut(&mut after, op) {
+///
+/// `work` is a copy of `state` that every op of the layout runs on in place:
+/// a rejected op must leave it equal to `state`, and an accepted one takes
+/// it as its result and leaves a fresh copy.
+fn check_op(state: &LayoutState, work: &mut LayoutState, op: &LayoutOp) -> bool {
+    match apply_mut(work, op) {
         Ok(_) => {}
         Err(Reject::Invariant(violations)) => {
             panic!("valid state reached the invariant check: {op:?} on {state:?}: {violations:?}")
         }
         Err(_) => {
             // A rejection in place puts back everything the op changed.
-            assert_eq!(&after, state, "a rejected {op:?} changed the state");
+            assert_eq!(&*work, state, "a rejected {op:?} changed the state");
             return false;
         }
     }
+    let after = std::mem::replace(work, state.clone());
     // The whole-state check: `state` is valid, so `apply_mut`'s scoped check
     // accepting the op (above) must mean this finds nothing either.
     let whole = introduced_violations_creating(
@@ -410,9 +413,10 @@ fn exhaustive_small_layouts_keep_invariants() {
         assert!(check_state(&state).is_empty(), "{shape:?}");
         layouts += 1;
         check_own_place(&state);
+        let mut work = state.clone();
         for kind in ops(&state, next) {
             cases += 1;
-            applied += usize::from(check_op(&state, &keyed(kind)));
+            applied += usize::from(check_op(&state, &mut work, &keyed(kind)));
         }
         // Invariant 3 over every runtime assignment and dead flag.
         let tab_count = state.tabs.len();
