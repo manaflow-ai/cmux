@@ -12,7 +12,7 @@ shas=()
 pairs=()
 for arg in "$@"; do
   case "$arg" in
-    RUNNING=* | CPU=* | ENGINE=* | MODE=* | ROUNDS=* | TURNS=* | ACPMUX_DOWN_MS=* | TRACE=* | GATE=*) pairs+=("$arg") ;;
+    RUNNING=* | CPU=* | ENGINE=* | MODE=* | ROUNDS=* | TURNS=* | ACPMUX_DOWN_MS=* | REFUSED_ATTACHES=* | TRACE=* | GATE=*) pairs+=("$arg") ;;
     *=*) echo "first-load-after-restart.sh: unknown knob $arg" >&2; exit 2 ;;
     *) shas+=("$arg") ;;
   esac

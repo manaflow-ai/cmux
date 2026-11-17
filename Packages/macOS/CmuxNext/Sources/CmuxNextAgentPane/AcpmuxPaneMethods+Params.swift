@@ -50,7 +50,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], []),
+        // `hold`: a chat whose rows come from the store attaches for its page state only (rows/holdKinds.ts,
+        // attach-hold-v1). Missing here, every such attach was refused after a restart (2026-11-16) and the
+        // pane showed its error line; webviews test/attach-params-host-contract.test.ts holds the page to this list.
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).

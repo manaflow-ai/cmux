@@ -22,6 +22,11 @@
 //               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does;
 //               native-ready       native ready waits, with the saved HTML copy;
 //               native-ready-tail  native ready waits, no HTML copy, retained event tail only.
+//               attach-refused     acpmux is up, but the app host refuses the chat's first REFUSED_ATTACHES
+//                                  `_acpmux/attach` frames as its transport does a frame outside its params
+//                                  contract (AgentPaneTransport+Check.swift: a JSON-RPC error whose data code is
+//                                  `transport.intent_invalid`), as Leo's NIGHTLY did after a restart (2026-11-16
+//                                  23:28:49Z, two refusals): the pane shows its host error line, then the chat.
 //             Every painted frame until ACPMUX_DOWN_MS + 4000 ms is read after it painted
 //             (test/support/paintedFrames.ts) from the layer on top: the copy's shadow root while it
 //             shows, else the live page.
@@ -61,7 +66,7 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 
-const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
+const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail", "attach-refused"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy"] as const;
 type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number];
 const MODE = process.env.MODE ?? "all";
@@ -81,6 +86,10 @@ for (const [name, value] of [
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
 const RECORD_MS = DOWN_MS + 4000;
+/// attach-refused: how many of the chat's first `_acpmux/attach` frames the host refuses.
+const REFUSED_ATTACHES = Number(process.env.REFUSED_ATTACHES ?? 2);
+if (!Number.isInteger(REFUSED_ATTACHES) || REFUSED_ATTACHES < 0)
+  throw new Error("REFUSED_ATTACHES must be a non-negative integer");
 /// The warm page is settled once the newest answer painted and nothing in view changed this long.
 const SETTLE_QUIET_MS = 600;
 /// How the page reaches acpmux. `bridge` (the default) is the app's: the host owns the socket
@@ -92,6 +101,8 @@ const SETTLE_QUIET_MS = 600;
 const TRANSPORT = process.env.TRANSPORT ?? "bridge";
 if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSPORT must be bridge or websocket");
 const BRIDGE = TRANSPORT === "bridge";
+if (!BRIDGE && (MODE === "all" || MODE === "attach-refused"))
+  throw new Error("attach-refused needs TRANSPORT=bridge: the app host refuses the frame");
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
@@ -175,6 +186,8 @@ type Painted = FrameRecord & {
   bottomText: string;
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
+  /// The pane's host error line (HostError.tsx, `.acpmux-host-line`) showed.
+  hostLine: boolean;
 };
 type Recording = {
   frames: Painted[];
@@ -310,6 +323,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
+    hostLine: boolean;
   };
   let stopped = false;
   const recording = {
@@ -365,6 +379,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
+      hostLine: !!scope.querySelector(".acpmux-host-line"),
     };
   };
   window.cmuxAfterPaint(() => {
@@ -425,6 +440,8 @@ try {
   /// acpmux is unavailable until `downUntil` (epoch ms) in `downMode`; up otherwise.
   let downMode: Mode | undefined;
   let downUntil = 0;
+  /// The `_acpmux/attach` frames the host still refuses on this load (attach-refused).
+  let refuseAttaches = 0;
   /// This relaunch's socket timeline (epoch ms).
   let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
   const delayedReplies = new Set<ReturnType<typeof setTimeout>>();
@@ -662,7 +679,22 @@ try {
       const socket = sockets.get(Number(params.connection));
       if (method === "transport.send") {
         if (!socket) return { ok: false, code: "transport.closed", message: "closed" };
-        for (const frame of (params.frames as string[] | undefined) ?? []) socket.send(frame);
+        for (const frame of (params.frames as string[] | undefined) ?? []) {
+          // As the app host refuses a frame outside its params contract: not sent, and a request answered
+          // with the host's refusal (AcpmuxPaneMethods.refusal) on the socket, in order with its other frames.
+          const request = refuseAttaches > 0 ? (JSON.parse(frame) as { id?: unknown; method?: string }) : undefined;
+          if (request?.method === "_acpmux/attach" && request.id !== undefined) {
+            refuseAttaches -= 1;
+            const error = {
+              code: -32601,
+              message: "Refused by the cmux host",
+              data: { code: "transport.intent_invalid", origin: "native", method: "_acpmux/attach" },
+            };
+            push({ connection: Number(params.connection), frames: [JSON.stringify({ jsonrpc: "2.0", id: request.id, error })] });
+            continue;
+          }
+          socket.send(frame);
+        }
         return { ok: true, value: null };
       }
       sockets.delete(Number(params.connection));
@@ -746,9 +778,11 @@ try {
         mode.startsWith("native-ready") ? DOWN_MS : 0,
       );
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
-      // acpmux is up for a reopen: only the page is new.
-      downMode = isReopen(mode) ? undefined : mode;
-      downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
+      // acpmux is up for a reopen and for a refused attach: only the page is new.
+      const up = isReopen(mode) || mode === "attach-refused";
+      downMode = up ? undefined : mode;
+      downUntil = up ? 0 : Date.now() + DOWN_MS;
+      refuseAttaches = mode === "attach-refused" ? REFUSED_ATTACHES : 0;
       const upAt = downUntil;
       await page.goto(url, { waitUntil: "commit" });
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -953,6 +987,7 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              ...(frame.hostLine ? ["host line"] : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );
