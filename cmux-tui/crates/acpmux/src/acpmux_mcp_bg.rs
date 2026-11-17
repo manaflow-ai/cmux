@@ -667,8 +667,11 @@ const WAIT_TIMEOUT_S: u64 = 6 * 3600;
 /// quota (about 2 to 3 calls), so 120 s keeps one watcher near 60 to 90 calls an hour.
 const GH_INTERVAL_S: u64 = 120;
 
-/// How long `glaeda-gh gh --probe` may take before the gh fallback is used.
-const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long `glaeda-gh gh --probe` may take before the gh fallback is used: 30 s, the floor for
+/// a hard timeout in a request path. The probe is a local process (about 0.2 s), but cutting a
+/// slow one off on a loaded machine falls back to gh, which spends the login's own quota, so a
+/// premature cut-off costs more than waiting out a slow start.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The failed jobs or checks a `glaeda-gh wait` summary lists, comma-joined: its lines
 /// `  failed: NAME (step: S)  URL` (or cancelled, timed_out, ...), without the URL.
