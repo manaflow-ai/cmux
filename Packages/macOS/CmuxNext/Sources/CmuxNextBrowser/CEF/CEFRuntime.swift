@@ -74,6 +74,10 @@ final class CEFRuntime {
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
         })
+    /// The focused agent chat's own renderer (`CEFOwnChatRenderer`).
+    private(set) lazy var ownChatRenderer = CEFOwnChatRenderer(name: { [weak self] browser in
+        self?.shim?.pageOwnRenderer?(browser)
+    })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
