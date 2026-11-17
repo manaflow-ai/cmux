@@ -10,6 +10,7 @@ pub mod codex_config_lock;
 mod cut_name_child;
 pub mod ended_children;
 pub mod file_birth;
+pub mod free_pages;
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;

@@ -2935,6 +2935,10 @@ fn run_server(
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
+        // The pages freed by the startup burst go back to the system once it
+        // settles: one call, off every request's path (free_pages.rs).
+        let _free_pages =
+            cmux_tui_platform::free_pages::release_after(cmux_tui_platform::free_pages::SETTLE);
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             run_headless(&mux, &socket_path, args.exit_with_pid, reachable, || {
