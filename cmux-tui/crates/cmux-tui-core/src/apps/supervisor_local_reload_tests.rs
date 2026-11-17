@@ -331,3 +331,71 @@ fn an_asked_pass_names_a_refused_folder() {
         "{answer}"
     );
 }
+
+/// Stress: a save of one sidebar app among `apps` local apps (each a 256 KiB
+/// bundle, the size of a small built extension) plus five malformed
+/// manifests. The cost of the pass a save makes must not grow with the
+/// number of apps that did not change (Leo: break sidebar customization with
+/// 50+ sections, rapid `ext dev` save loops and malformed manifests).
+/// Prints `apps | p50 ms | p95 ms` and the warn lines a pass repeats.
+#[test]
+fn local_reload_stress_one_save_among_many_apps() {
+    let bundle = "x".repeat(256 * 1024);
+    let mut rows = Vec::new();
+    for apps in [1usize, 50, 200] {
+        let f = fixture();
+        let local = f.state.join("apps/local");
+        for i in 0..apps {
+            write_app(&local, &format!("s{i}"), &format!("local/s{i}"), json!({}));
+            std::fs::write(local.join(format!("s{i}/dist/main.js")), &bundle).unwrap();
+        }
+        for i in 0..5 {
+            let bad = local.join(format!("bad{i}"));
+            std::fs::create_dir_all(&bad).unwrap();
+            std::fs::write(
+                bad.join("cmux-app.json"),
+                ["{ not json", "{}", "[]", "{\"id\":5}", "\u{0}"][i],
+            )
+            .unwrap();
+        }
+        // The first pass reports the malformed folders: that is the once.
+        let mut prints = f.supervisor.reload_local_apps(&Default::default());
+        let _: Vec<Value> = f.events.try_iter().collect();
+        let mut samples = Vec::new();
+        for save in 0..30 {
+            save_version(&local.join("s0"), &format!("1.0.{}", save + 1));
+            let start = Instant::now();
+            prints = f.supervisor.reload_local_apps(&prints);
+            samples.push(start.elapsed());
+        }
+        let events: Vec<Value> = f.events.try_iter().collect();
+        let changed = events.iter().filter(|e| e["event"] == "apps-changed").count();
+        let logs = f.supervisor.logs(CLIENT, "cmux/supervisor", false);
+        let warns = logs["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| l["level"] == "warn" && l["message"].as_str().unwrap().contains("/bad"))
+            .count();
+        assert_eq!(changed, 30, "every save reached the app");
+        assert_eq!(app_entry(&f.supervisor.list(), "local/s0")["version"], "1.0.30");
+        samples.sort();
+        let (p50, p95) = (samples[15], samples[28]);
+        println!(
+            "local reload: {apps} apps | p50 {:.2} ms | p95 {:.2} ms | {warns} warn lines over 30 saves",
+            p50.as_secs_f64() * 1e3,
+            p95.as_secs_f64() * 1e3
+        );
+        rows.push((apps, p50, warns));
+    }
+    let (_, one, _) = rows[0];
+    for (apps, p50, warns) in &rows {
+        // A malformed folder is said once, not again on every other app's save.
+        assert!(*warns <= 10, "{apps} apps: {warns} warn lines for 5 malformed folders");
+        // One save costs about what it costs with one app; 3x room for noise.
+        assert!(
+            *p50 <= one * 3 + Duration::from_millis(2),
+            "{apps} apps: one save took {p50:?} vs {one:?} with one app"
+        );
+    }
+}
