@@ -3,6 +3,8 @@
 // Everything here is inert until the first debug call sets `acpmuxPerf.enabled`:
 // the render path then pays one boolean check per render.
 
+import { type KeyPresentation, KeyPresentationMarks } from "./keyPresentation";
+
 /** Rounds to hundredths, as the native pane's stats do. */
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -146,7 +148,14 @@ export class FrameRing {
 /// wait for the key to reach the page: the app, its web view and the page's main thread), `work` when the
 /// key's edit and its render were done (a task queued from its `input` event, after the microtasks
 /// ProseMirror and React run it in), `frame` the next frame's start and `paint` after that frame.
-export type TypingSample = { frame: number; paint: number; listener?: number; work?: number };
+/// `submitted` when Chromium presented the frame that draws it, `submittedFloor` the earliest that can
+/// be under Chromium's 4 ms rounding (keyPresentation.ts).
+export type TypingSample = {
+  frame: number;
+  paint: number;
+  listener?: number;
+  work?: number;
+} & Partial<KeyPresentation>;
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 /**
  * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
@@ -167,6 +176,11 @@ export function typingSummary(samples: TypingSample[]) {
     keys: samples.length,
     to_frame: summary(samples.map((sample) => sample.frame)),
     to_paint: summary(samples.map((sample) => sample.paint)),
+    to_submitted: summary(samples.flatMap((sample) => (sample.submitted === undefined ? [] : [sample.submitted]))),
+    to_submitted_floor: summary(
+      samples.flatMap((sample) => (sample.submittedFloor === undefined ? [] : [sample.submittedFloor])),
+    ),
+    submitted_keys: samples.filter((sample) => sample.submitted !== undefined).length,
     to_listener: summary(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
     to_work: summary(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
   };
@@ -207,12 +221,16 @@ export class AcpmuxPerf {
     this.enabled = true;
     if (this.keyListener || !target) return;
     const page = target;
+    // The frame-presented mark needs a real document (tests pass a bare event target).
+    const presented =
+      typeof Document !== "undefined" && target instanceof Document ? new KeyPresentationMarks(target) : undefined;
     this.keyListener = (event) => {
       const element = event.target as Element | null;
       // The chat's composer and the New Tab page's (its omnibar's keys, Lawrence 2026-11-13).
       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
       const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
+      presented?.mark(start, (presentation) => Object.assign(sample, presentation));
       // The key's edit: its `input` event, then the microtasks the field and React run it in.
       const input = () => {
         const done = new MessageChannel();
