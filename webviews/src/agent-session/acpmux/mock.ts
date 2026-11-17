@@ -248,7 +248,15 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+export type LoadStreamOptions = {
+  seconds: number;
+  chunkChars: number;
+  chunkMs: number;
+  toolEvery: number;
+  /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
+  prefixWords?: number;
+  prefixSettleMs?: number;
+};
 
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
 /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
@@ -443,11 +451,23 @@ export class MockAcpmuxSocket {
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
-    const reply = streamedReply(turn, 400);
-    const end = performance.now() + options.seconds * 1000;
+    let reply = streamedReply(turn, 400);
     let at = 0;
     let deltas = 0;
     let tools = 0;
+    // A long reply already on screen (`prefixWords`): its first words arrive in one delta and get
+    // `prefixSettleMs` to reveal, then the timed stream goes on from where they end, so a frame's
+    // cost can be read against the reply's length.
+    const words = Math.max(0, Math.floor(options.prefixWords ?? 0));
+    if (words > 0) {
+      for (let more = 1; reply.split(" ").length < words * 2; more += 1) reply += streamedReply(turn + more, 400);
+      const prefix = reply.split(" ").slice(0, words).join(" ");
+      this.emit(target, { update: text(prefix) });
+      deltas += 1;
+      at = prefix.length;
+      await this.delay(options.prefixSettleMs ?? 1500);
+    }
+    const end = performance.now() + options.seconds * 1000;
     while (performance.now() < end && !this.closed) {
       await this.delay(options.chunkMs);
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);

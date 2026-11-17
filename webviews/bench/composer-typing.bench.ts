@@ -23,10 +23,14 @@
 //             anything a keypress causes. One render per event is a coalesced draw; more is a frame it will redraw.
 //             STREAM-SPANS lines carry that run's spans (perf.ts `span`), which name the work each streamed frame
 //             spends its time in (flush.scroll, flush.drawn, vt.body, row.renders) where a render count cannot.
+//   reply     with --modes reply: the same keys while one long reply streams, for each --reply-words length (default
+//             2000,20000 words): its first words arrive at once and reveal, then the stream appends to it with no tool
+//             call. frame_p50 / frame_p95 (every mode) are each display frame's work while the keys are typed, rAF to
+//             after the page rendered it: in reply mode, what one reveal frame costs against the reply's length.
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
-//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
+//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
 //     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
 /// <reference types="bun" />
 import path from "node:path";
@@ -46,7 +50,12 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
+type Mode = "idle" | "stream" | "reply";
+const MODES = (flag("--modes") ?? "idle").split(",") as Mode[];
+/// With --modes reply: the reply lengths, in words, that one streaming reply has on screen while the keys are typed.
+const REPLY_WORDS = (flag("--reply-words") ?? "2000,20000").split(",").map(Number);
+/// How long the long reply's first words get to reveal before the timed stream and the keys start.
+const REPLY_SETTLE_MS = 1500;
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 const DEV = argv.includes("--dev");
@@ -60,6 +69,8 @@ const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
+  "frame_p50",
+  "frame_p95",
   "to_frame_p50",
   "to_frame_p95",
   "to_frame_max",
@@ -166,11 +177,49 @@ const serveOptions = {
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
+/// Init script (self-contained): the work of every display frame from `__frameWork.start()` to `stop()`, rAF time to
+/// after the page rendered it (a posted message runs after the rendering update), as loadDebug.ts `loadRun` reads it.
+function frameWorkProbe() {
+  const w = window as unknown as { __frameWork?: { start(): void; stop(): number[] } };
+  if (w.__frameWork) return;
+  let on = false;
+  let work: number[] = [];
+  const tick = (now: number) => {
+    if (!on) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      work.push(performance.now() - now);
+    };
+    channel.port2.postMessage(0);
+    requestAnimationFrame(tick);
+  };
+  w.__frameWork = {
+    start() {
+      work = [];
+      on = true;
+      requestAnimationFrame(tick);
+    },
+    stop() {
+      on = false;
+      return work;
+    },
+  };
+}
+
+const pct = (values: number[], at: number) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length
+    ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * at))]! * 100) / 100
+    : 0;
+};
+
+async function measure(port: number, length: number, mode: Mode, replyWords = 0): Promise<Record<string, unknown>> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.addInitScript(longTaskProbe);
+    await page.addInitScript(frameWorkProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
@@ -199,6 +248,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       await cdp.send("Profiler.start");
     }
     // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas.
+    // Reply mode: one reply of `replyWords` words is on screen, and the same stream appends to it with no tool call
+    // (a tool call would end the reply's row and start a short one), so each frame's cost reads against its length.
     const streaming =
       mode === "stream"
         ? page.evaluate(
@@ -206,9 +257,22 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
-        : Promise.resolve(undefined);
-    if (mode === "stream") {
-      await page.waitForTimeout(300);
+        : mode === "reply"
+          ? page.evaluate(
+              ([seconds, words, settle]) =>
+                (window as any).cmuxAcpmuxDebug.loadRun({
+                  seconds,
+                  chunk_ms: 16,
+                  tool_every: 0,
+                  scroll_speed: 0,
+                  reply_words: words,
+                  reply_settle_ms: settle,
+                }),
+              [(KEYS * (GAP_MS + 20)) / 1000 + 1, replyWords, REPLY_SETTLE_MS] as const,
+            )
+          : Promise.resolve(undefined);
+    if (mode !== "idle") {
+      await page.waitForTimeout(mode === "reply" ? REPLY_SETTLE_MS + 300 : 300);
       await page.evaluate(() => {
         const debug = (window as any).cmuxAcpmuxDebug;
         debug.resetTyping();
@@ -224,9 +288,11 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         await page.waitForTimeout(GAP_MS);
       }
     };
+    await page.evaluate(() => (window as any).__frameWork.start());
     const typedAt = performance.now();
     const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
     const typedMs = performance.now() - typedAt;
+    const frameWork = (await page.evaluate(() => (window as any).__frameWork.stop())) as number[];
     await page.waitForTimeout(500);
     const after = await metrics();
     const until = await page.evaluate(() => performance.now());
@@ -311,6 +377,9 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     return {
       mode,
       rows,
+      ...(mode === "reply" ? { reply_words: replyWords } : {}),
+      frame_p50: pct(frameWork, 0.5),
+      frame_p95: pct(frameWork, 0.95),
       keys: typing.keys,
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
@@ -347,29 +416,33 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
 }
 
 try {
-  const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  const cases = LENGTHS.flatMap((length) =>
+    MODES.flatMap((mode) =>
+      mode === "reply" ? REPLY_WORDS.map((words) => ({ length, mode, words })) : [{ length, mode, words: 0 }],
+    ),
+  );
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
     for (const arm of ARMS) ports.set(arm.name, await servePane(arm.dir, serveOptions, releases));
     const runs: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases)
+    for (const { length, mode, words } of cases)
       runs.push(
         ...(await runArms({
           arms: ARMS,
           rounds: ROUNDS,
           floor: FLOOR,
-          label: `${mode} ${length} rows`,
+          label: `${mode} ${length} rows${words ? ` ${words} words` : ""}`,
           metrics: ARM_METRICS,
           ports,
-          run: (port) => measure(port, length, mode),
+          run: (port) => measure(port, length, mode, words),
         })),
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(runs)}`);
   } else {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
+    for (const { length, mode, words } of cases) table.push(await measure(port, length, mode, words));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
