@@ -345,24 +345,27 @@ await requireBrowserLane("transcript-row-holes-browser.test.ts", async () => {
     const place = async () => (follow ? toBottom(page) : bring(page, worked));
     await place();
     const failures: string[] = [];
-    const clicks = (label: string, selectors: () => string[], shiftFree = !follow): Step => ({
-      label,
-      shiftFree: shiftFree ? ["worked"] : undefined,
-      act: async (page) => {
-        for (const selector of selectors()) {
-          if (!(await click(page, selector))) {
-            // Out of view: bring its row in (the reader scrolls to it), then click.
-            const id = selector.startsWith("key:")
-              ? selector.slice(4).split("|")[0]!
-              : /data-row-id="([^"]+)"/.exec(selector)![1]!;
-            await bring(page, id, 160);
-            step.scrolled = true;
-            await click(page, selector);
+    const clicks = (label: string, selectors: () => string[], shiftFree = !follow): Step => {
+      const step: Step = {
+        label,
+        shiftFree: shiftFree ? ["worked"] : undefined,
+        act: async (page) => {
+          for (const selector of selectors()) {
+            if (!(await click(page, selector))) {
+              // Out of view: bring its row in (the reader scrolls to it), then click.
+              const id = selector.startsWith("key:")
+                ? selector.slice(4).split("|")[0]!
+                : /data-row-id="([^"]+)"/.exec(selector)![1]!;
+              await bring(page, id, 160);
+              step.scrolled = true;
+              await click(page, selector);
+            }
+            await settle(page);
           }
-          await settle(page);
-        }
-      },
-    });
+        },
+      };
+      return step;
+    };
     const track = { worked: workedToggle };
     failures.push(
       ...(await measure(
