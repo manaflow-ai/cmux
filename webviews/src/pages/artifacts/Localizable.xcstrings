@@ -924,127 +924,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing saved yet. Artifacts and memories your agents save show up here."
+            "value": "Nothing saved yet."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لا شيء محفوظ بعد. تظهر هنا العناصر والذكريات التي يحفظها وكلاؤك."
+            "state": "needs_review",
+            "value": "لا شيء محفوظ بعد."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Još ništa nije sačuvano. Ovdje se prikazuju artefakti i sjećanja koje vaši agenti sačuvaju."
+            "state": "needs_review",
+            "value": "Još ništa nije sačuvano."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Intet gemt endnu. Artefakter og hukommelser, som dine agenter gemmer, vises her."
+            "state": "needs_review",
+            "value": "Intet gemt endnu."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Noch nichts gespeichert. Artefakte und Erinnerungen, die deine Agenten speichern, erscheinen hier."
+            "state": "needs_review",
+            "value": "Noch nichts gespeichert."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Todavía no hay nada guardado. Aquí aparecen los artefactos y recuerdos que guardan tus agentes."
+            "state": "needs_review",
+            "value": "Todavía no hay nada guardado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Rien d'enregistré pour l'instant. Les artefacts et souvenirs enregistrés par vos agents apparaissent ici."
+            "state": "needs_review",
+            "value": "Rien d'enregistré pour l'instant."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ancora niente di salvato. Qui compaiono gli artefatti e i ricordi salvati dai tuoi agenti."
+            "state": "needs_review",
+            "value": "Ancora niente di salvato."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "まだ何も保存されていません。エージェントが保存したアーティファクトとメモリーがここに表示されます。"
+            "state": "needs_review",
+            "value": "まだ何も保存されていません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនទាន់មានអ្វីរក្សាទុកនៅឡើយទេ។ វត្ថុបុរាណ និងការចងចាំដែលភ្នាក់ងាររបស់អ្នករក្សាទុកនឹងបង្ហាញនៅទីនេះ។"
+            "state": "needs_review",
+            "value": "មិនទាន់មានអ្វីរក្សាទុកនៅឡើយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "아직 저장된 항목이 없습니다. 에이전트가 저장한 아티팩트와 메모리가 여기에 표시됩니다."
+            "state": "needs_review",
+            "value": "아직 저장된 항목이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ingenting lagret ennå. Artefakter og minner agentene dine lagrer, vises her."
+            "state": "needs_review",
+            "value": "Ingenting lagret ennå."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nic jeszcze nie zapisano. Tutaj pojawią się artefakty i wspomnienia zapisane przez agentów."
+            "state": "needs_review",
+            "value": "Nic jeszcze nie zapisano."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nada salvo ainda. Os artefatos e memórias que seus agentes salvarem aparecem aqui."
+            "state": "needs_review",
+            "value": "Nada salvo ainda."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Пока ничего не сохранено. Здесь появятся артефакты и воспоминания, которые сохранят ваши агенты."
+            "state": "needs_review",
+            "value": "Пока ничего не сохранено."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ยังไม่มีสิ่งที่บันทึกไว้ อาร์ติแฟกต์และความจำที่เอเจนต์ของคุณบันทึกจะแสดงที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Henüz kayıtlı bir şey yok. Ajanlarınızın kaydettiği yapıtlar ve anılar burada görünür."
+            "state": "needs_review",
+            "value": "Henüz kayıtlı bir şey yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Поки нічого не збережено. Тут з'являтимуться артефакти й спогади, які збережуть ваші агенти."
+            "state": "needs_review",
+            "value": "Поки нічого не збережено."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chưa có gì được lưu. Tạo phẩm và ký ức mà tác tử của bạn lưu sẽ hiện ở đây."
+            "state": "needs_review",
+            "value": "Chưa có gì được lưu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "还没有保存任何内容。你的智能体保存的制品和记忆会显示在这里。"
+            "state": "needs_review",
+            "value": "还没有保存任何内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "還沒有儲存任何內容。你的代理程式儲存的成品和記憶會顯示在這裡。"
+            "state": "needs_review",
+            "value": "還沒有儲存任何內容。"
           }
         }
       }

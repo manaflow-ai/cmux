@@ -144,7 +144,8 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let status: String
             do {
                 let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
-                status = "exit \(outcome.status)"
+                // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
+                status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
             } catch {
                 status = "failed (\(error))"
             }
@@ -167,6 +168,14 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
             + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+    }
+
+    /// A run's exit status for the update log. A Chromium helper with no `--type` exits 255 once it has loaded the
+    /// CEF framework (`CefExecuteProcess` returns -1, "this is the browser process"; a failed load exits 1,
+    /// CEFShim/src/helper_main.mm), so 255 there is the run doing its job, and the line says so.
+    static func describe(exit status: Int32, of run: Run) -> String {
+        let helper = run.executable.pathComponents.contains { $0.hasSuffix(".app") && $0.contains(" Helper") }
+        return helper && status == 255 ? "exit 255 (framework loaded)" : "exit \(status)"
     }
 
     /// What ``readPages(under:)`` read.

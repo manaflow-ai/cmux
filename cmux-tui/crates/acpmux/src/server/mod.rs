@@ -2404,6 +2404,7 @@ mod accounts;
 mod mcp_connect;
 mod routes;
 mod secrets;
+mod share_host;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
 mod races;
