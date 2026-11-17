@@ -232,7 +232,11 @@ that held the answer is gone is back to `ask`.
    The push also says `ownerKind: 'user'`: both devices are this one account's,
    as the hub authenticated them. A host serves such a session without its own
    consent sheet; a ticket without it (an older hub), or a later team or shared
-   owner, still goes through the host's consent.
+   owner, still goes through the host's consent. Every Mac host (the app, cmux
+   Remote with the app quit, the acpmux share host) serves it with no local
+   consent read, and no consent change stops it. A Linux desktop enabled
+   `--view-only` serves its control ticket view only rather than ending it. A
+   host that refuses a ticket on its consent ends it `consent_required`.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if cmux billing includes the relay for the user right now
