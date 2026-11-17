@@ -5065,9 +5065,12 @@ function TranscriptView({
         clearScrollOrigin(node);
         // At the latest row, written as a following view settles there (rounded up, its fraction
         // kept): the floored offset rested a pixel short until a later pass settled it, and a first
-        // commit already drawn at the end (`opensAtEnd`) has no later pass.
-        if (at < 0) settleFollowBottom(node, top);
-        else writeAnchorScrollTop(node, top);
+        // commit already drawn at the end (`opensAtEnd`) has no later pass. Always written, as a
+        // fresh scroller's end is not known yet and the rail reads the offset from this write.
+        if (at < 0) {
+          node.scrollTop = Math.ceil(top - 0.01);
+          retainScrollOrigin(node, top);
+        } else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
