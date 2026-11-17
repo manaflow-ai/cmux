@@ -159,7 +159,9 @@ fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once
     }
     let frame = packets(&mut p, 14, 0, 13, 3000);
     deliver(&mut r, &frame[1..], 1_300_000);
-    keep_alive(&mut r, 1_300_000, 1_500_000);
+    // The link stays live past the 200 ms deadline: a give-up after the last
+    // arrival would fall in a silence and wait for the outage pause.
+    keep_alive(&mut r, 1_300_000, 1_600_000);
     assert!(!decode_feedback(&r.feedback(1_305_000).expect("NACK")).nacks.is_empty());
     assert_eq!(r.next_deadline_us(), 1_355_000, "the retry, 50 ms after the NACK");
     let retry = decode_feedback(&r.feedback(1_355_000).expect("retry"));
