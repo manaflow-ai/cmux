@@ -8,7 +8,8 @@
 //! (#40357, `DiskFails` + `Send`); a prompt id to a second target answered with the first's
 //! delivery, so it was never sent (a631eae3bf3, `Send` with one prompt id and two targets); a
 //! journal replayed over a newer snapshot, taking deliveries back to waiting (#40378,
-//! `StaleJournal`); a torn append swallowing the next line (#40378, `TornRestart` and a later
+//! `StaleJournal` after a change a failing disk kept from the journal); a torn tail swallowing the
+//! next append when the open could not compact it (#40378, `TornRestart(_, true)` and a later
 //! change); a change answered before its file held it (#24331, the durable check after each step).
 
 use super::*;
@@ -34,7 +35,7 @@ enum Op {
     /// Killed, started again (the disk works again).
     Restart,
     /// Killed in the middle of an append no one was answered for.
-    TornRestart(u16),
+    TornRestart(u16, bool),
     /// Shut down cleanly (`compact`), started again.
     Shutdown,
     /// Killed between a new snapshot and its journal's reset: the old journal is left beside it.
@@ -57,7 +58,7 @@ fn op() -> impl Strategy<Value = Op> {
         1 => Just(Op::Reconnect),
         1 => (0u8..16).prop_map(Op::PanicUpdate),
         2 => Just(Op::Restart),
-        1 => (1u16..300).prop_map(Op::TornRestart),
+        2 => (1u16..300, any::<bool>()).prop_map(|(n, fails)| Op::TornRestart(n, fails)),
         2 => Just(Op::Shutdown),
         1 => Just(Op::StaleJournal),
         1 => Just(Op::OlderDaemon),
@@ -231,7 +232,7 @@ impl Harness {
                 self.oracle.restart();
                 self.reopen();
             }
-            Op::TornRestart(n) => {
+            Op::TornRestart(n, compaction_fails) => {
                 self.disk_heals();
                 let line = serde_json::to_vec(&self.delivery("d-torn", "p-torn", "t-0")).unwrap();
                 use std::io::Write;
@@ -242,8 +243,17 @@ impl Harness {
                     .unwrap();
                 f.write_all(&line[..usize::from(n).min(line.len() - 1)]).unwrap();
                 drop(f);
+                // The open's compaction fails (a nearly full disk): no whole file can be written,
+                // so the torn tail stays and the next change appends after it. Appends still work.
+                let temp = self.path.with_extension(format!("tmp-{}", std::process::id()));
+                if compaction_fails {
+                    std::fs::create_dir_all(temp.join("refuses")).unwrap();
+                }
                 self.oracle.restart();
                 self.reopen();
+                if compaction_fails {
+                    std::fs::remove_dir_all(&temp).unwrap();
+                }
             }
             Op::Shutdown => {
                 self.disk_heals();
@@ -371,7 +381,14 @@ fn past_outbox_bugs_stay_fixed() {
     // a631eae3bf3: one prompt id to two targets is two messages.
     run(&[Op::Send(0, 0), Op::Send(0, 1), Op::Send(0, 0), Op::Ack(0), Op::Restart]);
     // #40378: a journal left beside a newer snapshot is not replayed over it.
-    run(&[Op::Send(0, 0), Op::Ack(0), Op::StaleJournal, Op::Send(1, 0), Op::Restart]);
+    run(&[
+        Op::Send(0, 0),
+        Op::DiskFails,
+        Op::Ack(0),
+        Op::StaleJournal,
+        Op::Send(1, 0),
+        Op::Restart,
+    ]);
     // #40378: a torn append never swallows the next change.
-    run(&[Op::Send(0, 0), Op::TornRestart(40), Op::Send(1, 0), Op::Ack(1), Op::Restart]);
+    run(&[Op::Send(0, 0), Op::TornRestart(40, true), Op::Send(1, 0), Op::Ack(1), Op::Restart]);
 }
