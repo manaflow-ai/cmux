@@ -12,7 +12,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -88,6 +88,7 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      warm_team_matches_claim: null,
       warm_named: true,
       warm_reason: null,
       spare_ready_by: null,
@@ -2799,6 +2800,49 @@ describe("preclaim burst: the claim answer says the hit, the warm's naming is it
       for (const id of [taken, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
     } finally {
       (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("preclaim burst: the warm and the claim ask one team", () => {
+  const token = (claims: Record<string, unknown>) => `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
+
+  test("the install token's team claim is the team the Rust warm warms in", () => {
+    expect(installTokenTeam(token({ sub: "user_a", team: "team_shared0123456789ab" }))).toBe("team_shared0123456789ab");
+    expect(installTokenTeam(token({ sub: "user_a" }))).toBeNull();
+    expect(installTokenTeam("not-a-jwt")).toBeNull();
+  });
+
+  test("a shared-team install warms that team's pool, so the claim is sent in that team too, and the row says they differed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-team-test-"));
+    const shared = "team_shared0123456789ab", personal = "team_personal0123456789";
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\necho '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}'\n`, { mode: 0o755 });
+      const claimTeams: Array<string | undefined> = [];
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (_method: string, route: string) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: "@@exit 0" } } }
+          : { status: 200, body: { ok: true } },
+        read: async () => ({ status: "running", host: "host-1" }),
+        op: async function (this: any) { claimTeams.push(this.team); return { machine: { id: "vm_Taken0123456789", status: "running" }, claim: { behind: false } }; },
+        deleteMachine: async () => undefined,
+      };
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: token({ sub: "user-1", team: shared }) }, account: `user-1/${personal}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, user: { personal_team: personal },
+        fetchJson: (async () => ({ status: 200, body: { ok: true } })) as never,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(claimTeams).toEqual([shared]);
+      expect(written.rows[0]).toMatchObject({ warm_team_matches_claim: false, lease_hit: true });
+      expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("- warm's team was the claim's default team: no (claims sent in the warm's team)");
+    } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
