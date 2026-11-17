@@ -50,7 +50,7 @@ class TranscriptShifts(Bench):
         rows = ctx.arg("rows") or "50000"
         command = ("set -o pipefail; cd webviews && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null && "
                    f"CMUX_BROWSER_TESTS=1 ROWS={shlex.quote(rows)} bun scripts/agent-pane/transcript-shifts.bench.ts")
-        cmd = ["cmux-ci", "test", "--timeout", "1800", "--", "bash", "-c", command]
+        cmd = ["cmux-ci", "test", "--setup", "webviews", "--timeout", "1800", "--", "bash", "-c", command]
         if ctx.dry_run:
             print("dry run:", shlex.join(cmd))
             raise BenchError("dry run")

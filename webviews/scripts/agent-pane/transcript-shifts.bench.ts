@@ -459,6 +459,8 @@ try {
 
   await setPhase(page, "fold");
   const folds = await foldCycles(page, 10);
+  // A missing fold toggle would measure no folds and still read as a clean run.
+  assert.equal(folds, 10, `played ${folds} of 10 fold cycles`);
 
   await setPhase(page, "composer-scrolled");
   await growComposer(page, 6);
