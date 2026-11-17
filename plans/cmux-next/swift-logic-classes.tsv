@@ -8533,33 +8533,9 @@ CmuxNextMacScreen	class	MacScreenTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextMacScreen	class	MacScreenToolbarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenToolbar.swift	from class MacScreenToolbarView:16: Strings, colors, system shortcut tap wiring, tab and toolbar views
 CmuxNextMacScreen	extension	MacScreenColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenToolbar.swift	from class MacScreenToolbarView:16: Strings, colors, system shortcut tap wiring, tab and toolbar views
 CmuxNextMacScreen	extension	MacScreenToolbarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenToolbar.swift	Strings, colors, system shortcut tap wiring, tab and toolbar views
-CmuxNextMobile	class	PhoneAccessGate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Access/PhoneAccessGate.swift	phone admission gate: who may connect, settings-driven rules
-CmuxNextMobile	class	DaemonCompatBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/DaemonCompatBackend.swift	daemon connection call site for compat adapter
-CmuxNextMobile	extension	TerminalAttachment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatBackend.swift	from protocol MobileCompatBackend:6: compat backend seam protocol
-CmuxNextMobile	protocol	MobileCompatBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatBackend.swift	compat backend seam protocol
-CmuxNextMobile	protocol	MobileCompatTerminalChannel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatBackend.swift	from protocol MobileCompatBackend:6: compat backend seam protocol
-CmuxNextMobile	struct	MobileCompatHostInfo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatHostInfo.swift	capabilities and host info advertised to the phone
-CmuxNextMobile	enum	MobileCompatIDs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatIDs.swift	workspace/surface id mapping for old phone dialect
-CmuxNextMobile	struct	MobileCompatMethods	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatMethods.swift	support table of mobile RPC methods
-CmuxNextMobile	enum	MobileCompatReplayBytes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatReplayBytes.swift	VT replay byte reshaping for the phone
-CmuxNextMobile	extension	MobileCompatSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatSession+Terminal.swift	mobile.terminal.* method handling
-CmuxNextMobile	actor	MobileCompatSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatSession.swift	per-connection compat session state and RPC dispatch
-CmuxNextMobile	actor	MobileCompatTerminalStream	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileCompatTerminalStream.swift	terminal stream sequencing and replay for phone
-CmuxNextMobile	extension	JSONValue	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileRPCMessage.swift	from struct MobileRPCRequest:6: hand-written mobile RPC request/response JSON types
-CmuxNextMobile	struct	MobileRPCError	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileRPCMessage.swift	from struct MobileRPCRequest:6: hand-written mobile RPC request/response JSON types
-CmuxNextMobile	struct	MobileRPCRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileRPCMessage.swift	hand-written mobile RPC request/response JSON types
-CmuxNextMobile	struct	MobileRPCWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileRPCMessage.swift	from struct MobileRPCRequest:6: hand-written mobile RPC request/response JSON types
-CmuxNextMobile	struct	MobileReadiness	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileUsableSession.swift	from struct MobileUsableSession:7: mobile.rpc.ready event payload
-CmuxNextMobile	struct	MobileUsableSession	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileUsableSession.swift	mobile.rpc.ready event payload
-CmuxNextMobile	enum	MobileWorkspaceRows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/MobileWorkspaceRows.swift	daemon tree to phone workspace rows
-CmuxNextMobile	class	TreeChangeBroadcaster	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/TreeChangeBroadcaster.swift	coalescing tree change signal per phone
 CmuxNextMobile	extension	DaemonLanePolicy	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift	generated allowed request fields from sdk-schema
 CmuxNextMobile	struct	DaemonLanePolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift	daemon lane policy: allowed commands, caps, security rules for phones
-CmuxNextMobile	actor	DaemonLaneSplice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLaneSplice.swift	splice of phone and daemon lanes, line caps
 CmuxNextMobile	struct	LineSplitter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/LineSplitter.swift	line framing with max length
-CmuxNextMobile	protocol	MobileByteLane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/MobileByteLane.swift	byte lane seam
-CmuxNextMobile	class	ResumeOnce	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/ResumeOnce.swift	continuation guard
-CmuxNextMobile	class	UnixSocketLane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/UnixSocketLane.swift	Unix socket I/O with connect deadline
 CmuxNextMobile	protocol	MobileHostBrowserHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	remote browser host seam
 CmuxNextMobile	protocol	MobileHostSurfaceHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	from protocol MobileHostBrowserHosting:6: remote browser host seam
 CmuxNextMobile	struct	MobileHostSurfaceClosures	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	from protocol MobileHostBrowserHosting:6: remote browser host seam

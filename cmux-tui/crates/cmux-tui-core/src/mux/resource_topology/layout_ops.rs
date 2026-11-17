@@ -38,6 +38,15 @@ impl Mux {
                     None if layout.zoomed_pane == Some(pane) => None,
                     None => Some(pane),
                 };
+                // `floating-panes-v1`: a floating pane is never zoomed, so the request is refused.
+                if Screen::zoom_beside_floating_panes(layout.zoomed_pane, &layout.floating)
+                    != layout.zoomed_pane
+                {
+                    return Err(anyhow::Error::new(ResourceError::validation_invalid(
+                        Some("enabled"),
+                        "a floating pane cannot be zoomed",
+                    )));
+                }
                 let topology = stored_workspace_topology(state, registry, workspace)?;
                 let durable = registry_screen_from_layout(
                     state,
