@@ -47,7 +47,7 @@ describe("auto-roll approve", () => {
     const prod = locate(text, "production").images;
     const staging = locate(text, "staging").images;
     expect(previousFirst).toBe(before.prod[0]!.id);
-    expect(prod[0]).toEqual({ ...entry("100"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[0]).toEqual({ ...entry("100"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(prod.slice(1)).toEqual(before.prod);
     expect(staging.at(-1)).toEqual({ ...entry("100"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
     expect(staging.slice(0, -1)).toEqual(before.staging);
@@ -122,7 +122,7 @@ describe("auto-roll approve", () => {
   test("entries with and without inputs_sha256 share a list; a malformed one is refused", () => {
     const { text } = approve(approve(wrangler, entry("10")).text, keyed("11"));
     const prod = locate(text, "production").images;
-    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(prod[1]).not.toHaveProperty("inputs_sha256");
     const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
     expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);

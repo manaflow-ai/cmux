@@ -46,7 +46,7 @@ export const MAX_ENTRIES = 32;
  * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
 export const MAX_BYTES = 5_120;
 export const SERVICES = {
-  production: ["cloud-platform-production", "ci-product-smoke"],
+  production: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
 } as const;
 /** The paths whose change is a change to what the image carries (the push trigger's paths). */
