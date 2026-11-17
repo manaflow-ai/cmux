@@ -474,7 +474,9 @@ impl Hub {
                     Queue::Enqueued(text) => {
                         // It may be a chat send's own queue line: it shows when it runs, by its
                         // attachment or its line, under the right id (`may_be_delivery`).
+                        // Claude Code's own queue lines (a task notification) are no one's prompt.
                         if !super::bridge::may_be_delivery(&session.id, &text)
+                            && crate::adopt_replay::queued_by_person(&text)
                             && watching.queued.len() < MAX_QUEUED
                         {
                             if let Some(turn) = open.take() {
@@ -499,7 +501,14 @@ impl Hub {
                             super::bridge::taken_back(&session.id, &text);
                         }
                     }
-                    Queue::Removed { absorbed: true, .. } => {}
+                    // Taken into the turn: its attachment has shown it. One still waiting here
+                    // (an attachment this watch does not read) leaves too, or every turn end after
+                    // it would read as the end of the turn before it.
+                    Queue::Removed { text, absorbed: true } => {
+                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            watching.queued.remove(i);
+                        }
+                    }
                     Queue::Absorbed { text, source, human } => {
                         let bridged = source
                             .as_deref()
