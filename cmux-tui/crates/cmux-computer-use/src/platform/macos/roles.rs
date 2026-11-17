@@ -182,6 +182,127 @@ pub fn is_browser(bundle_id: Option<&str>) -> bool {
     })
 }
 
+/// Which engine draws an app's web content, for how a web field is given
+/// its page's focus in the background ([`web_focus_write`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebEngine {
+    /// Chromium (Chrome, Edge, Brave, Arc, Opera, Vivaldi, Chromium).
+    Chromium,
+    /// WebKit (Safari, apps with a web view) or not known.
+    Other,
+}
+
+/// Chromium browsers by bundle id prefix (any case).
+pub const CHROMIUM_BROWSERS: &[&str] = &[
+    "com.google.Chrome",
+    "org.chromium.Chromium",
+    "com.microsoft.edgemac",
+    "com.brave.Browser",
+    "company.thebrowser.",
+    "com.operasoftware.Opera",
+    "com.vivaldi.Vivaldi",
+];
+
+/// [`WebEngine`] from the app's bundle id; an unknown app is `Other`.
+pub fn web_engine(bundle_id: Option<&str>) -> WebEngine {
+    let chromium = bundle_id.is_some_and(|id| {
+        let id = id.to_ascii_lowercase();
+        CHROMIUM_BROWSERS.iter().any(|p| id.starts_with(&p.to_ascii_lowercase()))
+    });
+    if chromium { WebEngine::Chromium } else { WebEngine::Other }
+}
+
+/// The app attribute that makes an app show its web content to
+/// accessibility, if it needs one: Chromium builds its pages' accessibility
+/// trees only for an assistive client that sets `AXEnhancedUserInterface`
+/// (Chrome 157 on macOS 26.6 and 27.0.1: no page elements without it, the
+/// page within 2 s with it; it refuses `AXManualAccessibility`). WebKit
+/// shows its pages to any client.
+pub fn web_accessibility_attribute(engine: WebEngine) -> Option<&'static str> {
+    // Stub (red): never asked, as before.
+    let _ = engine;
+    None
+}
+
+/// How a web field is given its page's focus in a background app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebFocusWrite {
+    /// `AXFocused`: Chromium moves the page's focus and never activates
+    /// itself for it (macOS 26.6 and 27.0.1, Chrome after the person used it
+    /// and with its address bar focused: the person's app stayed in front).
+    Focused,
+    /// A caret at the end of the field's text (`AXSelectedTextRange`), which
+    /// moves the page's focus with it. WebKit answers an `AXFocused` write
+    /// by focusing its page, and Safari then activates itself whenever it may
+    /// (it was the active app before: the person lost their focus, live on
+    /// 27.0.1), so it is never written there.
+    Caret,
+}
+
+pub fn web_focus_write(engine: WebEngine) -> WebFocusWrite {
+    // Stub (red): the AXFocused write everywhere, as before.
+    let _ = engine;
+    WebFocusWrite::Focused
+}
+
+/// Where a background app's focused element (`AXFocusedUIElement`) is,
+/// relative to the field keys are meant for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppFocus {
+    /// The app names no focused element (a background WebKit app whose
+    /// keyboard focus is its web view).
+    Nothing,
+    /// The field itself.
+    Target,
+    /// An element of the field's own web content (its web area).
+    InPage,
+    /// An element outside the field's web content: the address bar, a find
+    /// bar, a sidebar, another web view. Keys posted to the app go there.
+    Outside,
+}
+
+/// What the web keys guard reads after the field was given focus
+/// ([`web_keys_guard`]). Every read is strict: `None` is unread.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WebKeyFacts {
+    /// The field's own AXFocused.
+    pub own: Option<bool>,
+    /// Where the app's focused element is.
+    pub app_focus: Option<AppFocus>,
+    /// Web areas between the field and its window (more than one: an iframe).
+    pub web_areas: usize,
+    /// Whether the window holds a web area other than the field's own and
+    /// those inside it (a docked web inspector, another web view).
+    pub other_web_views: Option<bool>,
+    /// The app reports no focused window, and then whether it has a sheet or
+    /// another window keys could reach.
+    pub no_focused_window: bool,
+    pub other_targets: bool,
+}
+
+/// Whether keys posted to a background app reach this web field (live,
+/// Safari and Chrome on macOS 26.6 and 27.0.1: with the field holding its
+/// page's focus, keys posted to the app's process type into it, with the
+/// page's own keydown, beforeinput and input events, and the person's front
+/// app, key window and input source unchanged). Keys go wherever the app's
+/// window has its keyboard focus: they are posted only when that is this
+/// page (the app names the field, an element of its page, or nothing, as a
+/// background WebKit app does for its web view), the field holds the page's
+/// focus, the field is not in an iframe, the window has no other web view
+/// (a docked inspector names nothing either) and no sheet or second window
+/// could take them. The reason otherwise.
+pub fn web_keys_guard(f: &WebKeyFacts) -> Result<(), &'static str> {
+    // Stub (red): as before, no keys into a background page's web view.
+    let _ = f;
+    Err("the web view's host is not focused in a background window")
+}
+
+/// The UTF-16 caret at the end of a field's text (where the caret write
+/// puts it): its length.
+pub fn caret_at_end(value: &str) -> isize {
+    value.encode_utf16().count() as isize
+}
+
 /// The value a set_value request writes, as `value_for` maps it: on an
 /// element whose value is a number, "true"/"on" is 1 and "false"/"off" is
 /// 0, and a number is that number (written out as AX reads it back);
