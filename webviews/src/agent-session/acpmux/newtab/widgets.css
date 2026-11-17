@@ -282,10 +282,19 @@
   }
 }
 
-/* The Add Widget gallery sheet. */
+/* The Add Widget gallery sheet: a column no taller than the window, whose rows scroll under the
+   title and Done (cmux#44995: on an 858 px window its 3rd and 4th rows could not be reached). The
+   shipped agent pane loads ui/popupSurface.css but not ui/ui.css, so `.ui-sheet`'s overflow and
+   bottom anchor never apply there: the sheet starts 12vh down (popupSurface.css `.ui-dialog`) and
+   bounds itself here, as the paste sheet does (composerAttachments.css .acpmux-paste-view). Both
+   classes, so ui.css's `.ui-sheet` (where a host loads it) never outranks it. */
+.ui-sheet.nt-widget-gallery,
 .nt-widget-gallery {
+  display: flex;
+  flex-direction: column;
   width: min(760px, calc(100vw - 2 * var(--ds-space-6)));
-  max-height: min(640px, calc(100vh - 2 * var(--ds-space-6)));
+  max-height: min(640px, calc(88vh - var(--ds-space-6)));
+  overflow: hidden;
 }
 .nt-widget-gallery-body {
   --nt-widget-unit: 132px;
@@ -295,15 +304,26 @@
   --nt-widget-card-edge: color-mix(in srgb, var(--agent-text) 9%, transparent);
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: var(--ds-space-4);
   min-height: 0;
   padding: var(--ds-space-4);
-  overflow: auto;
 }
 .nt-widget-gallery-head {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+/* The rows' scroller: it takes what the head leaves and scrolls the rest. Padded by a step and pulled
+   out by the same, so a preview's focus ring at its edge is not cut off. */
+.nt-widget-gallery-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: calc(-1 * var(--ds-space-1));
+  padding: var(--ds-space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .nt-widget-gallery-title {
   margin: 0;

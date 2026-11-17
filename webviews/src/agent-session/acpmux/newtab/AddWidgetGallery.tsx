@@ -86,29 +86,32 @@ export function AddWidgetGallery({
             {nt("widgets.done")}
           </button>
         </div>
-        {widgets.length === 0 ? (
-          <p className="nt-widget-gallery-empty">{nt("widgets.gallery.empty")}</p>
-        ) : look === "grid" ? (
-          <div className="nt-widget-gallery-grid">
-            {widgets.flatMap((widget) =>
-              widget.sizes.map((size) => (
-                <PreviewButton
-                  key={`${widget.app}:${size}`}
-                  widget={widget}
-                  size={size}
-                  client={client}
-                  onAdd={onAdd}
-                />
-              )),
-            )}
-          </div>
-        ) : (
-          <ul className="nt-widget-gallery-list">
-            {widgets.map((widget) => (
-              <GalleryRow key={widget.app} widget={widget} client={client} look={look} onAdd={onAdd} />
-            ))}
-          </ul>
-        )}
+        {/* The rows scroll here, under the title and Done, at any window height (cmux#44995). */}
+        <div className="nt-widget-gallery-scroll">
+          {widgets.length === 0 ? (
+            <p className="nt-widget-gallery-empty">{nt("widgets.gallery.empty")}</p>
+          ) : look === "grid" ? (
+            <div className="nt-widget-gallery-grid">
+              {widgets.flatMap((widget) =>
+                widget.sizes.map((size) => (
+                  <PreviewButton
+                    key={`${widget.app}:${size}`}
+                    widget={widget}
+                    size={size}
+                    client={client}
+                    onAdd={onAdd}
+                  />
+                )),
+              )}
+            </div>
+          ) : (
+            <ul className="nt-widget-gallery-list">
+              {widgets.map((widget) => (
+                <GalleryRow key={widget.app} widget={widget} client={client} look={look} onAdd={onAdd} />
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </Sheet>
   );
