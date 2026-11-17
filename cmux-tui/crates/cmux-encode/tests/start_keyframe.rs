@@ -1,13 +1,15 @@
-//! A share's keyframes against OpenH264's rate control, deterministically: a still 1080p text
-//! desktop coded at the 8 Mbit/s start rate, typing, a keyframe the viewer asks for, then
-//! full-screen and windowed motion (cmux-encode `openh264::keyframe_codes_with_skip_off`).
+//! A share's keyframes and frame drops against the rate, deterministically: a still 1080p
+//! text desktop coded at the 8 Mbit/s start rate, typing, a keyframe the viewer asks for,
+//! full-screen and windowed motion, and a moving start whose rate climbs to 50 Mbit/s
+//! (cmux-encode `openh264::Pacer`).
 //!
 //! OpenH264 v2.6.0 codes a new instance's first IDR at a QP from a bits-per-pixel table
 //! (RcCalculateIdrQp), whatever it costs: this desktop comes to ~760 KB, 0.77 s of the start
-//! rate. Its skip buffer holds half a second of the rate (SKIP_RATIO), so every frame after
-//! that keyframe was dropped until the excess drained: ~270 ms in which a new share's first
-//! key presses showed nothing. Numbers: `cargo test -p cmux-encode --features openh264-source
-//! --release --test start_keyframe -- --include-ignored --nocapture`.
+//! rate. With OpenH264's own frame skipping, every frame after that keyframe was dropped
+//! until the excess drained (~270 ms in which a new share's first key presses showed
+//! nothing), and on motion its eight-frame budget kept skipping every other frame for
+//! seconds after. Numbers: `cargo test -p cmux-encode --features openh264-source --release
+//! --test start_keyframe -- --include-ignored --nocapture`.
 #![cfg(feature = "openh264-source")]
 
 use cmux_encode::openh264::{OpenH264, OpenH264Api};
@@ -191,7 +193,8 @@ fn start(enc: &mut OpenH264) -> Start {
         skipped_after_idr,
         first_p_ms: coded.get(1).map_or(f64::INFINITY, |&t| t as f64 / 1e3),
         worst_press_ms: worst(0, 2_000_000),
-        skipped_2s: (2 * FPS) as usize - coded.iter().filter(|&&t| t < 2_000_000).count(),
+        skipped_2s: (2 * FPS) as usize
+            - coded.iter().filter(|&&t| t < 2 * FPS as i64 * FRAME_US).count(),
         forced_kb: forced_bytes / 1024,
         skipped_after_forced: after_forced,
         worst_press_after_forced_ms: worst(forced_at, forced_at + 2_000_000),
@@ -310,10 +313,10 @@ fn recovery_under_load(enc: &mut OpenH264, kbps: u32) -> Recovery {
     }
 }
 
-/// A keyframe forced on a running instance (the viewer's recovery after loss) keeps frame
-/// skipping, so the share sends no more after it than the link carried before. Coded with
-/// skipping off it sent 16 frames and 12.5 Mbit in the next half second against 6 and 4.1
-/// before (3x the rate, on a link that had just lost packets); with skipping, 6 and 8.1.
+/// A keyframe forced on a running instance (the viewer's recovery after loss) counts against
+/// the rate, so the share sends no more frames after it than the link carried before. Coded
+/// for free it sent 16 frames and 12.5 Mbit in the next half second against 6 and 4.1 before
+/// (3x the rate, on a link that had just lost packets); counted, 1 and 4.9.
 #[test]
 fn a_recovery_keyframe_under_load_keeps_frame_skipping() {
     let r = recovery_under_load(&mut encoder(START_KBPS), START_KBPS);
@@ -396,6 +399,24 @@ fn motion_start(enc: &mut OpenH264, secs: i64) -> (f64, Vec<usize>, Vec<f64>) {
     let firsts: Vec<i64> = coded.iter().take(12).map(|t| t / FRAME_US).collect();
     println!("first coded frames: {firsts:?}");
     (worst, fps, bits)
+}
+
+/// Once the rate reaches 50 Mbit/s in the motion start (at 4 s), every second after spends
+/// it. OpenH264's own frame skipping held this at exactly 30 fps and 36.7 Mbit/s until 9 s:
+/// the start keyframe's overshoot, carried in its eight-frame budget and scaled up with each
+/// rise of the rate, skipped every other frame until it was repaid (`openh264::Pacer`).
+#[test]
+fn motion_spends_the_rate_within_a_second_of_reaching_it() {
+    let (_, fps, mbps) = motion_start(&mut encoder(START_KBPS), 9);
+    println!("motion: fps per s {fps:?}; Mbit/s per s {mbps:?}");
+    for s in 4..9 {
+        assert!(
+            mbps[s] >= 45.0 && fps[s] > 36,
+            "second {s}: {} fps, {:.1} Mbit/s",
+            fps[s],
+            mbps[s]
+        );
+    }
 }
 
 #[test]
