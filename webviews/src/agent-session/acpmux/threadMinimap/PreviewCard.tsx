@@ -26,6 +26,7 @@ import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/see
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { PromptMarksSession } from "./promptMarks";
+import { writeScrollBy } from "../conversation/scrollController";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -82,7 +83,7 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
   if (by === undefined) return;
   event.preventDefault();
   scroller.dispatchEvent(new KeyboardEvent("keydown", { key: event.key, bubbles: false }));
-  scroller.scrollTop += by;
+  writeScrollBy(scroller, by, "keys");
 }
 
 /// What the card covers when it draws in the scroller's parent: the transcript scroller alone, never

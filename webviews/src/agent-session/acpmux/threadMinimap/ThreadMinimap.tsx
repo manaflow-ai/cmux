@@ -83,6 +83,7 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { writeScrollTop } from "../conversation/scrollController";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -591,6 +592,7 @@ export function ThreadMinimap({
       event.preventDefault();
       event.stopPropagation();
       railBrowsing.current = { sessionId: live.current.sessionId };
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       target.scrollTop += wheelPixels(event, target.clientHeight);
     };
     node.addEventListener("wheel", wheel, { capture: true, passive: false });
@@ -810,7 +812,7 @@ export function ThreadMinimap({
         );
       if (how === "scrub" || how === "click" || !row || reducedMotion()) {
         stopScroll(node);
-        node.scrollTop = to;
+        writeScrollTop(node, to, "minimap");
         if (how !== "scrub") settle();
       } else if (how === "step")
         animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
@@ -977,6 +979,7 @@ export function ThreadMinimap({
         const room = Math.max(0, turns.length * rowPitch - height);
         const next = Math.max(0, Math.min(room, scrolled + moved));
         if (next !== scrolled) {
+          // scroll-writer-ok: the prompt rail's own list, not the transcript.
           node.scrollTop = next;
           listOffset.current = next;
           moved -= next - scrolled;
@@ -1052,6 +1055,7 @@ export function ThreadMinimap({
     if (!overflow) {
       railBrowsing.current = undefined;
       if (listOffset.current === 0) return;
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       node.scrollTop = 0;
       listOffset.current = 0;
       setListTop(0);
@@ -1063,6 +1067,7 @@ export function ThreadMinimap({
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
     if (Math.abs(next - current) < 0.5) return;
+    // scroll-writer-ok: the prompt rail's own list, not the transcript.
     node.scrollTop = next;
     // railScrollTop keeps it inside the list's room, so the list takes it as it is.
     listOffset.current = next;
