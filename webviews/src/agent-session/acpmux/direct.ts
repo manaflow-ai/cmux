@@ -80,6 +80,7 @@ import { liftInlineImages } from "./inlineImages";
 import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
+import { isBehindSend, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
   peerConnectedFromStatus,
@@ -11546,6 +11547,13 @@ export class AcpmuxDirectClient {
       untaken = false;
     };
     try {
+      // Files the composer sent the prompt ahead of (composer/sendBehind.ts): it shows as sent now,
+      // and goes to the agent once each is its chip, never without one.
+      if (attachments.some(isBehindSend)) {
+        const settled = await this.sendAheadOfFiles(input, attachments, promptId, steer);
+        if (!settled) return undefined;
+        attachments = settled;
+      }
       return await this.sendNow(
         input,
         attachments,
@@ -11560,7 +11568,117 @@ export class AcpmuxDirectClient {
       );
     } finally {
       settle();
+      this.dropAheadDrawing(promptId);
     }
+  }
+
+  /// What `sendAheadOfFiles` drew for each prompt (its row or queue entry): its send draws over it
+  /// under the same id, and one its send never drew over (refused first, or sent under a hand-off
+  /// turn's id) goes once the send ended, never left sending.
+  private aheadDrawn = new Map<string, AcpmuxRow | QueuedPrompt>();
+  private dropAheadDrawing(promptId: string): void {
+    const drawn = this.aheadDrawn.get(promptId);
+    if (!drawn) return;
+    this.aheadDrawn.delete(promptId);
+    const rowId = `local-${promptId}`;
+    let changed = false;
+    if (this.rows.get(rowId) === drawn) {
+      this.rows.delete(rowId);
+      this.optimisticPromptRows.delete(promptId);
+      this.optimisticPromptTexts.delete(promptId);
+      this.promptRowKeys.delete(promptId);
+      changed = true;
+    }
+    if (this.queue.includes(drawn as QueuedPrompt)) {
+      this.queue = this.queue.filter((entry) => entry !== drawn);
+      changed = true;
+    }
+    if (changed) this.emit();
+  }
+
+  /// A prompt the composer sent ahead of files still attaching (composer/sendBehind.ts: a dropped
+  /// video's path still asked of the host, or its bytes still streaming to the chat's machine). It
+  /// shows as sent at once, as its row in the chat shown (or its queue entry behind a running turn),
+  /// under its own prompt id, which its send then draws over; it goes once each file is its chip
+  /// (Leo, 2026-11-17: "JUST MAKE IT LOOK LIKE IT'S SENT OR JUST SEND IT"). Answers the settled
+  /// attachments, or undefined when it does not go now: a file failed (its row fails with the
+  /// host's words, and Retry keeps what did attach), or the chat left the screen meanwhile (the
+  /// prompt is kept as not sent in its own chat, unsentPrompts.ts).
+  private async sendAheadOfFiles(
+    input: string,
+    attachments: ComposerAttachment[],
+    promptId: string,
+    steer: boolean,
+  ): Promise<ComposerAttachment[] | undefined> {
+    const sessionId = this.creating ? undefined : this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const rowId = `local-${promptId}`;
+    const at = Date.now();
+    // The bubble names each file while it still goes; its link is drawn once it is one.
+    const shown = attachments.map((chip) => (isBehindSend(chip) ? { ...chip, path: chip.path ?? chip.name } : chip));
+    const { inline, text, pasted } = sentPromptShape(input, shown, { dropped: () => false });
+    const queued = Boolean(sessionId) && !steer && this.workingNow();
+    if (sessionId && queued) {
+      const entry = queuedEntry(
+        promptId,
+        text,
+        false,
+        true,
+        attachedImages(attachments),
+        undefined,
+        undefined,
+        inline?.parts,
+      );
+      this.queue = [...this.queue.filter((each) => each.id !== promptId), entry];
+      this.aheadDrawn.set(promptId, entry);
+    } else if (sessionId) {
+      const drawn: AcpmuxRow = {
+        id: rowId,
+        version: (this.rows.get(rowId)?.version ?? 0) + 1,
+        at,
+        kind: "user",
+        text,
+        ...(pasted.length ? { pasted } : {}),
+        ...(inline ? { inlineParts: inline.parts } : {}),
+        ...(attachments.some((chip) => !isBehindSend(chip)) ? { images: attachedImages(attachments) } : {}),
+        pending: true,
+        delivery: { state: "sending", promptId, sessionId, sentAt: at, ...(steer ? { queued: true } : {}) },
+      };
+      this.rows.set(rowId, drawn);
+      this.aheadDrawn.set(promptId, drawn);
+      this.promptRowKeys.set(promptId, rowId);
+      this.optimisticPromptRows.set(promptId, rowId);
+      this.optimisticPromptTexts.set(promptId, text);
+    }
+    if (sessionId) this.emit();
+    const { attachments: settled, error } = await settleAllBehindSend(attachments);
+    const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    if (error === undefined && (here || !sessionId)) return settled;
+    if (!sessionId) throw new Error(error);
+    this.aheadDrawn.delete(promptId);
+    if (here) {
+      this.queue = this.queue.filter((entry) => entry.id !== promptId);
+      const before = this.rows.get(rowId);
+      this.rows.set(rowId, {
+        id: rowId,
+        version: (before?.version ?? 0) + 1,
+        at,
+        kind: "user",
+        text,
+        ...(pasted.length ? { pasted } : {}),
+        ...(inline ? { inlineParts: inline.parts } : {}),
+        pending: false,
+        failed: true,
+        error: error!,
+      });
+      this.optimisticPromptRows.set(promptId, rowId);
+      this.failedPrompts.set(rowId, { input, attachments: settled, promptId });
+      this.emit();
+      return undefined;
+    }
+    // The chat left the screen while its files went: the prompt waits there as not sent.
+    this.keepUnsent(sessionId, { promptId, input, attachments: settled, at });
+    return undefined;
   }
 
   /// WEB-SWAP: why a web update's reload would lose a prompt this page holds: one acpmux has not

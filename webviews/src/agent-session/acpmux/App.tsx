@@ -798,7 +798,7 @@ import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
-import { clearHeldFork, sendHeldFork } from "./forkHold";
+import { clearHeldFork, heldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -12664,6 +12664,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
+            }}
+            // A send made while a dropped file still attaches goes now, ahead of it, and shows as
+            // sent (composer/sendBehind.ts): only where onSend below takes it straight to the client
+            // of the chat open now (its plain path), which sends it once the file is its chip.
+            onBindSendAhead={() => {
+              const client = directClient.current;
+              const plainPath =
+                client !== undefined &&
+                Boolean(snapshot.sessionId) &&
+                client.selectedSession === snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !authBlock &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !sandboxPickedNotOffered &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId) &&
+                Boolean(window.cmuxAcpmuxActions?.["chat.send"]);
+              const route = {
+                openChat: client?.selectedSession,
+                switchPending: harnessSwitch.view().intent !== undefined,
+                startsChat: Boolean(projectDraft && !snapshot.sessionId),
+                cloudStart: cloudPicked,
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
+              };
+              return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
             onSend={(text, chips, steer, gesture) => {

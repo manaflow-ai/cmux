@@ -315,6 +315,11 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Binds the person's key press or click to a prompt that goes now, ahead of files still
+  /// attaching (composer/sendBehind.ts): only where the send goes straight to the chat open now,
+  /// whose client draws it as sent and sends it once the files are chips. Undefined: the send
+  /// waits for its files, as before.
+  onBindSendAhead?(): SendGesture | undefined;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -535,6 +540,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  onBindSendAhead,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -794,6 +800,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
+    goAhead,
     retry,
     revive,
     originalFailures,
@@ -1586,10 +1593,10 @@ function ComposerFrame({
       slash !== undefined &&
       (composerCommand(words, snapshot.summary?.harness) !== undefined ||
         (commands ?? []).some((command) => command.name === slash));
-    const placed = isCommand
+    let placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
-    const prompt = placed.text;
+    let prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
     const side = route === "side" ? SIDE_COMMAND : undefined;
@@ -1724,8 +1731,28 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
+    // A file dropped, pasted or picked that is still attaching (its path asked of the host, its bytes
+    // streaming to the chat's machine) never holds the send: the prompt goes now with it as a
+    // stand-in, shows as sent, and reaches the agent once the file is its chip (composer/sendBehind.ts;
+    // Leo, 2026-11-17: "I CAN'T EVEN FUCKING SEND A MESSAGE WHILE THE FUCKING THING LOADS").
+    let wentAhead = false;
+    if (pending.length > 0 && !isCommand && onBindSendAhead) {
+      const gesture = kept ?? onBindSendAhead();
+      const ahead = gesture ? goAhead() : undefined;
+      // The gesture bound for this send stays its own, held or not.
+      if (gesture) kept = gesture;
+      if (ahead) {
+        const went = new Set(ahead.map((chip) => chip.id));
+        placed = placeInline(typedText.trim(), [...attachments, ...ahead], {
+          dropped: (id) => !went.has(id) && pending.some((chip) => chip.id === id),
+        });
+        prompt = placed.text;
+        holdForAttachments.cancel();
+        wentAhead = true;
+      }
+    }
+    // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
+    if (!wentAhead && holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
