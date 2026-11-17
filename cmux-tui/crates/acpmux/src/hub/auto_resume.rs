@@ -1227,6 +1227,18 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
             return;
         }
+        // After a restart every cut turn's continuation comes due within one delay: each takes
+        // its turn through the staged restore like a restored prompt (`restore_gate.rs`), so a
+        // host back from a stop starts them as its headroom and lane cap allow, never all at once.
+        // A Stop or close meanwhile takes the mark, and `fire_pending` below then skips it.
+        // A chat whose agent still runs (a turn cut by its transport) starts nothing: it goes on.
+        if !super::admission::is_live(session.status(), false) {
+            self.restore_gate.count_restored();
+            self.admit_restored(session).await;
+            if self.shutting_down() {
+                return;
+            }
+        }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {

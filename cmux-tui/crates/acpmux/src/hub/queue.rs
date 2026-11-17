@@ -354,9 +354,10 @@ impl Hub {
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
                 // A person's prompt to a chat whose restored prompt waits for its stage: that one
                 // goes now, first in the queue as before, so this one never waits on the stage
-                // (`restore_gate.rs`). Another agent's message waits with it, as any prompt
-                // queued behind a turn does.
-                if p.agent.is_none() {
+                // (`restore_gate.rs`). Anything else waits with it, as any prompt queued behind a
+                // turn does: another agent's message, an automatic continuation or trigger (their
+                // provenance kinds), and a prompt still waiting for the owner's approval.
+                if from_person(p.agent, awaiting_owner, p.provenance) {
                     self.expedite_restored(&session.id);
                 }
                 let waiting = loop {
@@ -1535,6 +1536,17 @@ pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+/// Whether a prompt is a person's own, sent now and to run now: no agent sent it, its
+/// provenance (if any) is a person's message, and it does not wait for the owner's approval.
+pub(super) fn from_person(
+    agent: Option<&str>,
+    awaiting_owner: bool,
+    provenance: Option<&serde_json::Value>,
+) -> bool {
+    let kind = provenance.and_then(|v| v.get("kind")).and_then(serde_json::Value::as_str);
+    agent.is_none() && !awaiting_owner && kind.is_none_or(|k| k == crate::author::PERSON_MESSAGE)
+}
+
 pub(super) fn closing(session: &Session) -> bool {
     session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }

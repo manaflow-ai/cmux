@@ -242,3 +242,18 @@ async fn a_cancelled_driver_lets_its_waiters_go() {
     assert_eq!(through.load(Ordering::SeqCst), 6, "unstaged, never stuck");
     assert_eq!(hub.restore_gate.status()["waiting"], 0);
 }
+
+/// Only a person's prompt lets a parked chat's restored prompt go: not another agent's message,
+/// an automatic continuation, a trigger, or a guest's prompt still waiting for the owner.
+#[test]
+fn only_a_persons_prompt_expedites() {
+    use super::queue::from_person;
+    let person = json!({"kind": "person_message", "from": "p1"});
+    assert!(from_person(None, false, None), "the owner's own prompt");
+    assert!(from_person(None, false, Some(&person)), "a person's message");
+    assert!(!from_person(Some("coord"), false, None), "another agent's message");
+    assert!(!from_person(None, true, Some(&person)), "waits for the owner's approval");
+    for kind in ["auto_resume", "trigger"] {
+        assert!(!from_person(None, false, Some(&json!({"kind": kind}))), "{kind}");
+    }
+}

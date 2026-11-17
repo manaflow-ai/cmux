@@ -243,3 +243,48 @@ fn configured_waits_are_checked() {
     assert_eq!(checked_delays(&json!("10s")), None);
     assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
 }
+
+/// After a restart a cut turn's continuation takes its turn through the staged restore: at the
+/// lane cap it is parked, not sent, and its mark still waits.
+#[tokio::test(start_paused = true)]
+async fn a_continuation_of_a_chat_with_no_agent_waits_for_its_stage() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = serde_json::from_value(json!({"schema": crate::store::META_SCHEMA, "id": "cut-chat",
+        "name": "Cut chat", "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1}))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let hub = Hub::new(config, store);
+    let session = hub.resolve("cut-chat").unwrap();
+    hub.restore_gate.fake_at_cap();
+    session.auto_resume.lock().replace(Mark::Waiting {
+        turn: "cut-turn".into(),
+        retry: Some(retry("cut-turn")),
+        _wake: Wake(Arc::new(Notify::new())),
+    });
+    let task = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move {
+            let cut = CutTurn {
+                from: None,
+                prompt_id: "cut",
+                turn_id: "cut-turn",
+                control: Control::Local,
+                trust_gate: false,
+                error: "agent_exited",
+                not_before: None,
+            };
+            hub.auto_resume(&session, cut, 0).await;
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+    assert!(!task.is_finished(), "parked at the cap: nothing sent");
+    assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Waiting { .. })));
+    let status = hub.restore_gate.status();
+    assert!(
+        status["parked"].as_array().unwrap().iter().any(|p| p["sessionId"] == "cut-chat"),
+        "{status}"
+    );
+    task.abort();
+}
