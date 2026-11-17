@@ -25,7 +25,7 @@ extension SettingsController {
             let overlay = name == themeFile?.name ? themeFile
                 : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root,
                                    folder: ThemeFileSetting.folder(configDirectory: file.url.deletingLastPathComponent()))
-            if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys))) }
+            if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys).union(ThemeFileExceptionsSetting.keys(in: root)))) }
         }
         let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,

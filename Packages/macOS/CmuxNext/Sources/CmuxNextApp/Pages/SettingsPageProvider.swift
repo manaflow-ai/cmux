@@ -424,6 +424,12 @@ final class SettingsPageProvider: PageProvider {
             "effective": settings.snapshot.root,
             "managed": .object(managed),
             "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
+            // Notes, not problems (#44894): where a row's value comes from, and why it does not draw.
+            "notes": .array(settings.pageNotes.map { note in
+                var entry: [String: JSONValue] = ["path": .string(note.path), "kind": .string(note.kind.rawValue)]
+                if let file = note.file { entry["file"] = .string(file) }
+                return .object(entry)
+            }),
             "domains": .object(published),
         ]
     }

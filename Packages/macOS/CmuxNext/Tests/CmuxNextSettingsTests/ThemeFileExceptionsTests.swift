@@ -68,4 +68,18 @@ import Testing
         #expect(settings.fileRoot.value(at: Self.exceptions) == nil)
         #expect(settings.snapshot.reducedBackgrounds)
     }
+
+    @Test func thePageNotesWhereAValueComesFromAndWhyItDoesNotDraw() async throws {
+        let home = try ThemeFileTests.Home()
+        defer { withExtendedLifetime(home) {} }
+        let settings = try await controller(home)
+        let notes = settings.pageNotes
+        #expect(notes.contains { $0.kind == .plainBackgrounds && $0.path == "appearance.backgroundOpacity" })
+        #expect(notes.contains { $0.kind == .setByThemeFile && $0.path == "appearance.backgroundOpacity" && $0.file == "themes/tokyo.json" })
+        #expect(!settings.pageDiagnostics.contains { ThemeFileSetting.noteKinds.contains($0.kind) })
+
+        try await settings.setSetting(descriptor(Self.reduced), to: false, by: .user)
+        #expect(!settings.pageNotes.contains { $0.kind == .plainBackgrounds })
+        #expect(settings.pageNotes.contains { $0.kind == .overThemeFile && $0.path == "ui.reducedBackgrounds" })
+    }
 }

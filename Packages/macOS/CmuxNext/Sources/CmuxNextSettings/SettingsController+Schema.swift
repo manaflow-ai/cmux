@@ -39,9 +39,24 @@ extension SettingsController {
         // (`value = nil` on the optional, never a `nil` literal typed as `JSONValue`: that is `.null`,
         // which the file would store.)
         var value = strippingThemeFileEntries(descriptor, value)
-        if let written = value, isUnsetValue(written, of: descriptor) { value = nil }
+        // A key the active theme file sets keeps an explicit value even at its default: removing
+        // it would let the file's value apply again (#44894). Only a reset (nil) returns to the file.
+        let overThemeFile = value != nil && setsInThemeFile(descriptor.id)
+        if let written = value, !overThemeFile, isUnsetValue(written, of: descriptor) { value = nil }
         // The window background's opacity and material leave Ghostty, or return to it, together.
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
+        // A change to a key the active theme file sets applies over the file; a reset returns to it.
+        if descriptor.path != ThemeFileExceptionsSetting.configPath {
+            let writes = [(key: descriptor.id, sets: value != nil)] + linked.map { (key: $0.path.joined(separator: "."), sets: $0.value != nil) }
+            var root = JSONValue.object([:])
+            if let stored = try await file.value(at: ThemeFileExceptionsSetting.configPath) {
+                root = Self.replacing(ThemeFileExceptionsSetting.configPath, with: stored, in: root)
+            }
+            if let exceptions = ThemeFileExceptionsSetting.edit(writing: writes, overlay: themeFile, in: root),
+               managedKeys[ThemeFileExceptionsSetting.configPath.joined(separator: ".")] == nil {
+                linked.append((path: ThemeFileExceptionsSetting.configPath, value: exceptions))
+            }
+        }
         // A built-in density (any write of appearance.density) ends the custom one, which would win
         // over it (plans/cmux-next/density-DESIGN.md).
         let customDensity = CustomDensitySelectionSetting.configPath
@@ -131,5 +146,13 @@ extension SettingsController {
         let parents = (1..<max(path.count, 1)).reversed().map { SettingsFileEdit.resetUnchanged(Array(path.prefix($0)), .object([:])) }
         try await file.edit([.reset(path)] + parents)
         await reloadAfterWrite()
+    }
+}
+
+extension SettingsController {
+    /// Whether the active theme file sets `key` (dotted), so a write there needs an exception to apply.
+    func setsInThemeFile(_ key: String) -> Bool {
+        guard !ThemeFileExceptionsSetting.unexceptionable.contains(key) else { return false }
+        return themeFile?.values.contains { $0.path.joined(separator: ".") == key } ?? false
     }
 }

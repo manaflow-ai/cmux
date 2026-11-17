@@ -100,6 +100,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
             ),
             SettingDescriptor(
+                ThemeFileExceptionsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeFileExceptions", "Changed Over Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFileExceptions.help", "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."),
+                kind: .stringList,
+                default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
+                keywords: ["theme file", "override", "exception"]
+            ).hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
+            SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,
                 group: group,
