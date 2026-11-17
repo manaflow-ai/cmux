@@ -28,9 +28,9 @@ task {
 
 - It drives the agent surface users get: `cmux repl` (browser and desktop domains), the host MCP tools, or `cmux-cua` MCP. No private test hooks.
 - Every task gets a fresh profile (browser) or a fresh fixture app instance (desktop). Seeds are fixed. Timeouts are enforced. Retries are 0 for scoring.
-- Fleet Macs only. GUI legs run on cmux-lawrence-2 (or another granted fleet Mac), never on Lawrence's laptop. Sessions run in parallel, each isolated, with a separate lease and cursor per session.
+- Fleet Macs only. GUI legs run on a team Mac mini (or another granted fleet Mac), never on Lawrence's laptop. Sessions run in parallel, each isolated, with a separate lease and cursor per session.
 - Every step keeps a trace and a screenshot. Failures keep the full trace.
-- The driver can be swapped: `browser-host` (headless Chromium, then in-app WebKit/CEF after step c), `cua` (cmux-cua), and baselines where available: `codex-cua` (Codex Computer Use / Sky, which is granted on cmux-lawrence-2) and `aside repl`.
+- The driver can be swapped: `browser-host` (headless Chromium, then in-app WebKit/CEF after step c), `cua` (cmux-cua), and baselines where available: `codex-cua` (Codex Computer Use / Sky, which is granted on that team Mac mini) and `aside repl`.
 
 ## Outputs per run
 
@@ -50,7 +50,7 @@ Desktop: a native AppKit form app, a SwiftUI app, an Electron app (the `click-re
 
 ## Blockers
 
-- cmux-lawrence-2 TCC: `com.cmuxterm.cua` has Accessibility denied and no Screen Recording (system TCC.db, 2026-10-04). Asked through the coordinator. Until it is granted, the desktop leg can only run the `codex-cua` baseline.
+- Team Mac mini TCC: `com.cmuxterm.cua` has Accessibility denied and no Screen Recording (system TCC.db, 2026-10-04). Asked through the coordinator. Until it is granted, the desktop leg can only run the `codex-cua` baseline.
 - A tagged cmux-next helper has the same bundle id but a different signature from the Developer ID helper, so it may need its own grant.
 
 ## Steps
@@ -58,7 +58,7 @@ Desktop: a native AppKit form app, a SwiftUI app, an Electron app (the `click-re
 | Step | Content | Verification |
 | --- | --- | --- |
 | b1 | task schema, scorer, JSONL writer, summary table; unit tests (bun) | local bun test |
-| b2 | primitive driver `cua` (cmux-cua MCP over stdio on the fleet Mac) and fixtures; oracle (pixel diff + AX value + frontmost app) | live run on cmux-lawrence-2 after the TCC grant |
-| b3 | baseline drivers `codex-cua` and `aside repl` | live run on cmux-lawrence-2 |
+| b2 | primitive driver `cua` (cmux-cua MCP over stdio on the fleet Mac) and fixtures; oracle (pixel diff + AX value + frontmost app) | live run on the team Mac mini after the TCC grant |
+| b3 | baseline drivers `codex-cua` and `aside repl` | live run on the team Mac mini |
 | b4 | browser leg: `browser-host` driver on headless Chromium, then in-app tabs after step c | fleet run |
 | b5 | task level: model loop over `cmux repl`, Online-Mind2Web snapshot subset, public per-task logs | fleet run |

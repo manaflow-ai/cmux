@@ -54,7 +54,7 @@ This change adds no relay and no allowlist entry. `RemoteRelayPolicy.allowed` st
 
 - Rust (Testbox): remote connect `--remote-mux-socket` reaches remote-link `--mux-socket`; remote-link with an explicit mux socket starts neither a mux owner nor a sidecar when the daemon is down.
 - Swift: `ServerReachAppTests` (discovery, sidebar section with the brain's workspaces under the server name, revoke, chief moved, failed read, offline status), `SSHCommandLineTests`.
-- Live proof: a test brain on cmux-lawrence-2 itself (own brain home and daemon, `unix` route), paired by Add Server in a tagged app on the same host, a test chief placed on it, a subagent workspace created by the brain, visible in the sidebar under the server's name. The real cmux-lawrence brain is not touched.
+- Live proof: a test brain on a team Mac mini itself (own brain home and daemon, `unix` route), paired by Add Server in a tagged app on the same host, a test chief placed on it, a subagent workspace created by the brain, visible in the sidebar under the server's name. The real brain on the other team Mac mini is not touched.
 
 ## 6. Open items
 

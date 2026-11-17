@@ -13,7 +13,7 @@ REACT-PAGES, ONE-CATALOG, PAGE-SCHEME-CEF, APP-R1, D11, T1; plans `cloud-parity.
    for terminals. If the app needs something that is not public, that is a platform gap. We
    record the gap and do not add a private path.
 2. Cloud machines keep their own model. The machine record stays with the control plane that
-   owns it today: the VM service of the main web backend (`/api/vm/*`, Freestyle driver, Postgres
+   owns it today: the VM service of the main web backend (`/api/vm/*`, VM provider driver, Postgres
    `cloud_vm_*`), per D11. The app does not move that owner in v1.
 3. The work on the two backends in parallel shows that there are two terminal backend kinds,
    not one:
@@ -27,7 +27,7 @@ REACT-PAGES, ONE-CATALOG, PAGE-SCHEME-CEF, APP-R1, D11, T1; plans `cloud-parity.
      rescue shell (`vm ssh` or `vm exec` through the control plane when the VM daemon is down).
    The ghostty-next lead owns both interfaces (section 5). Our two implementations are the test
    of those interfaces.
-4. Live-VM work is stopped. No non-production Freestyle key exists (`~/.secrets/freestyle-nonprod.env`
+4. Live-VM work is stopped. No non-production provider key exists (`~/.secrets/<provider nonprod key>.env`
    does not exist on 2026-10-04). The dev backend can only use the production key. All slices
    test against a fake control plane and recorded fixtures. Live-VM verification is UNVERIFIED
    until Lawrence creates the non-production account
@@ -41,7 +41,7 @@ REACT-PAGES, ONE-CATALOG, PAGE-SCHEME-CEF, APP-R1, D11, T1; plans `cloud-parity.
 | L2 | Cloud catalog fragment: every Cloud op, its scope, risk, idempotency, surfaces (palette, CLI, MCP, menus) | Cloud app lead | `first-party-apps/cloud/catalog/cloud-catalog.json` | rewrite: one fragment replaces the Swift `CloudActionCatalog` entries and is an IR input (ONE-CATALOG) |
 | L3 | Cloud app server: runs the ops, keeps the machine projection on this machine, owns one link per machine, port forwards, browser proxy routes, the connector and byte backends | Cloud app lead | `first-party-apps/cloud/server/` (Rust, `server.kind: native`, `instances: machine`) | rewrite in Rust of the Swift `CmuxNextCloud` package (2.2k lines) and `CloudService`/`MachineRegistry` cloud parts |
 | L4 | Terminal backend interfaces `cmux.terminal.connector/1` and `cmux.terminal.backend/1`, their daemon side (manual-IO layer in cmux-tui) | ghostty-next lead | `cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.*`, daemon code in `cmux-tui-core` | new; we give requirements (section 5) and conformance users |
-| L5 | Transport: overlay endpoint, WireGuard key per install, Freestyle tunnel session, path selection | lane 12 (transport) | `cmux-tui/crates/cmux-wg`, `cmux-transport`, `cmux link` | reuse; the app asks `cmux link` for a carrier and never holds a WireGuard key |
+| L5 | Transport: overlay endpoint, WireGuard key per install, provider tunnel session, path selection | lane 12 (transport) | `cmux-tui/crates/cmux-wg`, `cmux-transport`, `cmux link` | reuse; the app asks `cmux link` for a carrier and never holds a WireGuard key |
 | L6 | VM session host: workspaces, terminals, notifications ledger on the VM | the cmux-tui daemon on the VM | baked image (`images/cmux-vm`, lane 1) | reuse; bake-gated (cloud-ios.md R5) |
 | L7 | Cloud page (machines, create, plans, snapshots, domains, network, billing, usage) | Cloud app lead | `webviews/src/pages/cloud/`, `cmux-page://cmux.cloud/` | rewrite in React (UI-STACK) |
 | L8 | Native glue: install, delete and billing confirmation sheets, sidebar machine sections, the terminal surface | sidebar lead (sections), Mac app shell | existing Swift (`MachineRegistry` sections, `PageWebView`) | keep; Swift Cloud code is deleted after parity (section 4) |
@@ -58,7 +58,7 @@ State owners inside the app (OWNERSHIP-PRINCIPLES):
 | VM workspaces and terminals | the VM daemon (L6) | Mac and iOS are clients |
 | VT state of a byte-backend terminal | local daemon session host | Ghostty surface renders |
 | port forwards and browser proxy routes | Cloud app server | browser host reads the route |
-| WireGuard private key, Freestyle tunnel for this install | `cmux link` (L5) | Freestyle and the control plane see the public key only |
+| WireGuard private key, provider tunnel for this install | `cmux link` (L5) | The provider and the control plane see the public key only |
 | page view state (selection, filter, draft create form) | the page (client) | — |
 
 ## 2. Manifest of `cmux/cloud` (draft)
@@ -179,7 +179,7 @@ servers cannot use Cloud ops until then.
 ### 3.4 Rescue shell (byte backend kind)
 
 `cmux.cloud.rescue.open {machine}` opens a terminal tab whose bytes come from the control plane
-`vm ssh` / exec stream (Freestyle SSH behind L1; the Freestyle key stays server side). The local
+`vm ssh` / exec stream (provider SSH behind L1; the provider key stays server side). The local
 daemon owns its VT state and history. This is the same byte path as the third-party SSH sample.
 
 ### 3.5 Files, ports, browser proxy
@@ -247,7 +247,7 @@ proposal, 2026-10-04 (R71 C6).
    also attaches the owner's network. A new public key on the same route rotates the key in place.
    A rotation also changes the server public key (the old one stops after about 2.8 s,
    transport.md section 7), so the phone takes the new `[Peer]` key from the answer. The path is the
-   device's Freestyle tunnel into the VPC. Freestyle drops traffic that no rule allows: a rule
+   device's provider tunnel into the VPC. The provider drops traffic that no rule allows: a rule
    from the phone's tunnel to the VM (UDP 4101) must exist, and its owner is lane 12's reconciler
    (transport.md section 7); v1 has no owner for it (gap). Direct IPv6 and the Durable Object
    relay come with lane 12 (`TeamDO`, `network.device.join`), which then replaces the v1 tunnel
@@ -268,7 +268,7 @@ catalog op (it is `machine.connect` inside the app server, C2). An iOS-safe op f
 
 | Thing | Decision | Why |
 | --- | --- | --- |
-| `/api/vm/*`, Freestyle driver, `cloud_vm_*` tables, image bake | reuse | owner per D11; no production schema change in this plan |
+| `/api/vm/*`, VM provider driver, `cloud_vm_*` tables, image bake | reuse | owner per D11; no production schema change in this plan |
 | `cloud-relay-operations.json` HTTP bindings | reuse as the binding of the catalog fragment | already fixture-tested (#16956, #16948, #16961) |
 | `cmux-tui remote connect`, `wg hub`, `cmux-wg` | reuse | transport is lane 12's; Cloud is a client |
 | VM cmux-tui daemon and its argv | reuse | bake-gated; upgrades reach running VMs only as the binary |
@@ -327,8 +327,8 @@ our original needs; where they differ, the chosen shape wins.
 Every package: red test commit first, then the fix; fast gates (check-no-godfiles all languages,
 check-l10n, check-concurrency, check-crash-safety, check-theme-scope, check-app-platform);
 safe-push.sh; Rust only on a Blacksmith Testbox; Swift only through nx-remote on
-cmux-lawrence-2. All packages use the fake control plane (`first-party-apps/cloud/server/tests/fixtures/`,
-recorded `/api/vm` responses). None creates a Freestyle resource.
+a team Mac. All packages use the fake control plane (`first-party-apps/cloud/server/tests/fixtures/`,
+recorded `/api/vm` responses). None creates a provider resource.
 
 | Pkg | Scope | Files owned | Red tests (first commit) | Needs a window | Start |
 | --- | --- | --- | --- | --- | --- |
@@ -347,7 +347,7 @@ the interface draft. C5 and C6 wait. The lead integrates (catalog regeneration, 
 
 Windows and holds: no package pushes under `cmux-tui/` (HOLD active). The generated
 `cmux-app-host/generated/*` files are the one allowed exception. GUI dogfood runs only on
-cmux-lawrence-2 with a unique tag. A review subagent runs before C1, C2 and C5 land (protocol and
+a team Mac with a unique tag. A review subagent runs before C1, C2 and C5 land (protocol and
 security).
 
 ## 7. Decisions (for the coordinator and Lawrence)
@@ -361,7 +361,7 @@ security).
 3. DECISION: VPC and tunnel records in v1? RECOMMEND the main web owner (`privateNetwork.ts`), with
    lane 12's `TeamDO` policy later, because parity v1 must match main and two owners at once break
    the single-writer rule.
-4. DECISION: live-VM tests? RECOMMEND that Lawrence creates the non-production Freestyle account
+4. DECISION: live-VM tests? RECOMMEND that Lawrence creates the non-production provider account
    (steps file above), because the only key today is the production key and the brief forbids it in
    dev and staging. Until then every Cloud slice is fixture-only and live attach is UNVERIFIED.
 5. DECISION: machine change feed? RECOMMEND that L1 (or `UserDO` later) publishes machine events,

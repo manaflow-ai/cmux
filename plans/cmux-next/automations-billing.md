@@ -164,7 +164,7 @@ Ledger record: `{key, team, kind, quantity, unit, run?, automation?, step?, atte
 | `capability.calls` (op, machine.run, state) | `CmuxCaps` entrypoints | yes |
 | `model.spend_usd` | CodeRouter ledger | yes |
 | `facet.storage_bytes` | daily: a harness wrapper class around the tenant DO class reads `ctx.storage.sql.databaseSize` (no supervisor API for facet size exists in workers-types 5.20261002.1) | UNVERIFIED; tenant code shares the isolate |
-| `vm.minutes`, `postgres.storage_gb` | Freestyle and the team-host role | yes |
+| `vm.minutes`, `postgres.storage_gb` | the VM provider and the team-host role | yes |
 
 Platform overhead (API Worker, SchedulerDO, loader harness CPU, `cmux:` steps) goes to a `platform` bucket, not to tenants. We price it into plan margins.
 
@@ -226,7 +226,7 @@ Account-wide limits we share across all teams (workflows limits, updated 2026-09
 >
 > - Workers for Platforms is not used for automations: its user Workers cannot run Workflows, Cron Triggers or queue consumers (Cloudflare docs and our test, 2026-10-02).
 > - Source of truth: an append-only usage ledger with one writer per team (`UsageMeterDO`). Records carry an idempotency key, team, meter, quantity, unit and run, step and attempt when they apply. PlanetScale and Stripe are projections.
-> - Sources: Dynamic Worker tails (CPU ms, wall ms, outcome per invocation), the wrapped step (steps, retries, state bytes), the egress gateway, capability calls, the CodeRouter ledger, Freestyle VM minutes.
+> - Sources: Dynamic Worker tails (CPU ms, wall ms, outcome per invocation), the wrapped step (steps, retries, state bytes), the egress gateway, capability calls, the CodeRouter ledger, provider VM minutes.
 > - Cloudflare GraphQL Analytics and the Billable Usage API reconcile the ledger daily; they never write it.
 > - Per-team limits: CPU and subrequests per invocation, steps and retries per run, concurrent runs, creation rate, deploys per day, egress rate, retention, budget with a hard cap that stops a run at a step boundary.
 > - Platform overhead is not billed to tenants.

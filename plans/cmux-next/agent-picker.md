@@ -28,7 +28,7 @@ From acpmux's model catalog (`_acpmux/harnesses` and `model_catalog.rs`), shown 
 - acpmux already reports why a harness is unavailable (`unavailable` in `_acpmux/harnesses`). The picker shows it on the harness tab and in the footer as one line ("Not signed in", "Subrouter not reachable").
 - A turn that fails with an auth error (acpmux error codes for auth, or the agent's "OAuth session expired") marks the session's harness the same way, and the transcript error row offers the same action.
 - The action is "Add account", which runs the existing app action `app.open` with `{app: "cmux/coderouter", command: "connectAccount"}` (CLI `cmux app open cmux/coderouter --command connectAccount`, landed f102e7bcb92), through the page's native bridge, user-initiated only. A `harness` argument is added only if CodeRouter needs it.
-- Harnesses whose launcher routes through the account router (`claude-sr`, Codex through `sr`) show a "Routed" badge on their tab and the route in the footer ("via cmux-lawrence router"). The `claude` family default prefers the routed profile (decided 2026-10-03), so picking Claude Code uses it.
+- Harnesses whose launcher routes through the account router (`claude-sr`, Codex through `sr`) show a "Routed" badge on their tab and the route in the footer ("via mac-mini router"). The `claude` family default prefers the routed profile (decided 2026-10-03), so picking Claude Code uses it.
 
 ## Settings (cmux.json, documented, defaults tested)
 

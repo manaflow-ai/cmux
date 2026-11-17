@@ -78,7 +78,7 @@ network at run time. Unit tests run under `bun test` with jsdom; no browser runs
 
 ## Remote brains
 
-A brain host on a paired server (cmux-lawrence) is inspected through the owner session the app
+A brain host on a paired server (a team Mac mini) is inspected through the owner session the app
 already holds, with no new listener anywhere:
 
 - **Brain host:** the tools socket answers `{"tool":"inspect","path","query"}` with the same
@@ -98,7 +98,7 @@ already holds, with no new listener anywhere:
   app bridge; http: the loopback server), one code path. The bridge only answers the page's own
   top-level frame, so the remote page needs no ticket: the app's tab is the capability.
 - **Deploy:** the brain install gives its daemon `CMUX_TUI_CHIEF_TOOLS_SOCKET`. It reaches
-  cmux-lawrence only through G2's single brain deploy; before that, the live check runs on an
+  the paired server only through G2's single brain deploy; before that, the live check runs on an
   isolated test brain (`scripts/cmux-next/chief-inspect-isolated-brain.sh`).
 
 ## Status (2026-10-07)
@@ -130,4 +130,4 @@ already holds, with no new listener anywhere:
 - Live: on an isolated test brain built from 1e452f28bf1c (M1 Max, /tmp brain), `identify`
   advertises `chief-inspect-v1`; `chief-inspect` answers status, node 0+8 and the current turn
   through the daemon and the tools socket; `/api/ticket` is refused.
-- Not yet: the GUI remote page against the real cmux-lawrence brain (after G2's deploy).
+- Not yet: the GUI remote page against the real paired-server brain (after G2's deploy).

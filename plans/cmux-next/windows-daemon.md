@@ -231,7 +231,7 @@ unsigned is OK: raised with the coordinator before any publish.
 - No test runs on Lawrence's laptop.
 - SDK: `cmux-tui-sdks.yml` `test-windows` (unit, socket, conformance against
   a daemon built in the job). Daemon: `cmux-tui.yml` `test-windows` gains
-  the process tests above. Freestyle has no Windows VMs today.
+  the process tests above. The VM provider has no Windows VMs today.
 - GPUI on the Windows VM, only in the `gpuitest` session (scheduled task,
   principal gpuitest, Interactive, Limited; RDP from the Linux VM's private
   display; logoff only with `scripts/windows/logoff-gpuitest.sh` after an

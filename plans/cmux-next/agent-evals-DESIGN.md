@@ -255,7 +255,7 @@ lines in the view a turn read).
 ### Baseline and first fixes (2026-10-26)
 
 claude-opus-5-5 at medium effort, judge claude-sonnet-5, sr2 gateway, run on
-the cmux-lawrence mini (the subrouter answered 502 that day).
+a team Mac mini (the subrouter answered 502 that day).
 
 | run | cases x repeats | pass | wall | turn p50 / p90 | tokens/turn | cache hit | retry turns |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -294,4 +294,4 @@ skips its model cases with a warning. It needs a federated credential for
 `repo:manaflow-ai/cmux:ref:refs/heads/feat-cmux-next` (tag `tag:ci`, scope
 `auth_keys`) set as `vars.TS_CHIEF_EVALS_OIDC_CLIENT_ID`/`_AUDIENCE`. The
 subrouter itself answered 502 during this work (the sr2 gateway worked).
-Until then the model cases run on a mini: `evals/run.sh` on cmux-lawrence.
+Until then the model cases run on a mini: `evals/run.sh` on a team Mac mini.

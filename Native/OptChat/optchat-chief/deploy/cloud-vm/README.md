@@ -1,6 +1,6 @@
 # Cloud Chief VM: the Mac diagnostics relay
 
-The Cloud Chief VM (Freestyle, `cloud-chief`, deployed by cmuxterm-hq
+The Cloud Chief VM (a provider VM, `cloud-chief`, deployed by cmuxterm-hq
 `tools/cloud-chief`) runs `optchat-chief host --conversation-source cloud` with no
 cmux app. The VM is a remote security boundary: its Chief and subagents get no Mac
 app actions. Only bounded app diagnostics cross the relay.
@@ -87,12 +87,12 @@ Test: `cd tailnet && go test ./...`. Install on the VM: hq `tools/cloud-chief/de
 
 The Mac's Home Chief and the Cloud Chief are two `optchat-chief` hosts. They talk
 through the agent hub on this VM (cmuxterm-hq `tools/agent-hub/hub.py`, unit
-`cloud-chief-hub`, `100.127.110.65:8790`, tailnet only). Code: `src/peer_chiefs.rs`.
+`cloud-chief-hub`, `<tailscale-ip>:8790`, tailnet only). Code: `src/peer_chiefs.rs`.
 
 Each host reads `$MUX_HOME/optchat/peer-chiefs.json` (or `OPTCHAT_PEER_CHIEFS`) at start:
 
 ```json
-{"hub": "http://100.127.110.65:8790",
+{"hub": "http://<tailscale-ip>:8790",
  "token_file": "~/.config/agent-hub/mac-chief.token",
  "me": "mac-chief",
  "peers": [{"name": "cloud-chief", "label": "Cloud Chief", "place": "cloud"}]}
@@ -100,7 +100,7 @@ Each host reads `$MUX_HOME/optchat/peer-chiefs.json` (or `OPTCHAT_PEER_CHIEFS`) 
 
 | side | `me` | hub URL | token file (0600, never copied) |
 | --- | --- | --- | --- |
-| Mac Home Chief | `mac-chief` | `http://100.127.110.65:8790` | `~/.config/agent-hub/mac-chief.token` (minted with the owner token) |
+| Mac Home Chief | `mac-chief` | `http://<tailscale-ip>:8790` | `~/.config/agent-hub/mac-chief.token` (minted with the owner token) |
 | Cloud Chief VM | `cloud-chief` | `http://127.0.0.1:8790` | `~chief/.config/agent-hub/cloud-chief.token` (minted on the VM with the hub root key) |
 
 Both tokens carry `box=agent:mac-chief,agent:cloud-chief can=read,post`.
@@ -131,7 +131,7 @@ and box.
 ## The hosted Cloud Chief (Durable Object brain)
 
 The Cloud Chief the person uses today is the hosted brain (ChiefBrainDO, Claude Code turns on
-Freestyle turn VMs, `backend/apps/api/src/chief-brain-cc`). It cannot read the hub, so the hub host
+provider turn VMs, `backend/apps/api/src/chief-brain-cc`). It cannot read the hub, so the hub host
 runs a bridge with this VM's paired install (`cloud/install.json`, the install key never leaves it):
 
 ```

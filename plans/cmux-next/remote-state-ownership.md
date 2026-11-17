@@ -47,7 +47,7 @@ These override the text below where they differ.
 ## 1. Measurements
 
 Hosts: m1max (Lawrence's M1 Max, load 20 to 60 from other agents' jobs during the run, so local
-numbers are pessimistic) and aws-m4pro-1 (M4 Pro, idle, ec2-user@100.106.216.105, scratch daemon
+numbers are pessimistic) and aws-m4pro-1 (M4 Pro, idle, `ec2-user@<tailscale-ip>`, scratch daemon
 in `~/ffre-scratch-ffre2`, deleted after). Network m1max to aws-m4pro-1: ICMP RTT 66 ms, one warm
 daemon request over the SSH carrier 67.5 ms p50. Tools: a raw daemon client that repeats the app's
 request sequence (`split`, `list-workspaces`, new connection `identify` + `set-client-info`,
@@ -154,7 +154,7 @@ sec. 7). Cost today: a chat keystroke is page-local (0 round trips; draft to loc
 non-awaited `_acpmux/draft_set`); a send is one page->host message plus one acpmux frame; on the G2
 remote wire it is one daemon request over the link, and `draft_set` is refused there.
 
-Not measured: a Cloud (Freestyle) machine. The shared dev backend was at 76/88 running stacks with
+Not measured: a Cloud (provider VM) machine. The shared dev backend was at 76/88 running stacks with
 disk-pressure evictions, and my Release app had no backend. The Cloud link is the same
 `cmux-tui remote connect` over `--wireguard-hub` (`CloudMachineLink.swift:106-115`), so the round
 trip count is the same 5; the RTT per trip is not known. UNVERIFIED.
@@ -344,7 +344,7 @@ daemon that answers late), plus the S1 socket test for the daemon half. Rule L4 
 reducer only behind a parity test) conflicts with the new rule; the chief decides whether the
 provisional split stays a Swift overlay without a parity test or moves to the reducer FFI.
 
-S3 proof run 2026-10-10 (tag ffs3a, head 94b4238f9c6a, cmux-lawrence-2 at load 64-115,
+S3 proof run 2026-10-10 (tag ffs3a, head 94b4238f9c6a, a team Mac at load 64-115,
 `scripts/cmux-next/split-optimistic-proof.py`): Cmd+D through `debug.key` in a local workspace,
 6 runs: key to new pane in the control snapshot p50 36 ms, max 44 ms; the same host's daemon
 `split` reply p50 79 ms, p95 250 ms (`split-latency-bench.py`), so the pane shows before the
@@ -480,7 +480,7 @@ ACPMUX = acpmux (Leo's lane). CATALOG and SETTINGS are not needed by any slice b
 | S5 | Theme push: per-client colors to every daemon, OSC answers from the input-owning client; agent pane first-frame theme; font in theme message | CORE + Swift + webviews | T8, T9 | none |
 | S6 | acpmux TUI colors from the terminal's answered background | ACPMUX (Leo review) | acpmux unit test | S5 |
 | S7 | Remote agent chat: daemon supervises acpmux on its machine; `agent-session-new`, harness/model catalog, `draft_set`, mode/config over the G2 wire; daemon-side `check_frame`; app routes by pane machine; remote folder picker via `fs.*` | CORE + ACPMUX (Leo review) + Swift | T10, T11 | D10 decision |
-| S8 | Cloud: run T12 and T10 against a Freestyle machine on an own-tag dev stack | none | T12 | S3, S7 |
+| S8 | Cloud: run T12 and T10 against a provider VM machine on an own-tag dev stack | none | T12 | S3, S7 |
 | S9 | Federation daemon half (cx-wb5.2, branch feat-cmux-next-federation-tui-r22): `new-remote-terminal-tab` / `update-remote-terminal-tab` / `remote-terminal-snapshot` (remote-terminal-tabs-v1), `create-terminal {detached:true}` (detached-terminals-v1), terminal.project/move tree-changed. A port of its 15 commits onto the tip, red tests first; the Swift half is already on feat-cmux-next. Uses S1's namespaced client ids for the tab and the detached terminal | CORE | its own red tests + T3 | S1 |
 
 Leo must review for acpmux: S6 (theme detection), S7 (acpmux started by the daemon: home, socket,

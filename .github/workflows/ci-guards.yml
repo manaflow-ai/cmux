@@ -2234,6 +2234,15 @@ jobs:
           python3 -m unittest tests/test_lint_connection_lifetimes.py
           python3 scripts/lint-connection-lifetimes.py
 
+      # Public Markdown names no internal ops detail: the VM provider, whose Cloudflare account a Worker deploys
+      # in, account ids, team machine and tailnet names. The specifics live in the team's private ops notes
+      # (cmuxterm-hq docs/handbook/internal-ops-detail-in-public-docs.md).
+      - name: Validate public docs name no internal ops detail
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          bash scripts/lint-public-docs-internal-names.sh --self-test
+          bash scripts/lint-public-docs-internal-names.sh
+
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |

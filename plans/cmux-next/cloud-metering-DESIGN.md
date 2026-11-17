@@ -32,7 +32,7 @@ The pause and resume points are already recorded transactionally. The
 
 Every path that pauses or resumes a VM goes through that status column: a306
 idle auto-pause (`idlePause.ts` → `workflows.ts pauseVm`), the Pause and Resume
-actions, a466 Freestyle create, the reaper, and the status reconcile. So we do
+actions, a466 provider create, the reaper, and the status reconcile. So we do
 not add hooks at each call site. We copy the intervals. Adding a new pause path
 cannot skip the meter.
 
@@ -65,7 +65,7 @@ The Go plan's 40-hour limit already reads these intervals (`goUsage.ts`,
   event id. PostHog's events table has the same merge-only dedup and no
   query-time correction. Its own handbook calls that a mistake.
 - Stop version = `2^53 − stop_ms`, so **the earliest proven stop wins**. A
-  reconcile stop observed at Freestyle beats the later Postgres stop that the
+  reconcile stop observed at the provider beats the later Postgres stop that the
   status cron writes. A stop never moves later, so we never overbill.
 - Late events: the sync re-reads a 30-minute window every 5 minutes. A run can
   fail 5 times in a row without losing a row. Inserts use
@@ -73,11 +73,11 @@ The Go plan's 40-hour limit already reads these intervals (`goUsage.ts`,
   the cron monitor. Request telemetry keeps the old fire-and-forget behavior.
 - No TTL on the table. The rows back invoices.
 
-### Reconciliation (Freestyle has no webhooks)
+### Reconciliation (the VM provider has no webhooks)
 
 On each run the cron compares three sources and applies only safe fixes:
 
-| Postgres | ClickHouse | Freestyle `vms.get` state | action |
+| Postgres | ClickHouse | provider `vms.get` state | action |
 | --- | --- | --- | --- |
 | open | open | `paused` / `destroyed` (404) | stop at observation time, `source=reconcile` |
 | open | missing | any | replay the start |
@@ -86,7 +86,7 @@ On each run the cron compares three sources and applies only safe fixes:
 | no open interval | — | running | not billed here. This is our cost. The existing `vm-reconcile` cron repauses or fixes the status. |
 
 The existing `vm-reconcile` cron already fixes `cloud_vms.status` from
-Freestyle. That closes the Postgres interval at *reconcile* time, up to one cron
+the provider. That closes the Postgres interval at *reconcile* time, up to one cron
 period late. The metering reconcile caps that at its own observation time, and
 the earlier stop wins by version.
 

@@ -161,7 +161,7 @@ cmux-chat-server allow LOGIN | deny LOGIN
 One setting, `home.server` in `~/.config/cmux/cmux.json` and Settings > Home:
 - `"hosted"` (default): the cmux cloud for the build (`cloud-api.cmux.dev`, staging for
   non-release builds), Stack sign-in.
-- `{"selfHosted": "http://mini.tail1234.ts.net:7320"}`: the self-hosted server. The client sends
+- `{"selfHosted": "http://mini.<tailnet>.ts.net:7320"}`: the self-hosted server. The client sends
   no bearer; the server identifies it by Tailscale.
 
 macOS: the app passes the base URL to the daemon (`cloud-session-set` with
@@ -185,7 +185,7 @@ has the same choice.
 4. iOS: `WireHomeSource` in CmuxHomeCore + Settings choice; replace the mock.
 5. macOS cloud attachments (`upload`/`fetch` through the daemon's `cloud-attachments-v1`).
 6. Deploy hosted to staging, run the staging DM/group e2e, then production.
-7. Self-hosted on the real tailnet Mac mini (`cmux-lawrences-mac-mini`): install the binary,
+7. Self-hosted on the real tailnet Mac mini (a team Mac mini): install the binary,
    `enable`, then two logins (Mac + iPhone) DM and group through it.
 
 ## 6. Verification
@@ -211,9 +211,9 @@ has the same choice.
 - 2026-10-20, self-hosted server landed in a3d5d15c81b (`backend/apps/home-server`):
   `bun test` 9/9 (DM, group, resend replay, reply, tapback, read cursor, unread, typing, resume
   with `after_seq`, restart keeps data, alarm survives restart, admission refusals).
-- 2026-10-20, real tailnet (tail137216): binary built on macOS arm64 (64 MB), run on `cmux21`
-  (untagged node, owner `leoli.4u@gmail.com` via loopback) with `lawrence@manaflow.ai` allowed
-  and reaching it from a MacBook over MagicDNS `cmux21.tail137216.ts.net:7320`:
+- 2026-10-20, real team tailnet: binary built on macOS arm64 (64 MB), run on `cmux21`
+  (untagged node, owner a teammate's account via loopback) with a second teammate's account allowed
+  and reaching it from a MacBook over MagicDNS `cmux21.<tailnet>.ts.net:7320`:
   - both logins admitted by WhoIs/loopback; both `dm.open` give the same `conv_dm_…`;
   - a message from cmux21 reached the MacBook's conversation socket as an event (171 ms
     including an SSH hop); a resend with the same key replayed;
@@ -221,6 +221,6 @@ has the same choice.
     `unread: 1` and previews;
   - `deny` gave 403 at once; restart kept history; the LAN address (172.20.21.252:7320) does
     not answer (only 127.0.0.1 and the tailnet addresses listen).
-  - Not possible: the controller Mac mini (`cmux-lawrences-mac-mini`) is a tagged node and the
+  - Not possible: the team controller Mac mini is a tagged node and the
     tailnet ACL does not let other nodes reach it on 7320, so the two-person test ran on `cmux21`.
     The ACL was not changed. On the mini, the binary served the owner (lawrence) over the tailnet.

@@ -165,7 +165,7 @@ a one-time sign-in code cannot be used in the setup script's password prompt.
 Setup also offers an optional production account for developers who may want
 to verify against the production environment. Press Enter or answer `no` to
 skip it. Production credentials are verified against production and stored in
-`~/.secrets/cmuxterm-prod.env`, separately from development credentials.
+the production credentials file, separately from development credentials.
 Use `--refresh-production` to configure or replace them later. A production
 verification launcher must explicitly select that file with `--credentials-file`
 and use the production environment; normal development launches do not read it.

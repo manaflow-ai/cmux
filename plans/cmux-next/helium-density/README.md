@@ -9,9 +9,9 @@ paddings. Owner of this pass: a1169 (took over Lucas's #42393, #42717, #42793).
 | Path | What |
 | --- | --- |
 | [source-values.md](source-values.md) | Every value read from Helium's patches and Chromium 157's source, with links. The short table is in [design-tokens.md](../spec-proposals/visuals/design-tokens.md), "Browser chrome: Helium and Chrome source values". |
-| `refs/` | 2x captures from cmux-lawrence-2 (Helium 0.21.3.1, Chrome 157), the window's top 200 px, light and dark: rest, inactive-tab hover, x hover (active and inactive tab), new-tab hover. |
+| `refs/` | 2x captures from a team Mac (Helium 0.21.3.1, Chrome 157), the window's top 200 px, light and dark: rest, inactive-tab hover, x hover (active and inactive tab), new-tab hover. |
 | `user-shots/` | Lawrence's screenshots from the density thread (Chrome's many tabs, tab search, extensions, vertical tabs; the stray line under the docked Home). |
-| `tools/ref-shots.sh`, `tools/hover-shots.sh` | Take the reference captures on cmux-lawrence-2 (cua daemon `get_window_state`, `mouse` posts the hover). |
+| `tools/ref-shots.sh`, `tools/hover-shots.sh` | Take the reference captures on a team Mac (cua daemon `get_window_state`, `mouse` posts the hover). |
 | `tools/cmux-shots.py` | cmux's chrome at each density, light and dark, through a running build's socket (`debug.window_snapshot`). |
 | `tools/sheet.py` | Stacks labelled crops into one comparison sheet. |
 | `tools/fit_radius.py` | Fits a corner radius to a capture's anti-aliased edge. |
@@ -43,7 +43,7 @@ that carries `debug.densityOverlayPlayground`). Debug Settings > Browser Chrome 
 4. Controls opens every density's values; a change redraws the chrome and the diff at once (Live). Copy Values
    exports them as Swift constants for the presets.
 
-## Sheets and the remaining difference (2026-11-14, cmux-lawrence-2, 2x)
+## Sheets and the remaining difference (2026-11-14, a team Mac, 2x)
 
 | Sheet | What |
 | --- | --- |
@@ -56,7 +56,7 @@ edge, Helium's 6, because cmux centers the tab row on its traffic lights (21 pt;
 window's titlebar layout, not the browser pane's, and stays. Colors differ by theme only (the light sheets use the
 Catppuccin Latte theme, as cmux's shots do).
 
-## The docked Home's line (msg 31502), proved on cmux-lawrence-2
+## The docked Home's line (msg 31502), proved on a team Mac
 
 | Sheet | What |
 | --- | --- |

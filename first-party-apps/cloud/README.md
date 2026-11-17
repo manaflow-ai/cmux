@@ -144,7 +144,7 @@ Not a rule under test: `close` also clears held input, but held input never reac
 - Transfer ids (`transfer-<n>`) are unique per server process only: after a restart, `transfer-1` names a new transfer.
 - After an absolute-form request the proxy pins the client connection to that target; a server that ignores `Connection: close` can answer a reused connection for another port of the same machine. Traffic stays inside the machine.
 - Browsers skip proxies for loopback by default: the browser host must set `<-loopback>` in the bypass list (remote-localhost.md 5), or a tab loads this Mac's localhost.
-- `OpenSshTransfer` and `LoopbackTunnel` are not verified against a live machine (no non-production Freestyle account).
+- `OpenSshTransfer` and `LoopbackTunnel` are not verified against a live machine (no non-production VM provider account).
 - The catalog fragment schema has no stream class (`class` is `read` or `mutation`). `cloud.machine.watch` is declared as a read that answers the current revision; the event name and shape are documented here and in its `docs`. The host must map `cloud.machine.watch` event lines to page subscriptions of `cmux.cloud.machine.watch` (not built yet).
 - The revision has no epoch: it starts at 0 in each server process. A host that restarts the server must restart its page sessions (a new list), or a page keeps its old revision and drops the new events. An instance id on the list and the events would remove this rule.
 - The projection sees only what this server does and what a list returns: a change made elsewhere (the web dashboard, another Mac) shows on the stream at the next list read (page open, app activation), not live. A live feed needs a Cloud API change feed (DECISION 5).

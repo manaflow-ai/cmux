@@ -43,7 +43,7 @@ What the page has now:
 
 Script: `verify/chief_info_live.py`. Evidence is git-ignored, in `verify/evidence/2026-10-23/chief-info/` (copied to `~/cmux-mobile-builds/20261023-chief-info-evidence/`).
 
-- **Mac.** A hidden, isolated rig on mini-cmuxs-mac-mini-3 (`verify/e2e/mac.py`: its own bundle id, config and credentials, launched with `open -g -j`, never activated), the fleet build `cmux-mobile-e2e-c71da43f`, with its real Chief. The first try was on mini-cmux8s, but the phone listed another rig on that mini in place of this one (rigs on one mini fold into one Mac entry), so the run moved to a mini with no other rig.
+- **Mac.** A hidden, isolated rig on a team Mac mini (`verify/e2e/mac.py`: its own bundle id, config and credentials, launched with `open -g -j`, never activated), the fleet build `cmux-mobile-e2e-c71da43f`, with its real Chief. The first try was on mini-cmux8s, but the phone listed another rig on that mini in place of this one (rigs on one mini fold into one Mac entry), so the run moved to a mini with no other rig.
 - **Phone.** One headless iOS 26.5 simulator (`cmux-chiefinfo`, iPhone 17 Pro) on the same mini, the Demo build of the base (cd7f904c9179) and of this branch, with DEBUG dev sign-in, over the real link (WireGuard direct). It was driven with AXe accessibility taps on that simulator only. Simulator.app was never opened.
 - **Builds.** On mini-cmux8s with Xcode 26.6.
 - **Disconnected.** The rig Mac quits with the page open; the page says "Chief isn't connected to a Mac" within 2 s.

@@ -18,7 +18,7 @@ Measured on the NIGHTLY app (1.0.0-nightly.3934935376001), Home workspace
 `ws_ff05a52717606064c4c7f6bfc926ef4d`, chat dock `pane_ae19…` (column 0, left dock), right column
 `pane_0f51…` (column 1).
 
-| Step | Local Chief | Cloud Chief (Freestyle VM, `mac` over port 7420) |
+| Step | Local Chief | Cloud Chief (provider VM, `mac` over port 7420) |
 | --- | --- | --- |
 | Open a tab in the right column (`cmux browser open URL --pane <pane>`) | works, no focus change | works with the bundled CLI only (below) |
 | `cmux browser <tab_…> state/snapshot/click` | works | works with the bundled CLI only |

@@ -45,7 +45,7 @@ Debug
 
 - B1 Model route: check 13 depends on R35 (CodeRouter accounts in the agent pane). Until then
   Workers AI stays a stopgap.
-- B2 Cloud VMs on staging: blocked until the non-production Freestyle account exists.
+- B2 Cloud VMs on staging: blocked until the non-production VM provider account exists.
 - B3 Ruled: full autonomy for the owner's own requests; anyone else's requests keep the approval rule.
 - B4 Ruled: team invites only for a verified team domain (admin DNS TXT check); public mail domains
   are on a deny list and can never be verified; otherwise a DM invite.

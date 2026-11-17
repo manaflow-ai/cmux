@@ -1,11 +1,11 @@
-# Freestyle parity matrix for cmux Cloud
+# VM provider parity matrix for cmux Cloud
 
 Owner: a639 (matrix and missing rows). Started 2026-10-24. Branch: `feat-cmux-next`.
-Goal (Lawrence): cmux Cloud covers every Freestyle VM feature, except where exposing it makes no
+Goal (Lawrence): cmux Cloud covers every VM provider feature, except where exposing it makes no
 sense for a multi-tenant product (section "Deliberately not exposed", one reason per row, for the
 user to check).
 
-Freestyle source: <https://www.freestyle.sh/docs/llms.txt> (read 2026-10-24: lifecycle, files, base
+Provider source: the VM provider's docs index `llms.txt` (read 2026-10-24: lifecycle, files, base
 snapshots, ssh, client sessions, domains, verification, dns, wildcards, vpcs, firewall, tls
 inbound/outbound, tunnels, pty, forward auth, pricing and limits, cli, vm cli, domains cli, and the
 guides for S3 mount, user-computer egress, router-VM egress, Docker, private git).
@@ -15,7 +15,7 @@ guides for S3 mount, user-computer egress, router-VM egress, Docker, private git
 | Name | What it is | Code |
 | --- | --- | --- |
 | **App API** | cmux Cloud on cmux.com. Stack Auth sessions, teams, plans, credits, PlanetScale state. Routes under `/api/vm`. | `web/app/api/vm`, `web/services/vms`, `web/services/vm-publications` |
-| **Tenant API** | Tenant-scoped REST on `vm.cmux.dev` (Cloudflare Worker). API keys `cmuxvm_sk_`, scopes, resource allowlists, per-tenant 404 on foreign ids. Contract `workers/cmux-vm/openapi.json`. Its Freestyle coverage ledger is `workers/cmux-vm/upstream/coverage.json` (wrapped / planned / denied per upstream operation). | `workers/cmux-vm/src` |
+| **Tenant API** | Tenant-scoped REST on `vm.cmux.dev` (Cloudflare Worker). API keys `cmuxvm_sk_`, scopes, resource allowlists, per-tenant 404 on foreign ids. Contract `workers/cmux-vm/openapi.json`. Its provider coverage ledger is `workers/cmux-vm/upstream/coverage.json` (wrapped / planned / denied per upstream operation). | `workers/cmux-vm/src` |
 | **CLI main** | `cmux vm …` and `cmux cloud …` (classic app CLI). | `docs/cloud/cli` page; `CLI/` on `main` |
 | **CLI tenant** | Rust `cmux-vm` operator CLI for the Tenant API. | `workers/cmux-vm/cli` |
 | **App** | cmux-next app: action catalog `cloud.*`, palette, MCP, code-mode `CloudClient`. | `Packages/macOS/CmuxNextCloud`, `cmux-tui/bindings/typescript/code-mode/cloud.ts`, `backend/catalog/cloud-relay-operations.json` |
@@ -27,13 +27,13 @@ gap is named), **missing** (no code), **unverified** (code exists, nothing prove
 provider). Every status below comes from reading code on `feat-cmux-next` `ed48ac2f9fe`. Live
 checks done so far: see "Verification log". No row is marked done on a guess.
 
-Owner column: **a638** = Freestyle cloud sessions (cmux-next `vm` CLI scope, TS SDK, acpmux in the
+Owner column: **a638** = provider cloud sessions (cmux-next `vm` CLI scope, TS SDK, acpmux in the
 image). **a640** = tenant isolation test (cross-account). **a641** = cmux-next docs site. **a639** =
 this matrix. Rows owned by a638 are listed, not worked, here.
 
 ## Matrix
 
-| # | Freestyle | cmux API route | cmux CLI | cmux-next app / MCP | SDK | docs | status | owner | next step |
+| # | VM provider | cmux API route | cmux CLI | cmux-next app / MCP | SDK | docs | status | owner | next step |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **VM lifecycle** | | | | | | | | | |
 | 1 | Create VM (size, metadata/labels, idle, ttl, ephemeral, image/snapshot) | App: `POST /api/vm`. Tenant: `POST /v1/vms` (labels, idleTimeoutSeconds, idempotency, creation receipts) | main `vm new`; tenant `create` | `cloud.machine.create` | `@cmux/vm` POST /v1/vms | cloud/machines | partial | a638 (CLI scope, SDK) | App API has no ttl/maxRun/ephemeral knobs; Tenant API has labels + idle. Add `ttlSeconds`, `maxRunSeconds`, `maxRunTotalSeconds` to both (row 1a) |
@@ -42,7 +42,7 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 | 4 | Snapshot / fork / restore | App `snapshots`, `snapshot`, `fork`, `restore`; Tenant `snapshots`, `fork` | `vm snapshot/fork/restore`; `cmux-vm snapshot/fork` | `cloud.snapshot.*` (no fork action) | yes | cloud/machines | partial | a638 | catalog entry `cloud.machine.fork` |
 | 5 | Deleted / ttl auto-delete | App `DELETE /api/vm/[id]`; Tenant `DELETE /v1/vms/{id}`, `retire` | `vm rm`; `cmux-vm delete/retire` | `cloud.machine.delete` | yes | cloud/machines | partial | a639 | ttl: see row 1a |
 | 6 | Resize (up-only, live) | App `resize`; Tenant `resize` | `vm resize`; `cmux-vm resize` | `cloud.machine.resize` | yes | cloud/machines | done | a638 | none |
-| 7 | Idle timeout (pause on no traffic) and run limits | App `PUT /api/vm/[id]/idle-pause` (15/30/60/120 min or off). Tenant create field `idleTimeoutSeconds` | main (idle policy) | `cloud.machine.idle_policy.set` | yes | none | partial | a639 | App API takes 4 fixed values only; Freestyle takes any seconds and `-1`. Accept seconds; add maxRun fields (row 1a) |
+| 7 | Idle timeout (pause on no traffic) and run limits | App `PUT /api/vm/[id]/idle-pause` (15/30/60/120 min or off). Tenant create field `idleTimeoutSeconds` | main (idle policy) | `cloud.machine.idle_policy.set` | yes | none | partial | a639 | App API takes 4 fixed values only; the provider takes any seconds and `-1`. Accept seconds; add maxRun fields (row 1a) |
 | 8 | Update VM after creation (name, metadata, idle, ttl) | App: `PATCH` rename only; Tenant: no update route (coverage ledger: `update_vm` planned cx-b4h.2) | `vm rename` | `cloud.machine.rename` | no | none | partial | a639 | Tenant `PATCH /v1/vms/{id}` (name, labels, idle, ttl, maxRun) |
 | **Base snapshots / images** | | | | | | | | | |
 | 9 | Ready-to-boot public base images (ubuntu etc.) | Tenant `GET /v1/vm-images` (approved list); App `/api/vm/base/open`, `reset` (cmux Base) | `cmux-vm image list`; `vm base` | none | yes | none | partial | a639 | Tenant create takes operator-approved images only. List approved sizes/images on a public docs page |
@@ -75,7 +75,7 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 | 32 | Edge credential injection: **model providers** (OpenAI/Anthropic/OpenRouter) | coderouter model plane: per-VM JWT injected at the edge (`vm-coderouter-edge.md`, `web/services/coderouter/vmModelPlane.ts`) | automatic on devbox | automatic | none | cloud/machines | done | a639 | none |
 | 33 | Edge credential injection: HF, Neon, Tigris, Exa, Firecrawl, PostHog, Git (private repo), generic header/basic/Postgres/SOCKS5 | none for tenants (App: GitHub sign-in token via Chief only) | none | none | none | none | missing | a639 | W4: `credentials` on outbound rules, write-only, per team; vault-backed (`web/app/api/vault`) |
 | 34 | Egress routing via a proxy server | none | none | none | none | none | missing | a639 | W5 (needs VPC + tunnel exit route + firewall) |
-| 35 | Egress routing via **the user's computer** (tunnel exit with fallback) | Tunnel hub exists (row 28) as the way a Mac joins the network; no exit-route attachment | none | none | none | none | missing | a639 | W5: attach "exit via device" to tunnel route; fallback to Freestyle egress |
+| 35 | Egress routing via **the user's computer** (tunnel exit with fallback) | Tunnel hub exists (row 28) as the way a Mac joins the network; no exit-route attachment | none | none | none | none | missing | a639 | W5: attach "exit via device" to tunnel route; fallback to provider egress |
 | 36 | Egress routing via a **router VM** | none | none | none | none | none | missing | a639 | W5 after VPC CRUD |
 | **Developer surface** | | | | | | | | | |
 | 37 | CLI `freestyle` main (vm, snapshot, vpc, tunnels, firewall, tls, domain, identity, tokens, skill) | = rows above | main `cmux vm`, `cmux cloud domains`; tenant `cmux-vm` | catalog | | cloud/cli | partial | a638 | a638 adds `cmux vm` scope in cmux-next; a639 adds `domain`, `identity`, `vpc`, `firewall`, `tls` verbs to CLI tenant as routes land |
@@ -87,12 +87,12 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 
 ## Deliberately not exposed (user check list)
 
-| Freestyle feature | Reason (one line) |
+| Provider feature | Reason (one line) |
 | --- | --- |
 | Hardware power (`/hardware`, `get/set_hardware_power`, `list_hardware`) | Switches a real power outlet on provider-operated machines; tenants must never reach it (already denied in `coverage.json`). |
 | Account-wide placeholder branding (`/domains/placeholder`) | One setting for every verified domain of every tenant; one tenant would change all pages (denied in `coverage.json`). |
 | Raw provider transport (`fetch`, `get`, `post`, `authHeaders`, background requests) | Would hand out the provider key or break tenant scoping (denied in `coverage.json`). |
-| Freestyle account/auth/billing/tokens CLI (`account`, `auth`, `billing`, `tokens`) | cmux tenants are Stack Auth teams, billed by cmux; cmux issues its own API keys. |
+| Provider account/auth/billing/tokens CLI (`account`, `auth`, `billing`, `tokens`) | cmux tenants are Stack Auth teams, billed by cmux; cmux issues its own API keys. |
 | Handing the **team** provider API key to anyone | The key stays on the server; clients get only per-VM scoped tokens. |
 | Raw SSH/identity tokens to the Chief's own sandboxes outside the Worker | Chief VM security model (`chief-vm-freestyle-parity.md`). |
 | Unscoped client sessions (`allowedLinuxUsers: null`) | Root on a shared image would cross users; cmux grants one Linux user per session (devbox work user). |
@@ -106,7 +106,7 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 
 - `https://vm.cmux.dev/healthz` 200; `GET /v1/vms` without credentials 401 `Unauthorized` (auth gate live).
 - `https://cmux.com/api/vm` without credentials 401; `/docs/cloud`, `/docs/cloud/networking`, `/docs/cloud/cli`, `/pricing` all 200.
-- Freestyle docs (23 pages) fetched and read; cmux code read at `ed48ac2f9fe`.
+- Provider docs (23 pages) fetched and read; cmux code read at `ed48ac2f9fe`.
 - Not yet done (rows marked unverified): paused-VM file read (14), Docker (10), publication create against staging (20–23).
 
 ## Plan: closing missing rows, biggest first

@@ -2,7 +2,7 @@
 
 Status: audit + design, 2026-10-04 (hq48). Code audited at `b3105b0f003` (origin/feat-cmux-next at
 the start of the audit; the `Quit/` and `CmuxNextDaemon/Connection/` trees are unchanged at
-`019d7ff4d24`). Live run on cmux-lawrence-2 with fleet build `9087e8aaea3ab89192e52ba0`, tag
+`019d7ff4d24`). Live run on a team Mac with fleet build `9087e8aaea3ab89192e52ba0`, tag
 `hq48qp-v1`, from that exact SHA.
 
 Lawrence's requirement: "we need to have confidence that we can cmd + q and then sessions +
@@ -12,7 +12,7 @@ not be system prompt but rather the better cmux built in dialog thing".
 Coordinator conditions (R138): the quit flow uses CmuxDialog (R96 NO-SYSTEM-DIALOGS), which replaces
 the "quit = plain NSAlert" decision; the default choice is Keep sessions running; the setting is
 `app.quitBehavior`; the dialog works when the window is not key and for a quit from the Dock; an
-automated quit-and-relaunch proof runs on cmux-lawrence-2. The work is split between the dialogs
+automated quit-and-relaunch proof runs on a team Mac. The work is split between the dialogs
 lead and the durable-sessions owner.
 
 Update 2026-11-01 (QUIT P0, #29984): from 2026-10-11 (cx-7vu, aba72a3fbae, Lawrence 2026-10-07 "no confirm dialogs")
@@ -144,7 +144,7 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
   free … Relaunch = connect + snapshot"), `cmux-tui-contract.md:14,171-188`, and
   `REWRITE.md:91`.
 
-## 2. Live results (cmux-lawrence-2, tag hq48qp-v1)
+## 2. Live results (a team Mac, tag hq48qp-v1)
 
 Setup:
 - I started the app (PID 69209). It started cmux-tui (69331) and acpmux (69343). Each of the
@@ -329,7 +329,7 @@ from this run remain. Screenshots: `cmux-lawrence-2:~/hq48qp/{pre-1,prompt,post-
 
 ### 5.2 Fleet live test: `scripts/fleet-quit-persistence.sh` (owner: durable-sessions)
 
-It runs on cmux-lawrence-2 against a tagged fleet build (`cmux-ci build cmux --ref <sha> --tag
+It runs on a team Mac against a tagged fleet build (`cmux-ci build cmux --ref <sha> --tag
 <tag>`). It drives the app only through its own sockets and records every PID it starts. It never
 uses pattern kills. Steps (each step is a command that exists today, from §2):
 
@@ -379,7 +379,7 @@ work.
 | Q4 | Setting `ask|keep|quitAll`, migration, Settings + palette + schema + MDM docs | app lifecycle | migration tests |
 | Q5 | Quit everything ends agents (`endAgents` = A4 without waiting for A1-A3) | durable-sessions | live step 8 for agents |
 | Q6 | Agent tabs persist and reattach (G4) | durable-sessions with the tabs owner | live step 7 for the agent tab |
-| Q7 | `scripts/fleet-quit-persistence.sh` as a fleet job, run per release | durable-sessions | green on cmux-lawrence-2 |
+| Q7 | `scripts/fleet-quit-persistence.sh` as a fleet job, run per release | durable-sessions | green on a team Mac |
 | Q8 | Fix the stale Sparkle row in `durable-sessions.md:23` | durable-sessions | doc |
 
 ## 7. Decisions (coordinator, 2026-10-04)

@@ -27,7 +27,7 @@ base image ─boot─▶ builder ─clone+setup (detached)─▶ snapshot ─war
 1. Boot a builder from the deployment's base image (the CloudDO image, `CLOUD_FREESTYLE_SNAPSHOT`).
 2. Wait until the guest answers an exec (bounded probe; the provider has no readiness event).
 3. Start the build script detached (`nohup`), then poll its exit file. A provider exec has a hard
-   cap (Freestyle refused a 30-minute `exec-await` with HTTP 400), and a real clone plus install
+   cap (the provider refused a 30-minute `exec-await` with HTTP 400), and a real clone plus install
    took 124-175 s. With the detached run, a build can take up to 30 minutes.
 4. Snapshot only after the script exited 0. A failure keeps the last 4 KB of the log for the person.
 5. Warm boot: boot one machine from the new snapshot and delete it. One of six snapshot boots in
@@ -67,7 +67,7 @@ variable is refused with `environment_secrets_unavailable` (no silent boot witho
   `cloud.snapshot.restore` / create `from_snapshot`). No setup runs.
 - `cold` (`unbuilt` or `stale`): create from the base image, then run `setupExec` once on the machine.
 
-#26078 (Austin, "each new workspace gets its own Freestyle VM") decides *whether* a New Workspace
+#26078 (Austin, "each new workspace gets its own [provider] VM") decides *whether* a New Workspace
 goes to the cloud (`CloudNewWorkspacePlan`). Environments decide *what the machine starts with*.
 The hook is one optional field: the plan gains an environment id (the team's default environment,
 or the one the person picks). With an environment, the create is `cloud.environment.boot` instead
@@ -97,7 +97,7 @@ Implementations:
 
 | Implementation | Where | Notes |
 |---|---|---|
-| `GuardedCloudSandbox` | `backend/apps/api/src/cloud-env-sandbox.ts` | Over CloudDO's `GuardedCloudDriver`, so it covers every `RawCloudDriver`: Freestyle direct, the cmux VM API, and the test fake. Names and slugs are checked against the environment's prefix, and machines are checked against the team tag. Exec runs as uid 1000, not as root. |
+| `GuardedCloudSandbox` | `backend/apps/api/src/cloud-env-sandbox.ts` | Over CloudDO's `GuardedCloudDriver`, so it covers every `RawCloudDriver`: the provider direct, the cmux VM API, and the test fake. Names and slugs are checked against the environment's prefix, and machines are checked against the team tag. Exec runs as uid 1000, not as root. |
 | `MemorySandbox` | `@cmux/cloud-env` | In-memory, for tests. |
 | `LocalSandbox` | `@cmux/cloud-env` tests | Machines are directories, and exec is real bash. The whole detached build, the snapshot and the snapshot boot run end to end. |
 
@@ -142,7 +142,7 @@ every write. A build or a boot with a secret variable answers `cloud.environment
 |---|---|
 | Spec, validation, digest, build script, boot plan (`@cmux/cloud-env`) | Landed, 34 tests (real bash for the script and the detached build) |
 | `CloudSandbox` interface, `GuardedCloudSandbox` over `RawCloudDriver` | Landed |
-| Measured on Freestyle through the CloudDO driver stack | Landed (section 9) |
+| Measured on the VM provider through the CloudDO driver stack | Landed (section 9) |
 | CloudDO ops `cloud.environment.{list,set,delete,build,boot}`, `environment` rows | Landed, 7 tests in the Workers runtime |
 | Vitess table and projection `cloud_environments` | Landed (migration 0003, expand; CI applies it to staging with `CMUX_NEXT_VITESS_STAGING_ADMIN_URL`) |
 | Generated clients (catalog, TS, Rust `cmux-cloud-wire`) | Landed |
@@ -151,7 +151,7 @@ every write. A build or a boot with a secret variable answers `cloud.environment
 
 ## 9. Measurements
 
-Freestyle, the cmux-next development image (`cmuxnp-dev-vmimg-ci-40270232246-1`), through
+The VM provider, the cmux-next development image (`cmuxnp-dev-vmimg-ci-40270232246-1`), through
 `FreestyleCloudDriver` → `GuardedCloudDriver` → `GuardedCloudSandbox`
 (`backend/apps/api/scripts/bench-cloud-env.ts`). The environment is `manaflow-ai/cmux@feat-cmux-next`,
 `cd web && bun install --frozen-lockfile`. "Ready" means the checkout and `environment.json` exist

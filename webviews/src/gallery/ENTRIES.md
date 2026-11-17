@@ -181,7 +181,7 @@ matrix index shows layout shift and long frames cells (pass, warn or fail, with 
 action-to-settled p50 / p95 / max latency and sample count when a case has play steps; click a cell
 for each step's details. Scroll and text-selection steps are measured alongside clicks, keys and
 press-drag gestures. A failing play fails the run. The
-checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
+checks are real only in the matrix runner (provider VMs or CI). The shell shows the same report as a
 live line for the person who opens it.
 
 ## Settings and passwords
@@ -284,7 +284,7 @@ cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
 - Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.
 - Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it), or
   `bun run gallery:dev` for the gallery alone at `http://127.0.0.1:4210/gallery/`.
-- Live, with hot reload (tailnet): `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`
+- Live, with hot reload (tailnet, served from a team Mac mini): `https://<host>.<tailnet>.ts.net:18796/live/`
   follows `feat-cmux-next` within about 20 s of a push. A save shows in the open page by itself.
 - Shell-generated `frame.html` stages include their gallery source path and load only that entry;
   direct `frame.html?entry=...` links without the optional source hint fall back to the full
@@ -293,9 +293,9 @@ cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
   at `.../18796/wt/<name>/` (it prints the URL) and follows its pushes; it stops after 2 h with no
   requests. At most 6 run at once; `scripts/gallery-live.sh down <name>` stops one.
 - Static (the stable fallback): `scripts/gallery-deploy.sh` in hq publishes a build at
-  `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/latest/`.
+  `https://<host>.<tailnet>.ts.net:18796/latest/`.
 - Screenshots: `bun scripts/gallery/manifest.ts --entries <your id>` writes a manifest, and
-  `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on Freestyle VMs. Never run a
+  `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on provider VMs. Never run a
   browser on a developer laptop.
 
 ## Viewer picks
@@ -350,13 +350,13 @@ controls (env.ts). **Copy link** copies the URL with a one-line summary under it
 0.5x, step 2 of 4 (open nested B), picked c`), so the link reads clearly in chat. An agent given
 the link reads the same keys with `readCompare` (`src/gallery/compare.ts`).
 
-Each cell shows two measurement lines: `VM ...`, the numbers a matrix run measured on a Freestyle
+Each cell shows two measurement lines: `VM ...`, the numbers a matrix run measured on a provider
 VM (the entry's `measurements`), and `here, last step ...`, the frames the viewer's own browser
 measured. Both lines also report action-to-settled p50, p95 and max for clicks, keys and press-drag
 pointer steps. An arm reports its main-thread planning with `performance.measure("cmux-motion:...")`;
 the harness shows the largest as `plan`.
 
-Measuring on Freestyle (never a browser on a laptop):
+Measuring on provider VMs (never a browser on a laptop):
 
 ```sh
 cd webviews && bun scripts/gallery/manifest.ts --experiments --entries <entry id> --out /tmp/exp.json

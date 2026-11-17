@@ -251,9 +251,9 @@ committed `webviews-app` bundle grows by about 190 KB on disk.
 
 ### VoiceOver pass (required for the waiver): NOT RUN, needs Lawrence
 
-cmux-lawrence-2 is reachable over SSH, but VoiceOver's speech cannot be read without AppleScript
+The team Mac mini is reachable over SSH, but VoiceOver's speech cannot be read without AppleScript
 (banned), and `cua-driver permissions status` there reports Accessibility and Screen Recording
-`unknown` (no verified grant). Steps for Lawrence, on cmux-lawrence-2:
+`unknown` (no verified grant). Steps for Lawrence, on the team Mac mini:
 
 1. In a checkout of feat-cmux-next: `cd webviews && bun install && bunx vp dev --port 4870`.
 2. Save the host below as `/tmp/wkhost.swift` (it type-checks there with `swiftc -typecheck`) and run

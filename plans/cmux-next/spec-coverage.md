@@ -291,7 +291,7 @@ Source: spec/00-overview.md s4-s13, spec/operation-catalog.md, spec/identity-and
 | T2: each app uses its own cmux-tui session by default | DONE | CmuxNextDaemon/Launch/DaemonLauncher.swift | - |
 | T2: new window or workspace on a different session | IN PROGRESS | coordinator: federation daemon branch | Not built. |
 | P10: daemon capability gate | NO OWNER | - | See the release table. |
-| Mailbox on cmux-lawrence with ACK log and watcher | DONE | hq 9d626a0041 | Operational, not repo code. |
+| Mailbox on a team Mac with ACK log and watcher | DONE | hq 9d626a0041 | Operational, not repo code. |
 | Mailbox membership through the ACL | DONE | hq 9d626a0041 | - |
 | D32: public SSH path through our own gate on Fly.io | NO OWNER | - | See the team VM table. |
 
@@ -562,7 +562,7 @@ Source: spec/browser-use.md, spec/passkeys.md, spec/computer-use.md, spec/acp-ui
 | --- | --- | --- | --- |
 | Rust browser host crate: driver protocol, provider frames, CDP driver | DONE | a5ed5fdea95 (cmux-browser-host/src/cdp/driver.rs) | Chromium test in tests/chromium.rs. |
 | Headless Chromium over the debugging pipe, no port | DONE | cmux-browser-host/src/cdp/pipe.rs | Launch and driver only. |
-| Host on Cloud VMs (`remote_browser`), one user-data-dir per profile, sandbox on | IN PROGRESS | coordinator: browser lead | Not in the VM image. Sandbox on Freestyle unverified. |
+| Host on Cloud VMs (`remote_browser`), one user-data-dir per profile, sandbox on | IN PROGRESS | coordinator: browser lead | Not in the VM image. Sandbox on the provider VMs unverified. |
 | QuickJS-ng REPL sessions with the native bridge v1 (D12; step b) | IN PROGRESS | coordinator: browser lead | Unlanded branch feat-cmux-next-browser-host-b 3553b986eb7. |
 | Domain policy, secret handles, masking in the Rust host below the VM | IN PROGRESS | coordinator: browser lead | Moved into the JS reference host (2ee55afcfac). Rust part on branch -b. |
 | Sealed tabs before a secret fill | IN PROGRESS | coordinator: browser lead | Branch -b only. |
@@ -725,8 +725,8 @@ Source: spec/plan-vm-image.md, spec/plan-server.md, spec/plan-transport.md, deci
 | Datagram service and path events (s12a; remote desktop asks) | IN PROGRESS | L12 a00f9f88e497a3922 | Not started. |
 | Peer overlay address in WgConfig (s3.1) | IN PROGRESS | L12 a00f9f88e497a3922 | Not started. |
 | HostDO rendezvous, datagram relay, placement by probe (T3; step 3) | IN PROGRESS | L12 a00f9f88e497a3922 | Partial: pure codec fc9cf5a090e landed. DO class and migration tag v9 remain. |
-| `network.device.join/rotate/revoke`, Freestyle firewall reconciler, peer map push (D3 phase 1; step 4) | IN PROGRESS | L12 a00f9f88e497a3922 | Partial: manual firewall and tunnel ops exist (b8093c65137). TeamDO reconciler missing. |
-| One Freestyle VPC per team (D37) | IN PROGRESS | L12 a00f9f88e497a3922 | Today one VPC per owner. Team VPCs not built (unverified scope). |
+| `network.device.join/rotate/revoke`, provider firewall reconciler, peer map push (D3 phase 1; step 4) | IN PROGRESS | L12 a00f9f88e497a3922 | Partial: manual firewall and tunnel ops exist (b8093c65137). TeamDO reconciler missing. |
+| One provider VPC per team (D37) | IN PROGRESS | L12 a00f9f88e497a3922 | Today one VPC per owner. Team VPCs not built (unverified scope). |
 | Per-device IPv6 firewall rule | IN PROGRESS | L12 a00f9f88e497a3922 | Waits for `network.device.join`. |
 | LAN discovery and NAT-punched direct path (T3; s5; D38) | IN PROGRESS | L12 a00f9f88e497a3922 | STUN codec and selector done. Candidate exchange needs HostDO. |
 | Overlay provider in cmux-remote, `cmux link` dialing, session routing, "via cloud region" label (step 5; T2; D38) | IN PROGRESS | L12 a00f9f88e497a3922 | Not started. |
@@ -734,7 +734,7 @@ Source: spec/plan-vm-image.md, spec/plan-server.md, spec/plan-transport.md, deci
 | iOS in-app WireGuard endpoint (T3; s11) | IN PROGRESS | L12 a00f9f88e497a3922 | Not started. L14 integrates it. |
 | Wi-Fi to cellular roaming test | IN PROGRESS | L12 a00f9f88e497a3922 | Needs the phone, the L14 Network Lab and a slot with Lawrence. |
 | Delete the old relay paths (T1; s14; step 6) | IN PROGRESS | L12 a00f9f88e497a3922 | CmuxNextMobile still uses the old relay. Deletion after the overlay ships. |
-| Ask Freestyle for direct tunnel-to-tunnel paths (D38; s16) | NO OWNER | - | Lawrence is the contact. Not sent (unverified). |
+| Ask the VM provider for direct tunnel-to-tunnel paths (D38; s16) | NO OWNER | - | Lawrence is the contact. Not sent (unverified). |
 | Direct host-to-host bulk copy under a job grant (L12-1) | NO OWNER | - | Accepted. No implementation or job owner. |
 
 ### Release and nightly
@@ -759,7 +759,7 @@ Source: spec/plan-vm-image.md, spec/plan-server.md, spec/plan-transport.md, deci
 | aws-m4pro-1 one-time fallback fix (FL1) | DONE | hq 8df6b3fcf1 | Fallback removed and the host excluded. |
 | Dedicated fleet lead, self-healing (FL1) | IN PROGRESS | L6 aea7f7dc2fc0196d6 | Ongoing: mini-6 gc, CEF recipe, controller move plan. |
 | cmux-browser on the Xcode 27 pin, DEVELOPER_DIR (FL2) | DONE | cmux-browser-hq 3bf1644, ddec5c5 | - |
-| cmux-lawrence-2 build host, weekly report LaunchAgent (FL3) | DONE | hq 8cf23e858c, e1278eeb11 | Temporary R2 token revocation is from the decision text (unverified). |
+| Team Mac build host, weekly report LaunchAgent (FL3) | DONE | hq 8cf23e858c, e1278eeb11 | Temporary R2 token revocation is from the decision text (unverified). |
 | Direct commits on feat-cmux-next (W1) | DONE | lane rules adopted; b1e188d4e49 landed directly | Process item. |
 
 ## Cloud, automations, team VM, network policy, agent egress
@@ -775,7 +775,7 @@ Source: spec/cloud-and-automations.md, spec/automations-runtime.md, spec/automat
 | Machine lifecycle and snapshot ops | DONE | 50eb18daa53, cec34217405 | backend/catalog/cloud-relay-operations.json. |
 | vm.exec and machine file ops | DONE | 07cbf3a01ba, da9bb3dacd1 | Exec plus fs list/read/write/mkdir/remove/stat. |
 | vm.attach, open_port, ssh/scp, ephemeral create-run-destroy | NO OWNER | - | Not in the relay catalog. Earlier slices by Leo (owner unverified). |
-| Idle policy mapped to Freestyle, vm.ensure_awake, vm.idle_policy.set (D21) | NO OWNER | - | The old driver still disables idle timeout. Freestyle idle semantics not measured. |
+| Idle policy mapped to the VM provider, vm.ensure_awake, vm.idle_policy.set (D21) | NO OWNER | - | The old driver still disables idle timeout. Provider idle semantics not measured. |
 | Every machine runs cmux link to HostDO; Cloud VMs enroll at create | IN PROGRESS | L12 a00f9f88e497a3922 | HostDO is transport step 3 (DO tag v9). Not landed. |
 | Self-hosted machines enroll through pairing (U2) | DONE | 23dd7e308b9 | PairingDO and server.pair.*. |
 | host.enroll/list/revoke in the TeamDO directory | DONE | backend/packages/protocol/src/ops.ts, 0ce9557ca76 | Revoke ships as host.remove and server.revoke. |
@@ -864,14 +864,14 @@ Source: spec/cloud-and-automations.md, spec/automations-runtime.md, spec/automat
 | Item (source) | Status | Evidence / owner | Note |
 | --- | --- | --- | --- |
 | Policy document in TeamDO; network.policy.get/preview/apply/rollback; lockout guard | IN PROGRESS | L12 a00f9f88e497a3922 (owner unverified) | Unlanded branch feat-cmux-next-network-policy 634f024602d. |
-| Reconciler to Freestyle firewall rules, one VPC per team, drift report (D3, D37) | IN PROGRESS | L12 a00f9f88e497a3922 | Same unlanded branch. |
+| Reconciler to provider firewall rules, one VPC per team, drift report (D3, D37) | IN PROGRESS | L12 a00f9f88e497a3922 | Same unlanded branch. |
 | network.device.join/revoke and the Mac join flow | IN PROGRESS | L12 a00f9f88e497a3922 | The app still uses the old tunnel path. |
 | network.machine.tag and tagOwners | IN PROGRESS | L12 a00f9f88e497a3922 | Unlanded branch only. |
 | Per-user tunnel and firewall relay ops | DONE | b8093c65137 | Flag: owned by UserDO, but the spec puts team policy in TeamDO. |
 | Same-LAN discovery, DO relay, "via cloud region" label, network.path.status (D38) | IN PROGRESS | L12 a00f9f88e497a3922 | Selector landed. HostDO relay and path events remain. |
 | Phase 2: TeamDO pushes peer maps to userspace WireGuard (D3) | IN PROGRESS | L12 a00f9f88e497a3922 | Engine and watchdog landed. |
 | Policy history and audit projection; `cmux network policy log`; dashboard view | NO OWNER | - | - |
-| Send the Freestyle ask list | NO OWNER | - | Drafted in transport.md s16. Not sent (unverified). |
+| Send the VM provider ask list | NO OWNER | - | Drafted in transport.md s16. Not sent (unverified). |
 
 ### Agent egress (D39)
 
@@ -880,7 +880,7 @@ Source: spec/cloud-and-automations.md, spec/automations-runtime.md, spec/automat
 | Egress rules in the policy and a compiler to three enforcement points | NO OWNER | - | The network-policy branch has no egress section. |
 | Integration gateway: secret injection, per-op grant, approvals | IN PROGRESS | coordinator: backend lead | ConnectionDO tokens and provider ops landed (e43ae60fd19, 80e83c37d59). |
 | Team VM egress proxy (CONNECT and SOCKS5) with per-connection credential | NO OWNER | - | - |
-| Freestyle firewall default deny for agent workloads | IN PROGRESS | L12 a00f9f88e497a3922 | Plan only. |
+| Provider firewall default deny for agent workloads | IN PROGRESS | L12 a00f9f88e497a3922 | Plan only. |
 | Local Mac cooperative egress: proxy env, local log, UI label | NO OWNER | - | - |
 | One team audit stream and egress.log.query | NO OWNER | - | The enterprise audit chain could be the base (unverified). |
 | Customer-owned tailnet: OAuth connection, ephemeral node on the team VM | NO OWNER | - | - |
@@ -1148,12 +1148,12 @@ Order: Lawrence's direct asks first (decisions marked as Lawrence's, plus Home, 
 **P20. Cloud machines (D11, D21)**
 - Covers: machine records to cmux-next; vm.attach, open_port, ssh/scp, ephemeral runs; idle policy and vm.ensure_awake; Runs group and asleep machines in the sidebar; per-run tokens and edge credentials; remaining cloud parity; CodeRouter handoff lease and VM token scope (finding 4); phase 3 machine directory row.
 - Goal: cmux-next owns machine lifecycle with correct idle behavior and scoped tokens.
-- Files: backend/catalog/cloud-relay-operations.json, CmuxNextCloud, web/services/vms/drivers/freestyle.ts (old backend), backend migrations.
+- Files: backend/catalog/cloud-relay-operations.json, CmuxNextCloud, `web/services/vms/drivers/freestyle.ts` (old backend), backend migrations.
 - Done when: automation and pool VMs pause after 5 min; each relay verb has fake-driver tests; run tokens are the only credential in Workflow steps.
 - Depends on: P13 for run tokens. Coordinate with: Leo (cloud parity), L1, L12, L3 (CodeRouter app), L20 (Settings).
 
 **P21. Agent egress and network policy history (D39)**
-- Covers: egress rules and compiler; team VM egress proxy; local Mac cooperative egress; team audit stream and egress.log.query; customer-owned tailnet; network policy history view; Freestyle ask list.
+- Covers: egress rules and compiler; team VM egress proxy; local Mac cooperative egress; team audit stream and egress.log.query; customer-owned tailnet; network policy history view; VM provider ask list.
 - Goal: agent network traffic follows the decided hybrid model with one audit stream.
 - Files: backend/packages/network-policy (unlanded branch), team-host role, cmux-tui session host.
 - Done when: rules compile to gateway, proxy and firewall; a flow log appears in the team audit stream.
@@ -1190,4 +1190,4 @@ Order: Lawrence's direct asks first (decisions marked as Lawrence's, plus Home, 
 
 ### Decision batch for Lawrence (no agent; the coordinator asks)
 
-These rows wait for a decision, not for work: S6 (agent session list place); sidebar s9 (collapse per window or synced; sections versus the space bar); bottom band Customize item (finding 7); non-macOS font; D-RD2 (apply for restricted macOS entitlements); D33, D34, D35, D36 (team VM SSH paths, gate default, metadata store, FUSE fallback); R3, R8, R9 (workflow engine, telemetry store, app job queue); A18 quota and price levels; B10 desktop web app scope (is webviews/ that app?); the integrations lead and CASA signer (S1); passkey D1-D6 including K14; Tasks T1-T5; moving signing secrets into environments; sending the Freestyle ask list; N1 final name.
+These rows wait for a decision, not for work: S6 (agent session list place); sidebar s9 (collapse per window or synced; sections versus the space bar); bottom band Customize item (finding 7); non-macOS font; D-RD2 (apply for restricted macOS entitlements); D33, D34, D35, D36 (team VM SSH paths, gate default, metadata store, FUSE fallback); R3, R8, R9 (workflow engine, telemetry store, app job queue); A18 quota and price levels; B10 desktop web app scope (is webviews/ that app?); the integrations lead and CASA signer (S1); passkey D1-D6 including K14; Tasks T1-T5; moving signing secrets into environments; sending the VM provider ask list; N1 final name.

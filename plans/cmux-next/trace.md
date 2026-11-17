@@ -138,7 +138,7 @@ that is an `Exception` was swallowed there, and the stage then ran for the sum o
 A stage that owns processes or must finish a cleanup has a bound above the sum of its inner timeouts, so
 it fires only when an inner timeout failed to. The build stages run hundreds of socket actions with 120 s
 timeouts (a sum of hours) and own no process: their bound is about 2.5 times a measurement (the STRESS
-build took 691 s on cmux-lawrence-2), and the light build's is estimated from the same rate. The bounds
+build took 691 s on a team Mac), and the light build's is estimated from the same rate. The bounds
 catch a hung stage; they are not targets.
 
 Job 7 (2026-10-23) shows why. Its STRESS build finished, and then the job printed nothing for over an hour.

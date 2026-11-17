@@ -35,7 +35,7 @@ but it uses almost none of what pi-durable guarantees. It keeps a second durabil
    sandbox registry and a GitHub host, chosen by the object's name. Every role pays for every
    constructor (wasm load, nine schemas, the pi harness), and a change to one role risks all others.
 5. **A VM per turn on the personal route.** On `CHIEF_CC_OWNERS` (Lawrence's team in production),
-   each turn boots a Freestyle VM and runs `claude -p` in it (`chief-brain-cc/turn.ts`). That costs a
+   each turn boots a provider VM and runs `claude -p` in it (`chief-brain-cc/turn.ts`). That costs a
    machine boot per message and a second set of retry rules ("never silent", three tries).
 
 ## 2. What D keeps and what it throws out
@@ -114,7 +114,7 @@ does (every 2.5 s, up to 120 s after the run).
 
 - Phase 1 (this change): `zoom`, `date` (memory), and NO_REPLY. This is what the reply-only eval
   cases need.
-- Phase 2: P's hands (`hand-api.ts`: Freestyle sandbox and the Mac host), `chiefs`, `spawn`
+- Phase 2: P's hands (`hand-api.ts`: provider VM sandbox and the Mac host), `chiefs`, `spawn`
   (pi-durable background subagents, its example 23: a background anchor task owns each child, a
   reporter task posts the answer back as a follow-up), chief jobs, GitHub. Each is a pi extension
   that wraps P's existing service code; none of them lives in the DO class.
@@ -186,7 +186,7 @@ Proposed change to the cloud placement (sent to the Chief-engines lane): one ker
 ways. The native binary runs on a Mac, a Linux box or a VM; the same kernel compiled to wasm runs in
 the Durable Object, as the memory core already does (`optchat-wasm`). pi-durable runs in process in
 the DO as the engine (start = `submit`, steer = `whenBusy: "steer"`, cancel = `abort`); tools that
-need a machine call a hand (Freestyle sandbox or the Mac). Reasons against a VM per user: a cold
+need a machine call a hand (provider VM sandbox or the Mac). Reasons against a VM per user: a cold
 wake is a VM start plus a host start (never measured; the cc route already boots a machine per
 message), a VM costs money while idle (a DO costs nothing idle and starts in about 1 s), and a sidecar
 adds an RPC hop per tool call.

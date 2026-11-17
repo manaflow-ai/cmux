@@ -197,7 +197,7 @@ Ids: owner-assigned, prefixed, never reused (`home-messaging.md` 2). Streams: on
 | Workspace document (screens, columns, panes, tab order) | `doc:<ws>` | its home: `host:<h>` (default for Mac workspaces) or `cloud` (DocDO) | `doc:<ws>` | daemon store actor, replicated to HostDO; or DocDO | Mac-homed: read-only cached; cloud-homed: works |
 | Terminal session | `host:<h>/term_…` | the host's session actor + terminal host process | `host:<h>/session`, channel `terminal_bytes` | daemon; HostDO keeps title, cwd, status, last 64 KiB screen | offline shown with last screen, no input |
 | Agent session (acpmux) and its turns | `host:<h>/acp_…` | the host's acp actor | `host:<h>/acp` | daemon; HostDO keeps session list, status, last turn summary | offline shown, history readable from replica window |
-| Agent run on a cloud hand | `run_…` | HandDO (request ledger, events) for the hand; the run record in the Chief's conversation | `hand:<id>` | HandDO | works (Freestyle hand) |
+| Agent run on a cloud hand | `run_…` | HandDO (request ledger, events) for the hand; the run record in the Chief's conversation | `hand:<id>` | HandDO | works (VM-provider hand) |
 | Hand (an executor: Mac acpmux hand, sandbox, VM) | `hand_…` | HandDO | | HandDO | Mac hand: offline; cloud hands: work |
 | Feed item, approval request | `feed_…` | FeedDO | `feed:<u>` | FeedDO | works |
 | Cloud machine | `vm_…` | CloudDO | `cloud:<t>` | CloudDO | works |

@@ -1,7 +1,7 @@
 # Deploying the device hub
 
 The device hub (`docs/device-hub/PROTOCOL.md`) is one Worker with two SQLite
-Durable Object classes, `UserDO` and `SessionDO`. It deploys to Lawrence's
+Durable Object classes, `UserDO` and `SessionDO`. It deploys to the team
 Cloudflare account. `wrangler.toml` commits no `account_id`; the deploy shell
 provides it. The top level of `wrangler.toml` is production; `[env.dev]` is
 dev. Bindings, vars and migrations are repeated under `[env.dev]`, because
@@ -46,10 +46,10 @@ run.
 
 ## Dev deploy
 
-Run from `workers/device-hub` with wrangler signed in to the account.
+Run from `workers/device-hub` with wrangler signed in to the account. The account id is in the team's private ops notes.
 
 ```bash
-export CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656
+export CLOUDFLARE_ACCOUNT_ID=<team account id>
 npm ci
 
 # 1. Deploy the code and the v1 Durable Object migration.
@@ -107,7 +107,7 @@ the top level, so pass `--env=""`. Production generates its own keys; never
 copy the dev keys.
 
 ```bash
-export CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656
+export CLOUDFLARE_ACCOUNT_ID=<team account id>
 npx wrangler deploy --env=""
 node scripts/gen-key.mjs | npx wrangler secret put SESSION_KEY --env=""
 node scripts/gen-key.mjs | npx wrangler secret put TICKET_KEY --env=""
@@ -173,7 +173,7 @@ ssh mini-cmux15 'cd ~/device-hub-work/src && export PATH=$HOME/.local/bin:$PATH 
 ssh mini-cmux15 'cd ~/device-hub-work/src && export PATH=$HOME/.local/bin:$PATH \
   && node scripts/gen-dev-secrets.mjs .dev.vars \
   && npx wrangler dev --ip 0.0.0.0 --port 8799 --persist-to ~/device-hub-work/state'
-curl -fsS http://cmux15.tail137216.ts.net:8799/v1/health
+curl -fsS http://cmux15.<tailnet>.ts.net:8799/v1/health
 ```
 
 This is plain HTTP on the tailnet. The cmux apps' App Transport Security

@@ -36,7 +36,7 @@ host panel, a page window or a presenter still listed for migration.
 
 ## Open checks
 
-- Live proof on cmux-lawrence-2 with a loaded CEF page: tooltip, alert,
+- Live proof on a team Mac with a loaded CEF page: tooltip, alert,
   palette and which-key visible above the page, and a click forwarded by the
   panel completes in the page (down, drag, up through the window server).
 - The system tooltip: whether its window is ever below a page window.

@@ -14,7 +14,7 @@ to the `feat-cmux-next` worktree (base `fde44232c35`, read 2026-09-28). `T/` =
 
 ## 0. Summary
 
-1. Cloud already rides cmux-tui. Every Freestyle VM runs one `cmux-tui` daemon
+1. Cloud already rides cmux-tui. Every provider VM runs one `cmux-tui` daemon
    (session `cloud`, CMXR protocol 5 on `ws://<vpc-ip>:1337/v1/link`,
    trusted-carrier mode). The Mac spawns one headless `cmux-tui remote
    connect` per machine through an app-owned userspace WireGuard hub, and
@@ -68,7 +68,7 @@ to the `feat-cmux-next` worktree (base `fde44232c35`, read 2026-09-28). `T/` =
   (`web/services/vms/drivers/freestyle.ts:939-952,1009-1014`). No guest exec
   during create (`:102-124`). The coderouter token lives only in the edge rule
   (`:126-135`).
-- The image is a baked Freestyle snapshot listed in
+- The image is a baked provider snapshot listed in
   `web/services/vms/images/manifest.json`, built by
   `web/scripts/build-devbox-freestyle.ts` (unit env `CMUX_TUI_REMOTE_WS_BIND`,
   `:543`).
@@ -127,7 +127,7 @@ to the `feat-cmux-next` worktree (base `fde44232c35`, read 2026-09-28). `T/` =
 
 Bytes and control share one path:
 `Ghostty pane ⇄ v12 JSON lines on local Unix socket ⇄ headless cmux-tui link ⇄
-SOCKS5 ⇄ cmux-tui wg hub (cmux-wg) ⇄ WireGuard ⇄ Freestyle VPC ⇄ daemon :1337
+SOCKS5 ⇄ cmux-tui wg hub (cmux-wg) ⇄ WireGuard ⇄ provider VPC ⇄ daemon :1337
 /v1/link (Noise)` (`docs/cloud-userspace-wireguard.md:24-38`,
 `T/docs/remote.md` "Share one WireGuard tunnel").
 
@@ -142,7 +142,7 @@ SOCKS5 ⇄ cmux-tui wg hub (cmux-wg) ⇄ WireGuard ⇄ Freestyle VPC ⇄ daemon 
   a trusted carrier, so there is no device enrollment. Noise still encrypts and
   binds the client key. Revocation deletes the Mac's WireGuard peer
   (`docs/cloud-cmux-tui-daemon.md:344-377`).
-- Not on the Cloud path today: cmux-relay, Iroh, Freestyle SSH (only
+- Not on the Cloud path today: cmux-relay, Iroh, provider SSH (only
   `scp-endpoint` for push/pull), Go `cmuxd-remote` (only `cmux ssh`), pty
   WebSocket (legacy branch still present but unreachable:
   `attach-endpoint/route.ts:80-100`, `CLI/cmux.swift:5090`).
@@ -688,7 +688,7 @@ resource `local`); it does not reach a Cloud daemon yet.
 
 ### 5.4 Verified on the dev backend (2026-09-30)
 
-Two dev Freestyle VMs from this branch's web (`tui3412812`), a tagged local
+Two dev provider VMs from this branch's web (`tui3412812`), a tagged local
 build, direct Tailscale transport, WireGuard hub and headless links:
 
 - Before upgrade: `identify` over the link reported 3412812, the 7 required

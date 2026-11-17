@@ -18,7 +18,7 @@ Per activation: `observers_ms` (main-thread time the notices took to deliver, ti
 the round trip, the drain (the next main-actor round trip: work the observers queued), and
 `indicator_resyncs` (status indicators re-checked; `debug.layout_counters`).
 
-Fleet GUI host cmux-lawrence-2, `nx-remote --needs gui --app-from-fleet cmux`, `--sample` for the
+Fleet GUI host (a team Mac mini), `nx-remote --needs gui --app-from-fleet cmux`, `--sample` for the
 main thread's call graph.
 
 ## Results (ms, p50 / p95)

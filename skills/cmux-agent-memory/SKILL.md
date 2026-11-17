@@ -111,7 +111,7 @@ it.
 
 ## Migrating from `leo-workspace/tools/agent-memory`
 
-The leo-workspace prototype (leo-workspace PRs #577 to #580) can retire. The index home
+The prototype in the team's private workspace repository (its PRs #577 to #580) can retire. The index home
 (`~/.cmux/agent-memory`) and the notes log (`~/.cmux/agent-memory-notes.jsonl`) keep
 their paths, and old notes read as they are. The first search rebuilds the index in the
 new format. Per machine:

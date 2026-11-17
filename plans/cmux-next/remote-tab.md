@@ -131,8 +131,8 @@ Unchanged contracts: the browser host on the runtime host publishes `automation.
 
 - Required CI (seconds): Rust unit tests of `cmux-remote-browser` protocol reducers, key mapping tables (dom_code to XKB, edit commands), tile codec round trips, sync conflict vectors (`schemas/remote-tab/vectors.json`), and the Swift view's pure mapping tests. No browser launch.
 - Non-required hosted Linux job (`remote-tab-headless`, under 5 minutes, path-filtered): builds nothing heavy; runs the prebuilt fork Chrome (cached artifact) under the remote presentation mode with a loopback viewer in Rust: conformance cases for menus, select, dialogs, file upload, download, clipboard, IME composition, Cmd-click, extension popup surface, cookie sync. Promoted to required only after one green week and the coordinator's OK.
-- Fleet bench on cmux-lawrence-2 and a Cloud VM (scoreboard, nightly): input-to-paint median and p95 with marker frames, text sharpness diff after top-off, CPU per tab idle and scrolling, bitrate, and A/B of 4:4:4 vs 4:2:0+tiles. Results go into this file.
-- GUI e2e (cmux-lawrence-2 only): a tagged app opens a remote tab to a Cloud VM and a fleet Mac, drives the native menu, select, Cmd-click, paste, upload and mic paths through the debug socket, and records screenshots.
+- Fleet bench on a team Mac and a Cloud VM (scoreboard, nightly): input-to-paint median and p95 with marker frames, text sharpness diff after top-off, CPU per tab idle and scrolling, bitrate, and A/B of 4:4:4 vs 4:2:0+tiles. Results go into this file.
+- GUI e2e (the team GUI Mac only): a tagged app opens a remote tab to a Cloud VM and a fleet Mac, drives the native menu, select, Cmd-click, paste, upload and mic paths through the debug socket, and records screenshots.
 
 ## 10. Steps
 
@@ -153,7 +153,7 @@ Unchanged contracts: the browser host on the runtime host publishes `automation.
 
 - Windowless Chrome style is not supported upstream; the patch set is ours to rebase on every Chromium roll (Mighty's cost too). Mitigation: keep patches small and behind one `remote_presentation` switch, with fork tests.
 - Linux no-GPU cost: Chrome software raster plus x264 at Retina pane size is an estimated 3-6 vCPU while scrolling (unmeasured). The bench decides frame-rate caps per plan.
-- Freestyle Chromium sandbox under the full Chrome layer is unverified (chrome-headless-shell ran sandboxed).
+- Provider VM Chromium sandbox under the full Chrome layer is unverified (chrome-headless-shell ran sandboxed).
 - Extension UI that draws outside data models is streamed, so it looks like Chrome, not like macOS.
 - Mighty's lesson: parity work (downloads, audio, webcam, YubiKey, scrolling) is the hard part, not the codec; this plan budgets steps r3-r8 for it.
 

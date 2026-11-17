@@ -45,7 +45,7 @@ The cmux-tui stack already solves each of these on `main`:
 
 Historical record. The spike ran against a live Blaxel sandbox; Blaxel has
 since been removed as a provider (its driver, images, and build scripts are
-gone) and Freestyle on the public platform is the default. The transport
+gone) and the current VM provider's public platform is the default. The transport
 conclusions below still describe how every cmux Cloud machine works, but the
 Blaxel-specific mechanics are history, not current code:
 
@@ -94,9 +94,9 @@ which is exactly the drop the spike (and any cloud client) must survive.
 Cloud-owned terminals live in the daemon's cmux-tui session (or detached),
 never on a connection-scoped lease.
 
-## Freestyle delivery and state ownership
+## Provider delivery and state ownership
 
-Freestyle is the only active provider. One pinned
+One VM provider is active. One pinned
 `cmux-tui-x86_64-unknown-linux-musl` artifact is baked into the active
 snapshot, then started by the snapshot's systemd unit.
 The active snapshot and its provenance are recorded in
@@ -275,25 +275,25 @@ the authority if an already-running provider command finishes after the client
 has timed out.
 
 The local coordinator is not a distributed lock. The backend serializes every
-Freestyle tunnel mutation with `cloud_vm_tunnel_enrollment_locks`, keyed by
+provider tunnel mutation with `cloud_vm_tunnel_enrollment_locks`, keyed by
 `(user_id, device_fingerprint)`: enrollment, read-with-attachment-heal, revoke,
 and account-cleanup deletion all acquire the same owner-token lease. The lease
 expires after ten minutes, renews before and after provider calls, and releases
 only when the owner token still matches. A live lease returns a retryable `409`;
 missing lease support returns `503`, so a deployment cannot silently run the
 old race after code rollout. Apply the migration before deploying the route.
-Freestyle tunnel requests use a 60-second provider client timeout, well below
+Provider tunnel requests use a 60-second provider client timeout, well below
 the lease duration. A process paused during an already-running provider request
-can still finish that external request after expiry because Freestyle has no
+can still finish that external request after expiry because the provider has no
 conditional mutation token; the post-call renewal fences all later local writes,
 and deterministic tunnel slugs plus idempotent delete/create recovery bound the
 remaining drift.
 
-Freestyle is the active provider. A private-network VM is reached through its
+One VM provider is active. A private-network VM is reached through its
 VPC address and requires the owner's WireGuard tunnel. The client prefers the VPC
 IPv4 address and uses VPC IPv6 when IPv4 is absent. A legacy or public-network VM
 is reached through its public IPv6 address. All managed sessions use the direct
-`cmux-remote` Noise session on `/v1/link`; Freestyle's scoped SSH proxy is an
+`cmux-remote` Noise session on `/v1/link`; the provider's scoped SSH proxy is an
 unmanaged provider diagnostic path, not a fallback transport. The backend and the
 app treat the route as opaque, and the daemon's enrolled device key is the session
 authority.
@@ -350,7 +350,7 @@ The rejected alternatives are explicit:
 
 `POST /api/vm/[id]/attach-endpoint` returns
 `{transport:"cmux-remote", route, token, expiresAtUnix, session, trustedCarrier}`.
-The route is a direct Freestyle private IPv4 address on port 1337 when available,
+The route is a direct provider private IPv4 address on port 1337 when available,
 then private IPv6 for machines with a VPC, or the machine's public IPv6 for legacy
 public-network machines.
 The provider route token is recorded as a hash in the lease ledger and is not
@@ -459,7 +459,7 @@ Remaining rollout work is operational: run authenticated preview and staging
 create/attach/browser-proxy smoke after each deployment, measure Vercel create
 duration, rotate provider credentials, and finish browser-proxy and cleanup
 hardening. These checks must use the Mock provider in ordinary CI and the real
-Freestyle provider only in the explicit staging smoke job.
+VM provider only in the explicit staging smoke job.
 
 The live provider smoke does not replace the client route check. A tagged Mac
 must have its owner's WireGuard tunnel up before a private VM can be opened. If

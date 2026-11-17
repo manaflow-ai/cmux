@@ -153,7 +153,7 @@ CoreText, QuartzCore, ImageIO, CoreImage only) plus two thin hosts.
 
 ## 4. Measurements
 
-Host cmux-lawrence-2 (M5 Pro, 15 cores, built-in 120 Hz XDR display, console
+Host: a team Mac (M5 Pro, 15 cores, built-in 120 Hz XDR display, console
 GUI session; apps started over ssh render and get a 120 Hz display link).
 Screen capture is blocked by privacy settings for ssh-started processes there,
 and on the main laptop the capture service delivers no frames (load 80-1000),

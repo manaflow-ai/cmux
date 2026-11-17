@@ -127,7 +127,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
    for the same reason). `terminalCopy` from a key does this; from a menu, the palette or the
    CLI it still refuses "nothing selected".
 
-Proof: `scripts/cmux-next/terminal-keys-e2e.py` on a tagged app on cmux-lawrence-2
+Proof: `scripts/cmux-next/terminal-keys-e2e.py` on a tagged app on a team Mac
 (`debug.key` through the key router, the window, the menu and the terminal view). It checks
 the fixed keys (Cmd-Return, Cmd-Opt-W, Cmd-Opt-Shift-W, Cmd-C with and without a selection)
 and prints an OWNER line for every other terminal key above. Run 1 (M1 Max, tag b442m1, at

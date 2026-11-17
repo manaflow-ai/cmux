@@ -7,7 +7,7 @@
 
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.
 
-> **2026-09-02:** Freestyle on the public platform (`api.freestyle.sh`) is the
+> **2026-09-02:** The VM provider's public platform (`api.freestyle.sh`) is the
 > only active Cloud VM provider. E2B, Blaxel, Daytona, the old `cmuxd-remote`
 > gateway, and Rivet actors are historical migration records. They are not
 > valid values for current deployment or dogfood commands.
@@ -16,7 +16,7 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 > canonical remote-state synchronization remain absent from `main`; current
 > `main` adds no replacement for them. The branch is rebased on
 > `e83b83229fc08a313fa958b36cb7926f14538108` (the current `main` browser
-> revert, [PR 11966](https://github.com/manaflow-ai/cmux/pull/11966)). Freestyle is still the only
+> revert, [PR 11966](https://github.com/manaflow-ai/cmux/pull/11966)). That provider is still the only
 > active provider. The direct development backend is healthy, but the shared
 > free account has `maxActiveVms=0`, so an authenticated live VM rename smoke
 > remains pending a paid or explicitly provisioned test VM.
@@ -42,7 +42,7 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
 The checked-in image manifest is the source of truth for active and rollback
-images. Its active validated Freestyle ladder is
+images. Its active validated provider ladder is
 `freestyle-cmux-devbox-20260903b-{sm,md,lg,xl,2xl}` for both desktop and base
 kinds. The resolver selects the smallest entry that meets the requested memory.
 Older validated entries are rollback images, and the retired beta snapshot
@@ -148,17 +148,17 @@ browsers, and agents. The macOS app must not create a second remote graph.
   value. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
 - Snapshot-only compatibility is explicit. The app suspends the event reader for
-  an unversioned Freestyle daemon, keeps all rows visible, and rejects workspace
+  an unversioned provider daemon, keeps all rows visible, and rejects workspace
   and tab rename writes until the daemon is upgraded. A malformed non-null
   cursor is rejected rather than treated as legacy.
-- Freestyle route selection reads the canonical `vpcs` addresses when that
+- Provider route selection reads the canonical `vpcs` addresses when that
   field is present, uses the deprecated `networks` alias only when `vpcs` is
   absent, prefers private IPv4, then private IPv6, and uses public IPv6 only for
   a machine with no private address list. Private machines require the owner's
   WireGuard tunnel. `cmux-remote` Noise enrollment remains the only managed
-  session transport. Freestyle's scoped SSH proxy is provider-level access and
+  session transport. The provider's scoped SSH proxy is provider-level access and
   is not a managed fallback.
-- Freestyle model-plane readiness is checked with the VM-bound
+- Provider model-plane readiness is checked with the VM-bound
   `/api/coderouter/vm-usage/self` route after boot. The probe validates edge
   token injection without selecting a model or spending upstream credits; a
   failed probe rolls the provider machine back.
@@ -190,33 +190,33 @@ remains incompatible.
   - `OTEL_SERVICE_NAME`
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
-- [x] Publish and validate the current Freestyle snapshot with the cmux-tui daemon.
+- [x] Publish and validate the current provider snapshot with the cmux-tui daemon.
 - [x] Promote the validated public snapshot configuration to the active provider
   manifest and local dogfood environment.
-- [x] Verify Freestyle create/attach, `cmux-remote` transport, and provider tunnel
+- [x] Verify provider create/attach, `cmux-remote` transport, and provider tunnel
   recovery against a live sandbox.
-- [ ] Verify the tagged macOS client can reach a private Freestyle VM and observe
+- [ ] Verify the tagged macOS client can reach a private provider VM and observe
   daemon state plus tab/workspace rename persistence end to end. The API and
   daemon checks pass, but this Mac's existing WireGuard route currently reports
   `utun8` without a working provider handshake.
 - [x] Verify local-to-cloud workspace and exact tab rename write-through from the
   catalog projection lifecycle, including restore and existing-target opens.
-- [x] Preserve complete state from legacy Freestyle snapshots without a cursor;
+- [x] Preserve complete state from legacy provider snapshots without a cursor;
   expose `snapshot_only` to agents and fail revision-fenced writes clearly.
 - [x] Keep one canonical fragment document for known and unknown daemon state;
   derive typed rows and indexes from it, and apply row-local deltas without
   full-document re-encoding.
 - [x] Verify reverse tab-content edges, legacy terminal tab references, tab
   moves, and large opaque collections in focused behavior tests.
-- [x] Serialize Freestyle tunnel enrollment, read-with-attachment-heal, revoke,
+- [x] Serialize provider tunnel enrollment, read-with-attachment-heal, revoke,
   and account cleanup per `(user_id, device_fingerprint)` with a durable
   owner-token lease, renewal, expiry recovery, and fail-closed migration guard.
 - [ ] Apply `cloud_vm_tunnel_enrollment_locks` in staging and production before
   deploying the route, then rehearse an expired lease and a concurrent request.
 - [ ] Persist the claimed cmux-tui device fingerprint/device id in each lease and
-  revoke only those device records on sign-out. Freestyle currently revokes the
+  revoke only those device records on sign-out. The provider path currently revokes the
   control-plane lease rows, but not daemon enrollment records.
-- [x] Make missing Freestyle VPC member-rule repair fail closed. A rejected
+- [x] Make missing provider VPC member-rule repair fail closed. A rejected
   listing or repair now fails network ensure instead of creating a private VM
   that the owner's tunnel cannot reach.
 - [x] Keep existing tunnel reads and revokes usable during a private-network
@@ -225,8 +225,8 @@ remains incompatible.
 - [ ] Run authenticated preview and staging create/attach/browser-proxy smoke
   after the next deployment.
 - [ ] Decide whether provider create needs an asynchronous status flow after
-  measuring the Vercel function duration on a real Freestyle create.
-- [ ] Rotate the Freestyle key and complete the secret-leak audit before a broad
+  measuring the Vercel function duration on a real provider create.
+- [ ] Rotate the VM provider key and complete the secret-leak audit before a broad
   production rollout.
 
 ## Current Operational State
@@ -236,12 +236,12 @@ remains incompatible.
 - [x] GitHub OIDC provider `token.actions.githubusercontent.com` exists in AWS.
 - [x] Staging migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-staging` and the staging Aurora cluster resource id.
 - [x] Production migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-production` and the production Aurora cluster resource id.
-- [x] Staging and production Cloud VM default provider are set to Freestyle.
-- [x] Freestyle creates are enabled in the verified deployment configuration.
-- [x] Both Vercel projects contain the Freestyle API key as a Sensitive
+- [x] Staging and production Cloud VM default provider are set to the VM provider.
+- [x] Provider creates are enabled in the verified deployment configuration.
+- [x] Both Vercel projects contain the VM provider API key as a Sensitive
   variable. The env audit verifies key presence through Vercel metadata because
   the pinned CLI redacts the value.
-- [x] Freestyle create, `cmux-remote` attach, and provider tunnel state-recovery
+- [x] Provider create, `cmux-remote` attach, and provider tunnel state-recovery
   smoke passed without creating a production VM during the audit.
 - [ ] Tagged macOS end-to-end rename smoke is pending a working private-network
   route; focused client and backend behavior tests pass.
@@ -270,15 +270,15 @@ These are already configured in Vercel for development, preview, and production:
 
 - [x] Use a dedicated Vercel staging project instead of sharing preview secrets.
 - [x] Add a global VM create kill switch, `CMUX_VM_CREATE_ENABLED`.
-- [x] Add the Freestyle provider kill switch, `CMUX_VM_FREESTYLE_ENABLED`.
-- [x] Set the global and Freestyle create switches to enabled values in the
+- [x] Add the VM provider kill switch, `CMUX_VM_FREESTYLE_ENABLED`.
+- [x] Set the global and provider create switches to enabled values in the
   verified deployment configuration.
 - [ ] Add a preview allowlist before paid provider calls if preview uses real provider keys:
   - Stack user ids
   - Stack org ids later, if org billing exists
 - [x] Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` in the verified local and deployed
   environments.
-- [x] Set the Freestyle credential in the verified provider environments.
+- [x] Set the VM provider credential in the verified provider environments.
   `FREESTYLE_API_KEY` is normal; a complete `FREESTYLE_STACK_ACCESS_TOKEN` plus
   `FREESTYLE_TEAM_ID` pair is also valid. Audit tools verify Sensitive key
   presence through Vercel metadata and never print values. An authenticated
@@ -329,7 +329,7 @@ These are already configured in Vercel for development, preview, and production:
 
 ## Phase 3: Image Manifest and Rollback
 
-Keep every Freestyle snapshot ID in the checked-in image manifest. The entry
+Keep every provider snapshot ID in the checked-in image manifest. The entry
 flagged `defaultForKind` is the active image, and rollback is a manifest change
 followed by a deploy. Runtime image resolution never uses an environment image
 selector, so an old `FREESTYLE_SANDBOX_SNAPSHOT` value cannot silently override
@@ -339,9 +339,9 @@ the reviewed image.
 - [x] Stop relying on hardcoded or environment-selected image ids in deployed
   environments. Production and preview fail closed when the manifest has no
   validated `defaultForKind` entry.
-- [x] Record every known-good Freestyle snapshot with:
+- [x] Record every known-good provider snapshot with:
   - image version
-  - Freestyle snapshot id
+  - provider snapshot id
   - cmux-tui daemon artifact provenance
   - build timestamp
   - builder script version
@@ -364,18 +364,18 @@ the reviewed image.
   - missing image env fails before provider call
   - unknown image id fails before provider call
   - known manifest image resolves to the expected provider id
-- [ ] Keep old Freestyle snapshots until all active VMs using them are gone.
+- [ ] Keep old provider snapshots until all active VMs using them are gone.
 
 ## Phase 4: Image Build and Promotion Workflow
 
 - [x] Make image build script output a manifest entry instead of relying on chat notes.
-- [x] Build the Freestyle snapshot from the pinned cmux-tui daemon artifact.
+- [x] Build the provider snapshot from the pinned cmux-tui daemon artifact.
 - [x] Record artifact provenance:
   - cmux-tui release/artifact manifest entry
   - cmux-tui install and bootstrap command
   - binary SHA256
-  - artifact URL used by Freestyle snapshot creation
-- [ ] Run Freestyle smoke tests after image build:
+  - artifact URL used by provider snapshot creation
+- [ ] Run provider smoke tests after image build:
   - shell starts
   - `cmux-remote` Noise session authenticates over `/v1/link`
   - terminal RPC and command execution work
@@ -388,7 +388,7 @@ the reviewed image.
   - production env vars
   - production redeploy
   - production smoke tests
-- [ ] Do not delete old Freestyle snapshots during the same promotion.
+- [ ] Do not delete old provider snapshots during the same promotion.
 
 ## Phase 5: VM Create Rate Limits
 
@@ -414,13 +414,13 @@ the reviewed image.
   - another user cannot `POST /api/vm/:id/exec`
   - another user cannot mint attach or SSH endpoints
 - [x] Remove raw `/api/rivet/*`; there is no raw actor action surface to test.
-- [ ] Add a provider API key rotation runbook for Freestyle.
+- [ ] Add a provider API key rotation runbook for the VM provider.
 - [ ] Audit logs, spans, JSON responses, and terminal startup commands for secret leakage:
   - provider API keys
   - Stack access/refresh tokens
   - attach PTY tokens
   - attach RPC tokens
-  - Freestyle SSH passwords/identity handles
+  - provider SSH passwords/identity handles
 - [ ] Harden the browser proxy contract:
   - leases are scoped to one VM and one session
   - proxy cannot become an arbitrary public open proxy
@@ -460,7 +460,7 @@ This should be a follow-up after the current VM PR unless billing becomes a laun
 - [ ] Add cost rollups by user, provider, and day.
 - [ ] Make cleanup jobs idempotent so orphan cleanup cannot double count usage.
 - [ ] Add provider spend alerts independent of app telemetry:
-  - Freestyle dashboard/API budget alert
+  - VM provider dashboard/API budget alert
   - Vercel spend alert for function usage
 
 ## Phase 7: Database Control Plane and Legacy Removal
@@ -538,8 +538,8 @@ operational proof, not a provider migration.
 - [ ] PR checks should run web typecheck, Bun tests, and the remote-state contract tests.
 - [ ] PR checks should not call paid providers by default.
 - [ ] Provider tests should use a `MockVMProvider` by default. Only the explicit
-  staging smoke job may call Freestyle.
-- [ ] Staging smoke tests may call real Freestyle with tiny quotas.
+  staging smoke job may call the VM provider.
+- [ ] Staging smoke tests may call the real VM provider with tiny quotas.
 - [ ] Vercel preview checks should verify the project root is still `web`.
 - [ ] Add a CI check that required deployed env var names are documented in `web/.env.example` and
   `web/services/vms/README.md`.
@@ -562,7 +562,7 @@ operational proof, not a provider migration.
   - provider errors
   - rate-limit blocks
 - [ ] Add dashboards or saved queries for:
-  - VM create duration for Freestyle
+  - VM create duration for the VM provider
   - provider failure rate
   - attach latency
   - browser proxy failures

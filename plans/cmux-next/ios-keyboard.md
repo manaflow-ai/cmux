@@ -9,7 +9,7 @@ Termius, the Mac Ghostty) for the terminal screen.
 
 ## 1. Evidence
 
-Audit run: `ios/scripts/keyboard-uitests.sh` with `nx-remote --sim` on cmux-lawrence-2
+Audit run: `ios/scripts/keyboard-uitests.sh` with `nx-remote --sim` on a team Mac
 (isolated headless iPhone 17, iOS 27.0, one screen recording per test). Tests:
 `ios/cmuxUITests/KeyboardAuditUITests.swift` (new UI test target `cmuxUITests` in the
 `cmux-ios` scheme; DEV preview, mock owner, no account). Recordings, contact sheets and the
@@ -168,7 +168,7 @@ rule), K5 (Cmd-F, Cmd-N, Cmd-[ and Esc; Home and the conversation take first res
 to T5 (terminal focus, `UITextInput`, hardware keys through `ghostty_surface_key` with HID
 usages, key bar with sticky Ctrl/Alt, preedit, cursor pan).
 
-Verified on an isolated iPhone 17 simulator (iOS 27, cmux-lawrence-2): composer on the keyboard,
+Verified on an isolated iPhone 17 simulator (iOS 27, a team Mac): composer on the keyboard,
 send keeps focus, five-line cap, interactive dismissal, rotation, search and invite fields,
 terminal tap shows the keyboard and key bar, Cmd-F, Cmd-N, Cmd-[; per-frame keyboard show at 60 fps (rows, field and keyboard move as one; `.cmux-scratch/nx-worker/ios-keyboard/after/keyboard-show-frames-60fps.png`); package tests (router, real-surface key
 bytes: Ctrl-C 0x03, Enter CR, Backspace DEL, arrows, Esc, Tab, F1, Alt-x, preedit sends nothing).

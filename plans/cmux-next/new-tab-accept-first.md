@@ -20,7 +20,7 @@ Background: `plans/cmux-next/new-tab.md` status (R81(c)) and the hq working doc
 ## 1. Problem, measured
 
 A daemon `new-tab` replies after the whole launch: about 100 ms p50 and 140 ms p95 on
-cmux-lawrence-2 (`scripts/cmux-next/new-tab-daemon-bench.py`). The request thread waits for
+a team Mac (`scripts/cmux-next/new-tab-daemon-bench.py`). The request thread waits for
 5 SQLite commits (prepare intent, mark executing, `commit_terminal` twice, effect projection),
 3-4 host record syncs, and the host bootstrap/launch handshake. One F_FULLFSYNC costs 3.9 ms p50
 on that Mac. The R81(c) spare host removes only the host exec, so it changed nothing.
@@ -29,7 +29,7 @@ Debug marks (`CMUX_TUI_DEBUG_SPANS`, section 7) measure the rest.
 ## 2. Target
 
 - The reply for `new-tab` takes at most one durable commit plus CPU: p50 at most 15 ms and
-  p95 at most 25 ms on cmux-lawrence-2 (stage A). Stage B (section 6) removes the commit.
+  p95 at most 25 ms on a team Mac (stage A). Stage B (section 6) removes the commit.
 - The tab is in the tree and attachable at the reply, with lifecycle `launching`.
 - Time to the first shell prompt does not get worse (it is limited by shell startup).
 - The app swaps its "!" placeholder for the real terminal view when the reply arrives, in one
@@ -214,7 +214,7 @@ each step (job start, prelaunch target, spare take, host publication, bootstrap,
 connect, workspace persist, commit start, `new_tab` selectors/commit/events, every registry
 commit start, every mutex wait of 0.5 ms or more with its call site, reply queued).
 `SPANS=1 scripts/cmux-next/new-tab-daemon-bench.py BIN` prints the gap before each mark.
-Results (2026-10-04, cmux-lawrence-2, 2 x 20 tabs per build), mean per tab:
+Results (2026-10-04, a team Mac, 2 x 20 tabs per build), mean per tab:
 
 | step | marks only (nt13) | plus barrier sync (nt14) |
 | --- | --- | --- |

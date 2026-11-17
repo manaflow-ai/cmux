@@ -31,7 +31,7 @@ clock: the same rows give the same bytes).
 | action | objects | meaning |
 | --- | --- | --- |
 | `carried` | user, teams, memberships, plan metadata, applied admin plan grants | Same Stack project: NEXT already has them. Nothing is written; the plan shows the NEXT ids (`user_…`, `team_…`). |
-| `copy` | each running or paused Freestyle VM the subject owns | The platform snapshots the upstream VM, registers it under the team's VM API tenant and creates a NEXT machine from it, sized like the classic VM. |
+| `copy` | each running or paused provider VM the subject owns | The platform snapshots the upstream VM, registers it under the team's VM API tenant and creates a NEXT machine from it, sized like the classic VM. |
 | `link` | Stripe customer (with its subscriptions) | Report only: NEXT's team billing link. Nothing is written. |
 | `not-migrated` | destroyed/failed/provisioning VMs, classic snapshots, publications, domains, tunnels, `crk_` keys, `crt_` route tokens, Apple IAP, open admin grants, runs, vault transcripts | Stays on classic; the reason is on the line. Classic keys stay valid on classic. |
 | `needs-decision` | a VM whose owner the rules below cannot settle | Not copied. Decide personal or team, then re-plan. |

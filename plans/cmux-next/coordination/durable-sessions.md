@@ -24,7 +24,7 @@
 - LANDED: b41a3b8756f agent hosts A1-A4 daemon (endAgents, keepSessions); 562d9d18a41 host-wait deadlines + lost-link reattach; 568b1f92459 reattach restarts the idle period.
 - Hosted focused runs: 37210697785 SUCCESS (b41a3b8756f). 37213334209 (filter host) FAILED outside acpmux: zig build of libghostty-vt in lint (linux), and cmux-tui terminal_host_recovery template_terminal_host_is_adopted_by_a_fresh_identity_daemon (a leftover terminal host record); acpmux has no dependency path to either. 37215022237 (filter reattach) pending.
 - Flake seen once on the Testbox: acpmux config::tests::launcher_check_rejects_old_subrouter (passed alone and in the next full run).
-- Step 2 Swift (quit census, endAgents step, fleet checks prompt-counts-agents and quit-ends-agents): branch nx-durable-sessions 9c7a1ddc; exact-head cmux-ci step 0049f58a367823a97dccd2c9 queued; then push and the full fleet-quit-persistence.sh run on cmux-lawrence-2 after the updates lead lands debug.updater relaunch.
+- Step 2 Swift (quit census, endAgents step, fleet checks prompt-counts-agents and quit-ends-agents): branch nx-durable-sessions 9c7a1ddc; exact-head cmux-ci step 0049f58a367823a97dccd2c9 queued; then push and the full fleet-quit-persistence.sh run on a team Mac after the updates lead lands debug.updater relaunch.
 - Follow-up: move agent_host::within onto crate::clock::Clock.
 - 2026-10-04 QuitSheetTests GUI-lane-only (WindowSession trait) LANDED 4c7842e4511. P2-7 LANDED cd6f5cb3d45; hosted run 37219613949. Next slice: P2-3 (lost Exit ack).
 - P2-3 LANDED e97b6890e41; hosted run 37220449099. Next slice: P2-4 (setsid grandchild keeps the host alive).

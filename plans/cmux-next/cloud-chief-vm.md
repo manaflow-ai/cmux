@@ -16,7 +16,7 @@ Decision (Lawrence, 2026-10-15):
    make Cloud Chiefs.
 3. A Cloud Chief and a local Chief run at the same time and talk in one shared
    conversation.
-4. Hands: acpmux agents in Freestyle sandboxes and on the user's Mac (a host
+4. Hands: acpmux agents in provider sandboxes and on the user's Mac (a host
    agent that installs itself).
 5. Models: Bedrock (Anthropic) and OpenRouter. Default `claude-opus-5-5`, effort
    `low`; any model and effort is selectable per Chief.

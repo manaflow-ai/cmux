@@ -58,7 +58,7 @@ TypeScript: the host strips types at load (oxc transformer in Rust, MIT, no type
 
 Debugging: v1 has `cmux script repl` (the REPL is the debugger for glue code), stack traces with source maps from the type strip, and `cmux.log`. A Chrome DevTools protocol bridge is a later step and needs measurement.
 
-### 3.3 Measurements (cmux-lawrence-2, macOS 27.0.1 arm64, Apple clang 21, 2026-10-08)
+### 3.3 Measurements (a team Mac, macOS 27.0.1 arm64, Apple clang 21, 2026-10-08)
 
 Method: one stripped host binary per engine that creates a runtime and context and evaluates `1+1`; footprint is `phys_footprint` delta over 200 instances.
 
@@ -195,7 +195,7 @@ Downloaded scripts are apps: sharing a script means packaging it as an app (mani
 - CLI: `cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]`, `cmux script repl`, `cmux script types` (the generated `cmux-app.d.ts` plus `js/script-globals.d.ts`).
 - Not in phase 1: the TypeScript type strip (it needs a new parser crate and a Cargo.lock change; `.ts` files are refused with a message until then), `cmux help script`, provider ops such as `action.run`, and Windows (the daemon answers nothing for `script-*` there; there is no Windows sandbox for the host yet).
 
-Gates: Rust on a Blacksmith Testbox (fmt, clippy, focused tests), Swift on cmux-lawrence-2 for the console pane, review subagent for every daemon, protocol and security slice.
+Gates: Rust on a Blacksmith Testbox (fmt, clippy, focused tests), Swift on a team Mac for the console pane, review subagent for every daemon, protocol and security slice.
 
 ## 11. Ownership
 

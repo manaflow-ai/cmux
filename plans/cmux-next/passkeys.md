@@ -139,12 +139,12 @@ Known crash that blocks testing (coordinator, 2026-10-04): a WebAuthn call from 
 Plan (failing test first where a test is possible):
 1. Test RP: new scenarios `opaque-origin-iframe-uvpa` and `sandboxed-iframe-create` (a `sandbox` iframe without `allow-same-origin` calls `isUserVerifyingPlatformAuthenticatorAvailable()` and `create()`; expected: a rejection such as `NotAllowedError` or `SecurityError`, and the browser stays up), plus `hybrid-qr-offered` for the manual run (an allow list with `transports: ["hybrid"]`; expected: Chromium's QR sheet). Stock Chromium is the oracle; the cmux run uses a cmux.17 framework only.
 2. Built-bundle check (no source-shape test): the tagged and release builds' `Info.plist` has `NSBluetoothAlwaysUsageDescription`, and the signed nightly has the browser passkey entitlement; the release pipeline's existing entitlement assertion covers the second.
-3. Measurement on cmux-lawrence-2 with a cmux.17 tagged build and a real phone (manual, Lawrence): the steps in section 8 item 2, plus the Bluetooth TCC prompt the first time.
+3. Measurement on a team Mac mini with a cmux.17 tagged build and a real phone (manual, Lawrence): the steps in section 8 item 2, plus the Bluetooth TCC prompt the first time.
 4. Fix only what the measurement shows. Candidates: QR sheet placement over the child window (fork, one function, cmux.18), the Bluetooth prompt text (Info.plist, localized in `InfoPlist.xcstrings`), an error page when Bluetooth is off (K2 wants "turn on Bluetooth", not "Something went wrong"). No fork change is known to be needed for hybrid itself.
 5. WebKit: hybrid comes with build plan step 5 (authorization) and the D1 measurement; nothing hybrid-specific to build before that.
 6. Agents never complete a hybrid ceremony: the agent lease `refuse` mode (3.5, fork `cmux_tab_set_webauthn_mode`) rides cmux.18 with the other fork changes, never cmux.17.
 
-Manual steps for Lawrence (when the cmux.17 build is ready; needs him at cmux-lawrence-2 or on Screen Sharing, with an iPhone that has Bluetooth on):
+Manual steps for Lawrence (when the cmux.17 build is ready; needs him at the team Mac mini or on Screen Sharing, with an iPhone that has Bluetooth on):
 1. Open the tagged build the agent names (a CEF tab).
 2. Go to https://webauthn.io, type a new username, open Advanced Settings, set Authenticator Type to "Cross-platform", click Register.
 3. Expect Chromium's sheet with a QR code. If macOS asks "cmux would like to use Bluetooth", click Allow.
@@ -259,7 +259,7 @@ Lawrence 2026-10-14: "ensure we support passkey sign in with bluetooth and secur
 yubikey". `scripts/cmux-next/passkeys-roaming-e2e.py` runs in a cmux-next DEV app's CEF pane on
 https://webauthn.io (Register with Authenticator Attachment "Cross-Platform", then Authenticate with
 the username filled, so an allow list; a pass ends on webauthn.io's `/profile`). Run as a fleet-built
-GUI proof: `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA` on cmux-lawrence-2.
+GUI proof: `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA` on a team Mac mini.
 
 | Check (job 1013-203840-2d7cbf, DEV tag pkhw1, ref 78a4260e) | Result |
 | --- | --- |
@@ -291,10 +291,10 @@ Findings:
   6 s control deadline (was 2 s); CEF's own 5 s wait still applies. The capture helper's `--with-popups` composite came back blank white on this
   host; the single-window pictures (`*.front.png`) and the window lists are the evidence.
 - UNVERIFIED (needs a person): PIN typed into the sheet and a real touch (YubiKey run on
-  cmux-lawrence-2, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
+  a team Mac mini, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
   `.cmux-scratch/passkeys/checklist.md` in hq.
 
-### 11.1 Real hardware on cmux-lawrence-2, 2026-10-14 (Lawrence at the Mac, DEV tag pkhw4)
+### 11.1 Real hardware on a team Mac mini, 2026-10-14 (Lawrence at the Mac, DEV tag pkhw4)
 
 - YubiKey 5, touch only (webauthn.io Discoverable Credential "Discouraged"): register + sign-in
   PASS (job 1013-214604-51740b). Chromium's sheet showed over the pane while the key waited.

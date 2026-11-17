@@ -12,7 +12,7 @@ edit normally appears in the open tab in about one second. When the checkout con
 `webviews/vite.config.gallery-dev.ts`, the script also starts the live gallery (`bun run gallery:dev`) at `/gallery/` on port 4178 and adds it to
 the index.
 
-The gallery matrix is the capture path. Run `scripts/gallery-matrix` on Freestyle, a Testbox, or
+The gallery matrix is the capture path. Run `scripts/gallery-matrix` on a provider VM, a Testbox, or
 CI; use its manifest sharding and remote browser installation. Do not run Playwright or another
 headless browser on the developer laptop. A web capture host may run about one capture per 0.5 GB
 of free RAM. Native tagged-app captures use one GUI session, about 6–8 windows per mini, and batch
@@ -84,7 +84,7 @@ scripts/gallery-deploy.sh --ref <sha>      # static exact-commit preview at /lat
 ```
 
 The host returns a `/dev/<name>/` or `/wt/<name>/` URL. The stable team gallery is
-`https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`; open an exact entry with
+`https://<host>.<tailnet>.ts.net:18796/live/`; open an exact entry with
 `#/entry.id/variant`. These routes publish the real gallery components and fixtures while keeping
 acpmux, file reads and editor operations private. They are tailnet/team previews, not anonymous
 Internet hosting; an Internet-public URL needs the separately designed Cloud publication path.

@@ -6,7 +6,7 @@ Vitess database `cmux-next-vitess` (org cmux, us-west-2, PS-10, branches main/st
 Postgres `cmux-next` stays only until the copy is verified, then is retired with Lawrence's OK;
 classic `cmux-prod` is never touched. Identity stays Stack Auth (prod 9790718f, dev 454ecd03).
 Usage history goes to ClickHouse. Billing uses the classic Stripe account and products (one
-subscription). Freestyle: same account, new keys `cmux-next-dev` and `cmux-next-prod`.
+subscription). VM provider: same account, new keys `cmux-next-dev` and `cmux-next-prod`.
 
 ## 1. The rule
 
@@ -153,7 +153,7 @@ punctuation, keyset) must pass on MySQL.
 Production holds no projection rows today, so main is the lowest-risk step; staging is the real
 rehearsal.
 
-## 5. New Cloud backend (Cloudflare Worker/DO <> Freestyle)
+## 5. New Cloud backend (Cloudflare Worker/DO <> VM provider)
 
 No dependency on `web/`, Vercel, classic Postgres `cloud_vms`, the GCP edge or classic WireGuard.
 
@@ -173,7 +173,7 @@ No dependency on `web/`, Vercel, classic Postgres `cloud_vms`, the GCP edge or c
 
 1. A mutation commits a ledger row first: `{op, key, machine id, provider name, state: pending}`.
    The provider name is deterministic: `<env prefix><machine id>`.
-2. CloudDO then calls Freestyle (single flight per machine) and commits the outcome as an internal
+2. CloudDO then calls the provider (single flight per machine) and commits the outcome as an internal
    op (`cloud.driver_result`). A crash between the call and the commit is repaired by the alarm:
    it looks the resource up by its deterministic name, so a lost create answer never makes a
    second VM.
@@ -185,7 +185,7 @@ No dependency on `web/`, Vercel, classic Postgres `cloud_vms`, the GCP edge or c
 
 ### 5.3 Names, keys, account isolation
 
-Same Freestyle account as classic, new keys. Env prefixes: `cmuxnp-dev-`, `cmuxnp-stg-`,
+Same VM provider account as classic, new keys. Env prefixes: `cmuxnp-dev-`, `cmuxnp-stg-`,
 `cmuxnp-prod-` (not `cmux-`: classic already uses `cmux-` names on this account, and a prefix
 must identify our resources for cleanup). The driver refuses any call on a resource whose name
 does not carry its environment prefix, except classic machines imported by migration (allowlist
@@ -214,7 +214,7 @@ browser/app sign-in path only.
 ### 5.6 Exec / terminal stream relay through the Worker
 
 Feasible. `cloud.shell.open` returns a stream id; the client opens a WebSocket to the Worker; the
-Worker authenticates (install token, machine membership via CloudDO) and opens the Freestyle exec
+Worker authenticates (install token, machine membership via CloudDO) and opens the provider exec
 WebSocket with the key, then pipes frames both ways. A plain Worker request (not a DO) does the
 relay, so it costs wall time only, not CPU, and needs no DO memory. Limits: one relay per stream,
 idle close after 10 minutes, max 4 per machine. Normal terminals use the daemon link; the relay is
@@ -231,7 +231,7 @@ to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summ
 
 1. Create: CloudDO mints the machine id, the overlay host id (`host_...`, stable for the machine's
    life) and epoch 1, and a one-time bind token (32 random bytes; only its sha256 is stored; expires
-   15 minutes after the provider reports running). The token goes into the VM at create (Freestyle
+   15 minutes after the provider reports running). The token goes into the VM at create (provider
    file write), never into a log or the client.
 2. Bind: the image's bind agent calls internal op `cloud.machine.bind {machine, bind_token,
    wg_public_key, daemon: {version, capabilities}}` once. CloudDO checks the token hash and expiry,
@@ -275,7 +275,7 @@ to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summ
 ## 6. Classic Cloud migration
 
 Inputs: classic users and VMs live in classic Postgres `cmux-prod` (`cloud_vms`) and on the same
-Freestyle account. Rule: no live connection from cmux-next to classic; a one-time read-only export
+VM provider account. Rule: no live connection from cmux-next to classic; a one-time read-only export
 per wave.
 
 1. Wave export (operator, read-only): for the users in the wave, export
@@ -291,7 +291,7 @@ per wave.
    classic main PR adds a read-only `moved_to_next` flag that makes classic show those machines
    as moved and refuse mutations; merged only with Lawrence's verdict. Until the fence is live for
    a user, the new backend shows imported machines read-only.
-4. Upgrade (`cloud.machine.upgrade`): CloudDO installs the cmux-next daemon through Freestyle exec,
+4. Upgrade (`cloud.machine.upgrade`): CloudDO installs the cmux-next daemon through provider exec,
    binds it to the overlay and drops the classic badge; failure leaves a working classic machine.
 5. Billing: same Stripe customer and subscription; the import links the existing Stripe customer
    to the team in `billing_customers`.
@@ -306,7 +306,7 @@ per wave.
 2. MySQL step 2b: staging schema, staging Hyperdrive configs, one-time copy, dual write with hourly
    compare, target 2026-10-06; main schema by deploy request (id reported first, coordinator's go),
    target 2026-10-08; read switch per environment after 3 clean days.
-3. CloudDO skeleton: ledger, Freestyle driver (port of TeamVmDO's), create/get/list/delete, quotas,
+3. CloudDO skeleton: ledger, provider driver (port of TeamVmDO's), create/get/list/delete, quotas,
    per-environment keys and prefixes (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-), target 2026-10-08.
 4. VM bind and `connect_info` (5.8), snapshots, start/pause/resize, events, MySQL projection, target
    2026-10-10; staging deploy for the Cloud v2 client, target 2026-10-12.
@@ -315,7 +315,7 @@ per wave.
 
 ## 8. Open decisions
 
-- D1: staging Freestyle key: reuse cmux-next-dev with prefix `cmuxnp-stg-`, or a third key.
+- D1: staging provider key: reuse cmux-next-dev with prefix `cmuxnp-stg-`, or a third key.
 - D2: production prefix `cmuxnp-prod-` instead of the contract's `cmux-` (recommended, classic
   uses `cmux-`).
 - D3: who runs the classic wave export and with which read-only credential.

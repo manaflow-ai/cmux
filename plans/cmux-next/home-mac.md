@@ -97,7 +97,7 @@ client decision, not an op.
   key changes.
 - Injects a `HomeDeadline` adapter over `DemandTimer` (CmuxNextWakeups).
 - Uses the window's `FrameScheduler` only while momentum runs.
-- Selftest and audit run on cmux-lawrence-2 only (GUI rule).
+- Selftest and audit run on the team GUI Mac only (GUI rule).
 
 ## 5. Agreed with the Home lead (2026-10-03)
 

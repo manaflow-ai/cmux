@@ -70,7 +70,7 @@ loopback, and a TLS front listens only on the runner's tailnet address.
 
 ### TLS
 
-Every origin's host is one fixed name, `cmux-e2e-backend.tail137216.ts.net`
+Every origin's host is one fixed name, `cmux-e2e-backend.<tailnet>.ts.net`
 (`<name>` above). The apps accept only `https` origins, and the iOS Iroh
 client checks relay TLS against built-in public roots (`iroh-ffi`
 `src/relay_tls.rs`), so a private CA cannot serve the relay. A Tailscale

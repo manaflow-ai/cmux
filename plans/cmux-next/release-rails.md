@@ -363,7 +363,7 @@ deploy-staging and on `workflow_dispatch target=promote`:
   commit staging proved more than 24 h ago, or is more than 20 backend commits behind the newest
   staging-proven commit. `--issue` opens or comments on the issue labeled `prod-stale` and closes
   it when production is current. It runs in promote-gates on every feat-cmux-next backend push
-  (GitHub schedules run only from main; cmux-lawrence has no Cloudflare credential). The chief
+  (GitHub schedules run only from main; the team Mac mini has no Cloudflare credential). The chief
   watches the `prod-stale` label and asks Lawrence after 72 h.
 - **Accepted risk (Lawrence, 2026-10-13: no ruleset on feat-cmux-next, "only me and people in my
   team work on this").** Any repository writer can change the production deploy path on
@@ -379,12 +379,12 @@ deploy-staging and on `workflow_dispatch target=promote`:
 ## cmux-old compatibility (production steps)
 
 cmux-old (latest stable v0.65.0, 2026-10-05) calls cmux.com/api/* (web/), presence.cmux.dev,
-api.cmux.sh, cmux.dev (updates) and Freestyle hosts from its CLI. It does not call
+api.cmux.sh, cmux.dev (updates) and the VM provider's hosts from its CLI. It does not call
 vm.cmux.dev / vm-staging.cmux.dev (cmux-vm Worker) or cloud-api.cmux.dev (cmux-next API),
 and no cmux-old path reads the cmux-next `CLOUD_FREESTYLE_SNAPSHOT` / `TEAM_VM_SNAPSHOT`
 names (git grep at v0.65.0 over CLI/, Sources/, Packages/, cmux-tui/crates), so an image
 promotion here does not affect cmux-old. Shared state: PlanetScale cmux-prod (hence the
-schema confinement rule) and the Freestyle production account. Its CLI makes no REST call
+schema confinement rule) and the VM provider production account. Its CLI makes no REST call
 itself: every Cloud call goes through the running app (CmuxCloud), which honours
 `CMUX_VM_API_BASE_URL`/`CMUX_API_BASE_URL` and the env auto-login
 (`CMUX_UITEST_STACK_EMAIL`/`_PASSWORD`, not DEBUG-gated in v0.65.0).

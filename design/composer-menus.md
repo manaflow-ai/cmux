@@ -51,7 +51,7 @@ same controls.
 - A resume reads Starting… at once, before the app's list comes back.
 - The plain Computer menu's New Cloud Machine says what one gives ("Keeps working while your Mac
   sleeps"). The environment picker has no second lines at all: it is This Mac and Cloud, then the
-  other machines, one line each (Leo, 2026-10-31; leo-workspace design/environment-picker.md).
+  other machines, one line each (Leo, 2026-10-31; the team's private design notes).
 
 ## Gallery
 

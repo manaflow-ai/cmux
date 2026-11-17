@@ -116,7 +116,7 @@ Locally, the hosted coderouter is one account, after the local accounts in the f
 4. Routing policy. Red tests replay the sticky-loop, mid-stream-overload and debit-floor bugs. Gate: Testbox.
 5. OAuth, refresh single-flight, usage polling, with fake token endpoints. Gate: Testbox.
 6. acpmux integration: start the router, `routerBuild`, takeover and drain, route env per harness, pool fingerprint, sandbox port. Gates: Testbox, plus the sandbox canary on a fleet Mac. This phase needs a WINDOW only if it changes the protocol spec or the schema (`acpmux-schema.json`).
-7. Swift UI. Gates: compile with `nx-remote --host cmux-mini-6 --xcode 26.6`; Swift and GUI tests on cmux-lawrence-2.
+7. Swift UI. Gates: compile with `nx-remote --host cmux-mini-6 --xcode 26.6`; Swift and GUI tests on a team Mac.
 8. Webviews picker mark and status chip. Gate: the webviews checks (bun test, typecheck, biome).
 9. Hosted upstream account and the hq-ff contract fixtures.
 
@@ -161,7 +161,7 @@ Money decisions for Lawrence, OFF until he answers: spending paid Claude extra u
 4. Routing policy. Red tests replay the sticky-loop, mid-stream-overload and debit-floor bugs. Gate: Testbox.
 5. OAuth, refresh single-flight, usage polling, with fake token endpoints. Gate: Testbox.
 6. acpmux integration: start the router, `routerBuild`, takeover and drain, route env per harness, pool fingerprint, sandbox port. Gates: Testbox, plus the sandbox canary on a fleet Mac. This phase needs a WINDOW only if it changes the protocol spec or the schema (`acpmux-schema.json`).
-7. Swift UI. Gates: compile with `nx-remote --host cmux-mini-6 --xcode 26.6`; Swift and GUI tests on cmux-lawrence-2.
+7. Swift UI. Gates: compile with `nx-remote --host cmux-mini-6 --xcode 26.6`; Swift and GUI tests on a team Mac.
 8. Webviews picker mark and status chip. Gate: the webviews checks (bun test, typecheck, biome).
 9. Hosted upstream account and the hq-ff contract fixtures.
 

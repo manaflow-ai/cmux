@@ -977,7 +977,7 @@ request, which could record a pass of its own under any key.
 
 Above `release-compile: Release compile` in `.github/workflows/cmux-next.yml`.
 
-on cmux-lawrence's SSD) from the host's canonical root, read-only: only the trusted
+on a team Mac mini's SSD) from the host's canonical root, read-only: only the trusted
 writer fills it (scripts/cmux-next/release-compile-fleet-cas.sh). A node that does not
 answer or a root another compile holds builds per runner as before, at once.
 vars.CMUX_NEXT_RELEASE_FLEET_CAS=off turns it off.

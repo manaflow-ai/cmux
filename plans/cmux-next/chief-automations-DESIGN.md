@@ -20,7 +20,7 @@ timer) and credits-checkout.ts (the top-up link). It does not replace them.
    that calls `ChiefBrainDO.chiefJob` on `<chief>/<conversation>`. The brain queues
    "[job auto_…] PROMPT" (plus the trigger input for webhook and event runs) as the Chief's own note
    (`job:<run>`, so a replayed step queues it once) and starts a turn, as `chief-wake` does.
-4. The Chief does the job in that turn (its own Freestyle turn machine, tools, GitHub login) and posts
+4. The Chief does the job in that turn (its own provider VM turn machine, tools, GitHub login) and posts
    the result in the chat. No computer of the person is involved.
 5. The run ends `succeeded` with outcome "handed to the Chief" once the note is queued; the run history
    (`automation.runs.list`) shows each fire.
@@ -58,7 +58,7 @@ itself and this conversation.
 
 ## 4. Proof (2026-10-25)
 
-`backend/apps/api/test/chief-jobs.test.ts` (workerd, on the cmux-lawrence Mac mini), red before the
+`backend/apps/api/test/chief-jobs.test.ts` (workerd, on a team Mac mini), red before the
 change (3 of 3 failed: no `auto_` action, no `chiefJob` RPC), green after:
 
 - a job the Chief makes runs: create (cron with tz), list, a forged id refused, run now; the Workflow

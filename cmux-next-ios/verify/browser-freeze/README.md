@@ -14,7 +14,7 @@ second for 7 minutes while the Mac kept sending frames (verify/browser-freeze.md
   Pro, iOS 26.5) on mini-cmux8s. It is signed in to production test account B
   (`~/.secrets/brfz-prod.creds` on the mini, 0600, `EMAIL=`/`PASSWORD=`, the laptop's
   `~/.secrets/cnx-ios-userhub-verify/B.creds`) with the simulator-only password sign-in.
-  The production dogfood account (`cmuxterm-prod.env`) does not work for this: its
+  The production dogfood account (the production credentials file) does not work for this: its
   password sign-in fails with `StackAuthError`.
 - **Mac.** A hidden rig Mac app on mini-cmux11s in `~/brfreeze-rig` (moved from mini-cmux9s, whose load of 230 kept the browser host from starting) (rig.py, the
   `cmux-next-ios/verify/e2e` tooling of the base, the fleet app in `src/`). It is the fleet `--production` app `cmux-mobile-e2e-lrbase` (hostd 36289e3cd3, whose media/ and

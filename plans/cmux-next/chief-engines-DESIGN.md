@@ -67,7 +67,7 @@ What each engine does not own:
 | --- | --- | --- | --- |
 | Mac (Home Chief) | `optchat-chief host` on the Mac | no | the Mac's apps, browser, files, fleet |
 | Linux box / Mac mini | the same binary (CI already builds Linux targets) | yes | its own machine; the Mac through the hub |
-| Cloud | the same Rust kernel compiled to wasm, inside the Chief's Durable Object; pi-durable engine in process; models through the Vercel AI Gateway | yes | cloud APIs; a machine through a hand (Freestyle sandbox or the Mac) |
+| Cloud | the same Rust kernel compiled to wasm, inside the Chief's Durable Object; pi-durable engine in process; models through the Vercel AI Gateway | yes | cloud APIs; a machine through a hand (provider sandbox or the Mac) |
 
 **One kernel, built two ways** (Oct 28, agreed with a749; its section 11 in
 `cloud-chief-durable-DESIGN.md`): the native binary on a Mac, a Linux box or a VM, and the same
@@ -77,7 +77,7 @@ The **Cloud Chief** becomes a placement, not a codebase:
 - the same kernel and ledgers, as wasm in the DO;
 - the pi-durable engine in process for durable mid-turn steps (a tool's intent is stored before it
   runs; a crash replays only `replay: "safe"` tools);
-- tools that need a machine call a hand: a Freestyle sandbox, or the Mac through the hub;
+- tools that need a machine call a hand: a provider sandbox, or the Mac through the hub;
 - any model through the gateway.
 
 Why not a VM per user (this doc's first version): a cold wake would be a VM start plus a host start

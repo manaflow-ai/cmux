@@ -25,7 +25,7 @@ call of a route, and the auth refresh stall in #12624 can hold a create for
 minutes. The "~10 seconds sometimes" report is consistent with any one of
 those tails landing on top of the 4–5 s median.
 
-**Provider floor (measured with the Freestyle SDK directly, n=5):**
+**Provider floor (measured with the provider SDK directly, n=5):**
 allocation returns in **0.44 s** median and the daemon bound to this machine
 is listening **1.21 s** after the create call started. Pause/resume is far cheaper:
 start returns in 0.09 s and the daemon is listening 0.14 s after the resume

@@ -60,7 +60,8 @@ callback). The dev Worker accepts the dev project (primary) and the production
 project for testing; production app builds use the prod Worker. A user
 is (project, sub): see PROTOCOL.md "Identity and auth".
 
-Cloudflare account `0c1675e0def6de1ab3a50a4e17dc5656`. Run wrangler as
+The Worker deploys in the team Cloudflare account (its id is in the team's
+private ops notes). Run wrangler as
 `bunx wrangler@4` (OAuth login).
 
 ## Secrets

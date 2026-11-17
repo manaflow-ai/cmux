@@ -1,13 +1,13 @@
 # cmux mesh: design (experiment, cx-0op)
 
-Status: design 2026-10-07, built in slices M1-M3 on `feat-cmux-next` (section 11 has the state and the SHAs). Decision: CMUX-MESH-EXPERIMENT M1-M5 and amendment 1 (one region; Freestyle facts validated by our own experiments, section 1.4). Built inside the cmux VM API (CMUX-VM-API V1-V7, amendment 1).
+Status: design 2026-10-07, built in slices M1-M3 on `feat-cmux-next` (section 11 has the state and the SHAs). Decision: CMUX-MESH-EXPERIMENT M1-M5 and amendment 1 (one region; provider facts validated by our own experiments, section 1.4). Built inside the cmux VM API (CMUX-VM-API V1-V7, amendment 1).
 
 Sources. Every claim cites one of these keys:
 
 | Key | Source |
 | --- | --- |
 | `D:<id>` | `decisions.md` in the cmux-next spec (hq `worktrees/cmux-next-spec`, commit 2731416e9c6): M1-M5, V1-V7, T1, T3, T4, D3, D37/D38 |
-| `TR §n` | `plans/cmux-next/transport.md` on `feat-cmux-next` (Freestyle measurements in §7 and §13) |
+| `TR §n` | `plans/cmux-next/transport.md` on `feat-cmux-next` (VM provider measurements in §7 and §13) |
 | `NP` | `spec/network-policy.md` in the same spec commit (`plans/cmux-next/network-policy.md` does not exist on `feat-cmux-next`) |
 | `OA:<operationId>` | `workers/cmux-vm/upstream/openapi.json` on `feat-cmux-vm-s2` (a0000870), pinned 2026-10-07, sha256 c0eef41b..., 88 operations |
 | `FD:<page>` | public docs `freestyle.sh/docs/vms/network/{tunnels,firewall,vpcs}` and `/vms/pricing-and-limits`, read 2026-10-07 |
@@ -18,9 +18,9 @@ Sources. Every claim cites one of these keys:
 
 ## 0. Shape in one paragraph
 
-A mesh is one Freestyle VPC per tenant (Stack team) [D:M1, D:D37]. A cmux VM joins as a VPC member; every other device (Mac, Linux server) gets its own Freestyle tunnel created with the device's public key, attached to that VPC [D:M1, TR §7]. cmux owns identity, enrollment, rotation and the ACL; the ACL compiles to pairwise Freestyle firewall rules, changed create-before-delete [D:M1, D:M3, WEB:drivers/freestyleNetworkPolicy.ts]. Freestyle does not forward tunnel to tunnel [TR §7, §13.2], so device-to-device traffic rides the end-to-end cmux overlay (LAN, punched direct, `HostDO` relay) with the same compiled ACL enforced at the receiving endpoint [D:T3, TR §4, §9]. Everything is new resources in the cmux VM API with gdp proofs and cross-tenant 404 [D:M2, D:V3-V5].
+A mesh is one provider VPC per tenant (Stack team) [D:M1, D:D37]. A cmux VM joins as a VPC member; every other device (Mac, Linux server) gets its own provider tunnel created with the device's public key, attached to that VPC [D:M1, TR §7]. cmux owns identity, enrollment, rotation and the ACL; the ACL compiles to pairwise provider firewall rules, changed create-before-delete [D:M1, D:M3, WEB:drivers/freestyleNetworkPolicy.ts]. The VM provider does not forward tunnel to tunnel [TR §7, §13.2], so device-to-device traffic rides the end-to-end cmux overlay (LAN, punched direct, `HostDO` relay) with the same compiled ACL enforced at the receiving endpoint [D:T3, TR §4, §9]. Everything is new resources in the cmux VM API with gdp proofs and cross-tenant 404 [D:M2, D:V3-V5].
 
-## 1. Freestyle surface
+## 1. VM provider surface
 
 ### 1.1 Operations that exist (pinned OpenAPI, v5)
 
@@ -43,7 +43,7 @@ Semantics that the design depends on:
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Tunnel endpoint | per-tunnel name `tun-<id>.beta-vpn.freestyle.sh`, every name resolves to `208.72.218.30:51820` (and `2602:f470:1::30`), San Francisco; no ICMP | TR §7, §13.2, Q16 |
+| Tunnel endpoint | per-tunnel name `tun-<id>.<provider VPN domain>`, every name resolves to `208.72.218.30:51820` (and `2602:f470:1::30`), San Francisco; no ICMP | TR §7, §13.2, Q16 |
 | Tunnel MTU | 1280 (docs say 1280; older configs 1200) | TR §7, FD:tunnels, UW |
 | API p50 | VPC create 164 ms, tunnel create 397 ms (136-171 ms with inline VPC), attach 233 ms, rule create 172 ms (max 1,356), rule delete 132 ms, tunnel delete 247 ms, rotate-key 96 ms | TR §13.2 |
 | New rule to first good connection | 185 ms p50, 244 ms max (n=6); rule to first SYN 19-34 ms (round 2) | TR §13.2, §13.6 |
@@ -63,11 +63,11 @@ Known: one VPC per VM [OA]; at most 200 firewall rules may name one resource (40
 
 Still unknown (not measured): tunnels per account and per VPC; attachments per tunnel; VPCs per account; the account-wide rule number; API rate limits (Q3 reached 188 rule creates/s with no 429); gateway throughput at 100-150 ms RTT (no far vantage point, Q10).
 
-Critical consequence: cmux runs every tenant on one Freestyle account [WEB:privateNetwork.ts], so the rule limit, tunnel limit and the API key are shared by all tenants. Section 7 treats this as a cross-tenant availability and blast-radius risk. The per-resource limit of 200 also caps the rules that can name one VM or one tunnel (section 7.1).
+Critical consequence: cmux runs every tenant on one VM provider account [WEB:privateNetwork.ts], so the rule limit, tunnel limit and the API key are shared by all tenants. Section 7 treats this as a cross-tenant availability and blast-radius risk. The per-resource limit of 200 also caps the rules that can name one VM or one tunnel (section 7.1).
 
-### 1.4 Freestyle facts validated by experiment (amendment 1)
+### 1.4 Provider facts validated by experiment (amendment 1)
 
-We do not ask Freestyle; each fact below comes from our own script under `workers/cmux-vm/mesh/validation/` (bun + TypeScript; WireGuard client `wgprobe/`, userspace wireguard-go + gVisor netstack, run on cmux-lawrence-2, Santa Clara, no root). All runs on 2026-10-07 UTC. Every resource had the prefix `cmux-mesh-validation-<run>`, was written to a ledger at create, and was deleted by exact id; `verify-gone.ts` then read all 658 ledger ids by exact id and every one returned 404 (`validation/evidence/cleanup-proof.jsonl`). Raw results: `validation/evidence/results-*.jsonl`. Latency numbers carry the probe resolution: one TCP connect every 10 ms, 7-8 ms RTT to the VM.
+We do not ask the provider; each fact below comes from our own script under `workers/cmux-vm/mesh/validation/` (bun + TypeScript; WireGuard client `wgprobe/`, userspace wireguard-go + gVisor netstack, run on a team Mac mini, Santa Clara, no root). All runs on 2026-10-07 UTC. Every resource had the prefix `cmux-mesh-validation-<run>`, was written to a ledger at create, and was deleted by exact id; `verify-gone.ts` then read all 658 ledger ids by exact id and every one returned 404 (`validation/evidence/cleanup-proof.jsonl`). Raw results: `validation/evidence/results-*.jsonl`. Latency numbers carry the probe resolution: one TCP connect every 10 ms, 7-8 ms RTT to the VM.
 
 | Q | Question | Method | Result | Script |
 | --- | --- | --- | --- | --- |
@@ -87,19 +87,19 @@ We do not ask Freestyle; each fact below comes from our own script under `worker
 | 13 | Paused VM wake by tunnel traffic | API pause, then TCP probes every 20 ms (300 ms timeout), n=10; one idle-timeout pause | Wakes: first success 1.72 s p50, 6.79 s p95, 10 ms min after probing starts. API pause 133 ms p50. Traffic the firewall denies (port without a rule) also wakes a paused VM. Idle-timeout (300 s) pause seen at 371-401 s (10 s polling); wake then 0.24-3.0 s | `13-paused-wake.ts` |
 | 14 | Keepalive and gateway idle timeout | Per tunnel: hold a TCP connection, idle T, then the VM opens to the client and the held connection sends | No keepalive: works after 30, 120 and 300 s idle; both fail after 600 s. `PersistentKeepalive = 25`: both work after 600 s. State expires between 300 and 600 s; returned configs have no keepalive, so the client must add 25 s | `14-keepalive-idle.ts` |
 | 15 | `egressIpv4` and IPv4-only hosts | VM with no rules and VM with `{public: true}` egress, no VPC | `egressIpv4` is set at create on both, one shared account address (`208.72.218.133`, SF). With the egress rule: GitHub release asset 13 MB in 0.50 s, `git ls-remote https://github.com/manaflow-ai/cmux` 616 ms, github.com resolves A only. Without a rule: DNS fails | `15-egress-ipv4.ts` |
-| 16 | Single region | 3 tunnels, 3 VMs; DNS, ipinfo, traceroute, handshake and RTT from cmux-lawrence-2; egress geo and anycast RTT from each VM | One region. All tunnel names `tun-<id>.beta-vpn.freestyle.sh` resolve to `208.72.218.30` / `2602:f470:1::30` (San Francisco, AS36320). All VMs egress from SF, 3-4 ms to 1.1.1.1 and 8.8.8.8. From Santa Clara: handshake 72 ms, tunnel RTT 8.1-13.1 ms p50. Gateway drops traceroute probes. Testbox vantage not run (gate refused approval) | `16-single-region.ts` |
+| 16 | Single region | 3 tunnels, 3 VMs; DNS, ipinfo, traceroute, handshake and RTT from a team Mac mini; egress geo and anycast RTT from each VM | One region. All tunnel names `tun-<id>.<provider VPN domain>` resolve to `208.72.218.30` / `2602:f470:1::30` (San Francisco, AS36320). All VMs egress from SF, 3-4 ms to 1.1.1.1 and 8.8.8.8. From Santa Clara: handshake 72 ms, tunnel RTT 8.1-13.1 ms p50. Gateway drops traceroute probes. Testbox vantage not run (gate refused approval) | `16-single-region.ts` |
 | 17 | Scoped keys / sub-accounts | Read the live spec; one identity with no grants, its token tried on read routes, identity deleted | None. Two schemes only: account API key and identity access token. Identity permissions are VM-only; an identity token gets 401 on VPC, tunnel, rule and VM routes. Account keys are created only in the dashboard (Stack session). One key controls every tenant | `17-scoped-keys.ts` |
 | 18 | Billing | GET usage-like routes with the API key; cost from our ledgers at list prices | No usage on the API key (`/v5/usage`, `/billing`, `/account`, `/accounts/me`, `/limits` all 404; the CLI's billing uses the dashboard with a Stack session). Runs cost at most $0.23 at list price before included usage: 35 VMs, 1.54 VM-hours (2 vCPU / 4 GiB / 16 GiB each), transfer at most 1.29 GB. Whether tunnel bytes count as transfer cannot be read | `18-billing.ts` |
 
 ## 2. One region
 
-Decision CMUX-MESH-EXPERIMENT amendment 1 (Lawrence, 2026-10-07): Freestyle is not multi-region, so the mesh is designed for one region. There is no region registry, no region choice and no region field anywhere in the API. The region-selection hysteresis from the first draft is removed: with one endpoint it would be dead code and a migration burden, so keeping it does not cost nothing.
+Decision CMUX-MESH-EXPERIMENT amendment 1 (Lawrence, 2026-10-07): the VM provider is not multi-region, so the mesh is designed for one region. There is no region registry, no region choice and no region field anywhere in the API. The region-selection hysteresis from the first draft is removed: with one endpoint it would be dead code and a migration burden, so keeping it does not cost nothing.
 
-What one region means, measured in section 1.4 (Q16): every tunnel gets its own endpoint name `tun-<id>.beta-vpn.freestyle.sh`, and every name resolves to the same gateway; VMs are in the same metro as the gateway.
+What one region means, measured in section 1.4 (Q16): every tunnel gets its own endpoint name `tun-<id>.<provider VPN domain>`, and every name resolves to the same gateway; VMs are in the same metro as the gateway.
 
 - Latency reporting stays: `cmux link` measures the WireGuard handshake time to the gateway and the in-session peer RTT on overlay UDP 4102, every 5 s while the link carries traffic [TR §4 step 6, §12a]. The device reports `{handshake_rtt_ms, peer_rtt_p50_ms, path}` to `POST /v1/devices/{deviceId}/latency` at most once a minute while active, and the app shows the RTT [D:M2].
 - Known limit: a user far from the gateway pays the full RTT to it on every VM connection (fra 146 ms, nrt 106-112 ms measured [TR §13.6]). The experiment accepts this and records it in P8.
-- Later, "nodes around the world" means our own relays or endpoints (for example cmux WireGuard nodes on Fly.io attached to the mesh as tunnel clients with `exit` [D:T1, OA:attach_vpc_to_tunnel]), not Freestyle regions. That work is out of scope for this experiment. Device-to-device traffic already avoids the gateway (section 7.2).
+- Later, "nodes around the world" means our own relays or endpoints (for example cmux WireGuard nodes on Fly.io attached to the mesh as tunnel clients with `exit` [D:T1, OA:attach_vpc_to_tunnel]), not provider regions. That work is out of scope for this experiment. Device-to-device traffic already avoids the gateway (section 7.2).
 
 ## 3. Device enrollment (cmux-wg path)
 
@@ -110,9 +110,9 @@ Flow:
 2. Authorization. A signed-in user enrolls with the Stack session. A headless machine uses a one-time code: a member calls `POST /v1/meshes/{meshId}/enrollment-codes` (single use, 10 min TTL, stored as SHA-256, bound to mesh, creator and optional tags), then runs `cmux mesh up --code <code>` on the machine [D:M1]. The device then belongs to the code's creator. As built (M2, M3): the code enrolls through `POST /v1/meshes/{meshId}/device-enrollments` with no credential. At use the creator must still be able to act (a team member, or an API key that is not revoked or expired). Any authentication failure burns the code: another mesh's path, a creator that can no longer act, a forged or stale signature, a replayed request. A valid request claims the code before the device budget and the tunnel create; if either (or anything after them) fails, the claim is given back and the same code works again.
 2a. After enrollment a headless device has no credential of its own. Its install key is the credential for its own requests (M3): `POST /v1/devices/{deviceId}/signed/peers`, `/signed/tunnel` and `/signed/rotate-key`, each signed over the cmux-mesh-v1 message with purpose `peers`, `tunnel` or `rotate-key`, the device as target, `signedAt` within 120 s, and a replay store keyed by the message hash (`mesh_signed_requests`). The request runs as the device's owner, restricted to `mesh:join`/`mesh:read` on this one device and its tunnel, and the owner must still be able to act on every call, so revoking the key that enrolled a device or removing its user stops the device's signed requests at once. Nothing else accepts the signature: every other route needs an API key or a session (401).
 3. Enrollment call: `POST /v1/meshes/{meshId}/devices` with `{wgPublicKey, installPublicKey, signature, name, os, code?}`. The signature is the install key over `(meshId, wgPublicKey, server nonce)`.
-4. Tunnel creation in the Worker: `create_tunnel {clientPublicKey: wgPublicKey, slug: hash(tenant, device), routes: [mesh cidr, mesh cidrV6], vpcs: [{vpc: mesh}]}` (inline attach; 136-171 ms [TR §13.2]). `routes` is the mesh only, never the 10/8 default. The upstream client type requires `clientPublicKey`; if a response ever carries a non-blank `PrivateKey`, the Worker deletes the tunnel and fails closed (Freestyle mints a key only when the field is omitted [OA:create_tunnel]).
+4. Tunnel creation in the Worker: `create_tunnel {clientPublicKey: wgPublicKey, slug: hash(tenant, device), routes: [mesh cidr, mesh cidrV6], vpcs: [{vpc: mesh}]}` (inline attach; 136-171 ms [TR §13.2]). `routes` is the mesh only, never the 10/8 default. The upstream client type requires `clientPublicKey`; if a response ever carries a non-blank `PrivateKey`, the Worker deletes the tunnel and fails closed (the provider mints a key only when the field is omitted [OA:create_tunnel]).
 5. ACL first, then config: the mesh's reconciler adds this device's compiled rules (section 4) before the enroll call returns, so the first dial works.
-6. Config delivery: the response is structured fields, not Freestyle's file: `serverPublicKey`, endpoint, client addresses, the attachment's mesh address, MTU 1280, `PersistentKeepalive` 25 s (Freestyle's config has none, and gateway state expires between 300 and 600 s idle, Q14), and the device's peer map slice. `cmux link` writes a 0600 config [UW] and brings the gateway session up in-process; later launches reuse it with no API call [UW].
+6. Config delivery: the response is structured fields, not the provider's file: `serverPublicKey`, endpoint, client addresses, the attachment's mesh address, MTU 1280, `PersistentKeepalive` 25 s (the provider's config has none, and gateway state expires between 300 and 600 s idle, Q14), and the device's peer map slice. `cmux link` writes a 0600 config [UW] and brings the gateway session up in-process; later launches reuse it with no API call [UW].
 7. cmux VMs do not get tunnels: `POST /v1/meshes/{meshId}/vms/{vmId}` calls `update_vm_networks` (live) [OA]; the VM daemon's overlay endpoint listens on UDP 4101 at its VPC address [TR §7].
 
 Rotation: every 90 days and on demand [TR §8]. The device makes a new key and calls `POST /v1/devices/{deviceId}/rotate-key {newPublicKey, signature}`; the Worker calls `rotate_tunnel_key {clientPublicKey}` (tunnel id, addresses and attachments stay [OA, FD:tunnels]) and returns the new `serverPublicKey` (it changes too [TR §7]); overlay peers get the key in a peer-map delta; the device deletes the old key after the ack. The old key stops 236 ms p50, 285 ms max after the call returns, and the new key works 23 ms p50 after it (Q4). Because the server key changes too, the device must switch to the new `serverPublicKey` in the same step.
@@ -133,8 +133,8 @@ Decision (M4, cx-0op.6): no `MeshDO`. The version pointer stays the newest row o
 
 1. Validate: schema, unknown groups/tags, tag ownership, and the policy's own tests; a failing policy is refused [NP].
 2. Resolve: principals to devices (tunnels) and VMs of this mesh only.
-3. Emit pairwise tuples `(src, dst, protocol, port)` where `src`/`dst` is `{tunnelId}` or `{vmId}`. A port list expands to one rule per port (Freestyle takes one port per rule [OA]); `*` omits port and protocol. A rule whose `src` is every mesh member becomes one `{vpcId}` source rule instead of N. ICMP is a rule with `protocol: icmp`.
-4. Device-to-device tuples (both ends are tunnels) do not become Freestyle rules (not forwarded [TR §7]); they go into each host's peer map and allowed services [TR §9, §12a].
+3. Emit pairwise tuples `(src, dst, protocol, port)` where `src`/`dst` is `{tunnelId}` or `{vmId}`. A port list expands to one rule per port (the provider takes one port per rule [OA]); `*` omits port and protocol. A rule whose `src` is every mesh member becomes one `{vpcId}` source rule instead of N. ICMP is a rule with `protocol: icmp`.
+4. Device-to-device tuples (both ends are tunnels) do not become provider rules (not forwarded [TR §7]); they go into each host's peer map and allowed services [TR §9, §12a].
 5. Invariant checks: no rule names a resource outside this mesh; no `{vpcId} -> {vpcId}` rule unless the policy grants `*` between all members; rule count within the tenant's rule budget (section 7).
 6. Output: the desired rule set keyed by a canonical string, each rule tagged `description: "cmux:mesh:<meshId>:v<version>"`, so reconcile touches only its own rules (same pattern as `EGRESS_RULE_DESCRIPTION` [WEB:drivers/freestyleNetworkPolicy.ts]). `POST .../acl/preview` returns this set and its diff before apply [D:M3].
 
@@ -197,17 +197,17 @@ No step runs on this laptop. Builds: Worker in CI (miniflare, fake upstream) and
 
 | Step | Runs on | Pass |
 | --- | --- | --- |
-| P1 create mesh M on T1 | cmux-lawrence-2 (CLI) | `mesh_` id; VPC slug hashed |
-| P2 Mac A enrolls (session) | cmux-lawrence-2 | Keychain item exists; recorded upstream response had blank `PrivateKey`; gateway handshake RTT logged |
-| P3 VM joins | cmux VM API from cmux-lawrence-2; Freestyle VM `idleTimeoutSeconds` 300 | VM is a member; paused between steps; deleted by exact id at the end |
+| P1 create mesh M on T1 | a team Mac mini (CLI) | `mesh_` id; VPC slug hashed |
+| P2 Mac A enrolls (session) | a team Mac mini | Keychain item exists; recorded upstream response had blank `PrivateKey`; gateway handshake RTT logged |
+| P3 VM joins | cmux VM API from a team Mac mini; provider VM `idleTimeoutSeconds` 300 | VM is a member; paused between steps; deleted by exact id at the end |
 | P4 Mac B enrolls with a one-time code | a fleet Mac through the controller job system (`cmux-ci`); if the controller cannot run this job type, report the gap (no maclease) | second use of the code is refused |
 | P5 reachability | A→VM: `cmux mesh ping`, `ssh -o ProxyCommand="cmux mesh nc %h %p"`; A↔B the same over the overlay (B exports sshd as a link service) | ping and SSH succeed both ways; path label (`direct_lan`/`direct_wan`/`do_relay`) recorded |
 | P6 ACL flip | VM serves tcp 8080; A connects every 50 ms; apply block, then allow, 10 times each; same for A→B on a service port | VPC path ≤ 3 s p95 per flip; overlay path ≤ 1 s; time measured from the 202 to the first changed probe |
 | P7 negative | T2 key, T2 device | 404 on every T1 id; T2 device cannot reach the VM (timeout); revoked Mac B stops ≤ 1 s; rotated key dead after ~3 s |
 | P8 latency by client location (the one-region limit) | Mac A, Mac B, and Fly machines (sjc, iad, fra, lhr, nrt, sin) running the Linux `cmux link`, as in TR §13 | per device: client location, handshake RTT, ICMP RTT via the tunnel (n=1000, p50/p99), TCP connect, 30 s throughput |
-| P9 cleanup | cmux-lawrence-2 | VM, devices (tunnels), mesh and Fly machines deleted by exact id; each verified 404 |
+| P9 cleanup | a team Mac mini | VM, devices (tunnels), mesh and Fly machines deleted by exact id; each verified 404 |
 
-Ping and SSH on a Mac go through `cmux` because the userspace stack has no system interface [UW]; system-wide `ping`/`ssh` needs the opt-in Network Extension (`cmux vpn up`) [UW] and is not part of the proof. ICMP echo inside the userspace stack and service export (overlay port → local sshd) are build items. Every Freestyle resource gets a `cmuxnp-dev-mesh-` prefix [TR §13.5].
+Ping and SSH on a Mac go through `cmux` because the userspace stack has no system interface [UW]; system-wide `ping`/`ssh` needs the opt-in Network Extension (`cmux vpn up`) [UW] and is not part of the proof. ICMP echo inside the userspace stack and service export (overlay port → local sshd) are build items. Every provider resource gets a `cmuxnp-dev-mesh-` prefix [TR §13.5].
 
 ## 7. Security
 
@@ -221,9 +221,9 @@ Threat model:
 | Private key exposure | keys made on device; Worker never omits `clientPublicKey`; fail closed on a minted key; Keychain `ThisDeviceOnly` [TR §8] |
 | Enrollment code theft | single use, 10 min, hashed, bound to mesh and tags, audited; the creator must still be able to act when it is used; any authentication failure with the code burns it (M3) |
 | Headless device after enrollment (no credential) | its install key authenticates only its own peer map, tunnel config and rotation (M3): fresh (120 s), never replayed, refused once the owner key is revoked or the owner left the team; every other route needs a credential |
-| Worker compromise or Freestyle API key leak | one key controls every tenant's VPCs and tunnels (shared account [WEB:privateNetwork.ts]); key only in Worker secrets [D:V3]; drift detection; Freestyle offers no scoped API keys (validated, Q17) |
+| Worker compromise or VM provider API key leak | one key controls every tenant's VPCs and tunnels (shared account [WEB:privateNetwork.ts]); key only in Worker secrets [D:V3]; drift detection; the provider offers no scoped API keys (validated, Q17) |
 | Noisy tenant exhausts the account rule or tunnel limit | per-tenant budgets in the Worker (section 7.1), refused with a typed 429 before any upstream call; operator alert at 70 % of the shared account's rule limit; `{vpcId}` source compression |
-| Freestyle as an observer | the gateway terminates the tunnel, so plain L3 traffic to VMs (for example HTTP on 8080) is visible to Freestyle, same trust as hosting the VM; overlay traffic is end-to-end WireGuard and the relay sees ciphertext only [TR §0, §9.1] |
+| The VM provider as an observer | the gateway terminates the tunnel, so plain L3 traffic to VMs (for example HTTP on 8080) is visible to the provider, same trust as hosting the VM; overlay traffic is end-to-end WireGuard and the relay sees ciphertext only [TR §0, §9.1] |
 | ACL drift (a failed or silent call) | re-list after apply; periodic reconcile; `evaluate_firewall` is not trusted as proof (it disagrees with the data plane [TR §7]); proofs use data-plane probes |
 | Wake abuse: a mesh device wakes paused VMs | tunnel traffic to a port with no rule woke a paused VM (Q13; that tunnel had a rule to the VM on another port, a tunnel with no rule at all to the VM was not tested), so a device can keep VMs running and billing with traffic the firewall drops. Control: VMs that must stay asleep are not members of a mesh with untrusted devices; the Worker alerts when a paused mesh VM wakes with no allowed flow in its audit window |
 
@@ -243,7 +243,7 @@ Budgets are config values (the same mechanism as `TENANT_VM_QUOTAS` [VM:README])
 
 ### 7.2 Device to device
 
-Device to device with no tunnel-to-tunnel forwarding [D:T3, TR §7]: Mac↔Mac uses `direct_lan`, then `direct_wan` (punched IPv4 or IPv6), then the `HostDO` relay [D:D38, TR §4]. The Freestyle firewall is not on these paths, so the ACL is enforced by the receiving host's peer map (unknown keys get no answer [WG:mesh.rs]), `HostDO` admission (only installs in the host's compiled reachability [TR §6]), the link's registered-port filter [TR §12a] and the link `hello`. Measured: punch about 1 RTT; office-to-cloud punch success 47 %; relay 7.8 ms p50 in the same metro [TR §13.1, §13.3]. A cmux relay VM inside the VPC would keep Freestyle in the path (+2.6 ms [TR §7]) but costs an always-on VM per mesh; it is not used. The `HostDO` relay never decrypts Mac-to-Mac traffic: it forwards WireGuard packets that stay end-to-end encrypted between the two devices' keys, and it sees only outer addresses, peer ids, sizes and timing [TR §0 item 1, §6, §9.1]. It writes nothing to storage on the datagram path [TR §6]. If Freestyle adds tunnel-to-tunnel forwarding, the compiler emits `{tunnelId} -> {tunnelId, port}` rules and the path ladder gains `via_cloud_region` for device pairs.
+Device to device with no tunnel-to-tunnel forwarding [D:T3, TR §7]: Mac↔Mac uses `direct_lan`, then `direct_wan` (punched IPv4 or IPv6), then the `HostDO` relay [D:D38, TR §4]. The provider firewall is not on these paths, so the ACL is enforced by the receiving host's peer map (unknown keys get no answer [WG:mesh.rs]), `HostDO` admission (only installs in the host's compiled reachability [TR §6]), the link's registered-port filter [TR §12a] and the link `hello`. Measured: punch about 1 RTT; office-to-cloud punch success 47 %; relay 7.8 ms p50 in the same metro [TR §13.1, §13.3]. A cmux relay VM inside the VPC would keep the provider in the path (+2.6 ms [TR §7]) but costs an always-on VM per mesh; it is not used. The `HostDO` relay never decrypts Mac-to-Mac traffic: it forwards WireGuard packets that stay end-to-end encrypted between the two devices' keys, and it sees only outer addresses, peer ids, sizes and timing [TR §0 item 1, §6, §9.1]. It writes nothing to storage on the datagram path [TR §6]. If the provider adds tunnel-to-tunnel forwarding, the compiler emits `{tunnelId} -> {tunnelId, port}` rules and the path ladder gains `via_cloud_region` for device pairs.
 
 Security review before any external user [D:M4]; the full gate list is section 9.
 
@@ -252,21 +252,21 @@ Security review before any external user [D:M4]; the full gate list is section 9
 | Choice | Alternative | Why |
 | --- | --- | --- |
 | One tunnel and one key per (device, mesh) | one tunnel per install attached to every team VPC (TR §7) | each tunnel has exactly one owning tenant (V3 ownership rows, per-tenant revoke and budgets) and no attachment-overlap coupling across teams; cost: one more gateway session per extra team, which `WgMesh` supports [WG:mesh_gateway.rs]. Confirmed by the coordinator 2026-10-07; TR §7 amended on this branch. |
-| ACL source of truth in the cmux VM Worker (`MeshDO` + Postgres) | `TeamDO` (NP) | V1 puts every Freestyle call behind the cmux VM API; `TeamDO` calls the cmux VM API for policy and devices. Confirmed by the coordinator 2026-10-07; NP amendment text in appendix A. |
+| ACL source of truth in the cmux VM Worker (`MeshDO` + Postgres) | `TeamDO` (NP) | V1 puts every provider call behind the cmux VM API; `TeamDO` calls the cmux VM API for policy and devices. Confirmed by the coordinator 2026-10-07; NP amendment text in appendix A. |
 | Pairwise identity rules | CIDR rules per group with pinned attachment addresses | identity rules are measured to work; a `cidr` source matches the attachment address (Q6), so CIDR compression is possible later and is the escape from the 200-rules-per-resource limit, at the cost of tying rules to addresses instead of identities |
 | Userspace WireGuard, `cmux`-mediated ping/SSH | Network Extension system tunnel | no root, no VPN prompt, decided path [UW, D:M2]; system-wide is the existing opt-in. Confirmed for the proof by the coordinator 2026-10-07. |
 | Create-before-delete apply | delete-first | never interrupts traffic both versions allow; old-only traffic lasts at most one apply (~1-3 s) |
 
-Strongest expert objection: "This is not Tailscale. Freestyle gives one San Francisco gateway, no regions, no tunnel-to-tunnel forwarding, allow-only rules with an unknown account-wide limit and 200 per resource, no atomic update, no scoped keys and no tunnel telemetry. Device-to-device traffic (most of what a tailnet does) bypasses Freestyle and runs on your own relay and NAT traversal, so 'not caring about infra' fails, and a shared vendor account makes one key the blast radius for every customer. Use Tailscale/Headscale or your own WireGuard nodes."
+Strongest expert objection: "This is not Tailscale. [The VM provider] gives one San Francisco gateway, no regions, no tunnel-to-tunnel forwarding, allow-only rules with an unknown account-wide limit and 200 per resource, no atomic update, no scoped keys and no tunnel telemetry. Device-to-device traffic (most of what a tailnet does) bypasses [the VM provider] and runs on your own relay and NAT traversal, so 'not caring about infra' fails, and a shared vendor account makes one key the blast radius for every customer. Use Tailscale/Headscale or your own WireGuard nodes."
 
-Answer: VMs live on Freestyle and have no public ports, so VM ingress must be Freestyle's VPC and firewall in any design; the mesh adds only per-device tunnels and rules on top of what Cloud attach already runs in production [UW, WEB:privateNetwork.ts]. The device-to-device path (LAN direct, punch, DO relay) is required anyway, because a LAN path beats any hub, and it is already built and measured [TR §13, §15]. Tailscale or Headscale would replace our identity and ACL with theirs (M1 requires our own) and still need relays. The objection's real content is the limits and the shared key: the validation measured them (section 1.4), the experiment measures them again end to end (P6, P8), and the Worker refuses over-budget tenants before Freestyle sees a call. One region is accepted (amendment 1); low latency far from San Francisco later means our own relays or endpoints, not Freestyle.
+Answer: VMs live on the VM provider and have no public ports, so VM ingress must be the provider's VPC and firewall in any design; the mesh adds only per-device tunnels and rules on top of what Cloud attach already runs in production [UW, WEB:privateNetwork.ts]. The device-to-device path (LAN direct, punch, DO relay) is required anyway, because a LAN path beats any hub, and it is already built and measured [TR §13, §15]. Tailscale or Headscale would replace our identity and ACL with theirs (M1 requires our own) and still need relays. The objection's real content is the limits and the shared key: the validation measured them (section 1.4), the experiment measures them again end to end (P6, P8), and the Worker refuses over-budget tenants before the provider sees a call. One region is accepted (amendment 1); low latency far from San Francisco later means our own relays or endpoints, not the provider.
 
 ## 9. GA blockers (before any external user)
 
 | Id | Blocker | Why |
 | --- | --- | --- |
 | G1 | Revoke on the Stack team-membership webhook (or on every token refresh), replacing the 60 s sweep | the sweep leaves a removed member up to 60 s of access (section 3). Code done in M4 (section 3); open until the secret is set and a real Stack delivery is observed on staging (UNVERIFIED) |
-| G2 | The account-wide rule limit is measured on a separate Freestyle account (never on the production account), `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT` replaces the 1000 placeholder, and the absence of scoped keys (Q17) is accepted in the security review or worked around with a separate account per tier | the shared account is the cross-tenant blast radius (section 7) |
+| G2 | The account-wide rule limit is measured on a separate provider account (never on the production account), `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT` replaces the 1000 placeholder, and the absence of scoped keys (Q17) is accepted in the security review or worked around with a separate account per tier | the shared account is the cross-tenant blast radius (section 7) |
 | G3 | Security review of the mesh [D:M4] | decision M4 |
 | G4 | Budgets in section 7.1 reviewed against measured use from the proof | experiment values are guesses |
 
@@ -288,12 +288,12 @@ A2. Replace the paragraph under "Policy document" that begins "Stored in `TeamDO
 
 A3. In "Reconciler", replace item (a) with:
 
-> - (a) Phase 1, Freestyle: one VPC per team (D37), created as a cmux VM API mesh; each machine (Cloud VMs, the team VM, streaming hosts) is a VPC member with its tags recorded by cmux; each device gets one Freestyle WireGuard tunnel per team mesh it joins (one tunnel and one key per (device, mesh), never one tunnel shared across teams), created with the device's public key; compiled ACLs become pairwise Freestyle firewall rules, created before surplus rules are deleted, by the cmux VM API Worker when the policy, the directory or a machine changes.
+> - (a) Phase 1, [the VM provider]: one VPC per team (D37), created as a cmux VM API mesh; each machine (Cloud VMs, the team VM, streaming hosts) is a VPC member with its tags recorded by cmux; each device gets one [provider] WireGuard tunnel per team mesh it joins (one tunnel and one key per (device, mesh), never one tunnel shared across teams), created with the device's public key; compiled ACLs become pairwise [provider] firewall rules, created before surplus rules are deleted, by the cmux VM API Worker when the policy, the directory or a machine changes.
 
 A4. Replace "How a Mac joins" steps 2, 3 and 5 with:
 
 > 2. The app calls the cmux VM API `POST /v1/meshes/{meshId}/devices {wgPublicKey, installPublicKey, signature}` (a headless machine uses a one-time enrollment code). The Worker checks the install signature, the user's team membership and the per-tenant budgets.
-> 3. The Worker creates the device's Freestyle tunnel for that team's VPC with the device's public key (the platform never sees a private key), routes limited to the mesh CIDRs, applies the firewall rules that involve the device, and returns the structured tunnel config to the app.
+> 3. The Worker creates the device's [provider] tunnel for that team's VPC with the device's public key (the platform never sees a private key), routes limited to the mesh CIDRs, applies the firewall rules that involve the device, and returns the structured tunnel config to the app.
 > 5. A user in several teams has one tunnel and one WireGuard key per team mesh; the `cmux link` mesh holds one gateway session per tunnel.
 
 A5. Replace the "Revocation" paragraph's first sentence with:
@@ -302,7 +302,7 @@ A5. Replace the "Revocation" paragraph's first sentence with:
 
 A6. In "Latency", append:
 
-> Device-to-device traffic never uses the VPC (Freestyle does not forward tunnel to tunnel); it uses same-LAN direct, NAT-punched direct, or the `HostDO` relay, which forwards end-to-end-encrypted WireGuard packets and sees only outer addresses and sizes.
+> Device-to-device traffic never uses the VPC ([the VM provider] does not forward tunnel to tunnel); it uses same-LAN direct, NAT-punched direct, or the `HostDO` relay, which forwards end-to-end-encrypted WireGuard packets and sees only outer addresses and sizes.
 
 A7. In "Data and audit", replace "are stored by `TeamDO` and projected to PlanetScale `cmux-next`" with "are stored by the cmux VM API Worker in PlanetScale (schema `cmux_vm`)".
 
@@ -312,9 +312,9 @@ A7. In "Data and audit", replace "are stored by `TeamDO` and projected to Planet
 | --- | --- | --- |
 | M1a Worker: meshes, devices, tunnels, ACL compile/apply, peer map, budgets, audit, migration 0004 | done | 61da0fd0fad4 (red 13a3d58599b0, green 9926f9587e32, clients 2c192baea5b5); IPv6 route fix 5b49821af95f |
 | M1b device agent (Rust, userspace WireGuard, ping/tcp/probe) | done | 1753d8fd8b36 (red d317583fe49f, green 5d6da54d76e5) |
-| M1c live proof on cmux-lawrence-2 | done | f4cf40478988 (evidence 48e76d620fe6) |
+| M1c live proof on a team Mac mini | done | f4cf40478988 (evidence 48e76d620fe6) |
 | M2 device ownership (non-owner 404), install-key signatures, one-time codes, key rotation, migration 0005 | done; 0005 applied on staging with grants | owner check a2ebee7fcae9, server 6fb2c554ab12, agent 1fb771b48e7d, live proof 899f05034cc9 |
-| M3 device-signed requests, revoked-key codes, code burn and restore, migration 0006 (purpose CHECK widened) | done; 0006 applied on staging (checked read-only 2026-10-08) | Worker b543f0a6b417 (red 444f850fb0ff, green a944131f108f), agent fe33ef18ceb0 (red b00fa6102879, green 7e0c94c3b736); live proof `e2e/m3.ts` run m3muxuntiw on cmux-lawrence-2 (`e2e/evidence/m3muxuntiw`): a code-enrolled device with no API key read its peer map and tunnel config, pinged the VM (3/3), rotated (49 ms) and pinged with the new key (3/3); cross-device 404, replay 409, stale 403, forged code enroll 403 then the burned code 404, creator key revoked then signed peers and a fresh code 404; every provider id 404 after cleanup. The first run m3muxuf66g failed its own cleanup (the cleanup key lacked the admin scope); its two tunnels and VPC were deleted by exact id and checked 404 (`e2e/evidence/m3muxuf66g/cleanup-by-exact-id.jsonl`) |
+| M3 device-signed requests, revoked-key codes, code burn and restore, migration 0006 (purpose CHECK widened) | done; 0006 applied on staging (checked read-only 2026-10-08) | Worker b543f0a6b417 (red 444f850fb0ff, green a944131f108f), agent fe33ef18ceb0 (red b00fa6102879, green 7e0c94c3b736); live proof `e2e/m3.ts` run m3muxuntiw on a team Mac mini (`e2e/evidence/m3muxuntiw`): a code-enrolled device with no API key read its peer map and tunnel config, pinged the VM (3/3), rotated (49 ms) and pinged with the new key (3/3); cross-device 404, replay 409, stale 403, forged code enroll 403 then the burned code 404, creator key revoked then signed peers and a fresh code 404; every provider id 404 after cleanup. The first run m3muxuf66g failed its own cleanup (the cleanup key lacked the admin scope); its two tunnels and VPC were deleted by exact id and checked 404 (`e2e/evidence/m3muxuf66g/cleanup-by-exact-id.jsonl`) |
 
 | M4 shared positive membership cache (60 s), device actor in the audit log, G1 membership webhook revoke, one writer per mesh (lock in the tenant DO), migration 0007, staging allowlist (two internal manaflow teams) | code done; 0007 applied on staging (checked 2026-10-08); webhook UNVERIFIED with real Stack (secret not set) | Worker f0f0ed689db5 (red 8cc590865aa8; race red proven by running the test without the lock: 1 rule left, expected 0), staging allowlist 37878834902f |
 | M4 G1 retries: event time = first receipt (migration 0008), revoke every device from before the event, also after a re-add (decision 2026-10-07; the earlier re-add skip is gone); nothing-to-revoke events are a recorded 200; schema gate; `user.deleted` in every tenant | code done; 0008 applied on staging (checked 2026-10-08) | red dc48485aea49 (6 behavior failures), Worker 1566e54ae160; live proof `e2e/m4.ts` run m4muxw42bo (evidence/m4muxw42bo): webhook answered in 100 ms, provider tunnel 404 116 ms after it was sent, the running ping's last reply 17 ms before it and no reply after (17 losses), signed peers 404, retry 200 duplicate with 0 provider calls and 0 audit rows, cache entry revoked, every provider id 404 after cleanup. Every webhook answer is logged with its reason (red ddbcb9dd14ed, fix a11f31c1cffe). Staging ran 1566e54ae160 from 09:10:36Z without 0008, so the real delivery at 09:13:04Z got 503 `first_seen_store` and left no row; Svix retries it after 0008 is applied |

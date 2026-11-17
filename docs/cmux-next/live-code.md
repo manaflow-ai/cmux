@@ -107,8 +107,8 @@ patch path as an edit, so it shows in `live-code.log` and one `*.rollback` undoe
 
 Applies: changes inside functions and computed properties of any CmuxNext module, and AppKit drawing and
 layout code, which runs again at once. Needs a rebuild: stored properties, enum cases, protocols,
-resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
-has the numbers and what would make more of them live.
+resources, strings and `Package.swift`. The team's private notes (hot-swap architecture research, 2026-11-04)
+have the numbers and what would make more of them live.
 
 ## Live mode: restart into the live code build and back
 

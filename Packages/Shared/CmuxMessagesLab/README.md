@@ -82,7 +82,7 @@ and render-server field animation, blurred header and native scrolling.
   nothing to do. Residual limit: a second pane on another display still
   changes the one process-wide colour space, and every pane's next row
   drawings use that space).
-  Scale changes, both directions, one frame (2026-10-14, cmux-lawrence-2):
+  Scale changes, both directions, one frame (2026-10-14, a team Mac mini):
   after a move to 1x and back to 2x, no visible row shows a bitmap of the
   old scale one frame after the change (`scripts/cmux-next/home-scale-change.py`,
   the same rule both ways). Before the colour-space fix in 258b385 a move to
@@ -285,7 +285,7 @@ hides a message on this device; HomeStore has no local hide and HomeOp no
 delete), Edit and Undo Send. Threads never open in Home, so the thread
 backdrop and 69f4256's thread Esc and outside-click handling are not wired.
 For the
-harness oracle, build MessagesLab from the pin with each pinned file overlaid. Then run the harness on cmux-lawrence-2
+harness oracle, build MessagesLab from the pin with each pinned file overlaid. Then run the harness on a team Mac mini
 (`scripts/cmux-next/home-messageslab-harness.sh`, header): the Home path must
 commit MessagesLab's animations byte for byte, and the vendored files must
 match the upstream app's `--diff-harness` output.

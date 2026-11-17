@@ -63,7 +63,7 @@ Notes:
 - Rift registers in a SQLite file under the user's data directory, and `remove` only moves the
   workspace to `.trash` until someone runs `rift gc`. Without a scheduled `gc`, the disk is not freed.
 
-## Freestyle VMs
+## Provider VMs
 
 Rift does not help the cloud subagents (cloud-subagents-DESIGN.md). Each VM is already a
 copy-on-write fork of one base snapshot (8.7 s up, 1.06 GB its own). On Linux, Rift needs btrfs or a

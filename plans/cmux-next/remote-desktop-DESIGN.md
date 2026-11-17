@@ -162,7 +162,7 @@ change that makes a row more than 20 % worse.
 | Step | What | Default | Gate to the next step |
 | --- | --- | --- | --- |
 | M0 | This design. Land Aziz's stack on feat-cmux-next in his order: #20179 (RFB compat) → screen kit → #20426 (Mac Screen) → #20413 (`cmux-screen`) → device hub. Lawrence's v2 branches rebase onto that, not the other way around, so Aziz's PRs do not conflict on `cmux-screen/`. | n/a | Aziz and Lawrence agree on the order (section 10) |
-| M1 | **Landed with this file:** `CMUX_VM_DESKTOP_TRANSPORT` (`novnc` default, `screen`). `openPort`, its URLs and the desktop heal follow it. Bench noVNC on a Freestyle VM (marker G2G, fps, CPU) for the baseline row. | `novnc` | Baseline numbers recorded |
+| M1 | **Landed with this file:** `CMUX_VM_DESKTOP_TRANSPORT` (`novnc` default, `screen`). `openPort`, its URLs and the desktop heal follow it. Bench noVNC on a provider VM (marker G2G, fps, CPU) for the baseline row. | `novnc` | Baseline numbers recorded |
 | M2 | Linux X11 backend in `cmux-screen-host`: XTest input (keys by USB HID usage → X keycodes, pointer, scroll, text), libwebrtc X11 capture or XDamage + XShm, cursor through XFixes, resize by `xrandr`. Image: `Xvfb :1` beside the session, and the host as the `desktop` role behind the switch; the unit's READY means 4180 is bound. | `novnc` | Fleet and VM tests green; marker bench meets section 4 |
 | M3 | The cmux-wg carrier with a per-open ticket (U4); the app opens `remote_view` tabs for VM desktops when the machine reports `desktop.transport = screen`; the a302 cloud browser moves to this host. Web viewer W1 (view only) behind a Cloud flag. | `novnc` | Security review of the ticket and Origin rules; staging soak |
 | M4 | Default `screen` for new machines; old images keep noVNC until they are recreated. The CLI's `cloudVMDesktopPort` and `CmuxTuiSnapshotParser.desktopPort` read the machine's reported port instead of the constant 6901. | `screen` | One release with no regressions |
@@ -200,7 +200,7 @@ the signed screen agent helper (remote-desktop.md RD10) before Release.
 ## 9. The first shared slice (landed with this file)
 
 `web/services/vms/images/desktopTransport.ts`: `resolveDesktopTransport`, `desktopListenPort`,
-`desktopEndpoint` and `desktopReadyProbe`. The Freestyle driver reads `CMUX_VM_DESKTOP_TRANSPORT`
+`desktopEndpoint` and `desktopReadyProbe`. The provider driver reads `CMUX_VM_DESKTOP_TRANSPORT`
 once (or takes `desktopTransport` from its dependencies in tests). With `screen`, `openPort(4180)`
 heals the desktop unit, probes 4180 and returns `ws://<private address>:4180/` plus a
 `cmux://remote-view?…&via=screen` tab URL, and 6901 is an ordinary port. With the default, every

@@ -52,7 +52,7 @@ The app maps `viewport -> pane -> window` through the live layout model when it 
 
 ## 4. Resource budget
 
-Idle: 0 percent CPU, no wakeups from this module (verified with the wakeups bench and `powermetrics` on cmux-lawrence-2). Per action: CPU only for one path plan and one animation commit; frames on the render server. Report CPU and energy for a scripted 60 s session (one action per second) against the current cmux-cua CPU renderer.
+Idle: 0 percent CPU, no wakeups from this module (verified with the wakeups bench and `powermetrics` on a team Mac mini). Per action: CPU only for one path plan and one animation commit; frames on the render server. Report CPU and energy for a scripted 60 s session (one action per second) against the current cmux-cua CPU renderer.
 
 ## 5. Parity table (ranked gaps land in this order)
 
@@ -94,7 +94,7 @@ Rank for this lane: (1) desktop click latency and reliability (engine PR), (2) s
 | --- | --- | --- |
 | k1 | done: `automation.input` schema + vectors (schemas/automation-input), agreed with hq-07 2026-10-04 | ajv: 7 valid, 10 invalid |
 | k2 | `CmuxAgentCursor` package: layers, path planner port with golden vectors from `cursor-overlay`, animation builder | unit tests (path vectors, animation keyframes), snapshot images on the fleet |
-| k3 | app consumer: lease + input event stream to `OverlayPlane`, viewport -> pane -> window mapping, hidden-tab indicator, pause rendering | module tests with a fake layout; live run on cmux-lawrence-2 |
+| k3 | app consumer: lease + input event stream to `OverlayPlane`, viewport -> pane -> window mapping, hidden-tab indicator, pause rendering | module tests with a fake layout; live run on a team Mac mini |
 | k4 | helper consumer: cmux-cua draws with the package; remove the CPU renderer on macOS | cmux-cua macOS CI + live run |
 | k5 | 60 s CPU/energy session, idle wakeups | powermetrics numbers in this note |
 | k6 | cmux Computer Use first-party app (apps platform package, catalog ops, palette commands) under the apps supervisor | apps lead review, live run |

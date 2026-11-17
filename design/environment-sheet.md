@@ -5,7 +5,7 @@ The sheet that edits one Cloud environment's name, network, secrets, setup scrip
 `environmentStore.ts`, `environment.css`. The chat hosts it through
 `agent-session/acpmux/CloudEnvironmentEditor*.tsx`; it reads and writes
 `/v1/cloud-environments/:id` through `cloud.environment.*` and the daemon's `cloud-environment`.
-Product rules for Cloud live in leo-workspace `design/cloud.md`; this page is the sheet's anatomy.
+Product rules for Cloud live in the team's private notes; this page is the sheet's anatomy.
 
 Leo, 2026-11-08: "And likewise for cloud, you know, there's the auto mode and then the more granular
 optional mode if you want ... it's interesting if you could, in fact, edit your cloud thing".

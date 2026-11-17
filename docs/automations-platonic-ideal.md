@@ -108,7 +108,7 @@ Legend: ✅ have, 🟡 partial, ❌ missing. "cmux today" was feat-cmux-next at 
 | **This Mac** | the `cmux` runner (launchd agent `com.cmuxterm.automations`, part of the `cmux` binary), so the app does not need to be open | only when awake; optional "Wake Mac for automations" (a privileged helper calls `IOPMSchedulePowerEvent` for the next due run, lid open on power) | local files, cmux browser sign-ins, acpmux agents, Keychain | none |
 | **My other machine** (Mac mini, Linux box, a teammate's shared mini) | the same runner, paired through `cmux link` / HostDO | always on | its own files and sign-ins | none |
 | **Self-hosted** (enterprise Linux / VM) | `cmux server` with the `automations-host` role (automations-runtime.md Tier 2) | always on | the customer's network | none (license) |
-| **cmux Cloud** | SchedulerDO + `AutomationRunWorkflow`; agent work on a Freestyle VM or the Cloud Chief | always | fresh clone, connected integrations, the person's Cloud Chief | VM minutes + model spend, plan quota |
+| **cmux Cloud** | SchedulerDO + `AutomationRunWorkflow`; agent work on a provider VM or the Cloud Chief | always | fresh clone, connected integrations, the person's Cloud Chief | VM minutes + model spend, plan quota |
 
 ### 4.2 Choosing and failing over
 

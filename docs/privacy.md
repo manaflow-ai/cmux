@@ -150,7 +150,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `www.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `o4507547940749312.ingest.us.sentry.io` | connects | crash and error reports, scrubbed (below), only when telemetry is on |
 | `cdn.jsdelivr.net` | connects | scripts and styles an agent's rendered page may load |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
+| `<host>.<tailnet>.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install |

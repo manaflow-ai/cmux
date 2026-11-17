@@ -26,7 +26,7 @@ borderless accessory actions, sections, status text and child menus are native c
 The model's optional rail and footer keep the existing model picker's columns and
 inline effort/actions; a harness choice does not become a different layout.
 `railPlacement` draws the rail as each of the web picker's four harness placements
-(`agentPane.display.harnessPlacement`, leo-workspace `design/model-picker.md`): `symbols`
+(`agentPane.display.harnessPlacement`, the team's private design notes): `symbols`
 (the default: a wrapping row of marks across the top, names only as tooltips and
 accessible names, three rows then it scrolls), `top` (a wrapping strip with names),
 `left` (a column with names, `railWidth` wide) and `compact` (a narrow column, each
@@ -43,7 +43,7 @@ accessory actions, then its key. An update that would rebuild the rows while App
 the release, so a drag never loses its control.
 
 `columns` lays the popup out as columns instead of a rail (never both): the model picker's
-columns menu (cmux #32980, leo-workspace `design/model-picker.md`), harness rail, models, then
+columns menu (cmux #32980, the team's private design notes), harness rail, models, then
 the shown model's effort, providers and Fast, side by side under the search row. Each column has
 an id, an accessible `label`, an optional fixed `width` (the last column without one takes what
 is left), and `rail: true` to draw its rows as the rail's marks (`mark`, `monogram` or `icon`, the

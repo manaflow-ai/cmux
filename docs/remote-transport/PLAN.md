@@ -125,7 +125,7 @@ Non-goals:
 | Option | What we get | Cost and risk | Verdict |
 | --- | --- | --- | --- |
 | **Embed tsnet / Tailscale** | Mature NAT traversal and DERP, MagicDNS | Go runtime inside the app and iOS; identity and ACLs owned by the customer's tailnet (the exact failure on 2026-10-18); needs a Tailscale or Headscale control server; one VPN slot on iOS | No. Keep Tailscale as an underlay *hint* only: a 100.x path is a direct path candidate after admission |
-| **Userspace WireGuard overlay (`cmux-wg`)** | Already carries Cloud VM terminals; one key per device; the Freestyle VPC path; HostDO relay; multipath selector with measured hysteresis | smoltcp has no SACK; bulk upload over about 1 MiB failed through Freestyle (being fixed); TCP-in-WebSocket on the relay; HostDO rendezvous not finished | Keep. It is the only carrier into the Freestyle VPC |
+| **Userspace WireGuard overlay (`cmux-wg`)** | Already carries Cloud VM terminals; one key per device; the provider VPC path; HostDO relay; multipath selector with measured hysteresis | smoltcp has no SACK; bulk upload over about 1 MiB failed through the provider (being fixed); TCP-in-WebSocket on the relay; HostDO rendezvous not finished | Keep. It is the only carrier into the provider VPC |
 | **Plain QUIC (quinn) with our own STUN / relay** | Streams and datagrams, per-stream flow control | We would rebuild hole punching, relays and path migration that iroh already has | No |
 | **iroh (irx, forked)** | QUIC streams and datagrams, NAT traversal, managed relays, path migration; shipped and soaked on iOS | Fork upkeep (noq, iroh-ffi), relay-biased path choice (iroh#4247), no relay-only privacy mode | Keep. Best fit for laptop, Mac mini and phone pairs today |
 | **Own relay only (`cmux-relay` WSS, Cloudflare DO relay)** | Works through any HTTPS proxy; already end-to-end Noise | TCP over TCP; no direct path | Keep as the last-resort carrier |
@@ -148,7 +148,7 @@ Base: `cmux-remote-protocol` v5. Header (60 bytes, big-endian), already merged:
 ```
 
 Frames are Noise-encrypted end to end on every carrier, so relays and
-Freestyle see only ciphertext. On iroh, a lane can map 1:1 to a QUIC stream
+the VM provider see only ciphertext. On iroh, a lane can map 1:1 to a QUIC stream
 (irx style) to remove head-of-line blocking; the frame stays the same.
 
 A channel opens with the existing `ServiceControl::Open { service, metadata }`.
@@ -285,7 +285,7 @@ resumable by offset, bulk lane. It replaces ad hoc scp for Finder-over-hosts
 ## 5. Remote sessions: one sidebar group per computer
 
 ### 5.1 What the user sees
-A group per remote computer ("cosmic-gray", "Huge Blue", "cmux16", each Cloud
+A group per remote computer ("mac-mini", "build-server", "cmux16", each Cloud
 VM). Its header shows the name, the online state, and a path badge (direct,
 VPC, relay, RTT). Under it, sections that appear only when they have items:
 

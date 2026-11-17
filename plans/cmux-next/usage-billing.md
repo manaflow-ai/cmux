@@ -279,7 +279,7 @@ clock customer with a Pro subscription and the metered item; real model calls th
 Worker; run `/api/cron/usage-sync`; check the meter summary equals `billing.usage.levels`; run it
 again (no new event); make Stripe unreachable for one run, then recover; add a correction fact; advance
 the test clock past period end; check the finalized invoice line = level minus included. bun runs on a
-Freestyle VM, never the laptop.
+provider VM, never the laptop.
 
 ## 8. Slice plan (behavior tests at real boundaries, no unit tests)
 
@@ -318,7 +318,7 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
   cost), `included_micros` (the pool the sync used for the period starting at `from`; null for a period it
   never saw, which reads at cost) and `meter_micros`, what the Stripe meter summary must equal: per seat the
   billed level above the pool, per team the billed level. Compare the meter summary with `meter_micros`.
-- Cleanup: both subscriptions canceled, both test clocks deleted by exact id, Freestyle VMs deleted.
+- Cleanup: both subscriptions canceled, both test clocks deleted by exact id, provider VMs deleted.
   The development `BILLING_USAGE_PRICE_SET=e2e` stays as the standing billing-e2e configuration
   (test mode only; staging and production ignore it). Staging must never get STRIPE_USAGE_KEY while it
   shares the development Stripe sandbox; a separate sandbox is needed if staging ever pushes.
@@ -448,7 +448,7 @@ as part of the price set, per plan, beside the included USD.
 - Preview with sample data, both designs in six states (billed per team, billed per seat above the
   included amount, unbilled near the stop, unbilled above it with the stop off, stopped, plan not known):
   https://console-staging.cmux.dev/preview/ai-usage (not served on console.cmux.dev).
-- Browser check (`backend/apps/dashboard/test-browser/ai-usage-preview.mjs`, run on a Freestyle VM):
+- Browser check (`backend/apps/dashboard/test-browser/ai-usage-preview.mjs`, run on a provider VM):
   actions hidden at rest, shown on hover and on focus, Edit opens a field, Save shows the new limit, no
   page errors, for both designs.
 
@@ -468,7 +468,7 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   the invoice was a draft); included 2 x 0.5 = 1 USD; the meter summary showed 0.16829 (the level above
   the included amount), and the renewal invoice: 2 x Max 400.00 + "0.16829 x cmux AI usage (at $1.00)"
   = 0.17, total 400.17 USD, correct to the cent (check pass).
-- Cleanup: subscription canceled, clock deleted by exact id, VM secrets shredded, Freestyle VM
+- Cleanup: subscription canceled, clock deleted by exact id, VM secrets shredded, provider VM
   vm-7c87fc445b814419a9da82fee5b66e41 deleted by exact id. Real provider spend about 1.2 USD.
 
 ## 16. Lawrence's decisions 2026-10-14 (S5 follow-up), built
@@ -536,7 +536,7 @@ Development Worker at 55c505de22e6 (backend.yml 38524457745 green). One test clo
 - Usage 10 minutes before the period end and after the renewal (draft invoices) reached both invoices.
 - Finding fixed on the way: the deterministic event timestamp (section 16, e2e finding).
 - Cleanup: both subscriptions canceled, the clock deleted by exact id, the shared team's setting set
-  back to per team (actor e2e-hq-84), VM secrets shredded, Freestyle VM
+  back to per team (actor e2e-hq-84), VM secrets shredded, provider VM
   vm-0ac15ef11f3c4a91be39d4b92bbfd50e deleted by exact id. The shared e2e team stays as the standing
   e2e team on the development sign-in project. Real provider spend about 2 USD.
 

@@ -43,7 +43,7 @@ personal projection `icon-picker.prefs`, remembered skin tone, docked section he
 (glyph, name, `:shortcode:`), keyboard first (arrows, Ctrl-N/J/P/K, Return, Escape, Ctrl-Tab, Cmd-C
 copies through the copy command).
 
-Measured (real WKWebView, cmux-lawrence-2, `webviews/bench/icon-picker`): keystroke p95 2-3 ms,
+Measured (real WKWebView, a team Mac, `webviews/bench/icon-picker`): keystroke p95 2-3 ms,
 scroll step p95 1 ms, session open 4-6 ms, cold web view to first frame 94-100 ms, blank host
 navigated to the page 52-57 ms, loaded page shown again 27-38 ms.
 

@@ -2,7 +2,7 @@
 
 Status: design, 2026-10-20 (a203). Ask (Lawrence, Oct 20): "dynamic workflows for basically
 all the automations I want to have in my organization, so there is some determinism", on
-Freestyle, tenant-based. Builds on automations-plan.md (P12-P14), automations-runtime.md,
+the VM provider, tenant-based. Builds on automations-plan.md (P12-P14), automations-runtime.md,
 automations-billing.md and cloud-automation.md; it does not replace them.
 
 ## 1. What "dynamic but deterministic" means here
@@ -39,7 +39,7 @@ durable `step.do` results, sleeps, retries and deduped reports; `UsageMeterDO` m
 per team. What it lacks is a way to do real work on a machine: `agent_prompt` bodies fail with
 `body.unsupported` ("needs machine placement") and the `steps` body has only `sleep`, `note`
 and `op`. Option A adds two step types that run on one of the team's own Cloud machines
-(CloudDO, Freestyle):
+(CloudDO, the VM provider):
 
 - `machine`: one fixed shell command on a named machine of the team, with a timeout (max 300 s).
 - `agent`: one acpmux turn (`claude`, `codex` or `opencode`) on that machine, with a fixed
@@ -49,7 +49,7 @@ Each is one durable `step.do` keyed `cmux:machine-<i>` / `cmux:agent-<i>`, so a 
 returns the journaled result. Fit: R1-R8 all reuse existing parts; only the two step types and
 one CloudDO RPC are new.
 
-### B. Temporal (self-hosted on a Freestyle hub VM)
+### B. Temporal (self-hosted on a provider hub VM)
 
 Deterministic workflow code plus activities, the strongest replay model. Costs: a cluster to
 run (server, Postgres or Cassandra, Elasticsearch for visibility), workflow code must be
@@ -64,7 +64,7 @@ Tenant code at a pinned commit, `step.run` memoized per step, triggered by event
 branches and loops. It is not the default for org automations: it needs a code repository,
 a bundle and a deploy per change, and Chiefs write YAML-like specs more reliably than code.
 
-### D. GitHub Actions per tenant (self-hosted runners on Freestyle)
+### D. GitHub Actions per tenant (self-hosted runners on provider VMs)
 
 Familiar YAML, triggers from GitHub. Costs: every tenant needs a GitHub repository and
 runner registration; chat, cron precision and credits are outside GitHub; logs live in
@@ -180,7 +180,7 @@ typed, so a Chief can fix a spec in one more turn.
 
 ## 7. Proof (2026-10-20)
 
-- Tests (workerd, on a Freestyle VM): `test/automation-machine.test.ts` 8 pass, with
+- Tests (workerd, on a provider VM): `test/automation-machine.test.ts` 8 pass, with
   `automation-caps` and `automation-code` 23 pass in all (after the review fixes); `tsc` clean; `catalog:check` clean
   after regenerating the catalog, the TS client and the Rust wire types; `cargo check -p
   cmux-cloud-wire` clean. The workerd test runs a real `AutomationRunWorkflow` against the

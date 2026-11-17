@@ -17,7 +17,7 @@ Slices, in landing order:
 S1 Pages module (React UIs lead reviews): cmux.diff and cmux.markdown in firstParty, a CSP per descriptor, a dynamic-resource hook, PageWebView(surface:) passed to WebTheme, and per-descriptor commands. Tests: CmuxNextPagesTests via cmux-ci.
 S2 Rust sidecar: DiffTransportKind::Page; refs and branch implemented natively (no bin/cmux). cargo test on a testbox.
 S3 webviews: PageDiffTransport, async config boot, comments over the page bridge (hidden until S5), a pages/diff multi-file bundle. bun test plus bundle checks.
-S4 Swift host: DiffPageProvider (pool, session root, token/manifest), bind the open actions, map the navigation actions to page commands. Unit tests with a fake sidecar; live check on cmux-lawrence-2 (Ctrl-Shift-Cmd-G; appearance.surfaces.diff changes the background).
+S4 Swift host: DiffPageProvider (pool, session root, token/manifest), bind the open actions, map the navigation actions to page commands. Unit tests with a fake sidecar; live check on a team Mac (Ctrl-Shift-Cmd-G; appearance.surfaces.diff changes the background).
 S5 Comment, viewed-files and prefs store (Rust daemon ops through DaemonPageRelay).
 S6 Markdown page (build script, MarkdownPageProvider, local images limited to the markdown file's folder, zoom actions).
 S7 CLI `cmux diff [--staged|--base]` in cmux-tui.

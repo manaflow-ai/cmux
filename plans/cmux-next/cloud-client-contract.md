@@ -3,10 +3,10 @@
 Status: ACCEPTED by the backend lead 2026-10-04 (02cec80fd42, `state-placement.md` section 5 and 6;
 where they differ, state-placement.md wins). Cloud lead v2 (R121 redirect).
 Owners: the backend lead owns the new Cloud backend (API Worker, Durable Objects, PlanetScale MySQL,
-Freestyle calls) and the state split. The Cloud lead owns the client side: `cmux-cloud` (the app
+VM provider calls) and the state split. The Cloud lead owns the client side: `cmux-cloud` (the app
 server in `first-party-apps/cloud/server`), the Cloud page, the Swift glue, and this contract.
-Inputs: Lawrence R121 ("no production cloud VM infra; Worker/DO <> Freestyle; no merges to main"),
-his answers (same Freestyle account with new cmux-next keys; migrate classic users; MySQL only),
+Inputs: Lawrence R121 ("no production cloud VM infra; Worker/DO <> [the VM provider]; no merges to main"),
+his answers (same VM provider account with new cmux-next keys; migrate classic users; MySQL only),
 plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend catalog
 `backend/catalog/cloud-operations.json` (protocol `cmux.wire/1`).
 
@@ -99,7 +99,7 @@ through the daemon on the link; section 2.4).
 
 `cloud.machine.upsert {machine}` and `cloud.machine.removed {machine, revision}`;
 `cloud.snapshot.upsert` and `.removed`; `cloud.plan.changed {plan}`. Every provider state change
-(provisioning done, idle pause by Freestyle, a failure) is an event, so the client never polls.
+(provisioning done, idle pause by the provider, a failure) is an event, so the client never polls.
 This closes cloud-app.md DECISION 5 (machine change feed).
 
 ### 1.5 Quotas and billing, as the user sees them
@@ -113,15 +113,15 @@ a limit itself.
 
 ### 1.6 Idempotency and the resource ledger (asks to the backend lead)
 
-1. One ledger row per provider resource (VM, snapshot) written BEFORE the Freestyle call, keyed by
+1. One ledger row per provider resource (VM, snapshot) written BEFORE the provider call, keyed by
    the op's idempotency key, with the provider id filled in after; a crash resumes from the row.
    The client relies on this: a retried create never makes a second VM.
-2. Freestyle resource names are deterministic: `<env prefix><machine id>` with prefixes
+2. Provider resource names are deterministic: `<env prefix><machine id>` with prefixes
    `cmuxnp-dev-`, `cmuxnp-stg-`, `cmuxnp-prod-` (never `cmux-`, which classic uses on the same
    account). The driver refuses a resource without its prefix, except imported classic machines
    (allowlisted by provider id). The alarm repairs a lost create by this name, so a cleanup never
    needs a list call (accepted, state-placement.md 5.2 and 5.3).
-3. The Freestyle keys are Worker secrets per environment (new cmux-next keys on the same account).
+3. The provider keys are Worker secrets per environment (new cmux-next keys on the same account).
    No client, VM or app server ever sees one.
 4. Agent principals (`agt`) are refused by the backend for create, delete, resize up, snapshot
    delete, billing checkout and migration start. `cloud.machine.exec` exists only as an internal op
@@ -157,7 +157,7 @@ Result:
 | `peer.overlay_address` | IPv6 in `fd7c:6d78::/32` | derived from the host id (transport.md 3.1); the link checks it against its own derivation and refuses a mismatch |
 | `peer.vpc_endpoint` | `[addr]:4101` or null | the VM's VPC address, UDP 4101 (VPC members, no tunnel) |
 | `peer.public_ipv6` | IPv6 or null | for `direct_wan` when the VM has one and the policy opened it for this install's /128 |
-| `gateway` | object or null | this install's own Freestyle tunnel when it is attached to the VM's VPC and the firewall rule for UDP 4101 exists: `{tunnel_id, endpoint, server_public_key, client_address, allowed_ips}`; null = no `tunnel` path for this caller (the link then reports `path_state` without it) |
+| `gateway` | object or null | this install's own provider tunnel when it is attached to the VM's VPC and the firewall rule for UDP 4101 exists: `{tunnel_id, endpoint, server_public_key, client_address, allowed_ips}`; null = no `tunnel` path for this caller (the link then reports `path_state` without it) |
 | `services` | array of `daemon`, `ssh` | what this caller may dial on this host (team policy); the VM's endpoint enforces the same list |
 | `daemon` | `{version, capabilities}` | as the VM reported at bind; for the client's capability gates |
 | `revision` | decimal string (`cmux.wire/1` `Revision`) | the CloudDO stream sequence of the last change to this record |
@@ -267,7 +267,7 @@ as `{team, machine, bind_token, api_origin, env}` on every create, retry and res
 is the https origin from the Worker var `CLOUD_API_ORIGIN` (no write if it is not https) and `env`
 is `dev`, `stg` or `prod`, the same tag as the token's `iss` `cmux:cloud:<env>`; the image's agent
 refuses an origin not on its per-environment allowlist, binds, deletes `bind.json` and writes
-`bound.json` `{host, epoch}`; `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
+`bound.json` `{host, epoch}`; `TeamDO` peer map and the provider tunnel and rule reconciler (lane
 12); for `ssh`, the VM's sshd trusts the team SSH CA (`team_vm.ssh_cert`, team VM lead), so scp and
 sftp use short-lived certificates, never a static key.
 
@@ -406,7 +406,7 @@ classic VMs during migration.
 
 ### 2.6 Rescue shell
 
-`cloud.shell.open` is the only byte path through the backend: the Worker opens Freestyle's
+`cloud.shell.open` is the only byte path through the backend: the Worker opens the provider's
 exec/terminal stream with its key and relays it as a wire stream. `cmux-cloud` serves it as a
 `cmux.terminal.backend/1` byte terminal (C3/C7 rescue code). It works when the VM daemon is down
 and for classic VMs before upgrade.
@@ -414,7 +414,7 @@ and for classic VMs before upgrade.
 ## 3. Dogfood order on the new backend
 
 1. Backend lead: `cloud.machine.list/get/create/delete` + events on development with a
-   `cmuxnp-dev-` Freestyle key and a cmux-next image with the bind agent.
+   `cmuxnp-dev-` provider key and a cmux-next image with the bind agent.
 2. Client (Cloud lead), in parallel against a fake backend that serves the section 1.3 vectors:
    ControlPlane swap, page and sidebar on the new shapes, migration screens.
 3. Live: create, list, rescue shell (works before the overlay), then the overlay terminal when
@@ -435,7 +435,7 @@ and for classic VMs before upgrade.
    only writer. Pause, start, snapshot and delete work at once (Freestyle-level ops). Terminal works
    through the rescue shell at once.
 4. Upgrade (`cloud.machine.upgrade`, per machine, user-initiated): the backend installs the
-   cmux-next daemon and bind agent into the running VM through Freestyle exec, binds it to the
+   cmux-next daemon and bind agent into the running VM through provider exec, binds it to the
    overlay, and the machine loses the "Classic" badge. A failed upgrade leaves a working classic
    machine and a typed error. Alternative: "Snapshot and recreate" on the new image.
 5. Cutover: classic stays read-write for users who did not move. A date for a forced move is
@@ -495,7 +495,7 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 - A paused, pausing or starting machine: `connect_info` answers `state`; `link_token` refuses with
   `cloud.machine.paused {machine, state}`. Nothing starts a machine on connect: the client asks the
   person ("Start machine?") and calls `cloud.machine.start`.
-- Freestyle never pauses, stops or deletes a machine by itself (every Freestyle timer -1 at create), so the
+- The provider never pauses, stops or deletes a machine by itself (every provider timer -1 at create), so the
   machine record stays true. Our 24 h backstop pauses a machine whose own reports show no sessions and no
   input or agent action for 24 h, for every team (bounds the cost of a forgotten machine).
   A running machine whose VM sent no report for 24 h after its last start or bind is also paused (the cost
@@ -523,7 +523,7 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 booted from the snapshot, every create check, a fresh bind). Create, delete and restore are money ops (a
 signed-in person, per-team limit). Snapshots stay after their machine is deleted; a snapshot still being
 taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
-machine's disk size when it was taken (Freestyle reports no snapshot size).
+machine's disk size when it was taken (the provider reports no snapshot size).
 
 
 ### Calls from an install token: the Mac relay (cx-wb5.65, chief decisions 2026-10-08)

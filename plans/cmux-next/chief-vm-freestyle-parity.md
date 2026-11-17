@@ -1,13 +1,13 @@
-# chief-vm: parity with the Freestyle VM API and CLI
+# chief-vm: parity with the VM provider's VM API and CLI
 
 Scope (Lawrence, 2026-10-21): the Cloud Chief's sandbox tool (`chief-vm` on the turn machine,
 `backend/chief-cc/image/chief-vm.mjs`; the Worker side is `backend/apps/api/src/chief-brain-cc/sandbox*.ts`)
-supports everything Freestyle VMs support, on the Chief's own VMs only.
+supports everything the provider's VMs support, on the Chief's own VMs only.
 
-Sources read (2026-10-21): https://www.freestyle.sh/docs/vms and every page linked from it (lifecycle, files,
+Sources read (2026-10-21): the provider's public VM docs and every page linked from them (lifecycle, files,
 base snapshots, SSH, client sessions, domains, domain verification, domain DNS, wildcard domains, VPCs,
 firewall, inbound/outbound TLS, tunnels, PTY, forward auth, pricing and limits, CLI, VM CLI, domains CLI),
-https://api.freestyle.sh/openapi.json (v5, 88 operations) and the `freestyle` SDK 0.2.20 sources.
+the provider's OpenAPI document (v5, 88 operations) and its TypeScript SDK 0.2.20 sources.
 
 ## Rules
 
@@ -15,7 +15,7 @@ https://api.freestyle.sh/openapi.json (v5, 88 operations) and the `freestyle` SD
   reachable only when this Chief made it (its id in the brain's cb_config, and the `cmux_chief_sandbox`
   metadata on the VM). Anything else answers 404.
 - The team API key stays on the Worker. It never reaches a VM, the turn machine, the Chief or the Mac.
-- Client sessions (security model): one Freestyle identity per Chief, a VM grant only for VMs it owns with
+- Client sessions (security model): one provider identity per Chief, a VM grant only for VMs it owns with
   `allowedLinuxUsers` set explicitly (`["root", "chief"]`, never null), tokens minted and stored on the
   Worker only, short-lived (15 min, rotated by the Worker), never logged. exec and pty use the identity
   token (header `x-freestyle-identity-access-token`), so they reach only that VM as those users. Team-key
@@ -24,13 +24,13 @@ https://api.freestyle.sh/openapi.json (v5, 88 operations) and the `freestyle` SD
   identity (with its tokens and grants) is deleted.
 - Limits: a per-Chief cap on live sandboxes (`CHIEF_CC_SANDBOX_CAP`, per Chief `CHIEF_CC_SANDBOX_CAPS`,
   default 2, at most 10); sizes over the plan's per-VM maximums (`CHIEF_CC_FREESTYLE_PLAN`, default pro:
-  32 vCPU / 64 GiB / 256 GB, probed 2026-10-21) are refused before Freestyle sees them.
-- Per Chief, not per conversation: the sandbox list, cap, snapshots and Freestyle identity live in the
+  32 vCPU / 64 GiB / 256 GB, probed 2026-10-21) are refused before the provider sees them.
+- Per Chief, not per conversation: the sandbox list, cap, snapshots and provider identity live in the
   Chief's `<agent>/sandboxes` object; a conversation brain's older list is adopted on its next call.
 - Small disks (Lawrence, 2026-10-22): `create` starts from `freestyle/ubuntu-sm` (16 GB disk), grown to
   4 vCPU / 8 GiB; `--image chief` starts from the Chief's machine image (32 GB, its tools and clones).
   The Chief image could be 16 GB too (8.8 GB used) but needs a re-bake on a 16 GB base: planned.
-- Cost: create, resize and list show cost per hour at Freestyle's list prices (vCPU $0.04032/h,
+- Cost: create, resize and list show cost per hour at the provider's list prices (vCPU $0.04032/h,
   GiB memory $0.0129/h, GiB storage $0.000086/h; a paused VM bills storage only).
 - Public domains are allowed and every route to a public domain is logged (Worker log line, no secrets).
 - Not offered: physical hardware power (`/v5/hardware/*`, a real power outlet), account-wide placeholder
@@ -41,7 +41,7 @@ https://api.freestyle.sh/openapi.json (v5, 88 operations) and the `freestyle` SD
 
 Status: `done` (landed, failing test first, tried on a throwaway VM), `planned` (next batch), `no` (with the reason).
 
-| Freestyle feature | API | chief-vm verb | Batch | Status |
+| Provider feature | API | chief-vm verb | Batch | Status |
 | --- | --- | --- | --- | --- |
 | Resize (grow only, live CPU/memory, disk then guest filesystem) | POST /vms/ID/resize | `resize ID --cpu --memory-gb --disk-gb` | 1 | done (0cf77fda6fa) |
 | Create sizes | create + resize | `create --cpu --memory-gb --disk-gb` | 1 | done (0cf77fda6fa) |

@@ -6,7 +6,7 @@ Bead cx-6so.36.5 (parent cx-6so.36). Daemon contract: `.cmux-scratch/nx-osc7501/
 Audited at feat-cmux-next `c6a0cd6d999c`, ghostty-next pin `3339f2ada`. Fixes landed in
 `2677a13085cb` (gated `a048817d41d6`).
 
-Live evidence (`scripts/cmux-next/terminal-program-status-conformance-live.py`, cmux-lawrence-2):
+Live evidence (`scripts/cmux-next/terminal-program-status-conformance-live.py`, a team Mac mini):
 baseline tag o75b at `c6a0cd6d999c` and after-fix tag o75f at `5abd229dfb42`. Reports and
 window snapshots are in hq `.cmux-scratch/videos/cx-6so.36.5/` (`baseline-*`, `after-*`).
 Baseline: every record step passes, the query is answered (ST and BEL), but there are no banners,
