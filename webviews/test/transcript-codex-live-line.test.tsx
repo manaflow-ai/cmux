@@ -10,7 +10,7 @@ import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
-import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
 
 import type { ReactNode } from "react";
@@ -77,7 +77,7 @@ test("a call in flight is the live line at the bottom, under the folded runs, wi
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
   expect(run.foldRun).toBe(true);
-  expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
+  expect(shaped.some((entry) => entry.turnPhase === "running")).toBe(false);
 });
 
 test("a steered turn is one live block at its bottom, under the steer, timed from the prompt", () => {
@@ -89,7 +89,7 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
     row("run2", "activity", { items: [call("git diff"), thought("Now the retry path")] }),
   ]);
   // Nothing over the turn's work; the one live line is the last row, after the steer.
-  expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
+  expect(shaped.some((entry) => entry.turnPhase === "running")).toBe(false);
   expect(shaped.filter((entry) => entry.kind === THINKING)).toHaveLength(1);
   const line = shaped.at(-1)!;
   expect(line).toMatchObject({ id: "thinking-live", kind: THINKING, below: true, at: user.at });

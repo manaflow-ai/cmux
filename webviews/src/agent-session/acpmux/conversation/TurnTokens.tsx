@@ -12,7 +12,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { uncachedTokens } from "../tokenSplit";
 import { formatDuration } from "./turns";
-import { Clock } from "../../../ui/Typography";
+import { Clock, clockSizerAcrossUnits } from "../../../ui/Typography";
 import { compactTokens, workingTokens, hasTokens, tokenDetail } from "./turnTokensModel";
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
@@ -53,7 +53,14 @@ export function TimedLabel({
     <>
       {before}
       {ticking ? (
-        <Clock text={shown} className="cv-worked__label-time" />
+        // Nothing after the time on the line's words ("Working for 59s"): its box holds the minutes'
+        // width from the start, so the turn into "1m 0s" moves nothing after it either. Words after
+        // the time ("{time} 作業中") keep to its shape's width, never a gap before them.
+        <Clock
+          text={shown}
+          className="cv-worked__label-time"
+          size={after.trim() ? undefined : clockSizerAcrossUnits(shown)}
+        />
       ) : (
         <span className="cv-worked__label-time">{shown}</span>
       )}

@@ -644,6 +644,10 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
+  /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
+  /// `durationMs` once the answer came), unset once it ended.
+  turnPhase?: "running";
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
@@ -2156,6 +2160,10 @@ export type AcpmuxMessageRun = {
   failed: number;
   running: boolean;
   rows: string[];
+  /// Its phrases' kinds in the order each first came in the run ("sent", "received", or a work
+  /// category, toolRunSummary.ts): the line reads in that order, so a phrase that comes in later
+  /// joins the end and none before it moves (messageRuns.ts `messageRunSummary`).
+  order?: string[];
 };
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
