@@ -35,6 +35,44 @@ final class TerminalChatToggleSettingUITests: XCTestCase {
                        "no 'No terminal runs this chat' notice")
     }
 
+    /// Setting off: a Claude Code terminal (its session known, a chat the Mac can open) offers no
+    /// Show Chat (`-cmux-mobile-demo ws-terminal-chat`).
+    @MainActor
+    func testToggleOffClaudeTerminalOffersNoShowChat() throws {
+        let app = launch(demo: "ws-terminal-chat", toggle: nil)
+        openPageMenu(app, title: "claude")
+        attach(app, "off-3-claude-terminal-menu")
+        assertNoToggleRow(app, "setting off, Claude Code terminal")
+    }
+
+    /// Setting on: a Claude Code terminal swaps to the View Only chat of its session and back,
+    /// from its page menu, in place.
+    @MainActor
+    func testToggleOnClaudeTerminalSwapsBothWays() throws {
+        let app = launch(demo: "ws-terminal-chat", toggle: true)
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "opens on its terminal\n\(app.debugDescription)")
+        attach(app, "swap-1-terminal")
+
+        openPageMenu(app, title: "claude")
+        let showChat = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Show Chat")).firstMatch
+        XCTAssertTrue(showChat.waitForExistence(timeout: 5), "Show Chat in the page menu\n\(app.debugDescription)")
+        attach(app, "swap-2-menu-show-chat")
+        showChat.tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5), "the terminal face is gone\n\(app.debugDescription)")
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "swap-3-chat")
+
+        openPageMenu(app, title: "claude")
+        let showTerminal = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Show Terminal")).firstMatch
+        XCTAssertTrue(showTerminal.waitForExistence(timeout: 5), "Show Terminal in the chat's page menu\n\(app.debugDescription)")
+        attach(app, "swap-4-menu-show-terminal")
+        showTerminal.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "back on its terminal\n\(app.debugDescription)")
+        Thread.sleep(forTimeInterval: 0.5)
+        attach(app, "swap-5-terminal-again")
+    }
+
     /// The setting itself: Settings → Terminal shows the switch, off by default.
     @MainActor
     func testSettingIsOffByDefault() throws {
