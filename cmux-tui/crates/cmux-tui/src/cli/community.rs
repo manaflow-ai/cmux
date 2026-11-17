@@ -1,7 +1,6 @@
 //! `cmux theme install|update|remove|installed` and `cmux snippet ...`:
 //! community themes and snippets from git repositories, the two no-code
-//! tiers beside extensions (Leo, 2026-11-16: "oh yeah our customization
-//! thing can kinda be like the obsidian plugin ecosystem").
+//! tiers beside extensions (plugins).
 //!
 //! A reference is `[https://]HOST/OWNER/REPO[/PATH][@REF]`, as for
 //! `cmux apps install`. No ref follows releases: the newest version tag

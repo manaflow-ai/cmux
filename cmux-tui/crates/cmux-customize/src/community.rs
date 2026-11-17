@@ -1,6 +1,6 @@
 //! Community themes and snippets: the two no-code tiers of customizations
-//! that live in git repositories (Leo, 2026-11-16: "oh yeah our
-//! customization thing can kinda be like the obsidian plugin ecosystem").
+//! that live in git repositories, beside extensions: a community plugin
+//! ecosystem in three tiers (plugin, theme, snippet).
 //!
 //! Both reuse what cmux already loads; nothing here is a new format the app
 //! reads:
