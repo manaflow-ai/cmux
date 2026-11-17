@@ -54,6 +54,8 @@ main() {
   }
   settings_exports="^($settings_alternation)$"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=scripts/cmux-next/lib/origin-net.sh
+  source "$here/lib/origin-net.sh"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
   unset TOKEN
@@ -139,7 +141,11 @@ main() {
       -m "$(sed 's/^/- namespace rewrite in /' <<<"$paths")" \
       -m "scripts/cmux-next/base-autofix-land.sh: ${RUN_URL:-} could not compile these, so they wait for this pull request's CI instead of landing on $branch.")"
     # The same rewrite again (every base push makes it while it waits) leaves the branch, and its CI, alone.
-    previous="$(git ls-remote "$remote" "refs/heads/$sources_branch" 2>/dev/null | cut -f1)"
+    if ! previous="$(remote_refs . "$remote" "refs/heads/$sources_branch")"; then
+      echo "::warning title=Base autofix Swift rewrites::$remote did not answer; they are left out of $branch and the next run makes them again" >&2
+      return 0
+    fi
+    previous="$(cut -f1 <<<"$previous")"
     if [[ -n "$previous" ]] && git fetch --quiet --no-tags "$remote" "$previous" 2>/dev/null \
       && [[ "$(git diff --name-only "$previous^" "$previous" 2>/dev/null)" == "$(sort <<<"$paths")" ]] \
       && mapfile -t path_list <<<"$paths" && git diff --quiet "$previous" "$commit" -- "${path_list[@]}"; then
