@@ -6,7 +6,9 @@ import os
 
 /// Writes this launch's ``LaunchTimesRecord`` once, off the main thread (CMUX-571). The app's composition
 /// root makes one per launch and calls ``write(marks:)`` when the first window frame and Home's reveal are
-/// both marked; the write also logs the line at `.notice`, which a release build keeps.
+/// both marked; the write also logs the line at `.notice`, which a release build keeps. From its making it
+/// listens to the launch marks (its `listen`) and writes the row again, once, when the prior
+/// chat's marks are in (``heard(_:marks:)``, CMUX-119).
 public nonisolated struct LaunchTimesRecorder: Sendable {
     /// When this process started (`sysctl` `KERN_PROC_PID`): the launch marks' zero.
     public static let processStart: Date = {
@@ -23,30 +25,101 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     let version: String, build: String, commit: String?
     /// Whether the updater pre-warmed `build` before this launch (consumes its marker). Blocking.
     let prewarmed: @Sendable (_ build: String) -> Bool
+    /// The one rewrite of this launch's row with the prior chat's columns (CMUX-119), and the lock its file writes take.
+    let priorChat = LaunchPriorChatWatch()
 
-    /// - Parameter info: the bundle's Info.plist (`CFBundleShortVersionString`, `CFBundleVersion`, `CMUXCommit`).
-    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any], prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
+    /// - Parameters:
+    ///   - info: the bundle's Info.plist (`CFBundleShortVersionString`, `CFBundleVersion`, `CMUXCommit`).
+    ///   - listen: registers a listener for the names of the launch marks to come (the agent pane's, which the
+    ///     prior chat's are); `marks` reads every launch mark so far.
+    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any],
+                listen: (@escaping @Sendable (String) -> Void) -> Void = { _ in }, marks: @escaping @Sendable () -> [String: Double] = { [:] },
+                prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
         self.file = file
         self.work = work
         version = info["CFBundleShortVersionString"] as? String ?? ""
         build = info["CFBundleVersion"] as? String ?? ""
         commit = info["CMUXCommit"] as? String
         self.prewarmed = prewarmed
+        let recorder = self
+        listen { recorder.heard($0, marks: marks) }
     }
 
-    /// Appends the record of a launch with `marks` (milliseconds since ``processStart``) on a files lane.
+    /// Writes the record of this launch with `marks` (milliseconds since ``processStart``) on a files lane: appends
+    /// it, or rewrites this launch's row when it is written already (``LaunchTimesFile/append(_:rewritingLast:)``).
     public func write(marks: [String: Double]) {
         let recorder = self
         work.post(.bestEffort, mayBlock: .files) {
-            let record = LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version, build: recorder.build,
-                                           commit: recorder.commit, prewarmed: recorder.prewarmed(recorder.build))
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
             do {
-                let line = try recorder.file.append(record)
+                let line = try recorder.priorChat.writing(prewarmed: { recorder.prewarmed(recorder.build) }) { prewarmed, written in
+                    try recorder.file.append(LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version,
+                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed),
+                                             rewritingLast: written)
+                }
                 log.notice("launch-times \(line, privacy: .public)")
             } catch {
                 log.error("launch-times not written: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Hears launch mark `name` (its `listen`): on the mark that completes the prior chat's
+    /// (``LaunchPriorChat/marks``) when the restored front tab is a chat, writes this launch's row again with
+    /// them, once. It never waits on Home's reveal: a relaunch into a chat workspace never shows Home.
+    public func heard(_ name: String, marks: () -> [String: Double]) {
+        if let marks = priorChat.complete(after: name, marks: marks) { write(marks: marks) }
+    }
+}
+
+/// The prior chat's launch columns (CMUX-119), on the launch marks' clock. Leo, 2026-11-16: "when i
+/// restart/re-launch... im expecting my prior workspace and the probable agent chat session that i had
+/// running. so THAT's the importtnt one". The marks are the ones the quit-reopen harness reads
+/// (scripts/ci/quit_gamut_check.py): `agent_pane.painted`, the chat's page drawn with its recent messages, and
+/// `agent_pane.transport_open`, its stream connected; ``frontMark`` says the chat was the tab in front.
+public nonisolated struct LaunchPriorChat {
+    public nonisolated init() {}
+    /// An agent chat (not a new tab's page) went on screen before the launch's pane region was ready: the
+    /// restored front tab is a chat (`AgentPaneView.viewDidMoveToWindow`).
+    public static let frontMark = "launch.front_chat_shown"
+    /// The marks both columns need.
+    public static let marks: Set<String> = [frontMark, "agent_pane.painted", "agent_pane.transport_open"]
+
+    /// (the chat in front and drawn, the same chat live: drawn and its stream open); nil unless every one of
+    /// ``marks`` is in `marks`.
+    public static func times(_ marks: [String: Double]) -> (painted: Double, live: Double)? {
+        guard let front = marks[frontMark], let painted = marks["agent_pane.painted"],
+              let open = marks["agent_pane.transport_open"] else { return nil }
+        let shown = max(front, painted)
+        return (shown, max(shown, open))
+    }
+}
+
+/// The once of a launch's prior-chat rewrite, and the lock that keeps its row's writes one at a time.
+public nonisolated final class LaunchPriorChatWatch: Sendable {
+    private let claimed = Mutex(false)
+    /// Held by every write of the row: the build's pre-warm answer, read on the first write, and whether the row is written.
+    private let files = Mutex<(prewarmed: Bool?, written: Bool)>((nil, false))
+
+    public init() {}
+
+    /// `marks()` when `name` is one of ``LaunchPriorChat/marks`` and they are all in, the first time only; nil otherwise.
+    public func complete(after name: String, marks: () -> [String: Double]) -> [String: Double]? {
+        guard LaunchPriorChat.marks.contains(name), !claimed.withLock({ $0 }) else { return nil }
+        let marks = marks()
+        guard LaunchPriorChat.times(marks) != nil, claimed.withLock({ claimed in defer { claimed = true }; return !claimed }) else { return nil }
+        return marks
+    }
+
+    /// Runs `write` alone, so the first write and the rewrite never race on the file, with whether the build was
+    /// pre-warmed (`prewarmed` is asked on the first write only: it consumes its marker) and whether the row is written.
+    func writing(prewarmed: () -> Bool, _ write: (_ prewarmed: Bool, _ written: Bool) throws -> String) throws -> String {
+        try files.withLock { state in
+            let warmed = state.prewarmed ?? prewarmed()
+            state.prewarmed = warmed
+            let line = try write(warmed, state.written)
+            state.written = true
+            return line
         }
     }
 }
@@ -77,6 +150,11 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var homeFirstPageMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
+    /// Process start to the restored front tab's agent chat on screen, drawn with its recent messages
+    /// (`agent_pane.painted`); nil when the front tab is not a chat or it has not drawn yet (``LaunchPriorChat``).
+    public var priorChatPaintedMs: Double?
+    /// Process start to that chat live too: drawn and its stream connected (`agent_pane.transport_open`).
+    public var priorChatLiveMs: Double?
     /// The updater pre-warmed this build before this launch (`StagedUpdatePrewarm`): this is the first
     /// launch of a build the running app ran once while the update waited.
     public var prewarmed: Bool
@@ -88,6 +166,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
+        case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
         case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
     }
 
@@ -104,6 +183,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
+        if let chat = LaunchPriorChat.times(marks) { (priorChatPaintedMs, priorChatLiveMs) = (round(chat.painted), round(chat.live)) }
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
     }
@@ -154,11 +234,18 @@ public nonisolated struct LaunchTimesFile: Sendable {
     }
 
     /// Appends `record`, keeping the last ``capacity`` lines. Sets its ``LaunchTimesRecord/firstLaunchOfBuild``
-    /// from the launch before. Returns the line written.
+    /// from the launch before. With `rewritingLast`, a last line of the same launch (start and build) is replaced
+    /// instead, keeping the prior chat's columns it has and `record` lacks. Returns the line written.
     @discardableResult
-    public func append(_ record: LaunchTimesRecord) throws -> String {
+    public func append(_ record: LaunchTimesRecord, rewritingLast: Bool = false) throws -> String {
         var record = record
-        let earlier = lines()
+        var earlier = lines()
+        if rewritingLast, let last = earlier.last.flatMap({ try? JSONDecoder().decode(LaunchTimesRecord.self, from: Data($0.utf8)) }),
+           last.startedAt == record.startedAt, last.build == record.build, last.commit == record.commit {
+            earlier.removeLast()
+            record.priorChatPaintedMs = record.priorChatPaintedMs ?? last.priorChatPaintedMs
+            record.priorChatLiveMs = record.priorChatLiveMs ?? last.priorChatLiveMs
+        }
         if let last = earlier.last.flatMap({ try? JSONDecoder().decode(LaunchTimesRecord.self, from: Data($0.utf8)) }) {
             record.firstLaunchOfBuild = last.version != record.version || last.build != record.build || last.commit != record.commit
         }

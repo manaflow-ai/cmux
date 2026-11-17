@@ -2326,19 +2326,16 @@ struct WorkspaceTabPage: View {
                 topInset: insets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             // A page built during a zoom or swipe is laid out before its
             // composer is measured; once it settles, a following chat lands
             // on its newest turn above the composer.
             .onChange(of: context.isInteractive) { _, interactive in
                 if interactive, surface.following { surface.scrollToBottom(animated: false) }
             }
-            // A chat of a Claude Code or Codex session a terminal runs: the same control, at the
-            // same place, whose other face is that terminal.
-            .overlay(alignment: .topTrailing) { ChatTerminalToggle(source: source, tab: tab, workspace: workspace, topInset: insets.top) }
         case .terminal:
-            // Claude Code and Codex: the terminal and a View Only chat of its session, both parked,
-            // with the Chat | Terminal control (Toggle Terminal and Chat).
+            // Claude Code and Codex: the terminal and a View Only chat of its session, both parked;
+            // the page menu's Show Chat / Show Terminal row swaps them.
             TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: insets.top,
                              reportScroll: { context.reportScroll(fingerDelta: $0) }) {
                 terminalPage(tab, workspace)

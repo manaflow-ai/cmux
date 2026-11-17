@@ -28,8 +28,10 @@
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
-#                              service processes the helper, then main-only after
-#                              stapling so the submitted helper CDHash survives.
+#                              service processes the helpers (Computer Use and the
+#                              Screen Sharing helper, one submission), then
+#                              main-only after stapling so the submitted helper
+#                              CDHashes survive.
 #
 # Signs in the Apple-documented inside-out order:
 #   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
@@ -150,6 +152,41 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       "$COMPUTER_USE_HELPER"
   fi
 
+  # 2b. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # (nightly and RC rename the app after the build), then signed as its own app with the
+  # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
+  # Screen Recording and Accessibility grants under, so a grant survives every update.
+  # Like the Computer Use helper it goes in the early notarization submission
+  # (notarize-computer-use-helper.sh --start stamps and signs it), so
+  # all-except-computer-use keeps that signature and the ticket finish staples, unless the
+  # app was re-identified since (stable-next-identity.sh, nightly-next-legacy-identity.sh):
+  # a helper still stamped for another bundle id would share that channel's grants and show
+  # under its name in System Settings, so it is stamped and signed again. The app's own
+  # notarization then covers its new signature; its old stapled ticket is dropped.
+  restamp_screen_helper=0
+  if [[ "$SIGN_MODE" == "all-except-computer-use" ]]; then
+    app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+      [[ -d "$screen_helper" ]] || continue
+      helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
+      if [[ "$helper_bundle_id" != "$app_bundle_id.screen-sharing" || "$(basename "$screen_helper")" != "$app_bundle_name Screen Sharing.app" ]]; then
+        echo "==> the Screen Sharing helper is stamped for $helper_bundle_id; re-stamping it for $app_bundle_id"
+        restamp_screen_helper=1
+      fi
+    done
+  fi
+  if [[ "$SIGN_MODE" == "all" || "$restamp_screen_helper" == 1 ]]; then
+    "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+      [[ -d "$screen_helper" ]] || continue
+      [[ "$restamp_screen_helper" == 0 ]] || rm -f "$screen_helper/Contents/CodeResources"
+      echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
+    done
+  fi
+
   # 3. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
     while IFS= read -r -d '' plugin; do
@@ -212,6 +249,10 @@ done
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
+for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+  [[ -d "$screen_helper" ]] || continue
+  /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
+done
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)

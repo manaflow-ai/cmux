@@ -54,6 +54,13 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+    pub fallback_code: Option<String>,
+    /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+    #[serde(rename = "installURL")]
+    pub install_url: Option<String>,
+    /// `link seed fetch --find-root`: the machine's folder it copied (the chat's repository root).
+    pub remote_root: Option<String>,
     /// `link start-chat plan`'s refusal of the platform's Cloud table (cmux-platform#1192): the
     /// same send may pass later (a busy machine, a rate limit, an outage), so the card offers
     /// Retry; false for a cap or any line that does not say.
@@ -151,6 +158,9 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        fallback_code: string(&object, "fallback_code"),
+        install_url: string(&object, "install_url"),
+        remote_root: string(&object, "remote_root"),
         retryable: boolean(&object, "retryable").unwrap_or(false),
         retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
     };
@@ -366,6 +376,15 @@ pub enum Call {
         local: String,
         remote: String,
     },
+    /// `link seed fetch --find-root` (Transfer to This Mac): the first copy of the machine's folder
+    /// of a chat in a new folder here; `adopt` (the chat moves here) keeps the sync records.
+    TransferFetch {
+        socket: String,
+        local: String,
+        remote: String,
+        #[serde(default)]
+        adopt: bool,
+    },
     /// `link seed pull --or-copy` (Bring Back Local).
     BringBackPull {
         socket: String,
@@ -475,6 +494,10 @@ pub enum Call {
         acpmux_home: Option<String>,
         #[serde(default)]
         store: bool,
+        /// What the copy does when the machine can't clone the folder from its git remote; none
+        /// leaves cmux-tui's own default (copy).
+        #[serde(default)]
+        on_seed_refusal: Option<SeedRefusal>,
     },
     /// `link start-chat trust`: this Mac's acpmux trust level for the folder a start would copy, read
     /// before any machine is taken (the copy is trusted there only when this Mac trusts it).
@@ -482,6 +505,26 @@ pub enum Call {
         folder: String,
         acpmux_home: String,
     },
+}
+
+/// What a start copy does when the machine can't clone the folder from its git remote
+/// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+/// would send, and copies nothing; `copy` copies the folder instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SeedRefusal {
+    Ask,
+    Copy,
+}
+
+impl SeedRefusal {
+    /// The `--on-seed-refusal` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Copy => "copy",
+        }
+    }
 }
 
 /// How the app runs one call: its arguments and how long it may take.
@@ -550,6 +593,14 @@ pub fn invocation(call: &Call) -> Invocation {
     match call {
         Call::SeedPush { socket, local, remote } => {
             plain(words(&["link", "seed", "push", "--socket", socket, local, remote]))
+        }
+        Call::TransferFetch { socket, local, remote, adopt } => {
+            let mut args =
+                words(&["link", "seed", "fetch", "--socket", socket, local, remote, "--find-root"]);
+            if *adopt {
+                args.push("--adopt".to_owned());
+            }
+            plain(args)
         }
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
@@ -710,6 +761,7 @@ pub fn invocation(call: &Call) -> Invocation {
             work_roots,
             acpmux_home,
             store,
+            on_seed_refusal,
         } => {
             let mut args = words(&[
                 "link",
@@ -738,6 +790,9 @@ pub fn invocation(call: &Call) -> Invocation {
             // store (cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
             if *store {
                 args.extend(words(&["--store", "default"]));
+            }
+            if let Some(refusal) = on_seed_refusal {
+                args.extend(words(&["--on-seed-refusal", refusal.as_str()]));
             }
             plain(args)
         }

@@ -9729,6 +9729,36 @@
         "ty": "string"
       }
     },
+    "request:float-pane": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
     "request:focus-direction": {
       "/dir": {
         "ty": "enum",
@@ -17267,6 +17297,12 @@
       }
     },
     "response:feed-local-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:float-pane": {
       "/data": {
         "ty": "json",
         "required": true
