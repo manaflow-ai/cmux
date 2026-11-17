@@ -1,6 +1,6 @@
 /// A prompt is one acpmux message, and acpmux refuses one over `rpc::MAX_MESSAGE_BYTES` (31 MiB) as
 /// `message.too_large`. No attachment has a size cap (Leo, 2026-10-26: "arbitarrily large file
-/// sizes"), and each kind's own cap (a recording's
+/// sizes"), and each kind's own cap (an image preview's IMAGE_BUDGET_BYTES, a recording's
 /// MAX_AUDIO_BYTES) caps nothing about their sum: ten screenshots' previews passed it (Leo,
 /// 2026-10-31: "this is completely hardlocked bc of message size").
 import { promptBlocks, type ComposerAttachment, type InlineReadOptions, type PromptBlock } from "./attachments";

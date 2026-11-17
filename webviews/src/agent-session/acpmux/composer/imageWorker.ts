@@ -15,7 +15,7 @@ scope.onmessage = ({ data: job }) => {
     scope.postMessage({ id: job.id, value: undefined, unsupported: true });
     return;
   }
-  const work = job.kind === "prepare" ? prepareImage(job.file) : thumbnailOf(job.image);
+  const work = job.kind === "prepare" ? prepareImage(job.file, job.options) : thumbnailOf(job.image);
   void work.then(
     (value) => scope.postMessage({ id: job.id, value }),
     () => scope.postMessage({ id: job.id, value: undefined }),

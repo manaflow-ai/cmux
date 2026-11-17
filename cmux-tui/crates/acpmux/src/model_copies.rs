@@ -38,6 +38,13 @@ use serde_json::{Value, json};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+/// The `initialize` feature of a daemon that fits a prompt's inline images to the model
+/// ([`fit_inline`]) and cleans their metadata (`image_privacy.rs`): a client sends a pasted PNG or
+/// JPEG as its own file only to one that lists it, and scales it itself for any other
+/// (webviews `composer/imageWork.ts`). This daemon fits a prompt for a peer that does not list
+/// it before forwarding it there (`server/peer_forward.rs`).
+pub const FEATURE: &str = "fitsImages";
+
 /// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
 /// its base64 in any shape a harness's line puts it.
 const MARK: &[u8] = b"acpmux\0model-copy";
@@ -122,8 +129,9 @@ fn inline_image(block: &Value) -> Option<&str> {
     block.get("data").and_then(Value::as_str).filter(|d| !d.is_empty())
 }
 
-/// The copy of PNG or JPEG `bytes` that fits `limits` (an encoded PNG and its size), or None when
-/// it already fits (or is not one of those, or cannot be decoded).
+/// The copy of PNG or JPEG `bytes` that fits `limits` (an encoded PNG and its size, upright as its
+/// EXIF orientation says), or None when it already fits and is upright (or is not one of those,
+/// or cannot be decoded). A turned picture is always copied: a model may not read the tag.
 pub fn fitted(bytes: &[u8], limits: Limits) -> Option<(Vec<u8>, u32, u32)> {
     let jpeg = match crate::hub::prompt_images::sniffed_type(bytes)? {
         "image/png" => false,
@@ -131,7 +139,8 @@ pub fn fitted(bytes: &[u8], limits: Limits) -> Option<(Vec<u8>, u32, u32)> {
         _ => return None,
     };
     let (w, h) = if jpeg { jpeg_size(bytes)? } else { png_size(bytes)? };
-    if w.max(h) <= limits.max_edge && bytes.len() <= limits.max_bytes {
+    let turn = crate::image_privacy::orientation(bytes);
+    if w.max(h) <= limits.max_edge && bytes.len() <= limits.max_bytes && turn == 1 {
         return None;
     }
     let mut edge = limits.max_edge;
@@ -140,7 +149,7 @@ pub fn fitted(bytes: &[u8], limits: Limits) -> Option<(Vec<u8>, u32, u32)> {
         let made = if jpeg {
             downscale_jpeg(bytes, edge)?
         } else {
-            downscale(std::io::Cursor::new(bytes), edge)?
+            downscale_oriented(std::io::Cursor::new(bytes), edge, turn)?
         };
         if made.0.len() <= limits.max_bytes {
             return Some(made);
@@ -220,20 +229,20 @@ fn is_copy(s: &str) -> bool {
     head.get(33 + 4..33 + 8) == Some(b"tEXt") && head.get(41..41 + MARK.len()) == Some(MARK)
 }
 
-/// The path of the PNG `block` links to, when it is a finished upload of chat `session` that
-/// `prompt_uploads::resolve` put as a link (not inline).
-/// A link the composer wrote itself (`file://` and the upload's path, no type) counts when the
-/// file is a PNG by its first bytes.
+/// The path of the PNG or JPEG `block` links to, when it is a finished upload of chat `session`
+/// that `prompt_uploads::resolve` put as a link (not inline), or a link the composer wrote itself
+/// (`file://` and the upload's path, no type); either by the file's first bytes.
 fn upload_png(session: &str, block: &Value) -> Option<PathBuf> {
     if block.get("type").and_then(Value::as_str) != Some("resource_link") {
         return None;
     }
     let mime = block.get("mimeType").and_then(Value::as_str);
+    let copied = |m: &str| m == "image/png" || m == "image/jpeg";
     let resolved = block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str);
     let path = match resolved {
-        Some(path) if mime == Some("image/png") => PathBuf::from(path),
+        Some(path) if mime.is_some_and(copied) => PathBuf::from(path),
         Some(_) => return None,
-        None if mime.is_none_or(|m| m == "image/png") => {
+        None if mime.is_none_or(copied) => {
             file_uri_path(block.get("uri").and_then(Value::as_str)?)?
         }
         None => return None,
@@ -245,16 +254,16 @@ fn upload_png(session: &str, block: &Value) -> Option<PathBuf> {
     if !ok {
         return None;
     }
-    if resolved.is_none() {
-        let mut head = [0u8; 8];
-        let mut file = file_uploads::open_finished(&path).ok()?;
-        std::io::Read::read_exact(&mut file, &mut head).ok()?;
-        if crate::hub::prompt_images::sniffed_type(&head) != Some("image/png") {
-            return None;
-        }
-    }
-    Some(path)
+    // What the file is by its first bytes, whatever the link says.
+    let mut head = [0u8; 8];
+    let mut file = file_uploads::open_finished(&path).ok()?;
+    std::io::Read::read_exact(&mut file, &mut head).ok()?;
+    crate::hub::prompt_images::sniffed_type(&head).is_some_and(copied).then_some(path)
 }
+
+/// How much of an upload is read for its EXIF orientation: a PNG's `eXIf` comes before its
+/// pixels, a JPEG's APP1 within its first segments.
+const ORIENTATION_HEAD: u64 = 1 << 20;
 
 /// The path of a `file://` URI whose segments are percent-encoded (the composer's
 /// `attachments.ts` `fileUri`). None for any other URI, or one that does not decode to UTF-8.
@@ -290,8 +299,19 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
         let made = match std::fs::read(&saved) {
             Ok(bytes) => png_size(&bytes).map(|(w, h)| (bytes, w, h)),
             Err(_) => {
-                let file = file_uploads::open_finished(path).ok()?;
-                let made = downscale(BufReader::new(file), edge)?;
+                use std::io::Read as _;
+                let mut head = Vec::new();
+                let mut file = file_uploads::open_finished(path).ok()?;
+                (&mut file).take(ORIENTATION_HEAD).read_to_end(&mut head).ok()?;
+                let made = if crate::hub::prompt_images::sniffed_type(&head) == Some("image/jpeg") {
+                    // A JPEG decodes whole (`downscale_jpeg`), within `MAX_SOURCE_PIXELS`.
+                    file.read_to_end(&mut head).ok()?;
+                    downscale_jpeg(&head, edge)?
+                } else {
+                    let turn = crate::image_privacy::orientation(&head);
+                    let file = file_uploads::open_finished(path).ok()?;
+                    downscale_oriented(BufReader::new(file), edge, turn)?
+                };
                 save(&saved, &made.0);
                 Some(made)
             }
@@ -331,6 +351,15 @@ fn copyable(w: u32, h: u32) -> bool {
 /// it has alpha).
 /// None for a PNG that is not valid or is interlaced (its rows come in passes).
 pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    downscale_oriented(input, max_edge, 1)
+}
+
+/// [`downscale`], the copy turned upright by EXIF orientation `turn`.
+fn downscale_oriented(
+    input: impl std::io::Read,
+    max_edge: u32,
+    turn: u16,
+) -> Option<(Vec<u8>, u32, u32)> {
     let mut decoder = png::Decoder::new(input);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     // Only one row is held; the default 64 MiB limit is for the whole frame.
@@ -364,7 +393,7 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
             _ => [0; 4],
         }));
     }
-    encode(scaler.finish(), out_w, out_h, alpha)
+    encode(scaler.finish(), out_w, out_h, alpha, turn)
 }
 
 /// A JPEG's width and height from its frame header.
@@ -402,11 +431,21 @@ pub fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<(Vec<u8>, u32, u32)
     for line in rgb.chunks_exact(row).take(h as usize) {
         scaler.push_row(line.chunks_exact(3).map(|p| [p[0], p[1], p[2], 255]));
     }
-    encode(scaler.finish(), out_w, out_h, false)
+    encode(scaler.finish(), out_w, out_h, false, crate::image_privacy::orientation(bytes))
 }
 
-/// `pixels` (RGB, or RGBA with `alpha`) as an 8-bit PNG carrying [`MARK`].
-fn encode(pixels: Vec<u8>, out_w: u32, out_h: u32, alpha: bool) -> Option<(Vec<u8>, u32, u32)> {
+/// `pixels` (RGB, or RGBA with `alpha`), turned upright by EXIF orientation `turn`, as an 8-bit
+/// PNG carrying [`MARK`].
+fn encode(
+    pixels: Vec<u8>,
+    out_w: u32,
+    out_h: u32,
+    alpha: bool,
+    turn: u16,
+) -> Option<(Vec<u8>, u32, u32)> {
+    // Upright, as the EXIF orientation says the picture is seen (`image_privacy::orient`).
+    let (pixels, out_w, out_h) =
+        crate::image_privacy::orient(pixels, out_w, out_h, if alpha { 4 } else { 3 }, turn);
     let mut bytes = Vec::new();
     let mut encoder = png::Encoder::new(&mut bytes, out_w, out_h);
     encoder.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
@@ -420,11 +459,11 @@ fn encode(pixels: Vec<u8>, out_w: u32, out_h: u32, alpha: bool) -> Option<(Vec<u
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A `w`x`h` RGB PNG: left half red, right half blue.
-    fn halves(w: u32, h: u32) -> Vec<u8> {
+    pub(crate) fn halves(w: u32, h: u32) -> Vec<u8> {
         let mut data = Vec::with_capacity((w * h * 3) as usize);
         for _ in 0..h {
             for x in 0..w {
@@ -439,7 +478,7 @@ mod tests {
         out
     }
 
-    fn pixels(png_bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+    pub(crate) fn pixels(png_bytes: &[u8]) -> (u32, u32, Vec<u8>) {
         let mut reader = png::Decoder::new(std::io::Cursor::new(png_bytes)).read_info().unwrap();
         let mut buf = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut buf).unwrap();
@@ -505,7 +544,7 @@ mod tests {
     /// An `n`x`n` grey baseline JPEG of 8 px black and white squares, one per DCT block, so each
     /// block is flat and is its DC term alone (quantizer 1, the standard DC table, AC all EOB).
     /// No JPEG encoder is a dependency; this one writes only what the test needs.
-    fn checker_jpeg(n: u32) -> Vec<u8> {
+    pub(crate) fn checker_jpeg(n: u32) -> Vec<u8> {
         let mut out = vec![0xff, 0xd8];
         let segment = |out: &mut Vec<u8>, marker: u8, body: &[u8]| {
             out.extend([0xff, marker]);
@@ -698,6 +737,49 @@ mod tests {
             runs[runs.len() / 2],
             runs[0],
             sent[0]["data"].as_str().unwrap().len() as f64 / 1048576.0
+        );
+        // What the daemon does first as it takes the prompt (`image_privacy::sanitize_prompt`):
+        // the metadata out, lossless, no pixel decoded.
+        let median = |mut runs: Vec<f64>| {
+            runs.sort_by(f64::total_cmp);
+            (runs[runs.len() / 2], runs[0])
+        };
+        let time = |f: &dyn Fn()| {
+            median(
+                (0..7)
+                    .map(|_| {
+                        let t = std::time::Instant::now();
+                        f();
+                        t.elapsed().as_secs_f64() * 1000.0
+                    })
+                    .collect(),
+            )
+        };
+        let shot_block = inline_block(&png_bytes, "image/png");
+        let (m, b) = time(&|| {
+            let mut blocks = vec![shot_block.clone()];
+            crate::image_privacy::sanitize_blocks(&mut blocks);
+            std::hint::black_box(blocks);
+        });
+        println!(
+            "5K screenshot PNG -> sanitize (base64 decode, chunks, base64): median {m:.0} ms, best {b:.0} ms"
+        );
+        let photo = checker_jpeg(4096);
+        let photo_block = inline_block(&photo, "image/jpeg");
+        let (m, b) = time(&|| {
+            let mut blocks = vec![photo_block.clone()];
+            crate::image_privacy::sanitize_blocks(&mut blocks);
+            std::hint::black_box(blocks);
+        });
+        println!(
+            "4096 px JPEG {:.2} MB -> sanitize: median {m:.0} ms, best {b:.0} ms",
+            photo.len() as f64 / 1048576.0
+        );
+        let (m, b) = time(&|| {
+            std::hint::black_box(fit_inline_blocking(limits, vec![photo_block.clone()]));
+        });
+        println!(
+            "4096 px JPEG -> fit_inline (JPEG decode, linear downscale, PNG encode): median {m:.0} ms, best {b:.0} ms"
         );
     }
 

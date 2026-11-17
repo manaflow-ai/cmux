@@ -847,3 +847,173 @@ async fn web_staged_capabilities_cannot_touch_local_uploads_or_forge_resolved_pa
         .await;
     assert_eq!(response["error"]["data"]["reason"], "filePut.remote", "{response}");
 }
+
+const SECRET: &[u8] = b"secret GPS 37.7749N 122.4194W";
+
+/// The base64 of [`SECRET`] wherever it falls in a block's bytes: one fragment per alignment.
+fn secret_in_base64() -> Vec<String> {
+    (0..3)
+        .map(|k| {
+            let mut bytes = vec![0u8; k];
+            bytes.extend(SECRET);
+            let full = (bytes.len() / 3) * 4;
+            b64(&bytes)[4..full].to_owned()
+        })
+        .collect()
+}
+
+/// A JPEG's head as a phone writes it: EXIF holding [`SECRET`], then its tables and scan (not a
+/// picture any decoder draws: only its metadata is under test).
+fn phone_jpeg() -> Vec<u8> {
+    let segment = |marker: u8, body: &[u8]| {
+        let mut out = vec![0xff, marker];
+        out.extend(u16::try_from(body.len() + 2).unwrap().to_be_bytes());
+        out.extend(body);
+        out
+    };
+    let mut exif = b"Exif\0\0MM\0*\0\0\0\x08\0\0\0\0\0\0".to_vec();
+    exif.extend(SECRET);
+    let mut out = vec![0xff, 0xd8];
+    out.extend(segment(0xe1, &exif));
+    out.extend(segment(0xfe, SECRET));
+    out.extend(segment(0xdb, &[0; 65]));
+    out.extend(segment(0xda, &[1, 1, 0, 0, 63, 0]));
+    out.extend([0x12, 0x34, 0xff, 0xd9]);
+    out
+}
+
+/// A 1 px black and white checkerboard PNG, `n` px on a side.
+fn checker_png(n: u32) -> Vec<u8> {
+    let data: Vec<u8> =
+        (0..n * n).map(|i| if (i % n + i / n) % 2 == 0 { 255 } else { 0 }).collect();
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, n, n);
+    e.set_color(png::ColorType::Grayscale);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header().unwrap().write_image_data(&data).unwrap();
+    out
+}
+
+fn inline(bytes: &[u8], mime: &str) -> Value {
+    json!({"type": "image", "mimeType": mime, "name": "pasted", "data": b64(bytes)})
+}
+
+/// The composer sends a pasted PNG or JPEG as its own file only to a daemon that lists
+/// `fitsImages` (webviews `composer/imageWork.ts`).
+#[tokio::test]
+async fn initialize_lists_that_the_daemon_fits_images() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let reply = c.call(method::INITIALIZE, json!({"protocolVersion": 1})).await;
+    let features = reply.pointer("/result/_meta/acpmux/features").and_then(Value::as_array);
+    assert!(features.unwrap().iter().any(|f| f == acpmux::model_copies::FEATURE), "{reply}");
+}
+
+/// A pasted phone photo reaches neither the agent nor the chat's log with its EXIF (GPS) or
+/// comment: the daemon cleans it as it takes the prompt.
+#[tokio::test]
+async fn a_pasted_photos_gps_reaches_neither_the_agent_nor_the_log() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("pasted-gps").await;
+    let photo = phone_jpeg();
+    let p = prompt(&session, &v7(), "see", vec![inline(&photo, "image/jpeg")]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let logged = whole_log(&mut c, &session).await;
+    // The prompt was written to the agent and logged, its image with it.
+    assert!(logged.contains(r#""kind":"session/prompt""#), "{logged:.2000}");
+    let clean = acpmux::image_privacy::sanitize(&photo).unwrap();
+    assert!(logged.contains(&b64(&clean)), "{logged:.3000}");
+    for fragment in secret_in_base64() {
+        assert!(!logged.contains(&fragment), "the GPS reached the log: {logged:.3000}");
+    }
+    let sent = serde_json::to_string(&c.user_messages(&session).await).unwrap();
+    for fragment in secret_in_base64() {
+        assert!(!sent.contains(&fragment), "{sent:.3000}");
+    }
+}
+
+/// A stand-in peer listing `features` and one session, `far-1`; the prompts it is sent.
+async fn recording_peer(features: Value) -> (u16, Arc<std::sync::Mutex<Vec<Value>>>) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let prompts = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let seen = prompts.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let (seen, features) = (seen.clone(), features.clone());
+            tokio::spawn(async move {
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
+                    let Ok(Message::Request { id, method: m, params }) = Message::parse(&text)
+                    else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "build": "peer", "origin": "peer", "features": features}}}),
+                        method::MUX_WATCH => json!({"sessions": [{"sessionId": "far-1"}]}),
+                        method::SESSION_PROMPT => {
+                            seen.lock().unwrap().push(params.unwrap_or_default());
+                            json!({"stopReason": "end_turn"})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (port, prompts)
+}
+
+/// A peer on an older build writes a prompt's images to its agent as they come, and the model
+/// refuses one past its size: this daemon fits the composer's full-size picture for it, in
+/// linear light. A peer that lists `fitsImages` gets the picture as pasted and fits it itself.
+/// Either way it is cleaned of its metadata first.
+#[tokio::test]
+async fn an_older_peer_gets_the_picture_fitted_and_a_newer_one_as_pasted() {
+    let shot = checker_png(3136);
+    let photo = phone_jpeg();
+    for (features, fitted) in [
+        (json!(["filePutChunks", "promptUploads"]), true),
+        (json!(["filePutChunks", "promptUploads", acpmux::model_copies::FEATURE]), false),
+    ] {
+        let (port, prompts) = recording_peer(features).await;
+        let a = hub();
+        a.add_peer("far", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+            .await
+            .unwrap();
+        let mut ca = client(&a, Origin::Local);
+        let images = vec![inline(&shot, "image/png"), inline(&photo, "image/jpeg")];
+        let reply = ca.call(method::SESSION_PROMPT, prompt("far-1", &v7(), "see", images)).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        let got = prompts.lock().unwrap().pop().expect("the peer got the prompt");
+        let blocks = got["prompt"].as_array().unwrap();
+        let bytes = |i: usize| {
+            base64::engine::general_purpose::STANDARD
+                .decode(blocks[i]["data"].as_str().unwrap())
+                .unwrap()
+        };
+        let png_bytes = bytes(1);
+        let mut reader = png::Decoder::new(std::io::Cursor::new(&png_bytes)).read_info().unwrap();
+        let (w, h) = (reader.info().width, reader.info().height);
+        if fitted {
+            assert_eq!((w, h), (1568, 1568));
+            let mut px = vec![0; reader.output_buffer_size()];
+            reader.next_frame(&mut px).unwrap();
+            assert!(px.iter().all(|v| (187..=188).contains(v)), "not half its light");
+        } else {
+            assert_eq!(png_bytes, shot, "a newer peer gets the picture as pasted");
+        }
+        let jpeg = bytes(2);
+        assert!(!jpeg.windows(SECRET.len()).any(|w| w == SECRET), "the GPS reached the peer");
+    }
+}

@@ -18,6 +18,8 @@ import type { UploadCancelled, UploadProgressReport, UploadResult } from "../clo
 
 export type IntakeOptions = {
   allowImages: boolean;
+  /// The daemon cleans and fits a prompt's pictures (snapshot `daemonFitsImages`, imageWork.ts).
+  daemonFitsImages?: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
@@ -98,7 +100,9 @@ export async function intakeFiles(
   const prepared = files.map(async (file, index) => {
     const videoShape = isVideoName(file.name) ? ((await videoShapeOf(file)) ?? 1) : undefined;
     const result = isImageFile(file)
-      ? await readAttachment(file, options.allowImages).catch(() => undefined)
+      ? await readAttachment(file, options.allowImages, undefined, {
+          daemonFits: options.daemonFitsImages === true,
+        }).catch(() => undefined)
       : undefined;
     const image = result && !("reason" in result) ? result : undefined;
     if (image) {

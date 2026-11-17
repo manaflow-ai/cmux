@@ -1,7 +1,7 @@
 /// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
-import { base64 } from "./composer/imageWork";
+import { base64, type PrepareOptions } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
@@ -362,9 +362,9 @@ export type OrderedDraftPart =
   | { type: "text"; text: string }
   | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
-/** Anthropic's per-image limit; acpmux fits a larger image to it (cmux-tui acpmux `model_copies::fit_inline`). */
+/** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-export { base64 } from "./composer/imageWork";
+export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
  * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
@@ -415,6 +415,8 @@ export async function readAttachment(
   file: File,
   allowImages: boolean,
   id: string = crypto.randomUUID(),
+  /// What the connected daemon does with a picture (composer/imageWork.ts).
+  prepare: PrepareOptions = {},
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   if (isPdf(file)) {
@@ -433,11 +435,11 @@ export async function readAttachment(
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     // A picture the engine cannot decode is not a picture after all: it goes as a file.
-    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
+    return (await imageChip(file, id, name, prepare)) ?? { name, reason: "unsupported" };
   }
   if (CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(name))) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
+    return (await imageChip(file, id, name, prepare)) ?? { name, reason: "unsupported" };
   }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
@@ -445,10 +447,15 @@ export async function readAttachment(
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
 }
 
-/// An image's chip: its metadata-free preview, made off the main thread (composer/imagePool.ts),
+/// An image's chip: its preview for the connected daemon (`prepare`), made off the main thread (composer/imagePool.ts),
 /// with its thumbnail kept for the chip. Undefined when the engine cannot decode it.
-async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
-  const prepared = await prepareImageOffThread(file);
+async function imageChip(
+  file: File,
+  id: string,
+  name: string,
+  prepare: PrepareOptions,
+): Promise<ComposerAttachment | undefined> {
+  const prepared = await prepareImageOffThread(file, prepare);
   if (!prepared) return undefined;
   if (prepared.thumb) {
     keepThumb(id, prepared.thumb);

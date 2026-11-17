@@ -96,14 +96,14 @@ test("session upload receives files above 64 MiB without a composer size refusal
   expect(taken.attachments[0]?.path).toBe("/remote/session/archive.zip");
 });
 
-test("images go at their own size (acpmux fits them) and retain the session path of the original", async () => {
+test("images use a 1568 px preview and retain the session path of the original", async () => {
   const drawn = imageEngine(3136, 1568);
   const file = new File(["EXIF GPS original"], "photo.jpg", { type: "image/jpeg" });
   const taken = await intakeFiles([file], {
     allowImages: true,
     upload: async (files) => ({ paths: files.map(() => "/session/original/photo.jpg") }),
   });
-  expect(drawn).toEqual([{ width: 3136, height: 1568 }]);
+  expect(drawn).toEqual([{ width: 1568, height: 784 }]);
   expect(taken.attachments[0]).toMatchObject({
     kind: "image",
     originalPath: "/session/original/photo.jpg",
