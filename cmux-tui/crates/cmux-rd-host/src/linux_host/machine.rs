@@ -40,10 +40,11 @@ impl std::fmt::Debug for MachineCredential {
     }
 }
 
-/// The acpmux home that runs this command: acpmux sets `ACPMUX_HOME` to its own (its resolver
-/// names it per build) when its daemon runs `enable --non-interactive`, and the sign-in records
-/// it in [`JOINED_FILE`] for the host unit. This never guesses a default home: a build's state
-/// is only ever its own.
+/// The acpmux home that runs this command: acpmux's daemon sets `ACPMUX_HOME` to its own (its
+/// resolver names it per build) when it runs `enable --non-interactive --hub <the join's device
+/// hub>` at its start on a joined Linux machine (acpmux's `share_host/linux.rs`), and the sign-in
+/// records it in [`JOINED_FILE`] for the host unit. This never guesses a default home: a build's
+/// state is only ever its own.
 pub fn acpmux_home() -> Option<PathBuf> {
     std::env::var_os("ACPMUX_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
 }

@@ -22,13 +22,19 @@
  *
  * Share (--share-cmux-rd): while joined, proves a joined headless Linux machine is shared with no
  * step on it (Leo, 2026-11-16: "if you've connected to a headlessly running mini why... would it
- * need anything?"). On the host side only what the join runs: `cmux-rd linux-host enable
- * --non-interactive --hub URL` as the joined user, whose user systemd manager runs (lingering, as
- * an ssh login would start it), so the host unit it installs runs as on a real machine. A viewer
- * (another disposable user with its own home and Xvfb, the same account) signs in to the
- * development device hub, waits for the machine's device to be online and shared, and asks for a
- * view: it must stream and decode a frame within SHARE_FRAME_LIMIT_MS, with no request waiting
- * for a person on the host (`linux-host requests` empty).
+ * need anything?"). Nothing runs on the host after the join but its daemon (step 4, as the join
+ * line restarts it): the daemon itself runs `~/.local/bin/cmux-rd linux-host enable
+ * --non-interactive` with its own home (acpmux share_host/linux.rs), as the joined user, whose
+ * user systemd manager runs (lingering, as an ssh login would start it), so the host unit it
+ * installs runs as on a real machine. The host is only read: `acpmux share-host status`,
+ * `linux-host requests` and the unit's journal. A viewer (another disposable user with its own home
+ * and Xvfb, the same account) signs in to the development device hub before the join, waits
+ * (SHARE_ONLINE_LIMIT_MS from the daemon's start) for the machine's device to be online and shared,
+ * and asks for a view: it must stream and decode a frame within SHARE_FRAME_LIMIT_MS, with no
+ * request waiting for a person on the host (`linux-host requests` empty). Then a second account
+ * (the guest: CMUX_UITEST_GUEST_STACK_EMAIL and _PASSWORD, its own home under the viewer's) signs
+ * in: its list must not show the machine, and the hub must refuse its request for the machine's
+ * device id.
  */
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -44,14 +50,16 @@ const USER_AGENT = "cmux-machine-join-e2e/1"
 export const HEARTBEAT_LIMIT_S = 90
 /** The development device hub (workers/device-hub/wrangler.toml [env.dev]); share mode talks to no other. */
 export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"
-/** From the host's enable to its device listed online and shared on the hub. */
-export const SHARE_ONLINE_LIMIT_MS = 60_000
+/** From the daemon's start (which sets the host up by itself) to its device listed online and shared on the hub. */
+export const SHARE_ONLINE_LIMIT_MS = 120_000
 /** From the viewer's start (sign-in, request) to its first decoded frame. */
 export const SHARE_FRAME_LIMIT_MS = 60_000
 /** How long the viewer keeps the stream once it starts, before it stops and reports. */
 export const SHARE_HOLD_MS = 5_000
 /** The share stage's addition to the run's deadline. */
-export const SHARE_LIMIT_MS = 6 * 60_000
+export const SHARE_LIMIT_MS = 8 * 60_000
+/** Where the guest account's viewer keeps its own state: a home of its own inside the viewer's. */
+export const GUEST_DIR = "guest"
 /** The viewer's own virtual display (the host's starts at :99). */
 export const VIEWER_DISPLAY = ":42"
 /** What `cmux-rd linux-host requests` prints with no viewer waiting. */
@@ -196,11 +204,12 @@ export interface ShareEvidence {
   hub: string
   /** The viewer signed in to the hub with the account (which also lets the machine sign in as it). */
   viewerSignedIn: boolean
-  /** The one host-side step, the join's `linux-host enable --non-interactive`: its exit, whether it said
-   * not_installed, and its lines (plain words only). */
-  enable: { code: number | null; notInstalled: boolean; lines: string[] }
+  /** Steps the run took on the host after the join, besides starting its daemon and reading: always 0. */
+  hostSteps: number
+  /** How the daemon set the host up, as `acpmux share-host status --json` says it (plain words only). */
+  daemonShareHost: { state: string | null; detail: string | null }
   deviceId: string | null
-  /** From the enable's end to the device listed online and shared. */
+  /** From the daemon's start to the device listed online and shared. */
   deviceOnlineMs: number | null
   /** From the viewer's start (sign-in, request) to its "Streaming" line. */
   streamingMs: number | null
@@ -211,8 +220,11 @@ export interface ShareEvidence {
   hostPrompted: boolean
   /** `linux-host requests` on the host printed that no viewer waits. */
   requestsEmpty: boolean | null
-  /** Values of this run's sign-in found in the viewer's home afterwards. */
+  /** Values of this run's sign-in found in the viewer's home (the guest's included) afterwards. */
   viewerHomeHeld: number | null
+  /** The second account: signed in to the hub; whether its list showed the joined machine; and its request
+   * for the machine's device id (exit, whether the hub refused it, and the hub's code). */
+  guest: { signedIn: boolean; sawMachine: boolean | null; request: { code: number | null; refused: boolean | null; hubCode: string | null } }
 }
 
 export interface ViewStats {
@@ -547,6 +559,8 @@ export async function runE2E(
 
   // Session state, all in memory.
   let stack: { access: string; refresh: string } | undefined
+  // Share mode: the guest account's Stack session, in memory only; signed out in cleanup.
+  let guestStack: { access: string; refresh: string } | undefined
   let user: string | undefined
   let install: string | undefined
   // The sign-in, install and token stage while it runs; cleanup waits for it before undoing it.
@@ -752,10 +766,11 @@ export async function runE2E(
           () => warn("could not revoke the run's cmux install")
         )
       }
-      if (stack) {
+      for (const session of [stack, guestStack]) {
+        if (!session) continue
         await call(`${STACK_API}/auth/sessions/current`, {
           method: "DELETE",
-          headers: { ...stackHeaders(), "x-stack-access-token": stack.access, "x-stack-refresh-token": stack.refresh }
+          headers: { ...stackHeaders(), "x-stack-access-token": session.access, "x-stack-refresh-token": session.refresh }
         }).catch(() => undefined)
       }
     })())
@@ -791,12 +806,39 @@ export async function runE2E(
       .slice(0, 200)
   const lastLine = (r: ChildResult | undefined) => cleanLine(`${r?.stderr ?? ""}\n${r?.stdout ?? ""}`.split("\n").filter((l) => l.trim()).pop() ?? "")
 
-  // 6a. The share, while joined. The host side runs only the join's step; the viewer is another user.
-  const runShare = async (sh: NonNullable<Options["share"]>) => {
+  // 6a. The share, while joined. Nothing runs on the host but its daemon; it is only read. The viewer and the
+  // guest are another user. `prepareShare` runs before the join, `runShare` once the daemon heartbeats.
+  const hostRd = () => `${opts.home}/.local/bin/cmux-rd`
+  const guestHome = (sh: NonNullable<Options["share"]>) => `${sh.viewerHome}/${GUEST_DIR}`
+  // The viewer's commands, as the viewer user, with `home` as HOME (the guest's is its own).
+  const asViewerIn = (sh: NonNullable<Options["share"]>, home: string, args: string[]) => [
+    "sudo", "-n", "-u", sh.viewerUser, "--", "/usr/bin/env", "-i", "-C", home,
+    `HOME=${home}`, `USER=${sh.viewerUser}`, `LOGNAME=${sh.viewerUser}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8", `DISPLAY=${VIEWER_DISPLAY}`,
+    ...args
+  ]
+  /** `cmux-rd view --list` as one account (its access token on stdin only), from `home`. */
+  const listAs = async (sh: NonNullable<Options["share"]>, home: string, token: string) => {
+    live()
+    const r = await deps.run(asViewerIn(sh, home, [sh.cmuxRd, "view", "--list", "--hub", sh.hub, "--stack-token-file", "-"]), {
+      env: childEnv,
+      stdin: `${token}\n`,
+      timeoutMs: 60_000,
+      signal: inFlight.signal
+    })
+    childText.push(r.stdout, r.stderr)
+    return { devices: r.code === 0 ? listedDevices(r.stdout) : null, r }
+  }
+  // The owner viewer's list before the join: it tells the joined machine's new device apart.
+  let devicesBefore: ListedDevice[] = []
+  // Whether the host unit's journal is worth reading for a failure (the daemon has started).
+  let hostLog = false
+
+  const prepareShare = async (sh: NonNullable<Options["share"]>) => {
     const ev: ShareEvidence = {
       hub: sh.hub,
       viewerSignedIn: false,
-      enable: { code: null, notInstalled: false, lines: [] },
+      hostSteps: 0,
+      daemonShareHost: { state: null, detail: null },
       deviceId: null,
       deviceOnlineMs: null,
       streamingMs: null,
@@ -804,96 +846,86 @@ export async function runE2E(
       view: null,
       hostPrompted: false,
       requestsEmpty: null,
-      viewerHomeHeld: null
+      viewerHomeHeld: null,
+      guest: { signedIn: false, sawMachine: null, request: { code: null, refused: null, hubCode: null } }
     }
     evidence.share = ev
     const pause = (ms: number) => within(new Promise(() => undefined), Math.max(0, ms), true)
     live()
-    // The joined user's commands see its user manager (runtime directory and bus), as in its login session,
-    // and the acpmux home the join wrote its machine credential to, as acpmux's daemon passes it when it runs
-    // the enable (cmux-rd never guesses a default home: linux_host/machine.rs):
-    // `enable` installs and starts the host's user unit through it.
+    // The daemon runs ~/.local/bin/cmux-rd (the path the host unit runs): it must be the run's own build.
+    const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd()]), { env: childEnv, timeoutMs: 10_000 })
+    if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
+    viewerStarted = true
+    // The viewer's own display.
+    const socket = `/tmp/.X11-unix/X${VIEWER_DISPLAY.slice(1)}`
+    const isSocket = async () => (await deps.run(asViewerIn(sh, sh.viewerHome, ["test", "-S", socket]), { env: childEnv, timeoutMs: 10_000 })).code === 0
+    if (await isSocket()) throw new Failed(`share: the display ${VIEWER_DISPLAY} is already taken`)
+    live()
+    viewerX = deps.start(asViewerIn(sh, sh.viewerHome, ["Xvfb", VIEWER_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"]), { env: childEnv })
+    const xBy = deps.now() + 10_000
+    while (!(await isSocket())) {
+      if (deps.now() >= xBy) throw new Failed(`share: the viewer's Xvfb ${VIEWER_DISPLAY} did not start within 10 s`)
+      await pause(250)
+      live()
+    }
+    // The viewer signs in with the account (the token on stdin only) before the join: the hub then knows the
+    // account, which the machine's own sign-in needs.
+    const first = await listAs(sh, sh.viewerHome, stack!.access)
+    ev.viewerSignedIn = first.devices !== null
+    if (!first.devices) throw new Failed(`share: the viewer could not sign in to the device hub: ${lastLine(first.r)}`)
+    devicesBefore = first.devices
+    // The guest: its own Stack session and its own home (the viewer user's, so cleanup ends its processes).
+    const email = env.CMUX_UITEST_GUEST_STACK_EMAIL ?? ""
+    const password = env.CMUX_UITEST_GUEST_STACK_PASSWORD ?? ""
+    const signIn = await call(`${STACK_API}/auth/password/sign-in`, { method: "POST", headers: stackHeaders(), body: { email, password } })
+    for (const key of ["access_token", "refresh_token"]) if (typeof signIn.json?.[key] === "string") hold(signIn.json[key])
+    if (signIn.status !== 200 || typeof signIn.json?.access_token !== "string") throw refusedBy("guest stack sign-in", signIn)
+    guestStack = { access: signIn.json.access_token, refresh: String(signIn.json.refresh_token ?? "") }
+    live()
+    const made = await deps.run(asViewerIn(sh, sh.viewerHome, ["mkdir", "-m", "700", "--", guestHome(sh)]), { env: childEnv, timeoutMs: 10_000 })
+    if (made.code !== 0) throw new Failed("share: the guest's home could not be made")
+    say("the viewer and the guest are ready; the host gets nothing after the join but its daemon")
+  }
+
+  const runShare = async (sh: NonNullable<Options["share"]>, daemonStartedAt: number) => {
+    const ev = evidence.share!
+    const pause = (ms: number) => within(new Promise(() => undefined), Math.max(0, ms), true)
+    live()
+    // Reads on the host see its user manager (runtime directory and bus), as in its login session.
     const id = await deps.run(asUserTool(["id", "-u"]), { env: childEnv, timeoutMs: 10_000 })
     const uid = id.stdout.trim()
     if (id.code !== 0 || !/^\d{1,10}$/.test(uid)) throw new Failed("share: no uid for the joined user")
-    const hostRd = `${opts.home}/.local/bin/cmux-rd`
     const asHost = (args: string[]) =>
-      asUserTool(["/usr/bin/env", `XDG_RUNTIME_DIR=/run/user/${uid}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus`, `ACPMUX_HOME=${opts.home}/.acpmux`, ...args])
-    // The host unit runs ~/.local/bin/cmux-rd: it must be the run's own build.
-    const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd]), { env: childEnv, timeoutMs: 10_000 })
-    if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
-    const host = async (args: string[], timeoutMs = 60_000) => {
+      asUserTool(["/usr/bin/env", `XDG_RUNTIME_DIR=/run/user/${uid}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus`, ...args])
+    /** A read on the host: `cmux-rd linux-host requests`, never a step that changes it. */
+    const readHost = async (args: string[], timeoutMs = 30_000) => {
       live()
-      const r = await deps.run(asHost([hostRd, ...args]), { env: childEnv, timeoutMs, signal: inFlight.signal })
+      const r = await deps.run(asHost([hostRd(), ...args]), { env: childEnv, timeoutMs, signal: inFlight.signal })
       childText.push(r.stdout, r.stderr)
       return r
     }
-    const asViewer = (args: string[]) => [
-      "sudo", "-n", "-u", sh.viewerUser, "--", "/usr/bin/env", "-i", "-C", sh.viewerHome,
-      `HOME=${sh.viewerHome}`, `USER=${sh.viewerUser}`, `LOGNAME=${sh.viewerUser}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8", `DISPLAY=${VIEWER_DISPLAY}`,
-      ...args
-    ]
-    viewerStarted = true
-    let enabled = false
+    hostLog = true
     try {
-      // The viewer's own display.
-      const socket = `/tmp/.X11-unix/X${VIEWER_DISPLAY.slice(1)}`
-      const isSocket = async () => (await deps.run(asViewer(["test", "-S", socket]), { env: childEnv, timeoutMs: 10_000 })).code === 0
-      if (await isSocket()) throw new Failed(`share: the display ${VIEWER_DISPLAY} is already taken`)
-      live()
-      viewerX = deps.start(asViewer(["Xvfb", VIEWER_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"]), { env: childEnv })
-      const xBy = deps.now() + 10_000
-      while (!(await isSocket())) {
-        if (deps.now() >= xBy) throw new Failed(`share: the viewer's Xvfb ${VIEWER_DISPLAY} did not start within 10 s`)
-        await pause(250)
-        live()
-      }
-
-      // The viewer signs in with the account (the token on stdin only): the hub then knows the account,
-      // which a machine's own sign-in needs. Its list before the enable tells a new device apart.
-      await refreshStack().catch(() => undefined)
-      const list = async () => {
-        live()
-        const r = await deps.run(asViewer([sh.cmuxRd, "view", "--list", "--hub", sh.hub, "--stack-token-file", "-"]), {
-          env: childEnv,
-          stdin: `${stack!.access}\n`,
-          timeoutMs: 60_000,
-          signal: inFlight.signal
-        })
-        childText.push(r.stdout, r.stderr)
-        return { devices: r.code === 0 ? listedDevices(r.stdout) : null, r }
-      }
-      const first = await list()
-      ev.viewerSignedIn = first.devices !== null
-      if (!first.devices) throw new Failed(`share: the viewer could not sign in to the device hub: ${lastLine(first.r)}`)
-      const before = first.devices
-
-      // The join's step on the host, and nothing else there.
-      enabled = true
-      const enable = await host(["linux-host", "enable", "--non-interactive", "--hub", sh.hub], 180_000)
-      const enabledAt = deps.now()
-      ev.enable = {
-        code: enable.code,
-        notInstalled: /^not_installed:/m.test(enable.stdout),
-        lines: `${enable.stdout}\n${enable.stderr}`.split("\n").map(cleanLine).filter(Boolean).slice(-12)
-      }
-      for (const line of ev.enable.lines) say(`  enable: ${line}`)
-      if (ev.enable.notInstalled) throw new Failed("share: the host did not sign in: linux-host enable --non-interactive said not_installed")
-      if (enable.code !== 0) throw new Failed(`share: linux-host enable --non-interactive exited ${enable.code}: ${lastLine(enable)}`)
-
-      // The machine's device, online and shared, with no further step on the host.
-      const onlineBy = enabledAt + SHARE_ONLINE_LIMIT_MS
+      // The machine's device, online and shared, with no step on the host: the daemon sets it up by itself.
+      const onlineBy = daemonStartedAt + SHARE_ONLINE_LIMIT_MS
       let device: ListedDevice | undefined
       for (;;) {
-        const now = (await list()).devices
-        device = now ? joinedDevice(before, now, opts.name) : undefined
+        const now = (await listAs(sh, sh.viewerHome, stack!.access)).devices
+        device = now ? joinedDevice(devicesBefore, now, opts.name) : undefined
         if (device || deps.now() >= onlineBy) break
         await pause(Math.min(3_000, onlineBy - deps.now()))
       }
-      if (!device) throw new Failed(`share: the joined machine's device was not online and shared on the hub within ${SHARE_ONLINE_LIMIT_MS / 1000} s`)
+      // What the daemon says of the host it set up (a read of its status).
+      const daemonStatus = lastJson((await acpmux(["share-host", "status", "--json"], undefined, inFlight.signal, 15_000)).stdout)
+      ev.daemonShareHost = { state: plainWord(daemonStatus?.state), detail: plainWord(daemonStatus?.detail, 200) }
+      if (ev.daemonShareHost.state) say(`daemon's share host: ${ev.daemonShareHost.state}${ev.daemonShareHost.detail ? ` (${ev.daemonShareHost.detail})` : ""}`)
+      if (!device)
+        throw new Failed(
+          `share: the joined machine's device was not online and shared on the hub within ${SHARE_ONLINE_LIMIT_MS / 1000} s of the daemon's start (daemon's share host: ${ev.daemonShareHost.state ?? "unknown"})`
+        )
       ev.deviceId = device.id
-      ev.deviceOnlineMs = deps.now() - enabledAt
-      say(`device ${device.id} is online and shared ${ev.deviceOnlineMs} ms after the enable`)
+      ev.deviceOnlineMs = deps.now() - daemonStartedAt
+      say(`device ${device.id} is online and shared ${ev.deviceOnlineMs} ms after the daemon's start`)
 
       // The view: sign-in, request, ticket, link, stream. It must stream and decode within the limit, and is
       // stopped SHARE_HOLD_MS after it starts streaming, when it writes its report.
@@ -902,7 +934,7 @@ export async function runE2E(
       const statsFile = `${sh.viewerHome}/view-stats.json`
       const startedAt = deps.now()
       const v = (viewer = deps.spawn(
-        asViewer([sh.cmuxRd, "view", device.id, "--hub", sh.hub, "--stack-token-file", "-", "--display", VIEWER_DISPLAY, "--stats-file", statsFile, "--scope", "view"]),
+        asViewerIn(sh, sh.viewerHome, [sh.cmuxRd, "view", device.id, "--hub", sh.hub, "--stack-token-file", "-", "--display", VIEWER_DISPLAY, "--stats-file", statsFile, "--scope", "view"]),
         { env: childEnv, stdin: `${stack!.access}\n` }
       ))
       let ended = false
@@ -930,22 +962,40 @@ export async function runE2E(
       if (out) childText.push(out.stdout, out.stderr)
       for (const line of (out?.stderr ?? "").split("\n").filter((l) => l.trim()).slice(-30)) shareLog.push(`viewer: ${cleanLine(line)}`)
       live()
-      const stats = await deps.run(asViewer(["cat", "--", statsFile]), { env: childEnv, timeoutMs: 10_000 })
+      const stats = await deps.run(asViewerIn(sh, sh.viewerHome, ["cat", "--", statsFile]), { env: childEnv, timeoutMs: 10_000 })
       ev.view = viewStats(stats.code === 0 ? stats.stdout : "") ?? viewStats(out?.stderr ?? "")
       const decoded = (ev.view?.decoded ?? 0) >= 1
       if (decoded && streamingAt !== null) ev.firstFrameWithinMs = stoppedAt - startedAt
       if (ev.view) say(`view: streaming after ${ev.streamingMs} ms, ${ev.view.decoded} frame(s) decoded, ${ev.view.mbitPerS} Mbit/s, ${ev.view.width}x${ev.view.height}, path ${ev.view.path}`)
 
       // No request reached the host's person.
-      const requests = await host(["linux-host", "requests"], 30_000)
+      const requests = await readHost(["linux-host", "requests"])
       ev.requestsEmpty = requests.code === 0 && requests.stdout.trim() === NO_REQUESTS
       expect(!ev.hostPrompted, "share: the request waited for a person on the host")
       expect(ev.streamingMs !== null, `share: the viewer did not stream within ${SHARE_FRAME_LIMIT_MS / 1000} s${ended && streamingAt === null ? ` (it ended: ${lastLine(out)})` : ""}`)
       expect(ev.firstFrameWithinMs !== null && ev.firstFrameWithinMs <= SHARE_FRAME_LIMIT_MS, `share: no frame decoded within ${SHARE_FRAME_LIMIT_MS / 1000} s of the request`)
       expect(ev.requestsEmpty, "share: linux-host requests on the host is not empty")
+
+      // The guest: another account neither sees the machine nor reaches it by its device id.
+      const home = guestHome(sh)
+      const guestList = await listAs(sh, home, guestStack!.access)
+      ev.guest.signedIn = guestList.devices !== null
+      if (!guestList.devices) throw new Failed(`share: the guest could not sign in to the device hub: ${lastLine(guestList.r)}`)
+      ev.guest.sawMachine = guestList.devices.some((d) => d.id === device.id || d.name === opts.name)
+      expect(!ev.guest.sawMachine, "share: the guest account sees the joined machine")
+      live()
+      const asked = await deps.run(
+        asViewerIn(sh, home, [sh.cmuxRd, "view", device.id, "--hub", sh.hub, "--stack-token-file", "-", "--display", VIEWER_DISPLAY, "--scope", "view"]),
+        { env: childEnv, stdin: `${guestStack!.access}\n`, timeoutMs: 60_000, signal: inFlight.signal }
+      )
+      childText.push(asked.stdout, asked.stderr)
+      const hubCode = /\(device hub (4\d\d) ([a-z_]{1,64})\)/.exec(asked.stderr)
+      ev.guest.request = { code: asked.code, refused: asked.code !== 0 && hubCode !== null, hubCode: hubCode ? `${hubCode[1]} ${hubCode[2]}` : null }
+      say(`guest: ${ev.guest.sawMachine ? "sees" : "does not see"} the machine; its request ${ev.guest.request.refused ? `was refused by the hub (${ev.guest.request.hubCode})` : `was not refused by the hub: ${lastLine(asked)}`}`)
+      expect(ev.guest.request.refused === true && !/^Streaming /m.test(asked.stderr), "share: the hub did not refuse the guest's request for the joined machine")
     } finally {
       // The host unit's log, for a failure's log only (scanned like every child's output).
-      if (enabled && !cleaning) {
+      if (hostLog && !cleaning) {
         try {
           const journal = await deps.run(asHost(["journalctl", "--user", "-u", "cmux-screen-host.service", "-o", "cat", "--no-pager", "-n", "60"]), { env: childEnv, timeoutMs: 15_000 })
           childText.push(journal.stdout, journal.stderr)
@@ -965,6 +1015,15 @@ export async function runE2E(
     const email = env.CMUX_UITEST_STACK_EMAIL ?? ""
     const password = env.CMUX_UITEST_STACK_PASSWORD ?? ""
     if (!email || !password) throw new Refused("CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD must be set")
+    if (opts.share) {
+      // The share's second account is required: the run proves another account cannot reach the machine.
+      const guestEmail = env.CMUX_UITEST_GUEST_STACK_EMAIL ?? ""
+      const guestPassword = env.CMUX_UITEST_GUEST_STACK_PASSWORD ?? ""
+      if (!guestEmail || !guestPassword) throw new Refused("CMUX_UITEST_GUEST_STACK_EMAIL and CMUX_UITEST_GUEST_STACK_PASSWORD must be set for the share")
+      if (guestEmail.trim().toLowerCase() === email.trim().toLowerCase()) throw new Refused("the guest account must be another account than the joining one")
+      hold(guestEmail)
+      hold(guestPassword)
+    }
     hold(email)
     hold(password)
 
@@ -1000,6 +1059,19 @@ export async function runE2E(
     say("cmux-api-development access token ready")
     live()
     await sweepStale()
+
+    // 1a. The share's viewer and guest, before the join (nothing on the host). Its failure is the run's; the
+    // join and its checks still run.
+    let shareReady = false
+    if (opts.share) {
+      try {
+        await prepareShare(opts.share)
+        shareReady = true
+      } catch (e) {
+        if (!(e instanceof Failed) || cleaning) throw e
+        problems.push(e.message)
+      }
+    }
 
     // 2. Mint.
     live()
@@ -1115,7 +1187,7 @@ export async function runE2E(
     // 6a. The share (above). Its failure is the run's, and the revoke checks still run after it.
     if (opts.share) {
       try {
-        await runShare(opts.share)
+        if (shareReady) await runShare(opts.share, daemonStartedAt)
       } catch (e) {
         if (!(e instanceof Failed) || cleaning) throw e
         problems.push(e.message)
@@ -1211,7 +1283,7 @@ export async function runE2E(
   evidence.result = problems.length === 0 ? "pass" : "fail"
   evidence.reason =
     problems.length === 0
-      ? `joined, heartbeat, listed, consent none, mode 600,${opts.share ? " shared with no step on the host," : ""} revoked, no secrets found`
+      ? `joined, heartbeat, listed, consent none, mode 600,${opts.share ? " shared with no step on the host, another account refused," : ""} revoked, no secrets found`
       : problems.join("; ")
   // 9. The evidence itself: scanned before it goes anywhere; a leak replaces it with a bare failure.
   let text = JSON.stringify(evidence, null, 2)
@@ -1352,10 +1424,10 @@ export function realDeps(): Deps {
 }
 
 if (import.meta.main) {
-  const env = { CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD }
+  const names = ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD", "CMUX_UITEST_GUEST_STACK_EMAIL", "CMUX_UITEST_GUEST_STACK_PASSWORD"] as const
+  const env: Record<string, string | undefined> = Object.fromEntries(names.map((name) => [name, process.env[name]]))
   // Gone from this process's environment before anything starts; children get a fixed env anyway.
-  delete process.env.CMUX_UITEST_STACK_EMAIL
-  delete process.env.CMUX_UITEST_STACK_PASSWORD
+  for (const name of names) delete process.env[name]
   const opts = parseArgs(process.argv.slice(2))
   const why = refusal(opts)
   if (why) {
@@ -1364,7 +1436,7 @@ if (import.meta.main) {
   }
   // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) stops the run and revokes at
   // once; the run then writes its (failed) evidence and exits. 9 s after the first signal it exits anyway.
-  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench, 6 more with share) cancels the same way.
+  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench, 8 more with share) cancels the same way.
   let cancelNow: (() => Promise<void>) | undefined
   // Handled, not default, for both signals and every repeat: the second one must not kill the cleanup.
   let stopping = false

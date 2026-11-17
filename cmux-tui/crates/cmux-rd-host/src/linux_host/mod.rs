@@ -10,7 +10,8 @@
 //!       turns sharing on. The person's own devices view and control it with no prompt here
 //!       (`--view-only` keeps control off); on Wayland it asks the portal once, now (`grant`),
 //!       so no viewer's session asks again.
-//!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
+//!       `--non-interactive` (the machine join: acpmux's daemon runs it at its start on a joined
+//!       machine, with no one there): takes no account token and opens
 //!       no browser, finds the desktop through logind, waits a minute at most on the portal
 //!       dialog, sets up a virtual X display (started on demand) when there is no graphical
 //!       session, and installs the host unit on a desktop still enabled or a machine joined to
