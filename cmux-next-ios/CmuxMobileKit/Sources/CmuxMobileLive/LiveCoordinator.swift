@@ -305,6 +305,8 @@ public final class LiveCoordinator {
             return self.agentSource(owner, session: session, summary: scoped)
         }
         restoreSnapshot()
+        // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
+        if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
     }
 

@@ -8,7 +8,8 @@ moved to another Swift module or renamed counts again, a file moved inside its m
 working tree; an unlisted declaration of a reviewed generator's output (GENERATORS: its path and its header) counts 0,
 a spoofed header or a generated-looking name does not; an extension of `[T]` is a declaration; a line never counts
 twice;
-the table's invalid and missing rows are reported.
+the table's invalid and missing rows are reported. swift-logic-delta.py (SwiftLogicDeltaTests) reports a change's
+row, module and declaration deltas between two revisions, and exits 0 when the count grows.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
   python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py
@@ -50,6 +51,7 @@ def load(name: str, path: Path):
 
 
 logic = load("cmux_next_swift_logic_lines_under_test", SCRIPTS / "swift-logic-lines.py")
+logic_delta = load("cmux_next_swift_logic_delta_under_test", SCRIPTS / "swift-logic-delta.py")
 
 
 class Repo(unittest.TestCase):
@@ -405,6 +407,54 @@ class LogicLinesTests(Repo):
         data = self.count()
         self.assertEqual(data["rows"]["swift_logic_lines"], 10, "a table of another header lists nothing")
         self.assertEqual(data["table_rows_invalid"], 1)
+
+
+class SwiftLogicDeltaTests(Repo):
+    def delta(self, base, head="HEAD", *extra):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(logic_delta.main(["--repo", str(self.repo), "--base", base, "--head", head, *extra]), 0)
+        return out.getvalue()
+
+    def test_a_change_reports_its_row_module_and_declaration_deltas(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
+        self.write(f"{SRC}/CmuxNextDomain/Gone.swift", "struct Gone {\n    let a = 1\n}\n")  # 3
+        self.write(f"{SRC}/CmuxNextCore/Wire.swift", "struct Wire {\n    let a = 1\n}\n")  # 3
+        self.table(("CmuxNextCore", "struct", "Wire", 0, "MIRROR", 0, 100, f"{SRC}/CmuxNextCore/Wire.swift", "dto"))
+        base = self.commit("base")
+        # Store grows by 2, Gone goes (-3), Wire grows by 1 mirror line, a new extension adds 4 (a name with a `:`).
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift",
+                   "final class Store {\n    var n = 0\n    var m = 0\n    var o = 0\n}\n")
+        (self.repo / SRC / "CmuxNextDomain" / "Gone.swift").unlink()
+        self.write(f"{SRC}/CmuxNextCore/Wire.swift", "struct Wire {\n    let a = 1\n    let b = 2\n}\n")
+        self.write(f"{SRC}/CmuxNextCore/Dict.swift",
+                   "extension [String: Int] {\n    var x: Int { 1 }\n    var y: Int { 2 }\n}\n")
+        head = self.commit("head")
+        data = json.loads(self.delta(base, head, "--json"))
+        self.assertEqual((data["base"], data["head"]), (base, head))
+        self.assertEqual(data["rows"], {"swift_logic_lines": {"base": 6, "head": 9, "delta": 3},
+                                        "mirror_lines": {"base": 3, "head": 4, "delta": 1}})
+        self.assertEqual(data["packages"], {"CmuxNextCore": {"swift_logic_lines": 4, "mirror_lines": 1},
+                                            "CmuxNextDomain": {"swift_logic_lines": -1}})
+        self.assertEqual([(a["row"], a["path"], a["line"], a["declaration"], a["lines"]) for a in data["added"]], [
+            ("swift_logic_lines", f"{SRC}/CmuxNextCore/Dict.swift", 1, "extension [String:Int] #0", 4),
+            ("swift_logic_lines", f"{SRC}/CmuxNextDomain/Store.swift", 1, "class Store #0", 2),
+            ("mirror_lines", f"{SRC}/CmuxNextCore/Wire.swift", 1, "struct Wire #0", 1),
+        ])
+        self.assertEqual(data["removed_lines"], {"swift_logic_lines": 3, "mirror_lines": 0})
+        text = self.delta(base, head, "--top", "1")
+        self.assertIn("| swift_logic_lines | 6 | 9 | +3 |", text)
+        self.assertIn("| CmuxNextDomain | -1 | +0 |", text)
+        self.assertIn(f"- `{SRC}/CmuxNextCore/Dict.swift:1` extension [String:Int] #0: +4 swift_logic_lines", text)
+        self.assertNotIn("Store.swift:1", text, "--top 1 lists one declaration")
+
+    def test_no_swift_change_reports_zero_and_no_declarations(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        base = self.commit("base")
+        self.write("README", "changed\n")
+        data = json.loads(self.delta(base, self.commit("docs"), "--json"))
+        self.assertEqual(data["rows"]["swift_logic_lines"], {"base": 3, "head": 3, "delta": 0})
+        self.assertEqual((data["packages"], data["added"]), ({}, []))
 
 
 if __name__ == "__main__":

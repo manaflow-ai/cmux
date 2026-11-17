@@ -80,14 +80,6 @@ extension SettingsWindowService {
         ]
     }
 
-    /// Settings > Menus' reads and writes (ContextMenusSettingsPage).
-    var contextMenusRoute: ContextMenusPageProvider {
-        ContextMenusPageProvider { [weak services] in
-            guard let services, let settings = services.settings else { return nil }
-            return ContextMenusSettingsPage(registry: services.registry, settings: settings)
-        }
-    }
-
     /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved,
     /// and each size row's live value (``SettingsUnsetSizes``).
     func pageDerivedNumbers() -> [String: JSONValue] {

@@ -17,6 +17,8 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
     private final UInt64 pane;
     private final UInt64 screen;
     private final UInt64 surface;
+    /** The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1). */
+    private final Field<String> transaction;
     private final UInt64 workspace;
 
     private TabAddedEvent(Builder builder) {
@@ -30,6 +32,7 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
         this.screen = Wire.nonNull(builder.screen, "screen");
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.transaction = builder.transaction;
         if (!builder.workspaceSet) throw new IllegalArgumentException("workspace is required");
         this.workspace = Wire.nonNull(builder.workspace, "workspace");
     }
@@ -41,6 +44,7 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
     public UInt64 pane() { return pane; }
     public UInt64 screen() { return screen; }
     public UInt64 surface() { return surface; }
+    public Field<String> transaction() { return transaction; }
     public UInt64 workspace() { return workspace; }
     @Override public String event() { return "tab-added"; }
 
@@ -58,6 +62,10 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
         builder.screen(Wire.uint64(rawScreen, "TabAddedEvent.screen"));
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "TabAddedEvent.surface"));
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "TabAddedEvent.transaction"));
+        }
         Object rawWorkspace = Wire.required(object, "workspace");
         builder.workspace(Wire.uint64(rawWorkspace, "TabAddedEvent.workspace"));
         return builder.build();
@@ -72,6 +80,7 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
         Wire.put(object, "pane", pane);
         Wire.put(object, "screen", screen);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "transaction", transaction);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -79,11 +88,11 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TabAddedEvent that)) return false;
-        return Objects.equals(entity, that.entity) && Objects.equals(index, that.index) && Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(entity, that.entity) && Objects.equals(index, that.index) && Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(entity, index, pane, screen, surface, workspace); }
+    public int hashCode() { return Objects.hash(entity, index, pane, screen, surface, transaction, workspace); }
 
     @Override
     public String toString() { return "TabAddedEvent" + toWire(); }
@@ -99,6 +108,7 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
         private boolean screenSet;
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> transaction = Field.omitted();
         private UInt64 workspace;
         private boolean workspaceSet;
 
@@ -125,6 +135,10 @@ public final class TabAddedEvent implements WireValue, DeltaStreamEvent, Protoco
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

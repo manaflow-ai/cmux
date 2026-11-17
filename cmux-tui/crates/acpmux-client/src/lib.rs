@@ -2,6 +2,7 @@
 
 pub mod chat;
 pub mod ffi;
+pub mod page;
 pub mod tokio_list;
 pub mod wire;
 
@@ -256,10 +257,10 @@ pub struct SkipCounters {
 }
 
 struct QueuedChange<T> {
-    change: Change<T>,
-    sid: Option<String>,
-    bytes: u64,
-    charge: bool,
+    pub(crate) change: Change<T>,
+    pub(crate) sid: Option<String>,
+    pub(crate) bytes: u64,
+    pub(crate) charge: bool,
 }
 
 impl<T> Client<T>
@@ -431,13 +432,31 @@ where
         self.send.pop_front()
     }
     pub fn next_change(&mut self) -> Option<Change<T>> {
-        let queued = self.changes.pop_front()?;
+        let queued = self.next_change_uncredited()?;
+        self.acknowledge_change(&queued);
+        Some(queued.change)
+    }
+
+    /// Removes one change without returning credit to the daemon. The page driver uses this to
+    /// hold a bounded batch until the page acknowledges it. Legacy callers should continue to
+    /// use [`Self::next_change`], which takes the change immediately.
+    pub(crate) fn next_change_uncredited(&mut self) -> Option<QueuedChange<T>> {
+        self.changes.pop_front()
+    }
+
+    /// Returns credit for a change previously removed with [`Self::next_change_uncredited`].
+    pub(crate) fn acknowledge_change(&mut self, queued: &QueuedChange<T>) {
         if queued.charge
             && let Some(sid) = queued.sid.as_deref()
         {
             self.charge_frame_now(Some(sid), queued.bytes);
         }
-        Some(queued.change)
+    }
+
+    /// Whether the handle has a queued protocol change. The page driver uses this to avoid
+    /// treating an empty batch as a page event.
+    pub(crate) fn has_queued_changes(&self) -> bool {
+        !self.changes.is_empty()
     }
 
     pub fn received(&mut self, bytes: &[u8]) -> usize {
@@ -3733,6 +3752,10 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "500 held rows of safe code, over 10 minutes under Miri; no FFI call"
+    )]
     fn mirror_parent_refresh_batches_only_its_held_children() {
         for total in [20, 500] {
             let mut client = Client::<Value>::connected_v2();
@@ -3794,6 +3817,7 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "4,096 keys of safe code, over 10 minutes under Miri; no FFI call")]
     fn caller_wanted_keys_have_priority_over_internal_parents() {
         let mut client = ready_mirror();
         {

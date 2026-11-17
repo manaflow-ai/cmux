@@ -4,7 +4,7 @@ import Foundation
 import CmuxNextCompat
 import VideoToolbox
 
-/// One decoded picture: an IOSurface-backed NV12 pixel buffer (full range,
+/// One decoded picture: an IOSurface-backed NV12 pixel buffer (in the stream's range,
 /// Metal compatible) and the timing the presenter and stats need.
 public nonisolated struct RemoteDecodedFrame: @unchecked Sendable {
     // @unchecked: the pixel buffer is never written after the decoder
@@ -93,7 +93,7 @@ nonisolated final class RemoteVideoDecoder {
 
     static func makeSession(format: CMVideoFormatDescription) throws(Failure) -> (VTDecompressionSession, Bool) {
         let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            kCVPixelBufferPixelFormatTypeKey: outputPixelFormat(for: format),
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
             kCVPixelBufferMetalCompatibilityKey: true,
         ]
@@ -120,6 +120,17 @@ nonisolated final class RemoteVideoDecoder {
             return (created, query == noErr && (usingHardware as? Bool ?? false))
         }
         throw .sessionCreate(lastStatus)
+    }
+
+    /// NV12 in the stream's own range, so VideoToolbox hands back the decoded
+    /// buffer without a conversion pass. The Mac host encodes video range
+    /// (`420v`); asking for full range converted every frame. The renderer
+    /// reads either range.
+    static func outputPixelFormat(for format: CMVideoFormatDescription) -> OSType {
+        let fullRange = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo)
+        return (fullRange as? Bool) == true
+            ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
     }
 }
 

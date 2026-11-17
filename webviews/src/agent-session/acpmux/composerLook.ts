@@ -9,12 +9,11 @@
 // agent chat doesn't do anything right now"), Codex's folder and computer tray tucked under the box's
 // top edge, and the accent on Full access (composerLook.css). Replaced: Codex's own row in the box
 // under the prompt with + in it (cmux #28901, last good commit 8b44a8a1dc2), kept in gallery
-// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Dots pick it: on New Tab the page's three
-// (newtab/tabDots.ts: Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), in a chat
-// two on hover in the composer's bottom area (LookSwitch.tsx). The choice is the viewer's, kept in
-// localStorage across chats, panes and launches (in step by the `storage` event), as the transcript's
-// wrap choice is (conversation/blockWrap.ts).
-import { useSyncExternalStore } from "react";
+// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Chat dots pick the look on hover in the
+// composer's bottom area (LookSwitch.tsx). The choice stays in localStorage across chats, panes
+// and launches. New Tab always uses Claude's look, including its shared controls.
+import { useContext, useSyncExternalStore } from "react";
+import { OnNewTab } from "./newTabComposer";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -87,5 +86,7 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
 
 /// The composer's look; re-renders the caller when it changes, here or in another pane.
 export function useComposerLook(): ComposerLook {
-  return useSyncExternalStore(subscribe, current, current);
+  const onNewTab = useContext(OnNewTab);
+  const look = useSyncExternalStore(subscribe, current, current);
+  return onNewTab ? "claude" : look;
 }

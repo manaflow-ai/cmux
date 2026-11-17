@@ -515,8 +515,6 @@ pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActi
 #[rustfmt::skip]
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
 pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const KEYMAP: Argument = Argument { name: "keymap", title: t("Localizable", "argument.keymap", "Keymap"), kind: ArgKind::Enumeration(CASES_CMUX_ITERM2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -714,3 +712,18 @@ pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: 
 pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const APP_TRY_TARGET: Argument = Argument { name: "target", title: t("ActionCatalog", "argument.app.try.target", "PR, Branch or Commit"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_UPDATE_SNOOZE: &[EnumCase] = &[EnumCase { value: "update-hide-version", title: t("ActionCatalog", "argument.value.updates.snooze.hideVersion", "Hide Until a Newer Version") }, EnumCase { value: "update-remind-day", title: t("ActionCatalog", "argument.value.updates.snooze.remindDay", "Remind Me in 1 Day") }, EnumCase { value: "update-remind-3-days", title: t("ActionCatalog", "argument.value.updates.snooze.remindThreeDays", "Remind Me in 3 Days") }, EnumCase { value: "update-remind-week", title: t("ActionCatalog", "argument.value.updates.snooze.remindWeek", "Remind Me in 1 Week") }];
+#[rustfmt::skip]
+pub const UPDATE_SNOOZE: Argument = Argument { name: "option", title: t("ActionCatalog", "argument.updates.snooze", "Snooze"), kind: ArgKind::Enumeration(CASES_UPDATE_SNOOZE), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_REMOTE_QUALITY: &[EnumCase] = &[EnumCase { value: "auto", title: t("ActionCatalog", "argument.value.remote.quality.auto", "Auto") }, EnumCase { value: "sharpText", title: t("ActionCatalog", "argument.value.remote.quality.sharpText", "Sharp Text") }, EnumCase { value: "smoothMotion", title: t("ActionCatalog", "argument.value.remote.quality.smoothMotion", "Smooth Motion") }, EnumCase { value: "lowBandwidth", title: t("ActionCatalog", "argument.value.remote.quality.lowBandwidth", "Low Bandwidth") }];
+#[rustfmt::skip]
+pub const REMOTE_QUALITY: Argument = Argument { name: "quality", title: t("ActionCatalog", "argument.remote.quality", "Quality"), kind: ArgKind::Enumeration(CASES_REMOTE_QUALITY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A page of the tab's back/forward list, by its offset from the current page (`-2` two back,
+/// `1` one forward), as `goToEntry(offset:)` takes it; the App lists the tab's entries.
+#[rustfmt::skip]
+pub const BACK_FORWARD_ENTRY: Argument = Argument { name: "entry", title: t("ActionCatalog", "argument.browser.backForwardEntry", "Page"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserBackForwardEntries", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// One download of the browser's downloads list, by id; the App lists them, newest first.
+#[rustfmt::skip]
+pub const DOWNLOAD: Argument = Argument { name: "download", title: t("BrowserToolbarActions", "argument.browser.download", "Download"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserDownloads", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

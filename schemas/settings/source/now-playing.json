@@ -42,7 +42,7 @@
           },
           "help": {
             "key": "settings.sidebar.nowPlaying.otherApps.help",
-            "text": "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+            "text": "Also shows what plays in apps like Spotify or Music."
           },
           "kind": "toggle",
           "default": false,
@@ -115,7 +115,7 @@
           },
           "help": {
             "key": "settings.media.pictureInPicture.enabled.help",
-            "text": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+            "text": "Offer Picture in Picture for web videos."
           },
           "kind": "toggle",
           "default": true,

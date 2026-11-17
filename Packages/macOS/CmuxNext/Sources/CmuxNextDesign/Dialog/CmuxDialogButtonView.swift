@@ -25,8 +25,8 @@ public final class CmuxDialogButtonView: ClickableButton {
     private let focusGap = CALayer()
     /// The key drawn on a plate at the trailing end (a cmux dialog's card), instead of as text after the title.
     private let keycapView: CmuxDialogKeycapView?
-    /// How a keyed button draws its key (``CmuxDialogKeycapStyle``): today's plate unless the Keycap Playground
-    /// shows another.
+    /// How a keyed button draws its key (``CmuxDialogKeycapStyle``): the Linear-style hint every dialog draws
+    /// (Lawrence 2026-11-16) unless the Keycap Playground shows another.
     let keycapStyle: CmuxDialogKeycapStyle
     /// Draws the button in this state whatever the pointer does (the Keycap Playground's hover and pressed rows).
     var previewState: CmuxDialogButtonLook.State? { didSet { refresh() } }
@@ -41,7 +41,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// button's trailing end (the cmux dialog card, ``CmuxDialogView``), on a taller, rounder button.
     public convenience init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
                             target: AnyObject?, action: Selector) {
-        self.init(button, hint: hint, quiet: quiet, keycap: keycap, keycapStyle: .plate, target: target, action: action)
+        self.init(button, hint: hint, quiet: quiet, keycap: keycap, keycapStyle: .linearKbd, target: target, action: action)
     }
 
     /// A keyed button drawing its key in `keycapStyle` (the Keycap Playground); a style that shows no key for this
@@ -210,7 +210,8 @@ public final class CmuxDialogButtonView: ClickableButton {
         let state: CmuxDialogButtonLook.State = previewState ?? (isHighlighted ? .pressed : isHovering ? .hover : .rest)
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state, quiet: isQuiet,
+            // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
+            return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
                                         card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
         }
     }
@@ -306,4 +307,12 @@ enum CmuxDialogMetrics {
     static var keycapPadding: CGFloat { 4 * Typography.userScale }
     static var keycapLeading: CGFloat { 12 * Typography.userScale }
     static var keycapGap: CGFloat { 8 * Typography.userScale }
+    /// A code's well (``CmuxDialogCodeWell``): the code this far in from its sides, and from its top and bottom.
+    static var codeInset: CGFloat { 10 * Typography.userScale }
+    static var codeVerticalInset: CGFloat { 7 * Typography.userScale }
+    /// The well's fill and edge: the text's ink at these alphas.
+    static let codeWellFill: CGFloat = 0.06
+    static let codeWellEdge: CGFloat = 0.12
+    /// One device pixel in `window` (1 pt on a 1x screen).
+    static func hairline(in window: NSWindow?) -> CGFloat { 1 / max(window?.backingScaleFactor ?? 2, 1) }
 }

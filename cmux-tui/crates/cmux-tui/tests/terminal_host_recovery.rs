@@ -3593,8 +3593,20 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    // The exact revision assertions below count creation commits only; a
-    // shell's cwd report would add its own revision.
+    // The revision asserts of the resolution and of the replay read the
+    // creation's own revision. The session's revision after a restart has a
+    // lower bound only: the daemon can make its own commit
+    // (`session.restate-part`, `mux/startup_restore/restate_parts.rs`) after a
+    // start. A shell's cwd report would add one more commit, so shell
+    // integration stays off.
+    let session_revision = |snapshot: &serde_json::Value, step: &str| -> u64 {
+        snapshot["cursor"]["revision"]
+            .as_str()
+            .and_then(|revision| revision.parse::<u64>().ok())
+            .unwrap_or_else(|| {
+                panic!("{step}: `cursor.revision` is not an integer: {}", snapshot["cursor"])
+            })
+    };
     let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
     harness.host_ready_delay_ms = Some(2_000);
     harness.shell_integration = false;
@@ -3646,7 +3658,8 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(first_snapshot["cursor"]["revision"], "1");
+    let first_session_revision = session_revision(&first_snapshot, "after the first restart");
+    assert!(first_session_revision >= 1, "after the first restart: {first_session_revision}");
     assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -3692,7 +3705,12 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(second_snapshot["cursor"]["revision"], "1");
+    let second_session_revision = session_revision(&second_snapshot, "after the second restart");
+    assert!(second_session_revision >= 1, "after the second restart: {second_session_revision}");
+    assert!(
+        second_session_revision >= first_session_revision,
+        "the session's revision went back: {first_session_revision}, then {second_session_revision}"
+    );
     assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;

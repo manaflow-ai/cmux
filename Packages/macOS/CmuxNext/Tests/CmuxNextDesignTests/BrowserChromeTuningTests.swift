@@ -23,20 +23,21 @@ import Testing
         #expect(BrowserChromeTuning.override(.closeSize, tokens: DensityPreset.ultraCompact.tokens, store: store) == nil)
     }
 
-    /// The defaults the descriptors show are each density's own: Helium's 28 pt row, 3 pt gap and 14 pt x at
-    /// Default; Chrome's 34 pt row and 6 pt gap at Spacious.
-    @Test func defaultsAreEachDensitysOwn() {
-        func derived(_ metric: BrowserChromeMetric, _ density: DensityPreset) -> CGFloat? {
-            BrowserChromeTuning.all.first { $0.descriptor.key == BrowserChromeTuning.key(metric, density: density) }?.derive()
+    @Test(arguments: [DensityPreset.compact, .cozy, .comfortable, .spacious])
+    func defaultsFollowTheReference(preset: DensityPreset) {
+        func derived(_ metric: BrowserChromeMetric) -> Double? {
+            BrowserChromeTuning.all.first { $0.descriptor.key == BrowserChromeTuning.key(metric, density: preset) }.map { Double($0.derive()) }
         }
-        #expect(derived(.rowHeight, .cozy) == 28)
-        #expect(derived(.rowGap, .cozy) == 3)
-        #expect(derived(.closeSize, .cozy) == 14)
-        #expect(derived(.closeCorner, .cozy) == 4)
-        #expect(derived(.chipLeading, .cozy) == 2)
-        #expect(derived(.textOrigin, .cozy) == 31)
-        #expect(derived(.rowHeight, .compact) == 20)
-        #expect(derived(.rowHeight, .spacious) == 34)
-        #expect(derived(.rowGap, .spacious) == 6)
+        func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
+        #expect(derived(.rowHeight) == preset.tokens.tokens["browserRowHeight"])
+        #expect(derived(.rowGap) == half(3 * preset.scaleFactor))
+        #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
+        #expect(derived(.closeCorner) == half(4.5 * preset.scaleFactor))
+        #expect(derived(.closeInk) == half(8.5 * preset.scaleFactor))
+        #expect(derived(.closeTrailing) == half(6.5 * preset.scaleFactor))
+        #expect(derived(.chipLeading) == half(2 * preset.scaleFactor))
+        #expect(derived(.textOrigin) == half(2 * preset.scaleFactor)
+            + min(half(25 * preset.scaleFactor), half(29 * preset.scaleFactor) - 2 * half(2 * preset.scaleFactor))
+            + half(5 * preset.scaleFactor))
     }
 }
