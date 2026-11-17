@@ -20,6 +20,9 @@ class KindOf(unittest.TestCase):
     def test_other_acpmux_processes_keep_their_kind(self):
         self.assertEqual(fanout.kind_of("acpmux daemon"), "acpmux-daemon")
         self.assertEqual(fanout.kind_of("acpmux acp --agent claude"), "acpmux-acp")
+        # A flag or a path that ends in -mcp is no server name.
+        self.assertEqual(fanout.kind_of("acpmux acp --cwd /w/x-mcp"), "acpmux-acp")
+        self.assertEqual(fanout.kind_of("acpmux acp --no-mcp"), "acpmux-acp")
         self.assertNotIn("acpmux-acp", fanout.TOOL_KINDS)
 
 

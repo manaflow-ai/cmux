@@ -302,8 +302,9 @@ def kind_of(argv: str) -> str:
     if "__bg-run" in rest:
         return "bg-run"
     if base == "acpmux" or base.startswith("acpmux"):
-        # Any word of the command line: acpmux's own servers run as `acpmux acp tools-mcp` too.
-        mcp = next((t for t in rest if t.endswith("-mcp")), "")
+        # Any subcommand word, not only the first: acpmux's own servers run as `acpmux acp tools-mcp`
+        # too. A flag or a path (`--cwd /w/x-mcp`) names no kind.
+        mcp = next((t for t in rest if t.endswith("-mcp") and not t.startswith("-") and "/" not in t), "")
         if mcp:
             return "acpmux-" + mcp
         sub = next((t for t in rest if not t.startswith("-")), "")
