@@ -149,6 +149,14 @@ crate::framework! {
     }
 }
 
+// The sRGB transfer key, bound apart from `cv_sys` like the speed keys: were it missing, the
+// session would tag BT.709 transfer as before rather than fail `frameworks()`.
+crate::framework! {
+    mod cv_srgb_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+        static kCVImageBufferTransferFunction_sRGB: CFStringRef;
+    }
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -467,10 +475,19 @@ impl VideoToolbox {
                 kVTCompressionPropertyKey_ColorPrimaries(),
                 primaries,
             );
+            // Screen pixels are sRGB-encoded (the capture asks for sRGB, and Display P3
+            // uses the same curve), so the stream says sRGB (H.264 transfer 13), as
+            // crate::color::SCREEN does: a BT.709 transfer tag makes a colour-managed
+            // viewer apply a camera curve to them.
+            let transfer = if cv_srgb_sys::available().is_ok() {
+                cv_srgb_sys::kCVImageBufferTransferFunction_sRGB()
+            } else {
+                kCVImageBufferTransferFunction_ITU_R_709_2()
+            };
             VTSessionSetProperty(
                 self.session,
                 kVTCompressionPropertyKey_TransferFunction(),
-                kCVImageBufferTransferFunction_ITU_R_709_2(),
+                transfer,
             );
             VTSessionSetProperty(
                 self.session,
