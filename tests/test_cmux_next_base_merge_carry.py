@@ -10,6 +10,7 @@ note-388).
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
 import shutil
@@ -26,6 +27,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_merge_carry as carry  # noqa: E402
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 REPO = "manaflow-ai/cmux"
@@ -174,8 +180,9 @@ class CleanMergeTree(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="carry-test-")
         self.up = os.path.join(self.dir, "up")
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_NOSYSTEM": "1"}
+        env = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                           "GIT_CONFIG_NOSYSTEM": "1"})
         self.env = env
 
         def git(*args):
@@ -185,7 +192,7 @@ class CleanMergeTree(unittest.TestCase):
         def write(name, text):
             Path(self.up, name).write_text(text)
 
-        subprocess.run(["git", "init", "-q", "-b", "base", self.up], check=True, env=env)
+        git_fixture_env.init_repo(self.up, "-b", "base", env=env)
         git("config", "uploadpack.allowFilter", "true")
         git("config", "uploadpack.allowAnySHA1InWant", "true")
         write("f", "a\nb\nc\nd\ne\nf\ng\n")

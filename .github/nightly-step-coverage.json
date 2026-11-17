@@ -469,6 +469,7 @@
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
         "Start the Computer Use helper notarization": {"nightly_only": "submits helper to Apple notary"},
+        "Fetch the published Chromium framework": {"nightly_only": "downloads the Developer ID signed Chromium framework from the DMG the nightly feed serves now, for sign-cef.sh to reuse at codesign; a pull request has no signed release app to compare it with (best effort, always exits 0)"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Verify the Computer Use helper signature": {"nightly_only": "verifies Developer ID signed helper"},
         "Delete signing keychain before runtime checks": {"nightly_only": "deletes the signing keychain"},

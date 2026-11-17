@@ -27,6 +27,10 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
 WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 spec = importlib.util.spec_from_file_location("hot_verify_ci", SCRIPT)
 hv = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = hv
@@ -338,8 +342,11 @@ class Comment(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, text, "")
             return run
 
-        for body, comments, want in (("no marker\n", "false\nfalse\n", False), (f"text\n{MARKER}\n", "", True),
-                                     ("", "false\ntrue\n", True), ("", "", False)):
+        def page(*bodies):
+            return json.dumps([{"body": text} for text in bodies])
+
+        for body, comments, want in (("no marker\n", page("lgtm", None), False), (f"text\n{MARKER}\n", page(), True),
+                                     ("", page("lgtm", f"{MARKER}x -->"), True), ("", page(), False)):
             with self.subTest(body=body, comments=comments), \
                     mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
                 self.assertEqual(hr.has_receipt(7), want)
@@ -426,8 +433,9 @@ class Workflow(unittest.TestCase):
         fetch = textwrap.dedent("\n".join(lines[start:end]))
         with tempfile.TemporaryDirectory(prefix="hot-verify-fetch-") as scratch:
             root = Path(scratch)
-            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                   "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+            env = git_fixture_env.fixture_env({
+                **os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
 
             def git(cwd: Path, *args: str) -> str:
                 return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
@@ -435,7 +443,7 @@ class Workflow(unittest.TestCase):
 
             src = root / "src"
             src.mkdir()
-            git(src, "init", "-q", "-b", "feat-cmux-next")
+            git_fixture_env.init_repo(src, "-b", "feat-cmux-next", env=env)
             git(src, "config", "uploadpack.allowFilter", "true")
             for n in range(5):
                 (src / "f").write_text(f"{n}\n")
@@ -451,7 +459,7 @@ class Workflow(unittest.TestCase):
             git(src, "checkout", "-q", "feat-cmux-next")
             clone = root / "clone"
             clone.mkdir()
-            git(clone, "init", "-q")
+            git_fixture_env.init_repo(clone, env=env)
             git(clone, "remote", "add", "origin", src.as_uri())
             # As actions/checkout: the base branch alone, at depth 1.
             git(clone, "fetch", "-q", "--no-tags", "--depth=1", "origin",

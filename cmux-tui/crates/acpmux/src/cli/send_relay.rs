@@ -96,6 +96,7 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
 pub(crate) const VIA: &str = "relay";
 
 /// How long a lookup of one key in the relay's listing may take (`listed_row`).
+// timeout: a lookup that fails open: past it `listed_row` answers none and the send reports no such session.
 const LOOKUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The one row of `rows` that `key` names: `HOST/NAME`, `HOST/ID`, the qualified id, the bare

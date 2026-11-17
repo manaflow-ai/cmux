@@ -13,8 +13,13 @@ fails exits 1, and the plan then looks at nothing.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+import gh_pages  # noqa: E402
 
 # Must equal hot-verify-ci.py's MARKER_PREFIX (test_hot_verify_ci.py checks it).
 MARKER_PREFIX = "<!-- cmux-hot-verify "
@@ -32,10 +37,10 @@ def has_receipt(pr: int, repo: str = REPO) -> bool:
     body = read(f"repos/{repo}/pulls/{int(pr)}", "--jq", '.body // ""')
     if any(line.startswith(MARKER_PREFIX) for line in body.splitlines()):
         return True
-    # One line per comment: whether its body starts with the marker (gh follows the pages itself).
-    found = read(f"repos/{repo}/issues/{int(pr)}/comments?per_page=100", "--paginate", "--jq",
-                 f'.[] | (.body // "") | startswith("{MARKER_PREFIX}")')
-    return any(line.strip() == "true" for line in found.splitlines())
+    # One bounded page per call (scripts/ci/gh_pages.py), never gh api's paginate flag: that is one unbounded
+    # call the gh quota wrapper refuses (tests/test_gh_pages.py).
+    comments = gh_pages.items(lambda url: json.loads(read(url)), f"repos/{repo}/issues/{int(pr)}/comments")
+    return any(str((comment or {}).get("body") or "").startswith(MARKER_PREFIX) for comment in comments)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     a = parser.parse_args(argv)
     try:
         print(f"receipt={'true' if has_receipt(a.pr, a.repo) else 'false'}")
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+    except (RuntimeError, OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
         print(f"hot-verify-receipt: {error}", file=sys.stderr)
         return 1
     return 0

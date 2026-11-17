@@ -12,6 +12,8 @@ Run: python3 -I tests/test_cmux_next_daemon_test_packages.py
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +22,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/cmux-next-daemon-test-packages.sh"
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 def run(repo: Path) -> list[str]:
@@ -49,7 +57,7 @@ class Fixture:
 
     def commit(self) -> None:
         git = ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com"]
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        git_fixture_env.init_repo(self.root)
         subprocess.run([*git, "add", "."], check=True)
         subprocess.run([*git, "commit", "-qm", "c"], check=True)
 

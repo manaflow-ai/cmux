@@ -105,6 +105,10 @@ ALLOWED: dict[str, str] = {
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
+    'app-ffi-release.yml: Watch the build and rescue it to Blacksmith macOS':
+        "per app FFI release run on feat-cmux-next, only while vars.CI_BLACKSMITH_MACOS lets it rescue: one jobs page "
+        "of its own run every 120 s, at most 50 (WATCH_MINUTES), ending once the build has a runner "
+        "(scripts/ci/app_ffi_rescue.py, hq#3690); a candidate for the cmux-bot token ci-owned-pool-rescue.yml uses",
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
         'watches owned-pool runs (up to 5 h for a sweeper): reads and mutations use the existing cmux-bot token, with github.token fallback; the routing App is never used',
     'cmux-next-batch.yml: Run the batch':

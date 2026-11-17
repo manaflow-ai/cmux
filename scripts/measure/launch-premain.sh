@@ -90,10 +90,10 @@ main() {
       pair "$arm" "$rep" || rc=1
     done
   done
-  # Every process this run left (the daemons a quit keeps): only ones started from this run's copy. They run as the
-  # console user, who may not be the step's user.
-  local pids; pids="$(ps -axo pid=,command= | LP_ROOT="$out/" awk 'index($0, ENVIRON["LP_ROOT"]) { print $1 }')"
-  [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
+  # The daemons this run's launches left (a quit keeps them by design), stopped by what they recorded, never by a
+  # process listing: the copy's cmux-tui owners through their own sockets (they end their terminals), then every
+  # acpmux daemon under this run's homes by the PID in its daemon.pid, while that PID still runs from this run.
+  stop_left_daemons "$out"
   python3 -I - "$out/runs.jsonl" <<'PY'
 import json, statistics, sys
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
@@ -122,6 +122,23 @@ PY
 }
 
 # find_stub APP: the smallest Mach-O executable in APP over 100 KB (the 300 KB stub beside the 107 MB executable).
+# stop_left_daemons OUT: stop the daemons the launches of OUT's app copy left (see the caller). They run as the
+# console user, who may not be the step's user, so a PID is signaled with sudo -n first.
+stop_left_daemons() {
+  local out="$1" pidfile pid
+  # shellcheck source=SCRIPTDIR/../lib/stop-cmux-tui-owners.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/stop-cmux-tui-owners.sh"
+  cmux_stop_cmux_tui_owners "$APP/Contents/Resources/bin"
+  while IFS= read -r pidfile; do
+    pid="$(head -c 32 "$pidfile" 2>/dev/null | tr -cd '0-9')"
+    # A PID the system reused since is no longer this run's: only one that still runs from under OUT is signaled.
+    if [[ -n "$pid" && "$(ps -p "$pid" -o command= 2>/dev/null)" == *"$out/"* ]]; then
+      sudo -n kill "$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+    fi
+  done < <(find "$out" -name daemon.pid -type f 2>/dev/null)
+  return 0
+}
+
 find_stub() {
   find "$1/Contents" -type f -perm -u+x -size +200 2>/dev/null | while read -r f; do
     file -b "$f" | grep -q 'Mach-O.*executable' && echo "$(stat -f %z "$f") $f"

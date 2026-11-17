@@ -250,6 +250,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
 | `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
+| `community.io` | identifier | the error code `cmux community` prints when a local file step fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -307,6 +308,17 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
 | `me.uk` | identifier | a public suffix, so sites under it are told apart |
 | `plc.uk` | identifier | a public suffix, so sites under it are told apart |
+| `live.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `microsoftonline.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `office.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `outlook.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `skype.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `xbox.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `facebookmail.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `meta.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `steampowered.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `steamcommunity.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
+| `icloud.com` | identifier | an email sender domain the browser's email code AutoFill matches to the site you sign in to, never fetched |
 
 ### Samples and placeholders
 

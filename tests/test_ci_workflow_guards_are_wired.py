@@ -60,6 +60,14 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It pins the owned-Mac SwiftPM shared-cache seed
+    # (scripts/ci/swiftpm_prefetch_binary_artifacts.py, its host lock and atomic renames) and reads cmux-next.yml and
+    # test-ios.yml only as data: that their keep-builds steps call the seed. Run it by hand when either changes.
+    "tests/test_ci_swiftpm_prefetch_shared_cache.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads test-ios.yml only as data: that a bot's re-run of a
+    # cmux-next lane's iOS job takes the picker's Blacksmith route and a person's stays on the owned minis (#44697).
+    # Run it by hand when test-ios.yml's runner job or the picker changes.
+    "tests/test_ci_ios_bot_rerun_route.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",

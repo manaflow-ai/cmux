@@ -111,9 +111,10 @@ main() {
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
-  # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
-  local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
-  [[ -n "$pids" ]] && kill $pids 2>/dev/null
+  # The daemons a launch left (a quit keeps them by design), stopped by what they recorded, never by a process
+  # listing: each side copy's cmux-tui owners through their own sockets (they end their terminals), then every
+  # acpmux daemon under this run's homes by the PID in its daemon.pid, while that PID still runs from this run.
+  stop_left_daemons "$out" "${sides[@]}"
   python3 -I - "$out/runs.jsonl" <<'PY'
 import json, statistics, sys
 from collections import Counter
@@ -179,6 +180,24 @@ seed() {
   wait "$launch"; probed=$?
   cat "$out/seed-$side.probe"
   [[ "$status" == 0 && "$probed" == 0 ]]
+}
+
+# stop_left_daemons OUT SIDE...: stop the daemons the launches of each SIDE's copy left (see the caller).
+stop_left_daemons() {
+  local out="$1" side app pidfile pid
+  shift
+  # shellcheck source=SCRIPTDIR/../lib/stop-cmux-tui-owners.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/stop-cmux-tui-owners.sh"
+  for side in "$@"; do
+    app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
+    [[ -n "$app" ]] && cmux_stop_cmux_tui_owners "$app/Contents/Resources/bin"
+  done
+  while IFS= read -r pidfile; do
+    pid="$(head -c 32 "$pidfile" 2>/dev/null | tr -cd '0-9')"
+    # A PID the system reused since is no longer this run's: only one that still runs from under OUT is signaled.
+    [[ -n "$pid" && "$(ps -p "$pid" -o command= 2>/dev/null)" == *"$out/"* ]] && kill "$pid" 2>/dev/null
+  done < <(find "$out" -name daemon.pid -type f 2>/dev/null)
+  return 0
 }
 
 # quiesce APP SIDE LABEL: before a launch, wait until no process of APP's previous run is left (the app and its
