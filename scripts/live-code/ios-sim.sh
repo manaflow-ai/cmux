@@ -34,7 +34,7 @@ root="$(cd "$here/../.." && pwd)"
 ios="$root/cmux-next-ios"
 
 die() { echo "ios-sim live code: $*" >&2; exit 1; }
-simctl() { if [[ -n "${IOS_SIM_SET:-}" ]]; then xcrun simctl --set "$IOS_SIM_SET" "$@"; else xcrun simctl "$@"; fi; }
+simctl() { xcrun simctl ${IOS_SIM_SET:+--set "$IOS_SIM_SET"} "$@"; }
 out_dir() { mkdir -p "${1:?OUT}" && cd "$1" && pwd; }
 
 # The iPhone app's modules: every CmuxMobile target of CmuxMobileKit, and the app target.
@@ -50,6 +50,11 @@ xcodebuild_live() { # OUT CONFIG LOG [LIST]
   local out="$1" config="$2" log="$3" list="${4:-}" conditions=DEBUG args=() line
   [[ "$config" == Demo ]] && conditions="DEBUG CMUX_MOBILE_DEMO"
   while IFS= read -r line; do args+=("$line"); done < <(live_code_xcodebuild_args "$config" "$list")
+  # The app's views are mostly `private struct`s, whose symbols stay inside their object file and
+  # so could never be repointed. -enable-private-imports gives them external symbols (the same
+  # names: a private name carries its file's discriminator), in the app's own modules only.
+  args+=('OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_LIVE_CODE_PRIVATE_$(TARGET_NAME))')
+  while IFS= read -r line; do args+=("CMUX_LIVE_CODE_PRIVATE_$line=-Xfrontend -enable-private-imports"); done < <(live_code_targets)
   xcodebuild -project "$ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration "$config" \
     -destination 'generic/platform=iOS Simulator' -derivedDataPath "$out/dd" -jobs "${JOBS:-6}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
@@ -97,7 +102,7 @@ run() { # OUT UDID [KEY=VALUE | ARG]...
   if [[ -f "$out/live/live-code.log" ]]; then mv "$out/live/live-code.log" "$out/live/live-code.log.1"; fi
   simctl install "$udid" "$app"
   simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
-  env ${envs[@]+"${envs[@]}"} SIMCTL_CHILD_CMUX_LIVE_CODE_DIR="$out/live" simctl launch "$udid" "$bundle" ${args[@]+"${args[@]}"}
+  env ${envs[@]+"${envs[@]}"} SIMCTL_CHILD_CMUX_LIVE_CODE_DIR="$out/live" xcrun simctl ${IOS_SIM_SET:+--set "$IOS_SIM_SET"} launch "$udid" "$bundle" ${args[@]+"${args[@]}"}
   # The app says it watches once its engine has started.
   for _ in $(seq 1 100); do
     grep -q "live code: watching $out/live" "$out/live/live-code.log" 2>/dev/null && { tail -n 1 "$out/live/live-code.log"; return 0; }
