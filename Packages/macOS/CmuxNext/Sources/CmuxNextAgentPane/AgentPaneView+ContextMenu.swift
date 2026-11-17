@@ -120,19 +120,23 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
-            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
-            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
-            // pane's table of posting processes (no system call).
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
+            // Where the files are, recorded for every native drop, as a paste's are as it reaches the
+            // page: page script can make no native drop, and the record names only the drag's own
+            // files. A Finder drag dispatches no input event to this app (the drag server calls
+            // `performDragOperation`), so the event in dispatch is not the person's: gated on it, a
+            // drop recorded nothing and the page uploaded every byte where a paste linked at once
+            // (Leo, 2026-11-17).
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
                 urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
+            // The drop backs a gesture only when its event is the person's. WebKit: the drop's event
+            // in dispatch. Chromium: the one the page host kept at the native drop (`droppedEvent`).
+            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+            model.transport.gestures.record(click: false)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
