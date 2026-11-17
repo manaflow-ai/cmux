@@ -81,9 +81,8 @@ enum TerminalChatHandler {
         }
     }
 
-    /// Toggle Terminal and Chat's facts about `tab`, which the action and the tab's right-click row (``offersToggle(on:services:)``)
-    /// both hand to the Rust route, so the row shows exactly where the key acts; with the chat's adopted session
-    /// (`key`, `harness:agentSessionId`) and the live terminals running it, best first (as an `agent/` link picks them).
+    /// Toggle Terminal and Chat's facts about `tab` for the Rust route (the action and its right-click row alike), with the
+    /// chat's adopted session (`key`, `harness:agentSessionId`) and the live terminals running it, best first.
     /// `membership`: only the tab's kind and its session (hibernation's pairing, read on every switch): the running
     /// terminals, the turn and the hand-off would walk every machine's agents there. The right-click row reads them all.
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
