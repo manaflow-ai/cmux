@@ -9,7 +9,7 @@ public final class CreationInputBuffer {
     /// The held keys in typing order, each with the creation it was typed for (its lane): the creation whose tab the
     /// focus named when the key was typed (the pane the person saw get the focus), nil for none. A key goes only to
     /// its own creation's terminal, never to another creation's (P0 1193: after Cmd-D, keys, Cmd-D, keys, the first
-    /// new terminal ran the second one's keys while the second's focus was on its way). `pane`: the pane that had the focus at the key's press (nil: not known); it stays with the key at each place where a key leaves this list or comes back (the tab keys' rule, ``reduceTabKeys(dropsLoneClose:kind:)``).
+    /// new terminal ran the second one's keys while the second's focus was on its way). `pane`: the pane that had the focus at the key's press (nil: not known), or, for a key that the hold keeps for a new workspace's terminal, that terminal's pane from the time the hold gives the key to it (``bindNewWorkspaceKeys(to:machine:paneOf:)``); it stays with the key at each place where a key leaves this list or comes back (the tab keys' rule, ``reduceTabKeys(dropsLoneClose:kind:)``).
     private var events: [(event: NSEvent, creation: Int?, pane: String?)] = []
     /// Each creation's provisional tab, kept after its reply: the terminal its lane goes to.
     private var laneTabs: [Int: String] = [:]
@@ -283,7 +283,12 @@ public final class CreationInputBuffer {
     /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine`: once the window
     /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
     /// the pinned dock). With no terminal found (nil) they are dropped, as for a workspace that never showed.
-    public func bindNewWorkspaceKeys(to tab: String?, machine: String?) {
+    /// `paneOf`: the pane that shows a tab (nil: not known). A key that the hold keeps for a new workspace's terminal is
+    /// a key of that terminal's pane, not of the pane that had the focus at its press (decision of 2026-11-17: a pane
+    /// that changes with no focus move of the person is not another place). So the tab keys' rule reads the keys that
+    /// the person pressed before and after the window showed the workspace as keys of one pane
+    /// (``reduceTabKeys(dropsLoneClose:kind:)``).
+    public func bindNewWorkspaceKeys(to tab: String?, machine: String?, paneOf: (String) -> String? = { _ in nil }) {
         let unbound = workspaceTickets.filter { laneTabs[$0] == nil }
         guard let tab else {
             let before = events.count
@@ -291,6 +296,8 @@ public final class CreationInputBuffer {
             return Self.logDropped(before - events.count, why: "its workspace shows no terminal")
         }
         for id in unbound { (laneTabs[id], laneMachines[id]) = (tab, machine) }
+        guard let pane = paneOf(tab) else { return }
+        events = events.map { $0.creation.map(unbound.contains) == true ? ($0.event, $0.creation, pane) : $0 }
     }
 
     /// Drops the held keys typed for a new workspace's terminal that the window does not show (`shown`: the workspace it
@@ -329,8 +336,14 @@ public final class CreationInputBuffer {
     /// hold keeps a key that makes or closes a tab and that the person pressed in the same pane (`pane`: the pane that has the focus now). That key is
     /// held behind it as any other key, and the hold's end pairs it with its New Tab key (``reduceTabKeys(dropsLoneClose:kind:)``).
     /// A Close Tab key of another pane is for that pane's tab, so it is not held. `key`: whether the typed key's action is a close action, and what it does to the tabs (``TabKey``). `kind`: what a held key does to the tabs.
-    public func closeKeyActsNow(_ key: (closes: Bool, tabKey: TabKey?), pane: String?, kind: (NSEvent) -> TabKey?) -> Bool {
-        key.closes && !(key.tabKey == .closes && events.contains { $0.pane == pane && kind($0.event) != nil })
+    /// The same pane also means this (decision of 2026-11-17: a pane that changes with no focus move of the person is
+    /// not another place): the window shows the newest new workspace of this hold that the person did not leave
+    /// (`shown`: the workspace that the window shows), and the hold keeps a key that makes or closes a tab for that
+    /// workspace's terminal. The hold's end gives those keys that terminal's pane (``bindNewWorkspaceKeys(to:machine:paneOf:)``).
+    public func closeKeyActsNow(_ key: (closes: Bool, tabKey: TabKey?), pane: String?, shown: String? = nil, kind: (NSEvent) -> TabKey?) -> Bool {
+        guard key.closes, key.tabKey == .closes else { return key.closes }
+        let workspace = shown != nil && shownWorkspaceToWaitFor == shown ? workspaceTickets.subtracting(movedOnFrom).max() : nil
+        return !events.contains { ($0.pane == pane || workspace != nil && $0.creation == workspace) && kind($0.event) != nil }
     }
 
     /// Reduces the held keys by their own meaning before an end of the hold runs them (decision of 2026-11-16: an act

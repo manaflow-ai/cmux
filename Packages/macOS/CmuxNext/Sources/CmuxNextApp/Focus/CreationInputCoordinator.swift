@@ -237,8 +237,8 @@ final class CreationInputCoordinator {
         // Automation's focus move (a new generation) does not take the key from it: the claim decides first.
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
         if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
-        // A close key (Cmd-W) acts now on what it closes; in the content the Close Tab key waits behind a held key of its pane that makes or closes a tab (a panel's key is the panel's).
-        let closes = controller.map { focused in let act = Self.act(event, in: shell, controller: focused, router: router); return kind == .content ? buffer.closeKeyActsNow(act, pane: focused.focus.state.pane) { Self.act($0, in: shell, controller: focused, router: router).tabKey } : act.closes } ?? false
+        // A close key (Cmd-W) acts now on what it closes; in the content the Close Tab key waits behind a held key that makes or closes a tab, of its pane or of the shown new workspace's terminal (a panel's key is the panel's).
+        let closes = controller.map { focused in let act = Self.act(event, in: shell, controller: focused, router: router); return kind == .content ? buffer.closeKeyActsNow(act, pane: focused.focus.state.pane, shown: focused.focus.currentState().topology.workspace) { Self.act($0, in: shell, controller: focused, router: router).tabKey } : act.closes } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
@@ -394,7 +394,7 @@ final class CreationInputCoordinator {
         // A forced end drops the keys of a new workspace the window does not show, or the focus still waits: it applies again.
         if buffer.dropKeys(ofWorkspacesOtherThan: shown) || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         let daemon = controller.content?.daemon
-        if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
+        if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) { tab in controller.focus.currentState().topology.panes.first { $0.tab(tab) != nil }?.id } }
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil), lastAction = router.lastInterception?.action.rawValue // read before the keys run again: each of them sets it anew
         reduce(force)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }

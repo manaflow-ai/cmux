@@ -91,7 +91,10 @@ tab is made and no tab is closed. A key of another kind between them stops the p
 it. A kept Close Tab key with no New Tab key to pair with stays at a normal end and runs in its order; at a forced
 end (the reply bound, the hold's limit, the focus left the content) it is dropped, counted and logged, and it closes
 no tab that was there before the keys. The pane of a key is the pane that had the focus at its press: keys of two
-panes make no pair. A Close Tab key in a pane with no kept tab key of that pane is not kept: the hold ends, the kept
+panes make no pair. A pane that changes with no focus move of the person is not another place (decision of
+2026-11-17): a key that the hold keeps for a new workspace's terminal is a key of that terminal's pane from the hold's
+end on, and while the window shows that workspace a Close Tab key is kept behind such a key that makes or closes a
+tab. A Close Tab key in a pane with no kept tab key of that pane is not kept: the hold ends, the kept
 keys run first, then the key closes its own pane's tab. A Close Tab key in a panel of the window is the panel's key
 and is never kept.
 
