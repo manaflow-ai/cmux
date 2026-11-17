@@ -1862,7 +1862,6 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) + .acpmux-location-check { margin-left: 6px; }
-.acpmux-location-row:not(.acpmux-env-row) .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
