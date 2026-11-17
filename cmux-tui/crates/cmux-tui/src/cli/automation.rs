@@ -23,6 +23,8 @@ use serde_json::{Value, json};
 use super::OutputMode;
 use crate::localization::AutomationMessages;
 
+#[path = "automation_webhook.rs"]
+mod automation_webhook;
 mod events;
 mod teleport;
 mod triggers;
