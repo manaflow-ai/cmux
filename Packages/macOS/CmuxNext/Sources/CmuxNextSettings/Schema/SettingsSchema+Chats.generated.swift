@@ -64,7 +64,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.roots", "Chat Folders"),
-                help: SettingsText.keyed("settings.chats.roots.help", "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."),
+                help: SettingsText.keyed("settings.chats.roots.help", "Folders agents may also use."),
                 summary: SettingsText.keyed("settings.chats.roots.summary", "Extra folders to read chats from"),
                 kind: .folderList,
                 default: .array(ChatSettings.rootsDefault.map { .string($0) }),
@@ -75,7 +75,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.sessionRecap", "Session Recap"),
-                help: SettingsText.keyed("settings.chats.sessionRecap.help", "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."),
+                help: SettingsText.keyed("settings.chats.sessionRecap.help", "A line on where a Claude chat stands when you come back. Each is a small model call."),
                 kind: .toggle,
                 default: .bool(ChatSettings.sessionRecapDefault),
                 keywords: ["agents", "chats", "recap", "summary", "away", "claude"]
@@ -85,7 +85,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.coldArchive", "Compress Old Chats"),
-                help: SettingsText.keyed("settings.chats.coldArchive.help", "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before."),
+                help: SettingsText.keyed("settings.chats.coldArchive.help", "Unused chats are compressed into one small file each and open as before."),
                 kind: .toggle,
                 default: .bool(ChatSettings.coldArchiveDefault),
                 keywords: ["agents", "chats", "archive", "cold", "compress", "disk", "storage", "old", "history"]
@@ -95,7 +95,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.coldArchiveAfterDays", "Compress Chats Idle For"),
-                help: SettingsText.keyed("settings.chats.coldArchiveAfterDays.help", "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed."),
+                help: SettingsText.keyed("settings.chats.coldArchiveAfterDays.help", "Days unused before a chat is compressed. Busy chats never are."),
                 kind: .number(SettingNumber(ChatSettings.coldArchiveAfterDaysRange, step: 1, unit: .days)),
                 default: .number(ChatSettings.coldArchiveAfterDaysDefault),
                 keywords: ["agents", "chats", "archive", "cold", "compress", "disk", "idle", "days"]
@@ -125,7 +125,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.on", "Default Chat Target"),
-                help: SettingsText.keyed("settings.chats.on.help", "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."),
+                help: SettingsText.keyed("settings.chats.on.help", "Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name."),
                 kind: .text,
                 default: .string(ChatSettings.chatOnDefault),
                 keywords: ["chat", "cli", "target", "on", "device", "vm", "cloud", "default"]

@@ -182,12 +182,13 @@ pub struct CloseFacts {
 }
 
 /// The question before a workspace close, or None to close at once: a
-/// terminal running a program asks, and so do two or more closing with no
-/// window left to undo them.
+/// terminal running a program asks, and so do two or more incognito
+/// workspaces closing with no window left to undo them (nothing reopens
+/// them). Other workspaces closing with no window left run at once: Reopen
+/// Closed Workspace and History bring them back.
 pub fn close_prompt(facts: &CloseFacts) -> Option<ClosePrompt> {
-    if facts.count == 0
-        || (facts.programs.is_empty() && !(facts.ask_without_undo && facts.count > 1))
-    {
+    let unrecoverable = facts.ask_without_undo && facts.incognito && facts.count > 1;
+    if facts.count == 0 || (facts.programs.is_empty() && !unrecoverable) {
         return None;
     }
     let title = if facts.titled {
