@@ -248,17 +248,21 @@ fn fetch_kind(
             return Err("registry page is larger than 8 MiB".into());
         }
         let page: Value = serde_json::from_slice(&body).map_err(|e| format!("bad JSON: {e}"))?;
-        let list = page["items"].as_array().ok_or("no items in the registry answer")?;
+        let list =
+            page.get("items").and_then(Value::as_array).ok_or("no items in the registry answer")?;
         for item in list {
-            let mut item = item.clone();
-            if !item["kind"].is_string() {
-                item["kind"] = Value::String(kind.to_string());
+            // A listing that is not an object is skipped.
+            let Some(mut fields) = item.as_object().cloned() else { continue };
+            if !fields.get("kind").is_some_and(Value::is_string) {
+                fields.insert("kind".into(), Value::String(kind.to_string()));
             }
+            let item = Value::Object(fields);
             if reviewed(&item) && row(&item, &Installed::default()).is_some() {
                 items.push(item);
             }
         }
-        cursor = page["next"].as_str().filter(|c| !c.is_empty()).map(str::to_string);
+        cursor =
+            page.get("next").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_string);
         if cursor.is_none() {
             break;
         }
@@ -350,7 +354,7 @@ fn is_commit(s: &str) -> bool {
 pub(super) fn is_ref(s: &str) -> bool {
     let parts: Vec<&str> = s.split('/').collect();
     parts.len() >= 3
-        && parts[0].contains('.')
+        && parts.first().is_some_and(|host| host.contains('.'))
         && parts.iter().all(|p| {
             !p.is_empty()
                 && *p != "."
@@ -611,7 +615,7 @@ fn git_sources(state_dir: Option<&Path>) -> BTreeMap<String, Value> {
     std::fs::read(dir.join("apps/git/sources.json"))
         .ok()
         .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-        .and_then(|index| index["apps"].as_object().cloned())
+        .and_then(|index| index.get("apps").and_then(Value::as_object).cloned())
         .map(|apps| apps.into_iter().collect())
         .unwrap_or_default()
 }
