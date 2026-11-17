@@ -65,6 +65,7 @@ import Testing
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(channel.closed, "a \(envelope.count)-byte frame of \(text.count) bytes inflated was kept before pairing")
+        #expect(await connection.heldByteCount <= AcpmuxConnection.heldByteLimit + envelope.count)
     }
 
     /// The mobile host's envelope (`DeflatedMessage`): 0x00, text length, deflate length, raw deflate.

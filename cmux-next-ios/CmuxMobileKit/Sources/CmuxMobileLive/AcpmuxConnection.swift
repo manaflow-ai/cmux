@@ -57,6 +57,8 @@ public actor AcpmuxConnection {
     /// Non-nil until ``admit()``.
     private var held: [Notification]?
     private var heldBytes = 0
+    /// Bytes counted against ``heldByteLimit`` so far (tests).
+    var heldByteCount: Int { heldBytes }
 
     /// This phone checked the Mac: what waited goes out on `notifications`, and from now on
     /// everything does.
@@ -163,7 +165,9 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    public func submit(_ method: String, _ params: JSONValue) async throws -> Int {
+    /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
+    /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
+    public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
         start()
@@ -173,14 +177,25 @@ public actor AcpmuxConnection {
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
         submitted.insert(id)
+        let channel = channel
         do {
-            try await channel.send(data)
+            try await LinkDeadline.run(
+                timeout: timeout,
+                timeoutError: LinkError(code: "timeout", message: "The Mac didn't take (\(method))"),
+                operation: { try await channel.send(data) },
+                onCancel: { await self.release(id) }
+            )
         } catch {
-            submitted.remove(id)
-            answered[id] = nil
+            release(id)
             throw error
         }
         return id
+    }
+
+    /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.
+    private func release(_ id: Int) {
+        submitted.remove(id)
+        answered[id] = nil
     }
 
     /// The answer to a ``submit(_:_:)``ed request (one that came before this call was kept).
@@ -247,8 +262,18 @@ public actor AcpmuxConnection {
             guard heldBytes <= Self.heldByteLimit else { return }
         }
         var joiner = frames
+        // Before the check, a compressed message counts at its inflated length, and one longer
+        // than what is left of the budget is refused before it is inflated.
+        joiner.limit = held == nil ? MessageJoiner.maxMessage : Self.heldByteLimit - heldBytes
         let message = joiner.push(data)
+        if held != nil {
+            heldBytes += joiner.takeInflated()
+            if joiner.refusedLarge { heldBytes = Self.heldByteLimit + 1 }
+        } else {
+            _ = joiner.takeInflated()
+        }
         frames = joiner
+        if heldBytes > Self.heldByteLimit { return }
         guard let value = message else {
             rpcLog.debug("frame of \(data.count) bytes is not a whole JSON message yet")
             return
@@ -317,6 +342,19 @@ public actor AcpmuxConnection {
         static let fullFrame = 256 * 1024
         static let maxMessage = 64 << 20
         private var pending = Data()
+        /// The largest message read: ``maxMessage``, or what is left of the bytes a connection
+        /// keeps before the pairing check (``AcpmuxConnection/heldByteLimit``). A compressed
+        /// message is refused by its header's length, before it is inflated.
+        var limit = Self.maxMessage
+        /// Text bytes of the compressed messages inflated since the last ``takeInflated()``.
+        private var inflated = 0
+        /// A compressed message longer than `limit` was refused.
+        private(set) var refusedLarge = false
+
+        mutating func takeInflated() -> Int {
+            defer { inflated = 0 }
+            return inflated
+        }
 
         /// The message once complete, else nil (waiting, or a frame that was dropped).
         mutating func push(_ frame: Data) -> JSONValue? {
@@ -331,7 +369,7 @@ public actor AcpmuxConnection {
                 pending = Data()
                 return value
             }
-            if frame.count >= Self.chunk, pending.count <= Self.maxMessage {
+            if frame.count >= Self.chunk, pending.count <= limit {
                 return nil
             }
             let stale = pending.count > frame.count
@@ -341,10 +379,12 @@ public actor AcpmuxConnection {
 
         private mutating func pushDeflated(_ frame: Data) -> JSONValue? {
             pending.append(frame)
-            switch DeflatedMessage.state(pending, limit: Self.maxMessage) {
+            if let header = DeflatedMessage(header: pending), header.textBytes > limit { refusedLarge = true }
+            switch DeflatedMessage.state(pending, limit: limit) {
             case .waiting:
                 return nil
             case .whole(let text, let used):
+                inflated += text.count
                 // A frame never holds two messages, so bytes past the envelope that came with an
                 // earlier frame mean one of its frames was lost: this frame starts the next.
                 let lost = pending.count > used && pending.count > frame.count

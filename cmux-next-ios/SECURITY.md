@@ -1014,9 +1014,11 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   check of the Mac passed, and closes the channel when it fails, so a Mac that
   cannot prove its pinned key learns only that a cmux phone asked for its
   chat list (ask-48f698fc26). Until then the phone keeps at most 256
-  notifications and 8 MiB from that channel (`AcpmuxConnection` `held`); a Mac
-  that sends more is cut off, so one that never passes the check cannot fill
-  the phone's memory while it waits.
+  notifications and 8 MiB from that channel (`AcpmuxConnection` `held`),
+  counting a compressed message at its inflated length and refusing, before
+  inflating it, one that would pass what is left; a Mac that sends more is cut
+  off, so one that never passes the check cannot fill the phone's memory while
+  it waits.
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered
