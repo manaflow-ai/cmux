@@ -41,6 +41,19 @@ directory up. Every path is an argument.
         a comparison reads (pre_main_ms, first_window_frame_ms, prewarmed,
         prewarm_reason, ...).
 
+    python3 upd.py wipe ID
+        With the app quit, deletes ID's defaults (through `defaults delete`:
+        cfprefsd ignores HOME, so removing the plist alone leaves them) and
+        its caches, Application Support folders, HTTP and WebKit storage,
+        `~/.cmux/chief/ID`, `cmux-next` logs and code-sign clone folder.
+        Prints one JSON line naming what it removed. Refuses the ids of
+        shipped apps. It kills nothing.
+
+    bash wipe_test.sh
+        Runs `wipe` on a throwaway HOME with stub `defaults` and `getconf`
+        (any OS): the id's paths go, a neighbouring id's stay, shipped ids
+        are refused.
+
     python3 clones.py BUNDLE_ID APP
         Reads the Chromium code-sign clone folder for BUNDLE_ID and prints
         one JSON report of its regular files, matched by inode to APP's main
@@ -49,7 +62,10 @@ directory up. Every path is an argument.
 ## Order used for the proof
 
 1. Generate the key. Prep the old-layout build as build 1 and the new-layout
-   build as build 2, both with the same bundle id and public key.
+   build as build 2, both with the same bundle id and public key. Run
+   `wipe ID` once before build 1's first launch, so no earlier run's
+   defaults or saved windows change the first-launch and cold rows; never
+   between the builds of one proof, since the update keeps them.
 2. Publish build 2 to the feed and serve it. Install and launch build 1, then
    update it to build 2 from the feed (old to new).
 3. Prep a build 3 from the new layout, publish it, and update build 2 to
@@ -61,7 +77,8 @@ directory up. Every path is an argument.
 ## Pre-warm before and after (cmux#44980)
 
 One pair, same Mac, same build N+1 prepped once (`prep`), alternating which
-arm goes first; 10 pairs, each only below a 1-minute load of 8:
+arm goes first; 10 pairs, each only below a 1-minute load of 8, each arm
+starting with `wipe ID` before it installs N:
 
 - **pre-warmed:** install N, launch it, let the update to N+1 stage, wait
   for `launch pre-warm of N+1 ... ms in all` in the update log (the marker
