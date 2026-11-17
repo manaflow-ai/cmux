@@ -75,7 +75,9 @@ export default function CmuxCloudDpaPage() {
         it to train generalized AI models. Company keeps usage records (counts,
         sizes, times, models, and costs, with account identifiers) as a
         controller for billing, security, and service improvement; these
-        records contain no content.
+        records are not made from content, but can contain the names that
+        Customer gave to agents, machines, and projects, and error messages
+        from providers.
       </p>
 
       <h2>3. Customer&rsquo;s duties</h2>
@@ -106,7 +108,8 @@ export default function CmuxCloudDpaPage() {
         the{" "}
         <a href="https://cmux.com/cmux-cloud/subprocessors">subprocessor page</a>.
         Company imposes on each subprocessor, by a written contract, the data
-        protection duties that Article 28(3) and (4) GDPR require, including
+        protection duties that Article 28(3) and (4) GDPR and, for
+        subcontractors, US state privacy laws require, including
         confidentiality, security, assistance, breach notice, return or
         deletion, and help with audits, and Company stays fully
         liable to Customer for each subprocessor&rsquo;s performance. [LEGAL

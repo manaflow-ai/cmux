@@ -98,9 +98,30 @@ const subprocessors: readonly Subprocessor[] = [
   },
   {
     group: "content",
+    category: "Web search and page reading",
+    name: "Exa [LEGAL REVIEW: confirm the legal entity]",
+    purpose: "Receives the search words that agents write and the addresses of public pages.",
+    location: "[LEGAL REVIEW: confirm]",
+  },
+  {
+    group: "content",
+    category: "Page reading",
+    name: "Jina AI [LEGAL REVIEW: confirm the legal entity]",
+    purpose: "Receives the addresses of public pages that agents read.",
+    location: "[LEGAL REVIEW: confirm]",
+  },
+  {
+    group: "content",
+    category: "Page reading",
+    name: "Internet Archive",
+    purpose: "Receives the addresses of public pages that agents read.",
+    location: "United States",
+  },
+  {
+    group: "content",
     category: "Meeting recording service",
     name: "Recall.ai, Inc.",
-    purpose: "Joins meetings as the notetaker, records their audio, makes the transcript, and sends the live transcript, chat messages, and join and leave events to cmux during the meeting.",
+    purpose: "Joins meetings as the notetaker, records their audio, makes the transcript, sends the live transcript, chat messages, and join and leave events to cmux during the meeting, and posts the notices and answers in the meeting chat.",
     location: "United States",
   },
   {
@@ -146,10 +167,10 @@ const subprocessors: readonly Subprocessor[] = [
     location: "United States [LEGAL REVIEW: confirm]",
   },
   {
-    group: "controller",
+    group: "content",
     category: "Secrets vault",
     name: "Microsoft Corporation (Azure)",
-    purpose: "Runs the vault that stores encrypted access credentials for connected tools.",
+    purpose: "Runs the vault that stores encrypted access credentials and makes the calls to connected tools that need them; the content of those calls passes through it.",
     location: "United States (West US)",
   },
   {

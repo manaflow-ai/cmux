@@ -315,7 +315,8 @@ export default async function TermsOfServicePage() {
         notes.
         While it is in a meeting, the notetaker also reads the live transcript
         and the meeting chat, to obey &ldquo;cmux pause&rdquo; and &ldquo;cmux
-        leave&rdquo; from any participant and to answer questions typed to it.
+        leave&rdquo; from any participant, to answer questions typed to it, and
+        to pass on requests for work.
         If a participant paused the notetaker or made it leave, you must not
         resume it or send it to that meeting again unless that participant
         agrees or the law does not require that participant&rsquo;s consent.
@@ -406,9 +407,9 @@ export default async function TermsOfServicePage() {
         The service at cmux.cloud charges credits only for the usage that
         cmux Cloud or its pricing page shows as charged when the usage occurs,
         such as AI model use and cloud machine time, at the prices shown
-        there. [LEGAL REVIEW: confirm which meeting and transcription costs are
-        charged.] Usage is paid from credits that
-        your team buys through our payment processor. Prices do
+        there; today transcription of voice clips and uploaded files is charged,
+        and notetaker time is not. Usage is paid from credits that your team
+        buys through our payment processor or that we grant. Prices do
         not include taxes, and you are responsible for applicable taxes.
         Credits are not refundable, except where the law requires a refund.
         We give at least [LEGAL REVIEW: proposed 30] days&rsquo; notice of a
@@ -436,8 +437,8 @@ export default async function TermsOfServicePage() {
         You and your team set dollar limits, and you are responsible for the
         limits you set or do not set. Limits are checked at set points while
         work runs, so usage can go over a limit before work stops (for example,
-        a notetaker that is already in a meeting continues until the meeting
-        ends). You pay for that usage. When your credits run out or a limit is reached, cmux
+        an agent step that is already running continues to its end). Limits
+        are for each calendar month (UTC). You pay for that usage. When your credits run out or a limit is reached, cmux
         Cloud can stop or refuse work.
       </p>
 
@@ -477,8 +478,8 @@ export default async function TermsOfServicePage() {
         your team&rsquo;s account if you materially break these Terms and do
         not fix the breach within 30 days after our notice, at once for illegal
         use or a security risk, or for any other reason with 30 days&rsquo;
-        notice. [LEGAL REVIEW: add &ldquo;in cmux Cloud&rdquo; as a way to end
-        the account when the control ships.] For cmux Cloud, the modification paragraph of Section 1 and
+        notice. A team admin can also end the account with the team data
+        deletion in cmux Cloud. For cmux Cloud, the modification paragraph of Section 1 and
         Section 7 apply only as this subsection and &ldquo;Suspension&rdquo;
         say. When the account ends, your right to use cmux Cloud ends, you pay
         for usage up to that time, and &ldquo;Data export and deletion&rdquo;
@@ -506,7 +507,8 @@ export default async function TermsOfServicePage() {
         administrators by email or in cmux Cloud at least 30 days before the
         change takes effect. If you use cmux Cloud after that date, you accept
         the change. For cmux Cloud, Section 3 does not cover a claim about a
-        meeting recording, transcript, or notes; only the indemnity in
+        meeting recording, the live transcript or chat lines, the questions,
+        answers, or requests, or the transcript or notes; only the indemnity in
         &ldquo;Meeting recording and consent&rdquo; covers it. The exclusions
         and the procedure of that indemnity (notice, control of the defense,
         settlement) also apply to Section 3. In Sections 1 to 9 as they apply
