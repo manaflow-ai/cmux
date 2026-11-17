@@ -99,6 +99,10 @@ jobs:
               synthetic_sweep_ms: .sweepMs,
               synthetic_create_ms: .createMs,
               synthetic_edge_ms: .edgeMs,
+              synthetic_alias_wait_ms: .aliasWaitMs,
+              synthetic_provider: .createdProvider,
+              synthetic_image_version: .imageVersion,
+              synthetic_vm_id: .vmId,
               synthetic_destroy_ms: .destroyMs,
               synthetic_run_url: $run_url,
               synthetic_revision: $revision,
@@ -125,8 +129,14 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
-            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"')
+          # The read shares the repository's installation rate limit with every
+          # other workflow; when that is spent (HTTP 403) the canary's own result
+          # still stands, so a passing check must not turn the run red here.
+          if ! previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
+            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"'); then
+            echo "::warning::could not read the previous canary run (GitHub API); no Slack message this run, canary outcome: $OUTCOME"
+            exit 0
+          fi
           # A cancelled or skipped run says nothing about production.
           [ "$previous" = "failure" ] || previous=success
           if [ "$OUTCOME" = "success" ] && [ "$previous" = "failure" ]; then

@@ -12,7 +12,7 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems, guestAliasWaitCommand, parseGuestAliasWait } from "./canaryOutcome.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -131,6 +131,7 @@ let keepUserForSweep = false;
 let stage = "setup";
 const runStartedAt = performance.now();
 const timings = {};
+const createdContext = {};
 async function timed(name, work) {
   stage = name;
   const startedAt = performance.now();
@@ -213,6 +214,7 @@ function writeResultFile(outcome) {
     ...(outcome.error ? { error: outcome.error.replace(/\s+/g, " ").slice(0, 300) } : {}),
     target,
     durationMs: Math.round(performance.now() - runStartedAt),
+    ...createdContext,
     ...timings,
   };
   try {
@@ -386,6 +388,9 @@ try {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
     vmId = created.id;
+    // Kept in the result file and printed on failure too, so a red run says
+    // which machine, provider and image it judged.
+    Object.assign(createdContext, { vmId, createdProvider: created.provider ?? null, imageVersion: created.imageVersion ?? null });
 
     timings.createMs = createDurationMs;
     let attachTransport;
@@ -453,6 +458,12 @@ try {
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
       const host = (originHost.stdout ?? "").trim();
+      // The provider steers the alias some seconds after boot and the create
+      // does not wait for it; give it a bounded minute and record how long it
+      // took, so the run judges the edge rather than that race.
+      const aliasWait = guestAliasWaitCommand(host, 60);
+      const alias = aliasWait ? parseGuestAliasWait((await exec(aliasWait)).stdout) : parseGuestAliasWait("");
+      if (alias.aliasWaitMs !== null) timings.aliasWaitMs = alias.aliasWaitMs;
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
@@ -467,6 +478,7 @@ try {
       const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
       edge = {
         edgeHost: host || null,
+        ...alias,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
         modelsStatus,
         codexExit: codex.exitCode,
@@ -565,6 +577,7 @@ try {
   writeResultFile({ ok: true });
 } catch (error) {
   writeResultFile({ ok: false, stage, error: error instanceof Error ? error.message : String(error) });
+  if (Object.keys(createdContext).length > 0) console.error(`canary_context=${JSON.stringify({ ...createdContext, ...timings })}`);
   if (vmId && authHeaders) {
     try {
       const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
