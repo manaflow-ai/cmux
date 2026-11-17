@@ -1294,6 +1294,10 @@ def run(opts, root: Path, report):
         subprocess.run(["defaults", "write", bundle_id, "home.firstRun.historyImportShown", "-bool", "YES"],
                        capture_output=True, timeout=30)
         home = root / "h"
+        # A login keychain, as a person's home has: without one every quit held in CefShutdown behind Chromium's
+        # "cmux Safe Storage" Keychain dialog (12 of 12 hang files, cmuxterm-hq#11994). Not CMUX_MOCK_KEYCHAIN:
+        # the app strips it from an inherited environment (smoke.login_keychain).
+        smoke.login_keychain(smoke.fresh_env(root, app.sock, 0))
         (home / ".config/cmux").mkdir(parents=True, exist_ok=True)
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
             # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
@@ -1411,7 +1415,7 @@ def main(argv=None):
     status = 3
     try:
         status = run(opts, root, report)
-    except CannotRun as error:
+    except (CannotRun, smoke.CannotRun) as error:
         say(f"CANNOT RUN: {error}")
         report["verdict"] = f"cannot-run: {error}"
         status = 3
