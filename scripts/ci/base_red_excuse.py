@@ -5803,7 +5803,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # cmux-next-guards.yml's "cmux-next CI guard group" runs every routed guard step of ci-guards.yml (the workflow guard
 # profile) on the change and again on its base, and fails only on a step red on the change and not on that base
 # (scripts/ci/guards_new_reds.py). Its log names each red step on one plain line, `guard red step (KIND): STEP`: `new`
-# (red on this change), `base` (red on the base too), `flaky`, or `tip` (a push judged at its tip). A pull request's
+# (red on this change), `base` (red on the base too), `flaky`, `unknown` (the replay had no result), or `tip` (a push judged at its tip). A pull request's
 # red in it is judged per step, the way the job itself reports "N red on the base too": every step the head calls
 # `new` must be red at the newest base run of the job, whatever that run's conclusion (a push judged against the
 # previous tip lists a red that persists as `base` and stays green). A whole verdict is one with the closing summary
@@ -5811,7 +5811,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # never excused, and the base's own reds in it stayed green on every push (18 steps, until #31366).
 GUARD_GROUP_JOB = "cmux-next CI guard group"
 GUARD_GROUP_STEP = "Run the ci guard group and the routed groups"
-GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|tip)\): (.+)$")
+GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|unknown|tip)\): (.+)$")
 GUARD_SUMMARY = re.compile(r"^\d+ guard steps red (?:on this change|at the tip)\b")
 # run_ci_guards.py's closing line. The red step lines are read only after the last one: a failing step's own output
 # (printed above it) may quote them.
@@ -5823,7 +5823,7 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     printed no closing summary (cut short)."""
     lines = test_reds.log_lines(log)
     skip = test_reds.echoed(lines)
-    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
+    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "unknown": set(), "tip": set()}
     done = whole = False
     for n, text in enumerate(lines):
         if n in skip:
@@ -5890,14 +5890,18 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
     head = guard_red_steps(view_text(head))
     if head is None:
         raise Refused(f"'{name}': its guard comparison printed no summary (a cut-short run is never a base red)")
-    charged = head["new"] | head["tip"]
+    # An unknown replay result is resolved against the base branch's own run below; it is never silently charged
+    # to the pull request merely because the constrained replay was cut short.
+    charged = head["new"] | head["unknown"] | head["tip"]
     if not charged:
         raise Refused(f"'{name}': red, but names no red step of its own; nothing to compare with the base")
     found = guard_group_report(repo, base_job, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     if found is None:
         raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
-    red_on_base = set().union(*found.values())
+    # The base run itself must have a concrete red verdict; an unknown line from another constrained replay is not
+    # evidence that the base branch fails this step.
+    red_on_base = found["new"] | found["base"] | found["flaky"] | found["tip"]
     if missing := sorted(charged - red_on_base):
         raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
                       f"{'; '.join(missing)[:600]}")

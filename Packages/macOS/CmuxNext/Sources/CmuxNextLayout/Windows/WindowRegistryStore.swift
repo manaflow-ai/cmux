@@ -37,8 +37,29 @@ public final class WindowRegistryStore {
     /// answer for. Plain, not observed: the next refresh compares against it, so an answer that did not change costs
     /// no read or write of an observed entry.
     @ObservationIgnored private var answered: [String: (incognito: Bool, owner: String?)] = [:]
+    /// Windows a Move Space to This Window took workspaces from and left open: they list no guests (shared spaces,
+    /// `WindowManager.shareSpaces`) until they next enter a space outside a gather. Not saved: a relaunch shares again.
+    @ObservationIgnored public private(set) var gatherSources: Set<String> = []
+    @ObservationIgnored private var gathering = false
 
     public init() {}
+
+    /// Runs `body`, a Move Space into window `id` that takes workspaces from `givers`: the givers stop viewing shared
+    /// spaces, `id` views them again, and a space the gather's own repairs give a window does not end its entry.
+    @discardableResult
+    public func gather<T>(into id: String, from givers: [String], _ body: () throws -> T) rethrows -> T {
+        gatherSources.remove(id)
+        gatherSources.formUnion(givers)
+        gathering = true
+        defer {
+            gathering = false
+            gatherSources = gatherSources.filter { value.window($0) != nil }
+        }
+        return try body()
+    }
+
+    /// Window `id` entered a space (`WindowState.onProfileChange`): outside a gather it views shared spaces again.
+    public func spaceEntered(_ id: String) { if !gathering { gatherSources.remove(id) } }
 
     /// Whether window `id` is one the launch brings back (the launch window, or one of the `saved` windows the
     /// restore opens) while the launch runs. Only such a window stands in for its rows (saved rows, the connecting
