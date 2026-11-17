@@ -57,7 +57,7 @@ public final class MockLayoutSource {
             return
         case let .setRowHeights(column, heights, _):
             mutateLayouts { $0.settingRowHeights(heights, for: column) }
-        case .newRow, .cancelGesture, .setFloatingFrame:
+        case .newRow, .cancelGesture, .setFloatingFrame, .raiseFloatingPane:
             // The demo's mock daemon has no rows and no gesture transactions.
             return
         case let .newColumn(after, width):

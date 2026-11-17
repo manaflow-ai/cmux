@@ -200,9 +200,11 @@ import Testing
         fixture.model.focus("f", source: .keyboard)
         #expect(fixture.model.focusedPane == "f")
         #expect(fixture.frameIntents.isEmpty, "the focus on the pane behind sent a frame: \(fixture.frameIntents)")
+        #expect(fixture.intents.contains(.raiseFloatingPane("f")), "the focus brings the pane behind to the front: \(fixture.intents)")
 
         fixture.intents = []
         fixture.model.focus("g", source: .keyboard)
         #expect(fixture.frameIntents.isEmpty, "the focus on the front pane sent a frame: \(fixture.frameIntents)")
+        #expect(!fixture.intents.contains(.raiseFloatingPane("g")), "the front pane needs no raise: \(fixture.intents)")
     }
 }

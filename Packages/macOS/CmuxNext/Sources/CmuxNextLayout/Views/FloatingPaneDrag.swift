@@ -39,4 +39,11 @@ struct FloatingPaneDrag {
         }
         return LayoutFloatingPane.clamped(LayoutFloatingPane.fractions(of: card, in: size))
     }
+
+    /// Whether the drag shows another frame than at its press, in a pane area of `size`. The frame at the press
+    /// comes from the card, whose edges are on the pixel grid, so it is not exactly the model's frame: a press and
+    /// a release with no move between them, or a drag back to the press, is no move.
+    func moved(in size: CGSize) -> Bool {
+        frame != frame(at: startPoint, in: size)
+    }
 }

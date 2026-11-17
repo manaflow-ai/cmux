@@ -9,7 +9,11 @@ extension ScreenContentView {
             card.paintGround(of: nil, seeThrough: false)
             card.removeFromSuperview()
             floatState.cards[pane] = nil
-            if floatState.drag?.pane == pane { floatState.drag = nil }
+            if floatState.drag?.pane == pane {
+                floatState.drag = nil
+                // No release will change this pane: the contents that heard a resize hear its end with this layout.
+                resizeGestureReleased()
+            }
         }
         for pane in geometry.floating where floatState.cards[pane] == nil {
             let card = FloatingPaneCardView(pane: pane)
@@ -29,28 +33,34 @@ extension ScreenContentView {
     }
 
     /// A press on a floating pane's card, its drag and its release. The drag shows in the view only; the release
-    /// sends the frame once.
+    /// sends the frame once, and only when the drag changed it. A resize is a resize drag of this screen for the
+    /// pane contents (`ScreenContentView+ResizeGesture`): they hear its start at the first move that changes the
+    /// frame and its end when the release's layout landed. A move changes no size and tells them nothing.
     func handleFloatingDrag(_ pane: PaneID, _ phase: FloatingPaneCardView.Phase, event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         switch phase {
         case let .began(zone):
             guard let card = geometry.floatingCards[pane], bounds.width > 0, bounds.height > 0 else { return }
             context.model.focus(pane, source: .pointer)
-            floatState.drag = FloatingPaneDrag(pane: pane, zone: zone, startPoint: point, startCard: card,
-                                               frame: LayoutFloatingPane.fractions(of: card, in: bounds.size))
+            var drag = FloatingPaneDrag(pane: pane, zone: zone, startPoint: point, startCard: card, frame: .zero)
+            drag.frame = drag.frame(at: point, in: bounds.size)
+            floatState.drag = drag
         case .moved:
             guard var drag = floatState.drag, drag.pane == pane else { return }
             let frame = drag.frame(at: point, in: bounds.size)
             guard frame != drag.frame else { return }
             drag.frame = frame
             floatState.drag = drag
+            if drag.zone != .move { resizeGestureMoved() }
             reconcile(animated: false, floatsOnly: true)
         case .ended:
             guard let drag = floatState.drag, drag.pane == pane else { return }
             floatState.drag = nil
-            let moved = floatState.list.first { $0.pane == pane }.map { $0.frame != drag.frame } ?? false
+            resizeGestureReleased()
             // Not moved, or the pane does not float any more: the view shows the model's list again.
-            if !moved || !context.model.setFloatingFrame(pane, frame: drag.frame) { reconcile(animated: false, floatsOnly: true) }
+            if !drag.moved(in: bounds.size) || !context.model.setFloatingFrame(pane, frame: drag.frame) {
+                reconcile(animated: false, floatsOnly: true)
+            }
         }
     }
 }

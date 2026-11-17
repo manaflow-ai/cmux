@@ -48,7 +48,15 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     /// Daemon `float-pane {pane, mode: "on", x, y, w, h}` (`floating-panes-v1`): the frame a pointer's move or resize
     /// of a floating pane released, as fractions of the pane area. Shown at once (`LayoutModel.setFloatingFrame`).
     case setFloatingFrame(PaneID, frame: CGRect)
+    /// Daemon `float-pane {pane, mode: "on"}` with no frame (`floating-panes-v1`): a floating pane that got the
+    /// focus comes to the front and keeps the frame that the daemon has.
+    case raiseFloatingPane(PaneID)
     /// A divider or column-edge gesture ended with no release (its target
     /// went away mid-drag): nothing more of `transaction` will be sent.
     case cancelGesture(LayoutTransactionID)
+
+    /// The frame that a `setFloatingFrame` names. Nil for each other intent: a `raiseFloatingPane` names none.
+    public var floatingFrame: CGRect? {
+        if case let .setFloatingFrame(_, frame) = self { frame } else { nil }
+    }
 }

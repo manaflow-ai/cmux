@@ -69,8 +69,8 @@ extension WorkspaceContentController {
         case .cancelGesture:
             // No `.ended` will come for this gesture (its target went away); nothing of it was sent.
             return
-        case .setFloatingFrame(let pane, let frame):
-            if let handle = handles.panes[pane] { daemon.setFloatingFrame(of: handle, to: frame) }
+        case .setFloatingFrame(let pane, _), .raiseFloatingPane(let pane):
+            if let handle = handles.panes[pane] { daemon.bringFloatingPaneToFront(handle, frame: intent.floatingFrame) }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, _):
