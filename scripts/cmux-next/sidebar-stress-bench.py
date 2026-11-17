@@ -976,6 +976,38 @@ def views_show(views, text):
     return any(text in (v.get("texts") or []) for v in views)
 
 
+def mounted_indexes(views):
+    """Which bench sections the mounted views are (from their headline `section NN rev R`)."""
+    found = set()
+    for v in views:
+        for text in v.get("texts") or []:
+            m = re.match(r"section (\d+) rev \d+$", str(text))
+            if m:
+                found.add(int(m.group(1)))
+    return sorted(found)
+
+
+def settled_views(seconds, quiet=3.0):
+    """The section views once their count has not changed for `quiet` s (a sidebar may mount only the sections it
+    shows: the window first), or after `seconds`."""
+    end, last, since = time.monotonic() + seconds, None, time.monotonic()
+    views = []
+    while time.monotonic() < end:  # bounded wait for the live app
+        views = section_views()
+        if len(views) != last:
+            last, since = len(views), time.monotonic()
+        elif views and time.monotonic() - since >= quiet:
+            break
+        time.sleep(0.25)
+    return views
+
+
+def scroll_to_bottom():
+    x, y = list_point()
+    for _ in range(3):
+        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": -100000})
+
+
 def scenario_custom_sections(pid, size, count):
     """`count` customize-app sidebar sections installed, then the same scroll and switch, then `--section-saves`
     saves of main.js (an editor's in-place save) that change section 0's headline: each timed from the write to
@@ -983,28 +1015,42 @@ def scenario_custom_sections(pid, size, count):
     render, polled every ~10 ms), with the sidebar counter deltas of the save."""
     t0 = time.monotonic()
     write_sections(count, 0)
-    mounted = wait(lambda: (lambda v: v if len(v) >= count and views_show(v, section_headline(0, 0)) else None)(section_views()), 90)
+    first = wait(lambda: section_views() or None, 60)  # the first view: the app installed and mounted a section
+    first_s = round(time.monotonic() - t0, 2) if first else None
+    views = settled_views(30) if first else []
+    where = "top"
+    if not views:  # the sections draw after the list: a long list may mount none until they are scrolled to
+        scroll_to_bottom()
+        views, where = settled_views(30), "bottom"
     install_s = round(time.monotonic() - t0, 2)
-    views = section_views()
-    entry = {"sections": count, "install_s": install_s if mounted else None, "views_mounted": len(views),
+    entry = {"sections": count, "first_view_s": first_s, "settled_s": install_s if views else None,
+             "views_mounted": len(views), "mounted_at": where, "mounted_sections": mounted_indexes(views)[:60],
              "sidebar_rows": len(sidebar().get("rows") or []), "statuses": sorted({str(v.get("status")) for v in views})}
-    note(f"custom sections {count}: {len(views)} views mounted in {install_s} s")
-    if not mounted:
-        entry["error"] = f"{len(views)} of {count} section views mounted 90 s after the write"
-        entry["views_sample"] = views[:2]
+    note(f"custom sections {count}: {len(views)} views mounted ({where}), first after {first_s} s, settled {install_s} s")
+    if not views:
+        entry["error"] = f"no section view of {count} mounted 60 s after the write and 30 s after a scroll to the end"
         return entry
     time.sleep(2)
     before = sidebar_perf()
     entry["scroll"] = scenario_scroll(pid, size, f"sections{count}-scroll", trace=count == max(section_counts()))
     entry["scroll"]["perf"] = perf_delta(before, sidebar_perf())
     entry["switch"] = scenario_switch(pid, f"{size}-sections{count}")
+    # The saves edit a section the sidebar has mounted (scrolled to where it mounted them).
+    if where == "bottom":
+        scroll_to_bottom()
+    else:
+        scroll_to_top()
+    time.sleep(1)
+    shown = mounted_indexes(settled_views(10))
+    edited = shown[0] if shown else 0
+    entry["edited_section"] = edited
     saves = []
     for rnd in range(1, opts.section_saves + 1):
-        want = section_headline(0, rnd)
+        want = section_headline(edited, rnd)
         before = sidebar_perf()
         t_write = time.perf_counter()
         with open(os.path.join(CUSTOMIZE, "main.js"), "w") as f:
-            f.write(section_script(count, rnd))
+            f.write(section_script(count, rnd, edited))
         seen = None
         deadline = time.perf_counter() + 20
         while time.perf_counter() < deadline:  # bounded poll of the live app's mirror
@@ -1070,7 +1116,8 @@ def table(results):
                 dict((sec["scroll"].get("perf") or {}), dropped_slots=(fr.get("frame_metrics") or {}).get("dropped_slots")))
             add(f"sections{n}.switch", label, "click-to-idle ms", (sec.get("switch") or {}).get("click_to_idle_ms"), {})
             add(f"sections{n}.save", label, "save-to-mirror ms", sec.get("save_to_mirror_ms"),
-                dict(sec.get("save_perf_max") or {}, missed=sec.get("save_missed"), install_s=sec.get("install_s")))
+                dict(sec.get("save_perf_max") or {}, missed=sec.get("save_missed"), first_view_s=sec.get("first_view_s"),
+                     settled_s=sec.get("settled_s"), views_mounted=sec.get("views_mounted"), mounted_at=sec.get("mounted_at")))
     return rows
 
 
