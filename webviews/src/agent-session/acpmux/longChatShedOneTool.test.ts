@@ -36,11 +36,14 @@ const settle = async (done: () => boolean, ms: number) => {
   return done();
 };
 
+/// When record `seq` was sent (epoch ms).
+const sentAt = (seq: number) => 1_700_000_000_000 + seq * 10;
+
 function inbound(sessionId: string, seq: number, update: Record<string, unknown>) {
   return {
     sessionId,
     seq,
-    at: 1_700_000_000_000 + seq * 10,
+    at: sentAt(seq),
     dir: "in",
     kind: update.sessionUpdate,
     msg: { method: "session/update", params: { sessionId, update } },
@@ -59,17 +62,17 @@ type Lead = (sessionId: string, seq: number) => EventRecord;
 
 const THOUGHT = "thinking about it ";
 const LS = "ls-1";
-/// A turn that thinks a while and lists a folder before the build: the reducer draws all three in one activity row.
-const thinkThenList: readonly Lead[] = [
-  ...Array.from(
-    { length: 5 },
-    (): Lead => (sessionId, seq) =>
-      inbound(sessionId, seq, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: THOUGHT } }),
-  ),
+/// A chunk of a thought.
+const thinking =
+  (text: string): Lead =>
+  (sessionId, seq) =>
+    inbound(sessionId, seq, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
+/// A short `ls` call `id`: its opening record, then its completion with its whole output.
+const listing = (id: string, output: string): Lead[] => [
   (sessionId, seq) =>
     inbound(sessionId, seq, {
       sessionUpdate: "tool_call",
-      toolCallId: LS,
+      toolCallId: id,
       kind: "execute",
       title: "Run ls",
       status: "in_progress",
@@ -78,9 +81,49 @@ const thinkThenList: readonly Lead[] = [
   (sessionId, seq) =>
     inbound(sessionId, seq, {
       sessionUpdate: "tool_call_update",
-      toolCallId: LS,
+      toolCallId: id,
       status: "completed",
-      content: [{ type: "content", content: { type: "text", text: "a\nb\n" } }],
+      content: [{ type: "content", content: { type: "text", text: output } }],
+    }),
+];
+/// A turn that thinks a while and lists a folder before the build: the reducer draws all three in one activity row.
+const thinkThenList: readonly Lead[] = [
+  ...Array.from({ length: 5 }, () => thinking(THOUGHT)),
+  ...listing(LS, "a\nb\n"),
+];
+
+const SHORT = "t-1";
+/// The short call's output lines.
+const SHORT_LINES = Array.from({ length: 30 }, (_, index) => `x${index + 1}\n`);
+/// A turn that thinks, then runs a short call the way pi sends one (its output appended a line per update, then a
+/// completion that carries its exit code and no content) before the build: all three on one activity row.
+const thinkThenShortCall: readonly Lead[] = [
+  thinking(THOUGHT),
+  (sessionId, seq) =>
+    inbound(sessionId, seq, {
+      sessionUpdate: "tool_call",
+      toolCallId: SHORT,
+      kind: "execute",
+      title: "Run make gen",
+      status: "in_progress",
+      rawInput: { command: "make gen" },
+    }),
+  ...SHORT_LINES.map(
+    (data): Lead =>
+      (sessionId, seq) =>
+        inbound(sessionId, seq, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: SHORT,
+          status: "in_progress",
+          _meta: { terminal_output: { data } },
+        }),
+  ),
+  (sessionId, seq) =>
+    inbound(sessionId, seq, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: SHORT,
+      status: "completed",
+      _meta: { terminal_exit: { exit_code: 0 } },
     }),
 ];
 
@@ -102,10 +145,18 @@ function opening(sessionId: string, seq: number, lead: readonly Lead[] = []): Ev
 }
 
 /// The typing bench's heavy load (composer-typing.bench.ts `--stream 60 --tool-lines 2000`): a line per record
-/// (`_meta.terminal_output.data`, the append form pi sends), with a reply chunk every fourth record.
-function appendStream(sessionId: string, seq: number, lead: readonly Lead[] = []): EventRecord {
+/// (`_meta.terminal_output.data`, the append form pi sends), with a reply chunk every fourth record. `later`: records
+/// the turn sends at those seqs instead, after its call opened.
+function appendStream(
+  sessionId: string,
+  seq: number,
+  lead: readonly Lead[] = [],
+  later?: ReadonlyMap<number, Lead>,
+): EventRecord {
   const open = opening(sessionId, seq, lead);
   if (open) return open;
+  const instead = later?.get(seq);
+  if (instead) return instead(sessionId, seq);
   if (seq % 4 === 0)
     return inbound(sessionId, seq, {
       sessionUpdate: "agent_message_chunk",
@@ -145,6 +196,9 @@ function replaceStream() {
 type Item = {
   kind?: string;
   text?: string;
+  /// A thought's first and latest chunk (epoch ms).
+  startedAt?: number;
+  endedAt?: number;
   tool?: { id: string; title?: string; command?: string; output?: string; earlierOutput?: true };
 };
 type Row = { id: string; kind: string; text?: string; items?: Item[] };
@@ -579,6 +633,136 @@ test("a chat picked again after a shed draws the long call's row and the reply w
     expect(tool!.output!.endsWith(line(total % 4 === 0 ? total - 1 : total))).toBe(true);
     // The reply keeps all of its text.
     expect(chat.replies().map((row) => row.text)).toEqual([text]);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+/// A full refold of what is held (`rebuildKeepingLiveState`), as a lag read or a repaired turn does, drawn.
+function refoldHeld(chat: Awaited<ReturnType<typeof openChat>>) {
+  (chat.client as unknown as { rebuildKeepingLiveState: () => void }).rebuildKeepingLiveState();
+  chat.flush();
+}
+
+/// Each activity row drawn, in order, as what it shows: its thoughts' text and its calls' ids.
+const activityRows = (chat: Awaited<ReturnType<typeof openChat>>) =>
+  (chat.pane.rows as unknown as { inOrder: () => readonly Row[] })
+    .inOrder()
+    .filter((row) => row.items?.some((item) => item.kind === "thought" || item.tool))
+    .map((row) => row.items!.map((item) => (item.tool ? `call ${item.tool.id}` : `${item.kind} ${item.text?.trim()}`)));
+
+test("a refold after a shed keeps a later activity row apart from the kept one", async () => {
+  const PLAN = "planning the build ";
+  const CHECK = "checking the output ";
+  const LS_2 = "ls-2";
+  const lead = [thinking(PLAN)];
+  // The records the turn sends instead of build lines and reply chunks, set once the stream reaches them.
+  const later = new Map<number, Lead>();
+  const chat = await openChat((sessionId, seq) => appendStream(sessionId, seq, lead, later));
+  const opened = 3 + lead.length;
+  try {
+    for (let seq = 1; seq <= opened; seq += 1) chat.deliver();
+    const first = await streamTurn(chat, 9_000);
+    // Just after a reply chunk, at most 500 records before the next shed, the turn thinks again and lists a folder:
+    // the reply chunk closed the build's row, so these draw a second activity row, while the build runs on in the
+    // first. The next shed keeps the build's row across its cut and this one below it.
+    while (chat.pane.events.length < chat.HELD_RECORDS - 500 || (chat.state.total + 1) % 4 !== 1) chat.deliver();
+    const made = chat.state.total + 1;
+    [thinking(CHECK), ...listing(LS_2, "out\n")].forEach((record, index) => later.set(made + index, record));
+    const rest = await streamTurn(chat, 1_000);
+    expect(first.sheds + rest.sheds).toBeGreaterThan(1);
+    expect(rest.sheds).toBeGreaterThan(0);
+    expect(chat.pane.events[0]!.seq).toBeLessThan(made);
+    await tick();
+    chat.flush();
+    expect(chat.tool()?.earlierOutput).toBe(true);
+    // Two activity rows: the build's, under its first thought, and the later one with its own thought and listing.
+    const drawn = activityRows(chat);
+    expect(drawn).toEqual([
+      [`thought ${PLAN.trim()}`, `call ${CALL}`],
+      [`thought ${CHECK.trim()}`, `call ${LS_2}`],
+    ]);
+    // A refold draws them the same: neither the later thought nor its listing moves into the build's row.
+    refoldHeld(chat);
+    expect(activityRows(chat)).toEqual(drawn);
+    expect(callRows(chat)).toHaveLength(1);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("a refold after a shed keeps a thought's time", async () => {
+  const chat = await openChat((sessionId, seq) => appendStream(sessionId, seq, thinkThenList));
+  const opened = 3 + thinkThenList.length;
+  try {
+    for (let seq = 1; seq <= opened; seq += 1) chat.deliver();
+    const { sheds } = await streamTurn(chat, 12_000);
+    expect(sheds).toBeGreaterThan(1);
+    await tick();
+    chat.flush();
+    const thought = () => {
+      const item = allItems(chat).find((one) => one.kind === "thought");
+      return { text: item?.text, startedAt: item?.startedAt, endedAt: item?.endedAt };
+    };
+    // Its "Thought for" reads from its first chunk (record 3) to its last (record 7), though both left with the cut.
+    const kept = thought();
+    expect(kept).toMatchObject({ startedAt: sentAt(3), endedAt: sentAt(7) });
+    expect(kept.text?.trim()).toBe(THOUGHT.repeat(5).trim());
+    // A refold dates it the same, not by when the refold ran or the records it replays aside.
+    refoldHeld(chat);
+    expect(thought()).toEqual(kept);
+    expect(thoughts(allItems(chat))).toEqual([THOUGHT.repeat(5).trim()]);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("an older page that reaches into the reply's start, then a refold, shows the reply's text once", async () => {
+  const chat = await openChat(appendStream);
+  try {
+    const { full, text, first } = await shedTurn(chat);
+    // The reader scrolls up one short page: it lands inside the turn, above the held records, short of its start.
+    await chat.client.loadOlder(undefined, false, false);
+    chat.flush();
+    expect(chat.pane.firstSeq).toBeLessThan(first);
+    expect(chat.pane.firstSeq).toBeGreaterThan(1);
+    // A full refold of what is held then: the reply's text once, in order; the call's output the newest lines.
+    refoldHeld(chat);
+    expect(chat.replies().map((row) => row.text)).toEqual([text]);
+    expect(callRows(chat)).toHaveLength(1);
+    expect(full.endsWith(chat.tool()!.output!)).toBe(true);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("a short call that ended before the cut in the kept row shows all its output, unmarked", async () => {
+  const chat = await openChat((sessionId, seq) => appendStream(sessionId, seq, thinkThenShortCall));
+  const opened = 3 + thinkThenShortCall.length;
+  try {
+    for (let seq = 1; seq <= opened; seq += 1) chat.deliver();
+    const { sheds } = await streamTurn(chat, 12_000);
+    expect(sheds).toBeGreaterThan(1);
+    await tick();
+    chat.flush();
+    const { full } = streamed(chat.state.total, opened + 1);
+    const shows = () => {
+      // The short call stays on the build's row with every line it printed, not marked as cut: its records left,
+      // but it ended before the cut, and its output is held with the row.
+      const items = chat.toolRow()?.items ?? [];
+      const short = items.find((item) => item.tool?.id === SHORT)?.tool;
+      expect(short?.output).toBe(SHORT_LINES.join(""));
+      expect(short?.earlierOutput).toBeUndefined();
+      expect(thoughts(items)).toEqual([THOUGHT.trim()]);
+      // The build beside it is still marked as cut, its output the newest lines.
+      expect(chat.tool()?.earlierOutput).toBe(true);
+      expect(full.endsWith(chat.tool()!.output!)).toBe(true);
+      expect(callRows(chat)).toHaveLength(1);
+    };
+    shows();
+    // A full refold of what is held draws them the same.
+    refoldHeld(chat);
+    shows();
   } finally {
     chat.close();
   }
