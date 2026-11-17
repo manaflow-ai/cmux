@@ -119,16 +119,22 @@ pub struct Shared {
 impl Shared {
     /// The `net.fetch` reply: the response and what the cache did.
     pub fn json(self) -> Value {
-        let mut value = egress::response_json(self.response);
-        value["value"]["cache"] = json!({
-            "shared": true,
-            "hit": self.hit,
-            "stale": self.stale,
-            "ageSeconds": self.age.as_secs(),
-            "maxAgeSeconds": self.fresh_for.as_secs(),
-            "fetchedAt": self.fetched_ms,
-        });
-        value
+        let FetchResponse { status, headers, body } = self.response;
+        let headers: serde_json::Map<String, Value> =
+            headers.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+        json!({ "value": {
+            "status": status,
+            "headers": headers,
+            "body": body,
+            "cache": {
+                "shared": true,
+                "hit": self.hit,
+                "stale": self.stale,
+                "ageSeconds": self.age.as_secs(),
+                "maxAgeSeconds": self.fresh_for.as_secs(),
+                "fetchedAt": self.fetched_ms,
+            },
+        } })
     }
 }
 
@@ -257,7 +263,7 @@ impl HttpCache {
                 continue;
             }
             e.inflight = true;
-            let mut request = request.clone();
+            let mut request = request;
             if let Some(kept) = &e.kept {
                 if let Some(etag) = header(&kept.response.headers, "etag") {
                     request.headers.push(("If-None-Match".into(), etag.to_string()));
@@ -388,7 +394,8 @@ impl HttpCache {
         }
     }
 
-    /// How many URLs are kept (tests and diagnostics).
+    /// How many URLs are kept (tests).
+    #[cfg(test)]
     pub fn urls(&self) -> usize {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
