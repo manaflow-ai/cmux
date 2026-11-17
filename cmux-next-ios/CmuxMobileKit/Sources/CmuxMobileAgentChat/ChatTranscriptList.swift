@@ -974,6 +974,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             // The turn as last shown: a row at the same place with the same content keeps its
             // layout item (a streamed token changes the answer's last block, not the ones above it).
             let previous = shownTurns[turn.turnID]
+            // A row the turn's change moved (its diff landed: the edited-files card goes in above
+            // the actions row) is found by its id: it keeps its item when its content is the same.
+            var previousIndex: [String: Int]?
+            func previousPosition(of id: String, at position: Int) -> Int? {
+                guard let previous else { return nil }
+                if position < previous.ids.count, previous.ids[position] == id { return position }
+                if previousIndex == nil {
+                    previousIndex = Dictionary(previous.ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+                }
+                return previousIndex?[id]
+            }
             for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
@@ -983,18 +994,19 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     row.id = "\(row.id)~\(n)"
                     seen.insert(row.id)
                 }
-                if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
+                if let previous, let was = previousPosition(of: row.id, at: position), previous.rows[was] == row,
                    rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id) {
                     turnIDs.append(row.id)
-                    turnItems.append(previous.items[position])
+                    turnItems.append(previous.items[was])
                     turnRows.append(row)
                     continue
                 }
                 rowsWeighed += 1
                 #if DEBUG
                 if weighReasons.count < 4000 {
-                    let why = previous == nil ? "noPrevious" : position >= (previous?.rows.count ?? 0) ? "newPosition"
-                        : previous?.ids[position] != row.id ? "moved" : previous?.rows[position] != row ? "changed"
+                    let was = previousPosition(of: row.id, at: position)
+                    let why = previous == nil ? "noPrevious" : was == nil ? "new"
+                        : previous?.rows[was ?? 0] != row ? "changed"
                         : rows[row.id] != row ? "stale" : forced.contains(row.id) ? "forced" : "prime"
                     weighReasons.append("\(why):\(row.costKind)")
                 }
