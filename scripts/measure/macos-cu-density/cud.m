@@ -273,6 +273,15 @@ static size_t ballast_bytes;
   self.clickLabel.frame = NSMakeRect(20, 210, 580, 24);
   self.clickLabel.accessibilityIdentifier = @"cud-clicks";
   [v addSubview:self.clickLabel];
+  if (self.hue >= 0) {
+    // The logs are read through AX, not seen: their text in the job colour itself, so anti-aliased glyph
+    // edges (the job colour blended toward black) cannot match another job's palette entry in a capture.
+    double rgb[3];
+    job_rgb(self.hue, rgb);
+    NSColor *bg = [NSColor colorWithSRGBRed:rgb[0] green:rgb[1] blue:rgb[2] alpha:1];
+    self.keys.textColor = bg;
+    self.clickLabel.textColor = bg;
+  }
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *e) {
     CudAgent *me = weakSelf;
     if (me) {
@@ -1010,6 +1019,7 @@ static NSDictionary *classify(CGImageRef im, int own, int njobs, double (*refs)[
   if (!px) return @{@"own": @0, @"foreign": @0, @"foreign_job": @(-1), @"blank": @YES};
   long ownN = 0, foreignN = 0;
   long *per = calloc((size_t)njobs, sizeof(long));
+  int *match = malloc(w * h * sizeof(int));
   double r2 = radius * radius;
   for (size_t i = 0; i < w * h; i++) {
     uint8_t *q = px + i * 4;
@@ -1020,10 +1030,19 @@ static NSDictionary *classify(CGImageRef im, int own, int njobs, double (*refs)[
       for (int c = 0; c < 3; c++) d += (q[c] - refs[j][c]) * (q[c] - refs[j][c]);
       if (d < bd) { bd = d; best = j; }
     }
-    if (best < 0) continue;
-    if (best == own) ownN++;
-    else { foreignN++; per[best]++; }
+    match[i] = best;
   }
+  // A pixel counts only inside a solid 2x2 block of one job's colour: the soft edges of text and
+  // controls blend a colour toward black or white and can pass for another palette entry one pixel
+  // at a time, but another job's window is a solid region.
+  for (size_t y = 0; y + 1 < h; y++)
+    for (size_t x = 0; x + 1 < w; x++) {
+      int m = match[y * w + x];
+      if (m < 0 || match[y * w + x + 1] != m || match[(y + 1) * w + x] != m || match[(y + 1) * w + x + 1] != m) continue;
+      if (m == own) ownN++;
+      else { foreignN++; per[m]++; }
+    }
+  free(match);
   int fj = -1;
   for (int j = 0; j < njobs; j++) if (per[j] && (fj < 0 || per[j] > per[fj])) fj = j;
   free(per);
@@ -1048,15 +1067,31 @@ static double capture_filter_sync(SCContentFilter *f, size_t pw, size_t ph, CGIm
   c.width = pw;
   c.height = ph;
   c.showsCursor = NO;
+  // The handler may come after the 10 s bound: it then finds `gone` set and keeps nothing, so it never
+  // writes through OUT into a caller that has returned.
   __block double secs = -1;
+  __block BOOL gone = NO;
+  __block CGImageRef got = NULL;
+  NSObject *lock = [NSObject new];
   dispatch_semaphore_t sem = dispatch_semaphore_create(0);
   double t = now_s();
   [SCScreenshotManager captureImageWithFilter:f configuration:c completionHandler:^(CGImageRef im, NSError *e) {
-    if (im) { secs = now_s() - t; if (out) *out = CGImageRetain(im); }
+    @synchronized(lock) {
+      if (!gone && im) { secs = now_s() - t; got = CGImageRetain(im); }
+    }
     dispatch_semaphore_signal(sem);
   }];
-  if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) return -1;
-  return secs;
+  BOOL timedOut = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) != 0;
+  CGImageRef image = NULL;
+  @synchronized(lock) {
+    gone = YES;
+    image = got;
+    got = NULL;
+  }
+  if (timedOut) { if (image) CGImageRelease(image); return -1; }
+  if (out) *out = image;
+  else if (image) CGImageRelease(image);
+  return image ? secs : -1;
 }
 
 @interface Job : NSObject
@@ -1512,7 +1547,8 @@ static int jobs_main(int argc, const char **argv) {
   for (NSString *mode in [modes componentsSeparatedByString:@","]) {
     for (NSString *ns in [nsArg componentsSeparatedByString:@","]) {
       int n = ns.intValue;
-      if (n <= 0 || n > JOB_COLOURS_MAX) continue;
+      job_palette_init();
+      if (n <= 0 || n > job_colours) continue;  // each job owns a distinct colour
       NSDictionary *row = jobs_round(mode, n, seconds, ballast);
       emit(row);
       if (row[@"skipped"] || [row[@"up"] intValue] * 2 < n) break;  // most jobs did not come up: larger N will not either

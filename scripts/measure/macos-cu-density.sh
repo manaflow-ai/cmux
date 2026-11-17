@@ -155,7 +155,7 @@ if [[ "$host_jobs" == 1 && -n "$jobs_ns" ]]; then
   # The worker's own console session: what a job gets with the step's own grants, no VM. Without
   # Accessibility and Screen Recording there is nothing to run (cmux8s, 2026-11-17: the stage sat out
   # its whole 30-minute bound instead of skipping), so it is skipped here.
-  if grep -q '"accessibility":1' "$out/host-grants.json" && grep -q '"screen_recording":true' "$out/host-grants.json"; then
+  if grep -Eq '"accessibility": ?(1|true)' "$out/host-grants.json" && grep -Eq '"screen_recording": ?(1|true)' "$out/host-grants.json"; then
     perl -e 'alarm 1800; exec @ARGV' "$b/cud" jobs "$out/host-jobs" "$jobs_ns" "$jobs_s" 0 "$jobs_modes" >"$out/host-jobs.log" 2>&1 || true
     note "host jobs: $(cut -c1-300 "$out/host-jobs/results.jsonl" 2>/dev/null | head -12)"
   else
@@ -368,6 +368,7 @@ if [[ -n "${sim_udids:-}" ]]; then
         printf '{"stage": "sim", "udid": "%s", "round": %s, "screenshot_exit": %s, "screenshot_s": %s, "launch_exit": %s, "launch_s": %s, "at": %s}\n' \
           "$u" "$round" "$shot" "$(python3 -c "print(round($t1 - $t0, 3))")" "$launch" "$(python3 -c "print(round($t2 - $t1, 3))")" "$t0" >>"$out/sims.jsonl"
       done
+      sleep 1  # a round that fails at once does not spin
     done
   ) &
   sim_pid=$!
