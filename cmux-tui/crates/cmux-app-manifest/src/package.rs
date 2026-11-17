@@ -212,6 +212,25 @@ mod tests {
         }
     }
 
+    /// A catalog that is a symlink to a file outside the package is refused
+    /// and not kept (base of this PR: the fragment was read through the
+    /// link and handed to the catalog).
+    #[cfg(unix)]
+    #[test]
+    fn a_catalog_symlinked_outside_the_package_is_refused() {
+        let root = dir();
+        let pkg = root.join("pkg");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(root.join("outside.json"), r#"{"ops":{}}"#).unwrap();
+        std::os::unix::fs::symlink(root.join("outside.json"), pkg.join("catalog.json")).unwrap();
+        let m = serde_json::json!({ "catalog": "catalog.json" });
+        let (fragment, issues) = catalog_file(&pkg, &m);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(fragment.is_none(), "an escaped catalog is not kept");
+        let codes: Vec<&str> = issues.iter().map(|i| i.code).collect();
+        assert_eq!(codes, ["catalog.json"], "{issues:?}");
+    }
+
     #[test]
     fn read_limited_stops_one_byte_past_the_limit() {
         let dir = dir();
