@@ -121,11 +121,19 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # Any of these a signing job reads (signing_runner_variables) keeps its value: on
 # 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
 # cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR")
+# swift-package-tests reads this one, and on a full suite that checks the
+# Release build it first builds the Release helper against an SDK 15 Xcode.
+# No owned pool carries one (the minis have the lane's Xcode alone), so the
+# std pool is no failover for it: on 2026-11-16 the switch pointed it there
+# and the job failed "No Xcode.app found under /Applications with macOS SDK
+# major 15" on every main full suite. It has no default failover: its jobs
+# wait for Blacksmith, and CI_CLOUD_FAILOVER can still name one.
+SDK15_VARIABLE = "MACOS_RUNNER_DUAL_XCODE"
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
-SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
+SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, SDK15_VARIABLE, GUI_VARIABLE, IOS_VARIABLE,
+                      PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
 # so a restore never guesses what a variable held. MACOS_RUNNER_26 is not
 # one: every value an override could give it is refused (GitHub-hosted, a
