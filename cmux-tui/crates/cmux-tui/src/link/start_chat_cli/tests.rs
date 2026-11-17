@@ -2138,13 +2138,14 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         if let Some(bytes) = bytes {
             request["bytes"] = json!(bytes);
         }
-        super::plan_with_calls(
+        let answer = super::plan_with_calls(
             &path,
             &request.to_string(),
             &mut "token\n".as_bytes(),
             &ensure,
             &|_, _| panic!("the ensure made the machine"),
         );
+        assert!(answer["machine"].is_string(), "{answer}");
     }
     let bodies = bodies.borrow();
     assert_eq!(bodies.len(), 4);
