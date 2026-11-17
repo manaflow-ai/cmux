@@ -306,11 +306,16 @@ type Props = {
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
   /// `gesture`: a send held for its files (a pasted image still being read) goes with the gesture
   /// `onBindSendGesture` bound at its Enter or click; without one the send binds its own as it goes.
+  /// `filesReady`: the prompt went while some of its files were still read or uploaded; `attachments`
+  /// has stand-ins for them (their ids, names, no bytes) and this is the whole list once they are
+  /// chips. A sender that cannot hold a prompt for them answers false and does nothing else: the
+  /// composer then keeps the prompt until they are ready, as before.
   onSend(
     text: string,
     attachments?: ComposerAttachment[],
     steer?: boolean,
     gesture?: SendGesture,
+    filesReady?: Promise<ComposerAttachment[]>,
   ): boolean | void | Promise<unknown>;
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
@@ -794,6 +799,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
+    sendWith,
     retry,
     revive,
     originalFailures,
@@ -1586,10 +1592,10 @@ function ComposerFrame({
       slash !== undefined &&
       (composerCommand(words, snapshot.summary?.harness) !== undefined ||
         (commands ?? []).some((command) => command.name === slash));
-    const placed = isCommand
+    let placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
-    const prompt = placed.text;
+    let prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
     const side = route === "side" ? SIDE_COMMAND : undefined;
@@ -1724,8 +1730,24 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
+    // A file pasted or dropped is still being read or uploaded: the prompt goes now and shows as
+    // sent, and the file follows it (`sendWith`); the chat sends it once the file is a chip, in its
+    // turn. Only where the chat can hold it so (`onSend`'s `filesReady`); else it waits here for it.
+    const handed = !isCommand && !side && !local && loading > 0 ? sendWith() : undefined;
+    if (handed) {
+      placed = placeInline(typedText.trim(), [...attachments, ...handed.standIns]);
+      prompt = placed.text;
+    }
+    /// The prompt's whole list once the handed chips are made, each in its stand-in's place.
+    const handOff = (sent: ComposerAttachment[]) =>
+      handed?.take().then((made) => {
+        const chips = new Map(made.map((chip) => [chip.id, chip]));
+        return sent.map((attachment) => {
+          const chip = chips.get(attachment.id);
+          return chip ? { ...chip, ...(attachment.inline ? { inline: true } : {}) } : attachment;
+        });
+      });
+    if (!handed && holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
@@ -1763,7 +1785,19 @@ function ComposerFrame({
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     // `/customize …` goes as the ask it stands for (customizeCommand.ts).
-    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
+    // A prompt that goes before its files binds this key press or click now: their uploads spend
+    // grants of their own meanwhile (`useSendWhenAttached`).
+    const gesture = handed ? (kept ?? bindHeldSend()) : kept;
+    const filesReady = handOff(sent);
+    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, gesture, filesReady);
+    if (handed && taken !== true) {
+      // The chat could not hold it for its files: they stay here and it waits for them, as before.
+      // (A sender given `filesReady` answers true or false only.)
+      handed.giveBack();
+      keepSendOrigins();
+      holdForAttachments((again) => submitNow.current(force, steer, again), gesture);
+      return false;
+    }
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";

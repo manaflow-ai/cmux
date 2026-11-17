@@ -692,7 +692,13 @@ import {
   jitteredDelay,
   quickRetry,
 } from "./hostRetry";
-import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
+import {
+  acpmuxSendsReady,
+  heldStartStop,
+  sendsHeldForHost,
+  untilAcpmuxTakesSends,
+  untilHostAnswers,
+} from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns, composerShell, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
@@ -798,7 +804,7 @@ import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
-import { clearHeldFork, sendHeldFork } from "./forkHold";
+import { clearHeldFork, heldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -6762,6 +6768,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
     else quoteIntoComposer(composerHandle, heldQuotes, markdown);
   }, []);
+  /// The prompts sent straight to the chat that acpmux has not taken (or refused) yet, and the wait
+  /// for the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`).
+  const directSends = useRef(0);
+  const directInFlight = useRef<Promise<void>>(Promise.resolve());
   const [startingSends] = useState(
     () =>
       new StartingSends(
@@ -9933,6 +9943,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return sendPrompt(params);
         };
         notifyDraftActionsChanged();
+        // Sends made while the page connected go now, in their order (sendWhenReady.ts).
+        acpmuxSendsReady();
         harnessSwitch.setHandlers({
           restore: (text, attachments) => {
             // A failed New Tab start never surrendered this draft. Restoring it into the future
@@ -12666,13 +12678,58 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
-            onSend={(text, chips, steer, gesture) => {
+            onSend={(text, chips, steer, gesture, filesReady) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
+              // A send to this pane's own chat, which nothing else (a Cloud start or wake, the
+              // sandbox, the folder's trust, a held fork, Start Agent, a View Only chat) takes first:
+              // it may leave the composer at once and wait in the pane, in order, for its files still
+              // being read (`filesReady`), for acpmux to connect, or for the sends before it.
+              const waitsInPane =
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !cloudPicked &&
+                !sandboxPickedNotOffered &&
+                !sandboxing &&
+                !(cloudWakeChat && cloudRecovery.state !== "deleted" && !quick) &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId);
+              // Only that send can go before its files: any other keeps it in the composer meanwhile.
+              if (filesReady && !waitsInPane) return false;
+              /// Puts the prompt in the pane's queue (startingSends.ts): its row shows now, as sent
+              /// when the agent is idle, and it goes once its files are chips, acpmux takes prompts
+              /// here and every prompt sent before it was taken, so none overtakes another (Leo,
+              /// 2026-11-17: "WHEN I SEND A MESSAGE AND IT GETS QUEUED, THE NEXT ONE SHOULD NOT GO
+              /// BEFORE THE PREVIOUS").
+              const sendInTurn = () => {
+                const before = directInFlight.current;
+                startingSends.add(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  async (words, attachments, held) => {
+                    await before;
+                    await untilAcpmuxTakesSends();
+                    return sendWhenTaken(steer === true)(
+                      words,
+                      shellContextAttachments(attachments, (id) => shellRuns.get(id)),
+                      held,
+                    );
+                  },
+                  gesture,
+                  gesture?.promptId,
+                  { ...(filesReady ? { ready: filesReady } : {}), asSent: !snapshot.isWorking },
+                );
+                return true;
+              };
+              if (waitsInPane && (filesReady || !window.cmuxAcpmuxActions?.["chat.send"])) return sendInTurn();
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
@@ -12816,19 +12873,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
-                // Prompts sent while the chat started still wait to go: this one goes after them.
-                if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
-                  return true;
-                }
+                // Prompts sent before it still wait to go, or one is still on its way to acpmux: this
+                // one goes after them (`sendInTurn`).
+                if (startingSends.busy || directSends.current > 0) return sendInTurn();
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
+                // Until acpmux takes it (or refuses it), a prompt sent after it waits behind it.
+                directSends.current += 1;
+                let landed!: () => void;
+                const inFlight = new Promise<void>((resolve) => (landed = resolve));
+                directInFlight.current = inFlight;
+                let taken = false;
+                const tookIt = () => {
+                  if (taken) return;
+                  taken = true;
+                  directSends.current -= 1;
+                  landed();
+                };
                 // A typed reply while the chat's own question waits answers it in the chat: the
                 // question is declined first, so the agent reads the reply instead of waiting on it
                 // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
-                withdrawForTypedReply(individualPermission, sentOn, () =>
-                  callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }),
-                ).then(
+                const direct = withdrawForTypedReply(individualPermission, sentOn, () =>
+                  callNative("chat.send", {
+                    text,
+                    attachments,
+                    steer,
+                    taken: tookIt,
+                    ...(gesture ? { gesture } : {}),
+                  }),
+                );
+                direct.then(tookIt, tookIt);
+                direct.then(
                   () => {
                     rememberStart();
                     promptLanded.current();

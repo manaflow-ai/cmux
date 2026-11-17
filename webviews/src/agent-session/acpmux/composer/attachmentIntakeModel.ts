@@ -173,6 +173,9 @@ export type PendingAttachment = {
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
+  /// Sent: a prompt went with it while it was still being read or uploaded (`sendWith`). It is no
+  /// longer the composer's (no tile, no send waits on it) and goes to that prompt once it is a chip.
+  sent?: boolean;
 };
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
@@ -310,6 +313,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
   const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
+  const twinReadsRef = useRef(twinReads);
+  twinReadsRef.current = twinReads;
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
@@ -367,6 +372,30 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it
   /// on the host, if anything does.
   const making = useRef(new Map<string, (() => void) | undefined>());
+  /// The chips a prompt went with while they were still loading (`sendWith`), by id: each settles
+  /// that prompt's wait with the chip it became, or fails it with why it could not be made.
+  const sentWith = useRef(new Map<string, { made(chip: ComposerAttachment): void; failed(why: string): void }>());
+  /// `id` was sent (`sentWith`): it settles its prompt's wait instead of landing in the composer.
+  const [madeForSend] = useState(() => (id: string, chip: ComposerAttachment): boolean => {
+    const waiting = sentWith.current.get(id);
+    if (!waiting) return false;
+    sentWith.current.delete(id);
+    sources.current.delete(id);
+    setPending((chips) => chips.filter((shown) => shown.id !== id));
+    waiting.made(chip);
+    return true;
+  });
+  const [failedForSend] = useState(() => (id: string, why: string): boolean => {
+    const waiting = sentWith.current.get(id);
+    if (!waiting) return false;
+    sentWith.current.delete(id);
+    sources.current.delete(id);
+    autoRetries.current.get(id)?.stop();
+    autoRetries.current.delete(id);
+    setPending((chips) => chips.filter((shown) => shown.id !== id));
+    waiting.failed(why);
+    return true;
+  });
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -397,7 +426,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     )
       return;
     for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
-    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
+    setPending((chips) =>
+      chips.map((chip) => (chip.scope === from && !chip.bound && !chip.sent ? { ...chip, scope } : chip)),
+    );
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
@@ -508,7 +539,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (again !== undefined)
       setPending((chips) =>
         chips.some((chip) => chip.id === again)
-          ? chips.map((chip) => (chip.id === again ? shown[0]! : chip))
+          ? // One a prompt went with stays that prompt's (`sendWith`) while it is read again.
+            chips.map((chip) => (chip.id === again ? (chip.sent ? { ...shown[0]!, sent: true } : shown[0]!) : chip))
           : [...chips, shown[0]!],
       );
     else {
@@ -580,6 +612,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (thumb) keepThumb(shown[index]!.id, thumb);
       const attachment = sourced(index, { ...read, id: shown[index]!.id });
       made[index] = attachment.id;
+      // A prompt went with it while it loaded: the chip is that prompt's, not the composer's.
+      if (madeForSend(attachment.id, attachment)) return;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
       if (batch.scope !== now.scope) {
@@ -611,6 +645,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const still = () => sources.current.get(id) === source;
         const giveUp = () => {
           if (!still()) return;
+          if (failedForSend(id, failed)) return;
           setPending((chips) =>
             chips.map((chip) =>
               chip.id === id
@@ -644,6 +679,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, progress: undefined } : chip)));
         return;
       }
+      if (failedForSend(id, failed)) return;
       setPending((chips) =>
         chips.map((chip) => (chip.id === id ? { ...chip, failed, uploading: false, progress: undefined } : chip)),
       );
@@ -794,13 +830,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
             batches.current.delete(batch);
             if (!sources.current.has(chip.id)) return;
             if (!made) {
+              if (failedForSend(chip.id, failure)) return;
               setPending((chips) =>
                 chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
               );
               return;
             }
-            sources.current.delete(chip.id);
             const attachment = { ...made, id: chip.id };
+            if (madeForSend(chip.id, attachment)) return;
+            sources.current.delete(chip.id);
             setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
             // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
             const now = live.current.options;
@@ -817,6 +855,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   useEffect(
     () => () => {
       for (const [id, stop] of making.current) {
+        // A prompt that went with it gets no chip now: it says so. A file's read or upload goes on.
+        failedForSend(id, live.current.t("upload.notCompleted"));
         sources.current.delete(id);
         stop?.();
       }
@@ -828,6 +868,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
   /// that brings its node back (`revive`).
   const [cancel] = useState(() => (id: string) => {
+    // Sent with a prompt: its node leaving the composer with that prompt is no ×.
+    if (sentWith.current.has(id)) return;
     const source = sources.current.get(id);
     if (source && "make" in source) source.stop?.();
     else if (source) {
@@ -983,16 +1025,75 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach, showDrop, refused]);
-  const shown = pending.filter((chip) => chip.scope === scope);
+  const shown = pending.filter((chip) => chip.scope === scope && !chip.sent);
+  /// The chips that hold a send (`loading`), as they are now.
+  const holding = (chip: PendingAttachment) => !chip.failed || chip.bound || chip.uploadFailed;
+  /// Hands every chip this chat's composer still reads or uploads to a prompt sent now, so the
+  /// prompt leaves at once and the file follows it (Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE
+  /// WHILE THE THING LOADS ... JUST MAKE IT LOOK LIKE IT'S SENT OR JUST SEND IT"). Answers each
+  /// chip's stand-in (its name and type, no bytes) in the composer's order and the wait for the
+  /// chips they become, which rejects with the first one's failure; undefined when there is nothing
+  /// to hand over, or when a gesture's files are not chips yet (a twin read: the send holds as before).
+  /// Nothing changes until `take()`, the prompt going: from then the chips are the prompt's (their
+  /// tiles go) and `ready` settles; `giveBack()` makes them the composer's again (the send was
+  /// refused). A chip whose upload already failed is tried again at `take`: no tile shows its Retry.
+  const [sendWith] = useState(
+    () =>
+      ():
+        | {
+            standIns: ComposerAttachment[];
+            take(): Promise<ComposerAttachment[]>;
+            giveBack(): void;
+          }
+        | undefined => {
+        const here = live.current.options.scope;
+        const chips = pendingRef.current.filter((chip) => chip.scope === here && !chip.sent && holding(chip));
+        if (!chips.length || twinReadsRef.current.some((read) => read.scope === here)) return undefined;
+        const ids = new Set(chips.map((chip) => chip.id));
+        const mark = (sent: boolean) =>
+          flushSync(() =>
+            setPending((now) =>
+              now.map((chip) =>
+                ids.has(chip.id) ? (sent ? { ...chip, sent: true } : { ...chip, sent: undefined }) : chip,
+              ),
+            ),
+          );
+        return {
+          standIns: chips.map((chip) => ({
+            id: chip.id,
+            // Drawn as a file by its name until it is made: no bytes or type are known yet, and no
+            // note for the agent is written for it (`promptText` notes only a typed link).
+            kind: "link",
+            name: chip.name,
+            mimeType: "",
+            size: 0,
+          })),
+          take: () => {
+            const waits = chips.map(
+              (chip) =>
+                new Promise<ComposerAttachment>((made, failed) =>
+                  sentWith.current.set(chip.id, { made, failed: (why) => failed(new Error(why)) }),
+                ),
+            );
+            mark(true);
+            for (const chip of chips)
+              if (chip.uploadFailed && !autoRetries.current.has(chip.id)) retryRef.current(chip.id);
+            return Promise.all(waits);
+          },
+          giveBack: () => {
+            for (const id of ids) sentWith.current.delete(id);
+            mark(false);
+          },
+        };
+      },
+  );
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
   /// A file the composer refused (no images here, one that would not decode) holds none: its
   /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading =
-    shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length +
-    twinReads.filter((read) => read.scope === scope).length;
+  const loading = shown.filter(holding).length + twinReads.filter((read) => read.scope === scope).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac
@@ -1018,6 +1119,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     cancel,
     retry,
     revive,
+    sendWith,
     attachError,
     setAttachError,
     dropping,

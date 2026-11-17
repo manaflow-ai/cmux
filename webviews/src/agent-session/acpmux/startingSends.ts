@@ -18,6 +18,10 @@ export type StartingSend = {
   attachments: ComposerAttachment[];
   at: number;
   sentIn: StartingPlace;
+  /// Drawn as a sent row of the transcript from the send, not as a queued row: a prompt sent to a
+  /// chat whose agent is idle that waits only for its own files or for acpmux to connect (Leo,
+  /// 2026-11-17: "make it look like it's sent or just send it").
+  asSent?: boolean;
 };
 /// Where the pane is: the chat it shows (none: a new chat not started yet) and its visit, the
 /// client's `selectionToken`, which moves on every selection.
@@ -38,7 +42,13 @@ export function startingQueueEntry(row: Pick<StartingSend, "id" | "text" | "atta
 }
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
-type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
+/// `ready`: the prompt's attachments once the files it waits for are chips; it goes then.
+type Item = StartingSend & {
+  going: boolean;
+  lost?: string;
+  gesture?: SendGesture;
+  ready?: Promise<ComposerAttachment[]>;
+};
 /// Sends a queued prompt, with the gesture its send bound, if any.
 type Go = (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) => Promise<unknown>;
 
@@ -62,7 +72,14 @@ export class StartingSends {
 
   /** The prompts waiting or going, oldest first. */
   get rows(): readonly StartingSend[] {
-    return this.items.map(({ id, text, attachments, at, sentIn }) => ({ id, text, attachments, at, sentIn }));
+    return this.items.map(({ id, text, attachments, at, sentIn, asSent }) => ({
+      id,
+      text,
+      attachments,
+      at,
+      sentIn,
+      ...(asSent ? { asSent } : {}),
+    }));
   }
   /** Some prompt has not been taken yet: a prompt sent now waits behind it. */
   get busy(): boolean {
@@ -91,7 +108,17 @@ export class StartingSends {
    */
   /// `id`: the prompt id its send goes with, so the chat's own row for it keeps the row drawn here
   /// (`withStartingPrompt`).
-  add(text: string, attachments: ComposerAttachment[], go: Go, gesture?: SendGesture, id?: string) {
+  /// `waits`: `ready`, the prompt's attachments once its files are chips (the ones given stand in
+  /// for them on its row meanwhile; a rejection refuses it as a refused send is), and `asSent`,
+  /// whether its row is the transcript's (`StartingSend`).
+  add(
+    text: string,
+    attachments: ComposerAttachment[],
+    go: Go,
+    gesture?: SendGesture,
+    id?: string,
+    waits: { ready?: Promise<ComposerAttachment[]>; asSent?: boolean } = {},
+  ) {
     const item: Item = {
       id: id ?? `starting-${crypto.randomUUID()}`,
       text,
@@ -100,7 +127,11 @@ export class StartingSends {
       sentIn: this.place(),
       going: false,
       ...(gesture ? { gesture } : {}),
+      ...(waits.ready ? { ready: waits.ready } : {}),
+      ...(waits.asSent ? { asSent: true } : {}),
     };
+    // Its files are read beside the prompts before it; a failure is its run's, never unhandled.
+    item.ready?.catch(() => undefined);
     this.items.push(item);
     this.emit();
     this.tail = this.tail.then(() => this.run(item, go));
@@ -135,8 +166,16 @@ export class StartingSends {
   private async run(item: Item, go: Go) {
     // Removed, or given back with a refused prompt before it.
     if (!this.items.includes(item)) return;
-    item.going = true;
     try {
+      if (item.ready) {
+        const attachments = await item.ready;
+        // Removed (its row's Remove) or given back while its files were read.
+        if (!this.items.includes(item)) return;
+        item.attachments = attachments;
+        delete item.ready;
+        this.emit();
+      }
+      item.going = true;
       await go(item.text, item.attachments, item.gesture);
     } catch (error) {
       // This prompt and every one behind it come back; the composer puts each before what it
@@ -189,7 +228,19 @@ function startingRow(send: StartingSend): AcpmuxRow {
  */
 export function withStartingPrompt(raw: AcpmuxSnapshot, starting: readonly StartingSend[]): AcpmuxSnapshot {
   const first = starting[0];
-  if (!first || raw.rows.some((row) => row.kind === "user")) return raw;
+  if (!first) return raw;
+  // A prompt sent to an idle chat that waits for its files or for acpmux (`asSent`) is its sent row
+  // from the send, as is each sent the same way right behind it, until the client draws each.
+  if (first.asSent) {
+    const drawn = new Set(raw.rows.map((row) => row.id));
+    const sent: AcpmuxRow[] = [];
+    for (const send of starting) {
+      if (!send.asSent) break;
+      if (!drawn.has(`local-${send.id}`)) sent.push(startingRow(send));
+    }
+    return sent.length ? { ...raw, rows: [...raw.rows, ...sent] } : raw;
+  }
+  if (raw.rows.some((row) => row.kind === "user")) return raw;
   return { ...raw, rows: [...raw.rows, startingRow(first)] };
 }
 
