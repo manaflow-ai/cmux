@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::backoff::Backoff;
+use cmux_signed_bundle::computer_use;
 
 #[path = "capture.rs"]
 mod capture;
@@ -256,8 +257,9 @@ impl RemoteHostSupervisor {
                 "headless": config.headless,
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
-            // false in a cmux build without cmux Remote (Release and NIGHTLY embed none): the
-            // cmux app shares the screen itself there, and `cmux remote-host` says so.
+            // false when the Computer Use helper carries no supervisor (a DEV helper
+            // published before it did): the cmux app runs Computer Use and shares the
+            // screen itself there, and `cmux remote-host` says so.
             "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
@@ -357,7 +359,7 @@ impl Inner {
         }
         #[cfg(target_os = "macos")]
         {
-            let staged = platform::stage(&paths.state)?;
+            let staged = platform::stage()?;
             if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
                 && let Some(record) = read_record(&paths.record())
                 && capture_platform::record_exited(&record)
@@ -810,8 +812,9 @@ fn write_private(path: &Path, bytes: &[u8]) {
     }
 }
 
-/// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
-/// bundle that holds this daemon). Never starts or stages it.
+/// Whether this cmux build carries the supervisor in its Computer Use helper
+/// (`CMUX_REMOTE_APP`, or the app bundle that holds this daemon). Never starts
+/// or stages it.
 fn bundled() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -821,6 +824,34 @@ fn bundled() -> bool {
     {
         false
     }
+}
+
+/// The Computer Use helper that carries the supervisor (`Contents/MacOS/cmux-remote`):
+/// `env` (`CMUX_REMOTE_APP`, a helper bundle), else the first of `cmux Computer Use.app`
+/// and `cmux Computer Use (dev).app` that carries it in `Contents/Library` of the app
+/// whose `Contents/Resources/bin` holds `daemon` (the file itself, never the link it was
+/// started by, `~/.local/bin/acpmux`). A DEV helper published before it carried the
+/// supervisor holds none: then there is no supervisor, and the app runs Computer Use
+/// itself as in any build without one.
+fn find_helper(env: Option<PathBuf>, daemon: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(path) = env {
+        return path
+            .join("Contents/MacOS")
+            .join(computer_use::SUPERVISOR)
+            .is_file()
+            .then_some(path)
+            .ok_or_else(|| "CMUX_REMOTE_APP has no Contents/MacOS/cmux-remote".into());
+    }
+    let app = daemon
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .ok_or("the daemon is not inside an app bundle")?;
+    computer_use::bundles_in(app, computer_use::SUPERVISOR)
+        .into_iter()
+        .next()
+        .ok_or_else(|| "this cmux build's Computer Use helper has no supervisor".into())
 }
 
 /// A live process's start time (macOS), for the app grant.
@@ -897,6 +928,49 @@ mod tests {
         });
         let expected = Some("550e8400-e29b-41d4-a716-446655440000".to_string());
         assert_eq!(screen_device_id_from_status(&status), expected);
+    }
+
+    /// A fake `<app>/Contents/Library/<helper>` holding `executables`.
+    fn helper(app: &std::path::Path, name: &str, executables: &[&str]) -> std::path::PathBuf {
+        let bundle = app.join("Contents/Library").join(name);
+        std::fs::create_dir_all(bundle.join("Contents/MacOS")).unwrap();
+        for executable in executables {
+            std::fs::write(bundle.join("Contents/MacOS").join(executable), b"").unwrap();
+        }
+        bundle
+    }
+
+    #[test]
+    fn the_supervisor_is_found_inside_the_computer_use_helper() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        let root = std::env::temp_dir()
+            .join(format!("cmux-remote-host-find-{}-{nanos}", std::process::id()));
+        let app = root.join("cmux NIGHTLY.app");
+        let daemon = app.join("Contents/Resources/bin/cmux-tui");
+        // The retired second bundle is never looked at, and alone means no supervisor.
+        helper(&app, "cmux Remote.app", &["cmux-remote"]);
+        assert_eq!(
+            super::find_helper(None, Some(&daemon)),
+            Err("this cmux build's Computer Use helper has no supervisor".into())
+        );
+        // A DEV helper published before it carried the supervisor: still none.
+        let dev = helper(&app, "cmux Computer Use (dev).app", &["cmux-cua-helper"]);
+        assert!(super::find_helper(None, Some(&daemon)).is_err());
+        // Once it carries the supervisor, the DEV helper is found.
+        helper(&app, "cmux Computer Use (dev).app", &["cmux-remote"]);
+        assert_eq!(super::find_helper(None, Some(&daemon)), Ok(dev.clone()));
+        // The Release helper comes first.
+        let executables = ["cmux-cua", "cmux-screen-sharing", "cmux-remote"];
+        let release = helper(&app, "cmux Computer Use.app", &executables);
+        assert_eq!(super::find_helper(None, Some(&daemon)), Ok(release));
+        // `CMUX_REMOTE_APP` wins, and must carry the supervisor.
+        assert_eq!(super::find_helper(Some(dev.clone()), Some(&daemon)), Ok(dev));
+        let bare = helper(&root, "bare.app", &["cmux-cua"]);
+        assert!(super::find_helper(Some(bare), Some(&daemon)).is_err());
+        assert!(super::find_helper(None, None).is_err());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

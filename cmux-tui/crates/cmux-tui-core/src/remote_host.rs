@@ -2,11 +2,15 @@
 //! Computer Use and Screen Sharing, the process that holds macOS's
 //! Accessibility and Screen Recording grants.
 //!
-//! The daemon starts the host from a verified copy of the app's embedded
-//! `cmux Remote.app` outside the app bundle (macOS 26 checks Screen Recording
-//! for a process inside an app bundle as the outermost app), with macOS
-//! responsibility disclaimed, so the grants belong to cmux Remote and never
-//! to cmux, the daemon, shells or agents. The host serves its supervisor
+//! The host is `Contents/MacOS/cmux-remote` of the app's Computer Use helper
+//! (`cmux Computer Use.app`, `com.cmuxterm.cua`; DEV `cmux Computer Use
+//! (dev).app`), the one app macOS asks and names for both grants. The daemon
+//! starts it from a verified copy of that helper outside the app bundle
+//! (macOS 26 checks Screen Recording for a process inside an app bundle as
+//! the outermost app), the same copy the acpmux share host runs
+//! (`cmux_signed_bundle::computer_use`), with macOS responsibility disclaimed,
+//! so the grants belong to the helper and never to cmux, the daemon, shells
+//! or agents. The host serves its supervisor
 //! socket; the daemon is a client of it, which is what lets a new daemon
 //! adopt a running host after a handoff (docs/cloud-guest-upgrades.md):
 //!

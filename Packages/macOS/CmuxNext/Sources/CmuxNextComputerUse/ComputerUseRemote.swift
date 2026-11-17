@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 public import Darwin
 public import Foundation
+import CmuxNextAgentActivity
 import CmuxNextCompat
 
 /// Starts Computer Use as cmux Remote's worker (docs/cmux-remote.md). The App implements it
@@ -26,11 +27,25 @@ public nonisolated struct ComputerUseRemoteSource: ComputerUseRemoteSpawning {
     public func isAvailable() async -> Bool { await available() }
     public func openComputerUse() async throws -> ComputerUseRemoteChannel { try await open() }
 
-    /// cmux Remote's executable in this app's embedded bundle (the worker runs it), or nil.
+    /// The Computer Use helpers that may carry the supervisor, in the daemon's order
+    /// (cmux-tui `cmux_signed_bundle::computer_use::bundles_in`): Release, NIGHTLY and RC's
+    /// `cmux Computer Use.app`, then DEV's `cmux Computer Use (dev).app`.
+    static let helperNames = [CuaHelperIdentity.appName, ComputerUseHelperV2.helperAppName]
+    /// The supervisor's executable inside a Computer Use helper.
+    static let supervisorExecutable = "cmux-remote"
+
+    /// cmux Remote's executable inside this app's Computer Use helper (the worker runs it, signed
+    /// with the helper's identifier), or nil: then the daemon has no supervisor either (a DEV
+    /// helper published before it carried one, or a build without it), and Computer Use runs in
+    /// the app's own helper as before.
     public static func executable(bundle: Bundle = .main) -> URL? {
-        for name in ["cmux Remote.app", "cmux Remote (dev).app"] {
-            let url = bundle.bundleURL.appending(path: "Contents/Library/\(name)/Contents/MacOS/cmux-remote")
-            if FileManager.checked.isExecutableFile(atPath: url.path) { return url }
+        executable(appURL: bundle.bundleURL) { FileManager.checked.isExecutableFile(atPath: $0) }
+    }
+
+    static func executable(appURL: URL, isExecutable: (String) -> Bool) -> URL? {
+        for name in helperNames {
+            let url = appURL.appending(path: "Contents/Library/\(name)/Contents/MacOS/\(supervisorExecutable)")
+            if isExecutable(url.path) { return url }
         }
         return nil
     }

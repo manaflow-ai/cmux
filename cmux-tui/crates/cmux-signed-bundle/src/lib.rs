@@ -1,11 +1,15 @@
 //! A verified copy of a signed macOS helper bundle, run from outside the app that carries it:
-//! the bundle's content digest (its executable, its seal and its Info.plist), its signature
+//! the bundle's content digest (its executables, its seal and its Info.plist), its signature
 //! checked by `codesign` against a code requirement, one staged copy per digest under a
-//! private root (copied with `ditto`, checked again, renamed into place), and the old copies
-//! pruned. cmux Remote (`cmux-tui-core` `remote_host`) and the acpmux share host's Screen
-//! Sharing helper stage their helpers through it, each with its own bundle ids, names and
-//! requirement. The tools it runs exist on macOS only; elsewhere every call that runs one
-//! fails, and the rest (the digest, the slots, the pruning) is tested on any Unix.
+//! private root (copied with `ditto`, checked again, renamed into place, one stager of a root
+//! at a time), and the old copies pruned. The Computer Use helper ([`computer_use`]) is staged
+//! once for both of its runners, the daemon's supervisor (`cmux-tui-core` `remote_host`) and
+//! the acpmux share host's Screen Sharing helper; a separate Screen Sharing helper is staged
+//! with its own requirement. The tools it runs exist on macOS only; elsewhere every call that
+//! runs one fails, and the rest (the digest, the slots, the lock, the pruning) is tested on any
+//! Unix.
+
+pub mod computer_use;
 
 use cmux_process::{Command, Stdio};
 use std::io::Read;
@@ -158,8 +162,9 @@ pub fn stage(
 /// A verified copy of `source` under `root/<first 16 hex of its digest>/<bundle name>`,
 /// reused while the source is the same (its `.verified` marker and its own digest say so);
 /// never followed through a symlink. A new copy is made beside it with `copy`, passes `check`
-/// (the signature) and the digest again, then is renamed into its slot. The two newest copies
-/// are kept ([`prune`]): a process of the previous build may still run from one.
+/// (the signature) and the digest again, then is renamed into its slot. Stages of one root
+/// take turns ([`take_turn`]). The copies used last are kept ([`prune`]): a process of the
+/// previous build may still run from one.
 pub fn stage_with(
     source: &Path,
     root: &Path,
@@ -169,15 +174,21 @@ pub fn stage_with(
 ) -> Result<Staged, String> {
     let digest = digest_of(source, parts)?;
     private_dir(root)?;
+    let _turn = take_turn(root)?;
     let name = source.file_name().ok_or("bad bundle name")?;
     let slot = root.join(digest.get(..16).unwrap_or(&digest));
     let app = slot.join(name);
     let marker = slot.join(".verified");
     let ready = std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
         && digest_of(&app, parts).is_ok_and(|copied| copied == digest);
-    if !ready {
+    if ready {
+        // In use: [`prune`] keeps the copies used last.
+        let _ = std::fs::File::open(&slot)
+            .and_then(|dir| dir.set_modified(std::time::SystemTime::now()));
+    } else {
+        // In turn no other stage is copying: a staging folder left is a dead stager's.
+        sweep_staging(root);
         let temporary = root.join(format!(".staging-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temporary);
         std::fs::create_dir_all(&temporary).map_err(|e| format!("{e}"))?;
         let copied = temporary.join(name);
         if let Err(e) = copy(source, &copied) {
@@ -200,8 +211,52 @@ pub fn stage_with(
     Ok(Staged { app, digest })
 }
 
-/// Keeps `current` and the newest other copy under `root`; removes the rest. Names starting
-/// with `.` (a staging in progress) are left alone.
+/// How long a stage waits for another stage of the same root (a copy and a signature check).
+const TURN_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The root's lock file ([`prune`] leaves dot names alone).
+pub const LOCK_FILE: &str = ".stage-lock";
+
+/// This stage's turn at `root`: an exclusive lock on its [`LOCK_FILE`], held until the guard
+/// drops. Two stagers of one root (two processes, or two threads of one: a lock belongs to
+/// its open file) never copy into, swap or prune it at once, so the second finds the first's
+/// copy and reuses it instead of replacing a copy that may already run.
+pub fn take_turn(root: &Path) -> Result<cmux_file_lock::FileLock, String> {
+    let path = root.join(LOCK_FILE);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    cmux_file_lock::FileLock::take_within(
+        file,
+        cmux_file_lock::Kind::Exclusive,
+        TURN_BUDGET,
+        std::time::Duration::from_millis(50),
+    )
+    .map_err(|e| format!("{}: another stage of this copy did not finish: {e}", path.display()))
+}
+
+/// Removes the `.staging-*` folders under `root`. Only in turn: none is in progress then.
+fn sweep_staging(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.filter_map(Result::ok) {
+        if entry.file_name().to_string_lossy().starts_with(".staging-") {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// How many copies besides the current one [`prune`] keeps. The Computer Use helper's one
+/// root serves every channel that signs that identity (Stable, NIGHTLY, RC), and each may
+/// still run the build before its current one until it drains.
+pub const KEEP_OTHERS: usize = 3;
+
+/// Keeps `current` and the [`KEEP_OTHERS`] other copies used last under `root` (a stage that
+/// reuses a copy marks it used); removes the rest. Names starting with `.` (the lock, a
+/// staging in progress) are left alone.
 pub fn prune(root: &Path, current: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
@@ -216,8 +271,8 @@ pub fn prune(root: &Path, current: &Path) {
         .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
         .collect();
     others.sort();
-    others.pop();
-    for (_, path) in others {
+    let stale = others.len().saturating_sub(KEEP_OTHERS);
+    for (_, path) in others.into_iter().take(stale) {
         let _ = std::fs::remove_dir_all(path);
     }
 }
@@ -275,15 +330,90 @@ mod tests {
         let again =
             stage_with(&first, &root, &parts, |_, _| Err("copied".into()), |_| Ok(())).unwrap();
         assert_eq!(again, staged);
-        // Two more builds: the oldest copy goes, the two newest stay.
-        for (n, body) in [(2, "two"), (3, "three")] {
+        // More builds: the current copy and three others stay, the oldest goes.
+        let slots = || {
+            std::fs::read_dir(&root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                .count()
+        };
+        for n in 2..=(KEEP_OTHERS + 1) {
+            // Distinct modified times, which order the copies.
             std::thread::sleep(std::time::Duration::from_millis(20));
-            let next = bundle(&dir.path().join(format!("v{n}")), "Helper.app", body);
+            let next = bundle(&dir.path().join(format!("v{n}")), "Helper.app", &format!("{n}"));
             stage_with(&next, &root, &parts, copy_tree, |_| Ok(())).unwrap();
         }
-        let slots = std::fs::read_dir(&root).unwrap().count();
-        assert_eq!(slots, 2);
+        assert_eq!(slots(), 1 + KEEP_OTHERS);
+        assert!(staged.app.exists());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let next = bundle(&dir.path().join("last"), "Helper.app", "last");
+        stage_with(&next, &root, &parts, copy_tree, |_| Ok(())).unwrap();
+        assert_eq!(slots(), 1 + KEEP_OTHERS);
         assert!(!staged.app.exists());
+    }
+
+    #[test]
+    fn the_copy_used_longest_ago_is_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let parts = digest_parts("helper");
+        let mut staged = Vec::new();
+        for n in 0..=KEEP_OTHERS {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let build = bundle(&dir.path().join(format!("v{n}")), "Helper.app", &format!("{n}"));
+            let copy = stage_with(&build, &root, &parts, copy_tree, |_| Ok(())).unwrap();
+            staged.push((build, copy));
+        }
+        // The oldest build runs again: its copy is reused and becomes the one used last.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (oldest, oldest_copy) = staged[0].clone();
+        stage_with(&oldest, &root, &parts, |_, _| Err("copied".into()), |_| Ok(())).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let next = bundle(&dir.path().join("next"), "Helper.app", "next");
+        stage_with(&next, &root, &parts, copy_tree, |_| Ok(())).unwrap();
+        assert!(oldest_copy.app.exists(), "a reused copy is kept");
+        assert!(!staged[1].1.app.exists(), "the copy used longest ago goes");
+        for (_, kept) in &staged[2..] {
+            assert!(kept.app.exists());
+        }
+    }
+
+    #[test]
+    fn stages_of_one_root_take_turns_and_sweep_dead_stagings() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        private_dir(&root).unwrap();
+        let turn = take_turn(&root).unwrap();
+        let other = std::fs::File::open(root.join(LOCK_FILE)).unwrap();
+        let held = || {
+            cmux_file_lock::FileLock::held_elsewhere(&other, cmux_file_lock::Kind::Exclusive)
+                .unwrap()
+        };
+        assert!(held());
+        drop(turn);
+        assert!(!held());
+        // A dead stager's folder is swept on the next copy; the lock file is never pruned.
+        std::fs::create_dir_all(root.join(".staging-999999/Helper.app")).unwrap();
+        let parts = digest_parts("helper");
+        let source = bundle(dir.path(), "Helper.app", "one");
+        stage_with(&source, &root, &parts, copy_tree, |_| Ok(())).unwrap();
+        assert!(!root.join(".staging-999999").exists());
+        assert!(root.join(LOCK_FILE).is_file());
+        // A second stager waits for the first's turn, then reuses its copy.
+        let first_turn = take_turn(&root).unwrap();
+        let waiting = {
+            let root = root.clone();
+            let parts = parts.clone();
+            let source = source.clone();
+            std::thread::spawn(move || {
+                stage_with(&source, &root, &parts, |_, _| Err("copied".into()), |_| Ok(()))
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!waiting.is_finished());
+        drop(first_turn);
+        assert!(waiting.join().unwrap().is_ok());
     }
 
     #[test]
