@@ -255,6 +255,7 @@ reloads the view, and the app installs itself the first time. No restart, no
 install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, edit its `src/main.ts`, then `cmux ext dev --once --json` until ok.
+  To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
 - An extension you built (`cmux ext new`) or remixed (`cmux ext remix REF`) ends published, by
   default: say it goes to a new public GitHub repository of theirs, then run `cmux ext share DIR --json`
   unless they asked to keep it local (`--private` for a private one). It makes the manifest and

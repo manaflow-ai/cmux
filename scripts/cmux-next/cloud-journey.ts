@@ -116,6 +116,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { answeredPath, DAEMON_CHECK, MachineFailed, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -1043,10 +1044,210 @@ export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): Exe
 }
 
 /**
+ * The acpmux daemon a first ensure would reach: each acpmux or cmux-tui process with its parent and start, and its PATH,
+ * HOME, ACPMUX_* and CMUX_* (never a token, key or secret); the login-env cache; the binary `$c` runs; `acp status`;
+ * where `claude` is; and the store's bin directories.
+ */
+export const ensureBenchDaemonFacts = (): string => `${GUEST}` +
+  `for d in /proc/[0-9]*; do case "$(cat "$d/comm" 2>/dev/null)" in acpmux*|cmux-tui*) ;; *) continue;; esac; p=\${d#/proc/}; echo "== pid $p"; ps -o pid=,ppid=,lstart=,user=,args= -p "$p" 2>/dev/null | cut -c1-300; ` +
+  `pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && ps -o pid=,args= -p "$pp" 2>/dev/null | cut -c1-200; ` +
+  `tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -E '^(PATH|HOME|USER|ACPMUX_[A-Z_]+|CMUX_[A-Z_]+)=' | grep -viE 'TOKEN|KEY|SECRET|PASS' | cut -c1-300; done; ` +
+  `echo "== login-env"; ls -la "$HOME/.acpmux/login-env.json" 2>&1; echo "== binary"; readlink -f "$(command -v "$c")" 2>&1; "$c" --version 2>&1 | head -2; ` +
+  `echo "== status"; timeout 20 "$c" acp status --json 2>&1 | head -c 2000; echo; echo "== claude"; command -v claude 2>&1; ls -d /opt/cmux/store/*/bin 2>&1 | head -5; ` +
+  `systemctl list-units 'cmux*' --no-pager --plain 2>&1 | head -10; true`;
+
+/**
  * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
  * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
  * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
  */
+/** The VM API origin a backend's platform creates its machines through (cmux-platform wrangler CLOUD_VM_API_ORIGIN). */
+export function vmApiOrigin(backend: string): string | null {
+  return backend === "staging" ? "https://vm-staging.cmux.dev" : backend === "prod" ? "https://vm.cmux.dev" : null;
+}
+
+/**
+ * --start-bench N (with --preclaim): create-to-first-command, phase by phase, N samples on each start path
+ * (cloud-start-bench.ts says which paths and phases). Every machine, VM and snapshot it makes is deleted by exact id.
+ */
+export async function runStartBench(args: {
+  api: Api;
+  journey: Journey;
+  backend: string;
+  tag: string;
+  n: number;
+  cmux: string;
+  install: { id: string; token: string; team?: string };
+  account: string;
+  accountTeam: string;
+  login: string;
+  outDir: string | null;
+  privateRowsPath?: string;
+}): Promise<StartSample[]> {
+  const samples: StartSample[] = [];
+  const notes: string[] = [];
+  const size = { cpu: 2, memory_mb: 4096, disk_mb: 16384 };
+  const write = () => {
+    const md = `${startBenchMarkdown(samples, `Start bench (${args.backend}, N=${args.n})`)}${notes.length ? `\n${notes.map((n) => `- ${n}`).join("\n")}\n` : ""}`;
+    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "start-bench.md"), md); }
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: summarize(samples), notes }, rows: samples.map((s) => ({ ...s, error: s.error === null ? null : scrub(s.error, args.journey.secrets) })) }, null, 2)}\n`);
+  };
+  const machineOf = (answer: any): string => {
+    const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+    if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+    return machine;
+  };
+  const platformRunning = async (machine: string) => {
+    const m = await args.api.read("cloud.machine.get", { machine }, 15_000);
+    if (m?.status === "failed") throw new MachineFailed("machine failed");
+    return m?.status === "running" && Boolean(m?.host);
+  };
+  const platformRemove = (machine: string) => args.api.deleteMachine(machine, `${args.tag}-start-delete-${machine}`).then(() => undefined);
+  const platformExec = (machine: string) => directExec(args.api, machine, args.journey);
+
+  // The warm pool: the warm the app sends names a ready spare (as runPreclaimBurst's), no login copy. At most 180 s:
+  // twice the refill p50 (hq#12332); run 43951741299's warm named no spare in 300 s while its claims took one, so the
+  // claim answer, not the warm, says whether a sample took a spare.
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-start-bench-"));
+  const platform = clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+  const scope = { platform, team: args.accountTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  const request = { platform, account: args.account, scope, currentScope: scope };
+  const readySpare = async (): Promise<Record<string, unknown>> => {
+    const { prepared, wait } = await waitForReadySpare(async () => {
+      const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
+      const spare = typeof warm.machine === "string" ? warm.machine : null;
+      if (spare) {
+        await waitForCloudSpareReady({ ...args.api, team: args.accountTeam || args.api.team }, spare);
+        await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
+      }
+      return { spare };
+    }, 180_000);
+    return { spare_named: prepared.spare !== null, spare_wait_ms: wait?.waited_ms ?? null, cold_after_wait: wait?.cold_after_wait ?? null };
+  };
+  const platformCreate = (asked: "spare" | "cold") => async (run: number) => {
+    const answer = await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} ${asked} ${run}`, size }, `${args.tag}-start-${asked}-${run}`);
+    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: spareFields(answer) };
+  };
+
+  // The VM API, as an agent spawning VMs calls it: the account's session and its team.
+  const vmOrigin = vmApiOrigin(args.backend);
+  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": args.accountTeam };
+  const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
+  const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
+    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
+    if (r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`POST /v1/vms: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+    const id = r.body?.id ?? r.body?.vm?.id;
+    if (typeof id !== "string") throw new Error(`POST /v1/vms answered no id: ${short(r.body)}`);
+    return { machine: id, facts: { state_at_answer: String(r.body?.state ?? r.body?.vm?.state ?? "") } };
+  };
+  const vmRunning = async (id: string) => (await vm("GET", `/v1/vms/${id}`, undefined, 30_000)).body?.state === "running";
+  const vmExec = (id: string) => async (command: string, timeoutMs = 30_000) => {
+    const r = await vm("POST", `/v1/vms/${id}/exec`, { command, timeoutMs }, timeoutMs + 30_000);
+    if (r.status !== 200) throw new Error(`exec: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+    return { code: Number(r.body?.exitCode ?? 1), stdout: String(r.body?.stdout ?? ""), stderr: String(r.body?.stderr ?? "") };
+  };
+  // http() answers a refusal instead of throwing: a delete that is neither 204 nor 404 is said, never silent.
+  const vmDeleted = async (route: string) => {
+    const r = await vm("DELETE", route, undefined, 60_000);
+    if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw new Error(`DELETE ${route.split("/").slice(0, 3).join("/")}: HTTP ${r.status}`);
+  };
+  const vmRemove = (id: string) => vmDeleted(`/v1/vms/${id}`);
+
+  let platformSnapshot: string | null = null;
+  let vmSnapshot: string | null = null;
+  try {
+    // The snapshots, once, before any sample: a machine that ran its first boot, captured with its memory.
+    try {
+      const source = machineOf(await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} source`, size }, `${args.tag}-start-source`));
+      try {
+        await waitMachine(args.api, source, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        const exec = platformExec(source);
+        for (let i = 0; i < 120; i++) { if ((await exec(DAEMON_CHECK, 30_000).catch(() => ({ stdout: "" }))).stdout.includes("daemon-ok")) break; await sleep(2_000); }
+        const snap = await args.api.op("cloud.snapshot.create", { machine: source, name: `start bench ${args.tag}` }, `${args.tag}-start-snapshot`);
+        const id = snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id;
+        if (typeof id !== "string") throw new Error(`snapshot.create answered no id: ${short(snap)}`);
+        platformSnapshot = id;
+        let ready = false;
+        for (let i = 0; i < 180 && !ready; i++) {
+          const list = await args.api.read("cloud.snapshot.list", {}).catch(() => null);
+          const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
+          const row = rows.find((s) => s?.id === id);
+          if (row?.status === "failed") throw new Error("snapshot failed");
+          ready = row?.status === "ready";
+          if (!ready) await sleep(2_000);
+        }
+        // A capture still running when the source goes would make every restore wait on it: no snapshot path then.
+        if (!ready) throw new Error("snapshot not ready within 6 minutes");
+      } finally {
+        await platformRemove(source).catch(() => undefined);
+      }
+    } catch (error) {
+      notes.push(`platform snapshot not taken: ${scrub(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 300)}`);
+    }
+    if (vmOrigin) {
+      try {
+        const { machine: source } = await vmCreate(null, "vm-api-cold")(-1);
+        try {
+          for (let i = 0; i < 300 && !(await vmRunning(source).catch(() => false)); i++) await sleep(1_000);
+          await vmExec(source)("echo ok");
+          // ttlSeconds: a run killed before its own delete leaves no snapshot behind for good.
+          const s = await vm("POST", `/v1/vms/${source}/snapshots`, { displayName: `start bench ${args.tag}`, ttlSeconds: 3600 }, 300_000);
+          const id = s.body?.id ?? s.body?.snapshot?.id;
+          if (typeof id !== "string") throw new Error(`snapshot: HTTP ${s.status} ${short(s.body?.error ?? s.body)}`);
+          vmSnapshot = id;
+        } finally {
+          await vmRemove(source).catch(() => undefined);
+        }
+      } catch (error) {
+        notes.push(`VM API snapshot not taken: ${scrub(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 300)}`);
+      }
+    }
+    const targets: StartTarget[] = [
+      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      // Right after the claim the one-spare pool is empty, so this create takes none (its answer says so).
+      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      ...(platformSnapshot ? [{ path: "snapshot" as const, create: async (run: number) => {
+        const answer = await args.api.op("cloud.snapshot.restore", { snapshot: platformSnapshot, name: `cloud start bench ${args.tag} snapshot ${run}` }, `${args.tag}-start-restore-${run}`);
+        return { machine: machineOf(answer) };
+      }, running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove }] : []),
+      ...(vmOrigin ? [{ path: "vm-api-cold" as const, create: vmCreate(null, "vm-api-cold"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
+      ...(vmSnapshot ? [{ path: "vm-api-snapshot" as const, create: vmCreate(vmSnapshot, "vm-api-snapshot"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
+    ];
+    // The matrix step stops at 80 minutes and a killed run deletes nothing: no new round starts past 55.
+    const until = Date.now() + 55 * 60_000;
+    for (let run = 0; run < args.n; run++) {
+      if (Date.now() > until) {
+        notes.push(`stopped after ${run} rounds: past 55 minutes`);
+        break;
+      }
+      for (const target of targets) {
+        const sample = await timeStart(target, run);
+        // The table is public (the job summary): an error is scrubbed before it is kept.
+        if (sample.error !== null) sample.error = scrub(sample.error, args.journey.secrets);
+        samples.push(sample);
+        console.log(`start bench ${sample.path}${sample.asked !== sample.path ? ` (asked ${sample.asked})` : ""} #${run}: ${sample.ok ? "ok" : "FAIL"} ${JSON.stringify(sample.ms)}${sample.error ? ` ${scrub(sample.error, args.journey.secrets)}` : ""}`);
+        write();
+      }
+    }
+  } finally {
+    write();
+    // A snapshot whose capture still runs answers busy: the same keyed delete again, for up to two minutes.
+    if (platformSnapshot) {
+      const snapshot = platformSnapshot;
+      for (let attempt = 1; ; attempt++) {
+        const error = await args.api.op("cloud.snapshot.delete", { snapshot }, `${args.tag}-start-snapshot-delete-${attempt}`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
+        if (error === null || /not_found/.test(error)) break;
+        if (attempt >= 12) { notes.push(`platform snapshot delete failed: ${scrub(error, args.journey.secrets).slice(0, 200)}`); break; }
+        await sleep(10_000);
+      }
+    }
+    if (vmSnapshot) await vmDeleted(`/v1/snapshots/${vmSnapshot}`).catch((e) => notes.push(`VM API snapshot delete failed (its ttl ends it within the hour): ${String((e as Error)?.message ?? e)}`));
+    rmSync(stateDir, { recursive: true, force: true });
+    write();
+  }
+  return samples;
+}
+
 export async function runEnsureBench(args: { api: Api; journey: Journey; backend: string; tag: string; n: number; login: string; programs: ReturnType<typeof loginPrograms>; ownerScope: string; outDir: string | null; privateRowsPath?: string }): Promise<EnsureBenchRun[]> {
   const runs: EnsureBenchRun[] = [];
   let probes: ExecProbeRun[] = [];
@@ -1054,6 +1255,8 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
+  boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
@@ -1078,6 +1281,9 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await sweep("boot");
     boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    // Run 43931369542: every ensure answered `unknown harness "claude"; families: chief, unii` in ~13 ms from a daemon
+    // already up, while the run before cold-started its own. Which daemon serves the first ensure, and with what PATH.
+    boot.daemon_before_ensure = (await exec(ensureBenchDaemonFacts(), 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
     const timed = async (condition: EnsureBenchCondition) => {
       for (let i = 0; i < args.n; i++) {
         const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
@@ -2539,7 +2745,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name);
+    // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -3137,6 +3344,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
   // PRECLAIM_ENSURE_BENCH=N does the same, so the dispatch sets it from its env without changing the burst's command line.
   const ensureBench = argValue("--ensure-bench", argv) ?? (process.env.PRECLAIM_ENSURE_BENCH || undefined);
+  // --start-bench N (with --preclaim): create-to-first-command per start path (runStartBench, cloud-start-bench.ts) instead
+  // of the burst; PRECLAIM_START_BENCH=N does the same from the dispatch's env.
+  const startBench = argValue("--start-bench", argv) ?? (process.env.PRECLAIM_START_BENCH || undefined);
   // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
   const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
   if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
@@ -3446,6 +3656,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      if (startBench !== undefined) {
+        const n = Number(startBench);
+        if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--start-bench must be 1..10");
+        if (!cmux) throw new Error("--start-bench needs --cmux PATH for the warm the app sends (the spare path)");
+        return await J.step("start bench", async () => {
+          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const failed = samples.filter((s) => !s.ok).length;
+          return { value: 0, detail: `${samples.length} starts, ${failed} failed; table in start-bench.md` };
+        });
+      }
       if (ensureBench !== undefined) {
         const n = Number(ensureBench);
         if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--ensure-bench must be 1..10");
