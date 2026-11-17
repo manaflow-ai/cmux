@@ -11,6 +11,7 @@
     "chromeStyle": ["chromeStyle", null],
     "lookMotion": ["lookMotion", null],
     "panes": ["panes", null],
-    "focusRing": ["focusRing", null]
+    "focusRing": ["focusRing", null],
+    "themeFlourishes": ["themeFlourishes", "ThemeFlourishSetting"]
   }
 }

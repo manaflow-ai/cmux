@@ -98,6 +98,7 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"], title: SettingsText.keyed("settings.pageGroup.scrollFocus", "Scrolling and Focus")),
             GroupSpec(group: "settings.group.panes"),
             GroupSpec(group: "settings.group.focusRing"),
+            GroupSpec(group: "settings.group.themeFlourishes"),
         ]
     )
 
@@ -112,6 +113,7 @@ extension SettingsPageLayout {
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
             GroupSpec(group: "settings.group.terminalFont"),
+            GroupSpec(group: "settings.group.terminalCursor"),
             // The TERM new terminals start with (terminal.term).
             GroupSpec(group: "settings.group.terminalCompatibility"),
             // The program that opens links from a terminal, and its rules, beside the terminal they come from.

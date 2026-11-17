@@ -258,6 +258,8 @@ public final class DesignSettings {
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// Theme Flourishes: the accent glow, tab close colors, sidebar header and pane art.
+    public var flourishes = ThemeFlourishes.none
     /// `sidebar.border` and `sidebar.borderWidth`.
     public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.

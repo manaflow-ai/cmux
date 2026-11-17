@@ -23,7 +23,9 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
-        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
+        if ThemeFlourishSetting.pictureListPaths.contains(path) { return ThemeFlourishSetting.acceptsPictures(value) }
+        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath
+            || ThemeFlourishSetting.picturePaths.contains(path) {
             return BackdropSelectionSetting.acceptsPicture(value)
         }
         if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }

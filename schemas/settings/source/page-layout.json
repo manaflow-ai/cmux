@@ -202,7 +202,8 @@
               "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
-            {"group": "settings.group.focusRing"}
+            {"group": "settings.group.focusRing"},
+            {"group": "settings.group.themeFlourishes"}
           ]
         },
         {
@@ -227,6 +228,7 @@
           "symbol": "terminal",
           "groups": [
             {"group": "settings.group.terminalFont"},
+            {"group": "settings.group.terminalCursor"},
             {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
             {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
               "terminal.linkOpener.default", "terminal.linkOpener.rules"

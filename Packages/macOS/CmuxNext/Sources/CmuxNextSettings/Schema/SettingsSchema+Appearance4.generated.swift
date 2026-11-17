@@ -73,3 +73,143 @@ extension AppearanceSettingsSchema {
         ]
     }
 }
+
+extension AppearanceSettingsSchema {
+    static var themeFlourishes: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.themeFlourishes", "Theme Flourishes")
+        return [
+            SettingDescriptor(
+                ThemeFlourishSetting.accentGlowDarkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.accentGlow.dark", "Accent Glow (Dark)"),
+                help: SettingsText.keyed("settings.appearance.accentGlow.dark.help", "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow."),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.off", "Off"),
+                keywords: ["theme", "flourish", "color", "glow"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.accentGlowLightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.accentGlow.light", "Accent Glow (Light)"),
+                help: SettingsText.keyed("settings.appearance.accentGlow.light.help", "The glow's color in the light appearance. Unset, the dark color."),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["theme", "flourish", "color", "glow"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.accentGlowRadiusPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.accentGlow.radius", "Accent Glow Radius"),
+                help: SettingsText.keyed("settings.appearance.accentGlow.radius.help", "How far the accent glow spreads from the focused pane."),
+                kind: .number(SettingNumber(ThemeFlourishSetting.accentGlowRadiusRange, step: 1, unit: .points)),
+                default: .number(ThemeFlourishSetting.accentGlowRadiusDefault),
+                keywords: ["theme", "flourish", "glow"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.accentGlowOpacityPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.accentGlow.opacity", "Accent Glow Opacity"),
+                help: SettingsText.keyed("settings.appearance.accentGlow.opacity.help", "How strong the accent glow is."),
+                kind: .number(SettingNumber(ThemeFlourishSetting.accentGlowOpacityRange, step: 0.05, unit: .fraction)),
+                default: .number(ThemeFlourishSetting.accentGlowOpacityDefault),
+                keywords: ["theme", "flourish", "glow"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.tabCloseFromPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.tabClose.from", "Tab Close Color"),
+                help: SettingsText.keyed("settings.appearance.tabClose.from.help", "The color of a tab's close button. Unset, the text color."),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.standard", "Standard"),
+                keywords: ["theme", "flourish", "color", "tab"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.tabCloseToDarkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.tabClose.toDark", "Tab Close Hover Color (Dark)"),
+                help: SettingsText.keyed("settings.appearance.tabClose.toDark.help", "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover."),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.standard", "Standard"),
+                keywords: ["theme", "flourish", "color", "tab"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.tabCloseToLightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.tabClose.toLight", "Tab Close Hover Color (Light)"),
+                help: SettingsText.keyed("settings.appearance.tabClose.toLight.help", "The close button's hover color in the light appearance. Unset, the dark color."),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["theme", "flourish", "color", "tab"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.tabCloseInterpolationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.tabClose.interpolation", "Tab Close Blend"),
+                help: SettingsText.keyed("settings.appearance.tabClose.interpolation.help", "How the close button's color blends to its hover color."),
+                kind: .choice([
+                    SettingChoice("oklab", SettingsText.keyed("settings.choice.tabCloseInterpolation.oklab", "Perceptual (OKLab)")),
+                    SettingChoice("srgb", SettingsText.keyed("settings.choice.tabCloseInterpolation.srgb", "sRGB")),
+                ]),
+                default: .string(ThemeFlourishSetting.tabCloseInterpolationDefault),
+                keywords: ["theme", "flourish", "tab", "close"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.sidebarHeaderDarkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarHeader.dark", "Sidebar Header Image (Dark)"),
+                help: SettingsText.keyed("settings.appearance.sidebarHeader.dark.help", "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none."),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.none", "None"),
+                keywords: ["theme", "flourish", "sidebar", "header", "banner", "image"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.sidebarHeaderLightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarHeader.light", "Sidebar Header Image (Light)"),
+                help: SettingsText.keyed("settings.appearance.sidebarHeader.light.help", "The sidebar header picture in the light appearance. Unset, the dark picture."),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["theme", "flourish", "sidebar", "header", "banner", "image"]
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.paneArtDarkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.paneArt.dark", "Pane Art (Dark)"),
+                help: SettingsText.keyed("settings.appearance.paneArt.dark.help", "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above."),
+                kind: .stringList,
+                default: .array(ThemeFlourishSetting.paneArtDarkDefault.map { .string($0) }),
+                keywords: ["theme", "flourish", "pane", "wallpaper", "background", "art"],
+                placeholder: SettingsText.keyed("settings.appearance.paneArt.placeholder", "file:/path/to/picture.webp")
+            ),
+            SettingDescriptor(
+                ThemeFlourishSetting.paneArtLightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.paneArt.light", "Pane Art (Light)"),
+                help: SettingsText.keyed("settings.appearance.paneArt.light.help", "Pictures behind panes in the light appearance. Empty, the dark list."),
+                kind: .stringList,
+                default: .array(ThemeFlourishSetting.paneArtLightDefault.map { .string($0) }),
+                keywords: ["theme", "flourish", "pane", "wallpaper", "background", "art"],
+                placeholder: SettingsText.keyed("settings.appearance.paneArt.placeholder", "file:/path/to/picture.webp")
+            ),
+        ]
+    }
+}

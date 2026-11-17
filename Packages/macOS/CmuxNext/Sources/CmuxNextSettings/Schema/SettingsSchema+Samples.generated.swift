@@ -299,6 +299,16 @@ extension SettingsSchemaSamples {
                 .string("__not_a_backdrop__"), .number(1),
             ]
         ),
+        "domain:backdrop_pictures": SampleSet(
+            accept: [
+                .array([]), .array([.string("file:/Users/Shared/Harbor.png")]),
+                .array([.string("munch-scream"), .string("file:/Users/Shared/Harbor.png"), .string("system:/System/Library/Desktop Pictures/Sonoma.heic")]),
+            ],
+            refuse: [
+                .string("file:/Users/Shared/Harbor.png"), .array([.string("folder:/Users/Shared/Wallpapers")]),
+                .array([.string("file:relative.png")]), .array([.string("none")]), .array([.number(1)]), .object([:]),
+            ]
+        ),
         "domain:backdrop_schedule": SampleSet(
             accept: [
                 .object([:]),

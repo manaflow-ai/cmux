@@ -233,6 +233,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarPosition: TabBarPosition = ChromePlacementSetting.tabBarPositionDefault
     /// `appearance.paneBackgrounds`: one background for the window or one per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
+    /// Theme Flourishes (`appearance.accentGlow.*`, `.tabClose.*`, `.sidebarHeader.*`, `.paneArt.*`).
+    public var flourishes = ThemeFlourishes.none
+    /// `terminal.cursorStyle` and `terminal.cursorBlink`; unset keeps the Ghostty config's.
+    public var terminalCursor = TerminalCursorSetting()
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
@@ -453,6 +457,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
         snapshot.paneBackgrounds = paneBackgrounds
         if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
+        snapshot.flourishes = ThemeFlourishSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.terminalCursor = TerminalCursorSetting.parse(root, diagnostics: &snapshot.diagnostics)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

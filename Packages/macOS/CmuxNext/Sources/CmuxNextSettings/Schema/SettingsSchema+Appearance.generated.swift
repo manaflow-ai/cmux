@@ -311,6 +311,41 @@ extension PaneRingConfigParser {
     nonisolated static let focusRingShowWhenSinglePaneDefault = false
 }
 
+extension ThemeFlourishSetting {
+    /// `appearance.accentGlow.dark`.
+    public nonisolated static let accentGlowDarkPath = ["appearance", "accentGlow", "dark"]
+    /// `appearance.accentGlow.light`.
+    public nonisolated static let accentGlowLightPath = ["appearance", "accentGlow", "light"]
+    /// `appearance.accentGlow.radius`.
+    public nonisolated static let accentGlowRadiusPath = ["appearance", "accentGlow", "radius"]
+    public nonisolated static let accentGlowRadiusDefault: Double = 24
+    public nonisolated static let accentGlowRadiusRange: ClosedRange<Double> = 0...200
+    /// `appearance.accentGlow.opacity`.
+    public nonisolated static let accentGlowOpacityPath = ["appearance", "accentGlow", "opacity"]
+    public nonisolated static let accentGlowOpacityDefault: Double = 0.35
+    public nonisolated static let accentGlowOpacityRange: ClosedRange<Double> = 0...1
+    /// `appearance.tabClose.from`.
+    public nonisolated static let tabCloseFromPath = ["appearance", "tabClose", "from"]
+    /// `appearance.tabClose.toDark`.
+    public nonisolated static let tabCloseToDarkPath = ["appearance", "tabClose", "toDark"]
+    /// `appearance.tabClose.toLight`.
+    public nonisolated static let tabCloseToLightPath = ["appearance", "tabClose", "toLight"]
+    /// `appearance.tabClose.interpolation`.
+    public nonisolated static let tabCloseInterpolationPath = ["appearance", "tabClose", "interpolation"]
+    public nonisolated static let tabCloseInterpolationDefault = "oklab"
+    public nonisolated static let tabCloseInterpolationValues = ["oklab", "srgb"]
+    /// `appearance.sidebarHeader.dark`.
+    public nonisolated static let sidebarHeaderDarkPath = ["appearance", "sidebarHeader", "dark"]
+    /// `appearance.sidebarHeader.light`.
+    public nonisolated static let sidebarHeaderLightPath = ["appearance", "sidebarHeader", "light"]
+    /// `appearance.paneArt.dark`.
+    public nonisolated static let paneArtDarkPath = ["appearance", "paneArt", "dark"]
+    public nonisolated static let paneArtDarkDefault: [String] = []
+    /// `appearance.paneArt.light`.
+    public nonisolated static let paneArtLightPath = ["appearance", "paneArt", "light"]
+    public nonisolated static let paneArtLightDefault: [String] = []
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AppearanceSettingsSchema {
     static var iconTheme: [SettingDescriptor] {

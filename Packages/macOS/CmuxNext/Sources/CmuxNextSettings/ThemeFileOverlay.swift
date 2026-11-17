@@ -49,8 +49,9 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
-    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
+    /// Look keys outside those prefixes: the terminal font and cursor, and the sidebar's shape and edges.
+    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "terminal.cursorStyle", "terminal.cursorBlink",
+                                        "sidebar.style", "sidebar.border",
                                         "sidebar.borderWidth", "sidebar.sectionLook"]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
@@ -151,7 +152,15 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
             let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
-            let value = pictures.contains(descriptor.path) ? picture(written) : written
+                + ThemeFlourishSetting.picturePaths
+            let value: JSONValue
+            if pictures.contains(descriptor.path) {
+                value = picture(written)
+            } else if ThemeFlourishSetting.pictureListPaths.contains(descriptor.path), case .array(let items) = written {
+                value = .array(items.map(picture))
+            } else {
+                value = written
+            }
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }
