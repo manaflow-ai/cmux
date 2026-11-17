@@ -3,7 +3,8 @@ public import Foundation
 
 /// C values exist only for the duration of the synchronous Rust call. This is
 /// called on the files lane; no pointer crosses an actor or task boundary.
-public nonisolated enum LaunchRecordEncoding {
+public nonisolated struct LaunchRecordEncoding {
+    public nonisolated init() {}
     public static func write(_ value: LaunchRecordSnapshot, to url: URL) -> Bool {
         guard !url.path.utf8.contains(0), !value.sessionSocketPath.utf8.contains(0) else { return false }
         let arena = LaunchRecordStrings()

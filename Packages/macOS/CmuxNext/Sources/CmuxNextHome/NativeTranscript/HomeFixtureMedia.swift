@@ -1,5 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
+import CmuxNextCompat
+import CryptoKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -20,6 +22,27 @@ nonisolated enum HomeFixtureMedia {
         let pdf = dir.appendingPathComponent("Quarterly review.pdf")
         try writePDF(to: pdf)
         return [photo, video, pdf]
+    }
+
+    /// The Chief's media message of 2026-11-16 (msg 36844) and my wide picture: a 1760 x 880 PNG, two 1280 x 720
+    /// MP4s and a 2256 x 454 PNG, in a fresh temporary folder.
+    static func chiefMedia() async throws -> (shot: URL, videos: [URL], wide: URL) {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "cmux-home-media-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
+        let shot = dir.appending(path: "compare-exit-frames.png", directoryHint: .notDirectory)
+        try writePNG(width: 1760, height: 880, to: shot, hue: 0.02)
+        let videos = [dir.appending(path: "before-slow4x.mp4", directoryHint: .notDirectory),
+                      dir.appending(path: "after-slow4x.mp4", directoryHint: .notDirectory)]
+        for (index, video) in videos.enumerated() { try await writeVideo(to: video, width: 1280, height: 720, frames: 30 + 15 * index) }
+        let wide = dir.appending(path: "CleanShot 2026-11-16 at 8.19.10 PM@2x.png", directoryHint: .notDirectory)
+        try writePNG(width: 2256, height: 454, to: wide, hue: 0.12)
+        return (shot, videos, wide)
+    }
+
+    /// A file's SHA-256 (hex) and byte count, read off the main actor.
+    @concurrent static func digest(_ url: URL) async -> (String, Int)? {
+        guard let data = try? Data(blockingContentsOf: url) else { return nil }
+        return (SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), data.count)
     }
 
     static func writePNG(width: Int, height: Int, to url: URL, hue: CGFloat) throws {

@@ -575,7 +575,7 @@ pub(super) fn attach_surface(
             hybrid_resume,
             agent_cli_hybrid::Wants { lean: hybrid_lean, shell: shell_viewer, lines: shell_lines },
         );
-        let (viewer, first) = match started {
+        let (mut viewer, first) = match started {
             Ok(started) => started,
             Err(error) => {
                 lifecycle.cancel();
@@ -591,17 +591,26 @@ pub(super) fn attach_surface(
                     fields.insert("event".into(), json!("colors-changed"));
                     fields.insert("surface".into(), json!(surface_id));
                 }
-                // The input modes the screen has set (bracketed paste, cursor keys): a lines
-                // viewer's keys and pastes follow them, and frames do not carry them.
-                let modes = viewer.input_modes().map(|modes| {
+                let output = |bytes: Vec<u8>| {
                     json!({
                         "event": "output",
                         "surface": surface_id,
-                        "data": base64::engine::general_purpose::STANDARD.encode(modes),
+                        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
                     })
-                });
+                };
+                // An agent CLI on the alternate screen (Codex, opencode): the viewer's terminal
+                // switches to it before the keyframe draws there.
+                let screen = viewer.screen_before_first_frame().map(output);
+                // The input modes the screen has set (bracketed paste, cursor keys): a lines
+                // viewer's and an agent CLI viewer's keys and pastes follow them, and frames
+                // do not carry them.
+                let modes = viewer.input_modes().map(output);
                 writer
                     .send_initial(&colors, &outbound_stream)
+                    .and_then(|()| match &screen {
+                        Some(screen) => writer.send_initial(screen, &outbound_stream),
+                        None => Ok(()),
+                    })
                     .and_then(|()| writer.send_initial(&first, &outbound_stream))
                     .and_then(|()| match &modes {
                         Some(modes) => writer.send_initial(modes, &outbound_stream),

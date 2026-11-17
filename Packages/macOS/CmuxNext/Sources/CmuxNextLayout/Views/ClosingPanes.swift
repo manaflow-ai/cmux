@@ -1,6 +1,11 @@
 import CoreGraphics
 import CmuxNextDesign
 
+/// NO CALLER: a close is one commit now (`ScreenContentView.reconcile`, `ScreenContentView+SnapFrame`) and no pane
+/// springs closed, so nothing makes one of these. This type and ``ClosingPanesRules`` stay for one more change only:
+/// the rules are Rust's (`cmux_closing_panes_*`), their header is an input of the app FFI, and a change that edits Swift
+/// cannot edit an FFI input. They go with the Rust rules, in the change that follows the Rust removal.
+///
 /// FRAME OWNER REFACTOR S3c: the panes a springing close took out
 /// of one screen, each still shown with only its own ground (`PaneHostView.showClosingGround`) on the space its
 /// neighbours, or its row column's scroll, have not covered yet.
