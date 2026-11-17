@@ -3694,7 +3694,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const processSource = useMemo<ProcessSource>(
     () => ({
-      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      listProcesses: (sessionId, recent) =>
+        directClient.current?.listProcesses(sessionId, recent) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
@@ -3768,6 +3769,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       backgroundOpen ||
       snapshot.isWorking ||
       transcriptRunning.length > 0,
+    // The whole history only while a list of it shows; the tray and the card read the recent ones.
+    (sessionInfoOn && sessionInfoOpened) || backgroundOpen,
   );
   const runningCommandList = useMemo(
     () =>
@@ -5914,20 +5917,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : NO_COMMANDS,
     [subagentTray, processRegistry, transcriptTasks],
   );
-  const endedCommandsKey = endedCommandList
-    .map((task) =>
-      [
-        task.id,
-        task.state,
-        task.command,
-        task.description ?? "",
-        task.startedAt ?? "",
-        task.endedAt ?? "",
-        task.toolCallId ?? "",
-        task.subagent ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
+  // Built when the list changes, never per render: a chat's ended commands can number thousands.
+  const endedCommandsKey = useMemo(
+    () =>
+      endedCommandList
+        .map((task) =>
+          [
+            task.id,
+            task.state,
+            task.command,
+            task.description ?? "",
+            task.startedAt ?? "",
+            task.endedAt ?? "",
+            task.toolCallId ?? "",
+            task.subagent ?? "",
+          ].join("\u0000"),
+        )
+        .join("\u0001"),
+    [endedCommandList],
+  );
   const endedCommandItems = useMemo((): TrayItem[] => {
     const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
     return endedCommandList.map((command) => {

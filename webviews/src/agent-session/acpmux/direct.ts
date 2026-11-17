@@ -6355,7 +6355,27 @@ export class AcpmuxDirectClient {
   /// place, with the newer page's row. An older acpmux that ignores `limit` sends one reply cut to
   /// what fits and counts the rest in `omitted`; that count is passed on, never dropped. A failed
   /// page fails the whole read: no partial list is answered as if it were whole.
-  async listProcesses(sessionId: string): Promise<{ processes?: unknown[]; omitted?: number }> {
+  ///
+  /// `recent` reads only what a chat's page holds while nothing shows the whole history: every
+  /// running process and the newest `recent` ended (processes.ts `PROCESS_LIST_RECENT`), in one reply, `omitted`
+  /// counting the older ones (acpmux `recent`, hub/processes.rs `list_recent_processes`). A god
+  /// chat's 56,000 shells were 66 MB of JSON parsed and held in the renderer for a tray of a few.
+  /// An acpmux or host that refuses `recent`, or ignores it (no `recent` echoed), is read whole, as before.
+  async listProcesses(sessionId: string, recent?: number): Promise<{ processes?: unknown[]; omitted?: number }> {
+    if (recent !== undefined) {
+      const reply = await this.request("_acpmux/process/list", { sessionId, recent }).then(
+        (page) => page as { processes?: unknown; recent?: unknown; omitted?: unknown } | undefined,
+        () => undefined,
+      );
+      // Only an acpmux that read `recent` echoes it: an older one ignores the key and answers its
+      // unpaged list, the newest rows that fit one reply, which can leave out an old running one.
+      if (Array.isArray(reply?.processes) && reply.recent === recent) {
+        const omitted = reply.omitted;
+        return typeof omitted === "number" && omitted > 0
+          ? { processes: reply.processes, omitted }
+          : { processes: reply.processes };
+      }
+    }
     const processes: unknown[] = [];
     const at = new Map<string, number>();
     let listed = false;

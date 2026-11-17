@@ -134,3 +134,60 @@ fn an_unpaged_list_that_fits_is_whole() {
     let reply = process_window_values(processes, PROCESS_PAGE_BUDGET, output_len);
     assert_eq!(reply, json!({"processes": full}));
 }
+
+/// What a chat's page holds (`recent`): every running process, however old, and the newest ended
+/// ones, in start order, with every older ended one counted in `omitted`. A god chat (56,000
+/// shells) gave its page all of them, 66 MB of JSON parsed into the renderer (2026-11-16).
+#[test]
+fn recent_keeps_every_running_process_and_the_newest_ended_ones() {
+    let mut table = ProcessTable::default();
+    for index in 0..10_000 {
+        let mut process = make(index, format!("step {index}"));
+        if index % 2_500 == 7 {
+            process.state = ProcessState::Running;
+        }
+        table.upsert(process);
+    }
+    let (kept, older) = table.recent_snapshot(100);
+    let ids: Vec<&str> = kept.iter().map(|p| p.id.as_str()).collect();
+    let running: Vec<&str> =
+        kept.iter().filter(|p| p.state == ProcessState::Running).map(|p| p.id.as_str()).collect();
+    assert_eq!(
+        running,
+        ["session/task-7", "session/task-2507", "session/task-5007", "session/task-7507"]
+    );
+    assert_eq!(kept.iter().filter(|p| p.state != ProcessState::Running).count(), 100);
+    assert_eq!(ids.last(), Some(&"session/task-9999"));
+    assert_eq!(ids[4], "session/task-9900", "the ended window follows the older running ones");
+    assert_eq!(older + kept.len(), 10_000);
+    let reply = recent_values(kept, older, 100, PROCESS_PAGE_BUDGET, |_| 0);
+    assert_eq!(reply["processes"].as_array().unwrap().len(), 104);
+    assert_eq!(reply["recent"], 100);
+    assert_eq!(reply["omitted"], 10_000 - 104);
+
+    let (all, none) = table.recent_snapshot(1_000_000);
+    assert_eq!((all.len(), none), (10_000, 0));
+    let (empty, zero) = ProcessTable::default().recent_snapshot(10);
+    assert!(empty.is_empty() && zero == 0);
+}
+
+/// A reply cut to its size drops the oldest ended rows, never a running one: a dev server started at
+/// the chat's beginning is the oldest row of all, and a cut from the oldest end lost it (review of
+/// cmux#44174).
+#[test]
+fn a_recent_reply_cut_to_size_keeps_the_oldest_running_process() {
+    let mut table = ProcessTable::default();
+    let mut server = make(0, "serve".to_owned());
+    server.state = ProcessState::Running;
+    table.upsert(server);
+    for index in 1..400 {
+        table.upsert(make(index, "x".repeat(3_000)));
+    }
+    let (kept, older) = table.recent_snapshot(500);
+    let reply = recent_values(kept, older, 500, 200_000, |_| 0);
+    let rows = reply["processes"].as_array().unwrap();
+    assert!(reply.to_string().len() < 200_000);
+    assert_eq!(rows[0]["id"], "session/task-0", "the running server is kept, first in start order");
+    assert_eq!(rows.last().unwrap()["id"], "session/task-399");
+    assert_eq!(reply["omitted"].as_u64().unwrap() as usize, 400 - rows.len());
+}

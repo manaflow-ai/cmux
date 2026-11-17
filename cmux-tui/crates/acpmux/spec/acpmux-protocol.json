@@ -4976,6 +4976,7 @@
         },
         "cursor": true,
         "limit": true,
+        "recent": true,
         "sessionId": true
       },
       "type": "object"
