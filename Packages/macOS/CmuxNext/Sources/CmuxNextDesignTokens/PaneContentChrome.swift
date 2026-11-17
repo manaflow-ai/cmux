@@ -31,8 +31,8 @@ public protocol PaneContentChrome: AnyObject {
     /// the focused pane, subtle in the others (`appearance.focusIndicator`).
     func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool)
     /// Whether the layout that the pane's screen shows has this pane zoomed. The layout says it in the pass that
-    /// shows a layout change, with the rings and dims, so the view's own zoom marks (an Exit Zoom control) change
-    /// with the frame that shows the zoom or the unzoom, not with the key before it.
+    /// shows a zoom or an unzoom, when it placed the panes, so the view's own zoom marks (an Exit Zoom control)
+    /// change with the frame that shows the zoom or the unzoom, not with the key before it.
     func setPaneShownZoomed(_ zoomed: Bool)
 }
 

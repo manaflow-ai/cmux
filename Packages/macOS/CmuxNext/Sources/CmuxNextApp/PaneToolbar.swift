@@ -16,7 +16,7 @@ import os
 /// pinned, Search Tabs, then Show in Tab Bar, which pins or unpins one. The Toggle Terminal and Chat pair stays out. A chat's pane draws its own tools (acpmux
 /// header/ChatHeaderTools.tsx).
 @MainActor
-final class PaneToolbar {
+final class PaneToolbar: PaneControlsRefreshing {
     /// What the selected tab is, for its own actions; nil is a chat: no pins and no "…".
     enum Kind: Hashable, Sendable {
         case newTab, terminal, browser, other
@@ -128,7 +128,6 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
-        // `zoomed` is what the pane's screen shows (`TabStripModel.zoomsSelected`), not the store's zoom: the store has it from the key, frames before.
         guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: pane.stripModel.zoomsSelected, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no pins, not a stale bar.

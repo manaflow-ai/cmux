@@ -13,6 +13,8 @@ import CmuxNextDesign
 /// The fade runs on the render server. This object counts its time in the layout's frame ticks: it has no timer and
 /// no clock of its own, so the frame that shows a zoom, and the one that takes the dim away, are the layout's.
 /// The screen owns one and tells it what happens (``ScreenContentView/zoomDim``); it keeps no reference to the screen.
+///
+/// It also tells the panes when the screen shows a zoom or an unzoom, for their own zoom marks (``showMarks(on:)``).
 @MainActor
 final class PaneZoomDim {
     enum Phase {
@@ -38,6 +40,8 @@ final class PaneZoomDim {
     private var returning: PaneID?
     /// The zoom the screen shows came with no dim (a page's, or on a canvas): its unzoom brings none either.
     private var cameUndimmed = false
+    /// The pane whose own zoom marks show, as the last pass told the panes (``showMarks(on:)``); nil: none.
+    private var marked: PaneID?
     private weak var view: PaneZoomDimView?
 
     /// The longest the dim's fade may take, whatever the animation speed. With the frames a layout change may wait for
@@ -130,9 +134,11 @@ final class PaneZoomDim {
         if phase == .coming { end() }
     }
 
-    /// The pass of `screen` that shows an unzoom placed the panes: the dim shows over the others at its full strength,
-    /// and goes.
+    /// A pass of `screen` placed the panes: the panes' own zoom marks become those of the layout that this pass shows
+    /// (``showMarks(on:)``). In the pass that shows an unzoom, the dim shows over the others at its full strength, and
+    /// goes.
     func panesPlaced(on screen: ScreenContentView) {
+        showMarks(on: screen)
         guard let pane = returning else { return }
         returning = nil
         let fade = self.fade(on: screen)
@@ -141,6 +147,21 @@ final class PaneZoomDim {
         phase = .going
         remaining = fade
         screen.context.requestFrames()
+    }
+
+    /// Tells the panes whether the layout that `screen` shows now has them zoomed (`PaneContentChrome`), so a pane's
+    /// own zoom marks (an Exit Zoom control) change with the frame that shows the zoom or the unzoom, not with the key
+    /// before it. Only a pass that shows another zoom than the pass before tells: the pane that had the marks, and
+    /// each pane the pass placed. A page that has the whole window shows its pane alone whatever the zoom is: the
+    /// layout says nothing in that time.
+    private func showMarks(on screen: ScreenContentView) {
+        guard !presentsPage else { return }
+        let zoomed = screen.zoomed ? screen.layout.panes.first : nil
+        guard zoomed != marked else { return }
+        for pane in Set(screen.paneFrames.keys).union([marked, zoomed].compactMap { $0 }) {
+            (screen.context.hosts[pane]?.content as? PaneContentChrome)?.setPaneShownZoomed(pane == zoomed)
+        }
+        marked = zoomed
     }
 
     /// The dim's view over `screen` less `pane`'s content rect as the pane shows now, in the layout's overlay plane.

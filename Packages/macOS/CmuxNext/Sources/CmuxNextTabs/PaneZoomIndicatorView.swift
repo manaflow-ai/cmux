@@ -111,8 +111,26 @@ public final class PaneZoomIndicatorView: NSView {
         needsLayout = true
     }
 
+    /// The layout that shows the pane has it zoomed, or has it not (`PaneContentChrome.setPaneShownZoomed`): the
+    /// pane's zoom marks take it now. The strip's model gets the zoom (``TabStripModel/zoomsSelected``), the pane lays
+    /// out again (it places this indicator, and its strip gives up the trailing controls' width), and `controls`
+    /// applies the pane's state again in this call: its own observation of the model runs a turn later.
+    public func show(zoomed: Bool, controls: (any PaneControlsRefreshing)?) {
+        guard let model, model.zoomsSelected != zoomed else { return }
+        model.zoomsSelected = zoomed
+        superview?.needsLayout = true
+        controls?.refresh()
+    }
+
     @objc private func pressed() {
         guard let model, let id = model.selectedID ?? model.tabs.first?.id else { return }
         model.send(.toggleZoom(id))
     }
+}
+
+/// The owner of a pane's trailing controls (the App's `PaneToolbar`): it applies the pane's state to them again, now.
+@MainActor
+public protocol PaneControlsRefreshing: AnyObject {
+    /// Applies the pane's state to the controls again.
+    func refresh()
 }

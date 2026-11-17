@@ -22,7 +22,7 @@ private typealias DaemonScreenID = CmuxNextDaemon.ScreenID
 /// shows both panes, and the control in the frame that shows the zoomed pane alone. For an unzoom: the control while
 /// the screen still shows the zoomed pane alone, and no control in the frame that shows both panes again.
 ///
-/// The control takes the zoom from the layout, in the pass that shows the change (`ScreenContentView.updateChrome`,
+/// The control takes the zoom from the layout, in the pass that shows the change (`PaneZoomDim.showMarks(on:)`,
 /// `PaneContentView.setPaneShownZoomed`). It once took the store's zoom, through two observation tasks that run after
 /// the action's turn (`PaneController.observe`, `PaneToolbar.init(pane:view:)`), and so changed frames before the
 /// screen did. Each test is one main-actor turn from the store's snapshot to its last expectation, so neither task
