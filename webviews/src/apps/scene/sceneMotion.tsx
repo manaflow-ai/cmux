@@ -73,10 +73,11 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
     previous: ids,
     transitions: new Map<string, boolean>(),
     leaving: new Map<string, number>(),
-    scheduled: new Set<string>(),
+    // One leave timer per leaving id: a child that comes back has its timer cleared, so leaving
+    // again starts a fresh one.
+    timers: new Map<string, ReturnType<typeof setTimeout>>(),
   });
   const [, redraw] = useReducer((n: number) => n + 1, 0);
-  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const s = state.current;
   if (s.previous !== ids) {
     const before = s.previous;
@@ -90,7 +91,11 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
     });
     for (const id of ids) {
       s.leaving.delete(id);
-      s.scheduled.delete(id);
+      const timer = s.timers.get(id);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        s.timers.delete(id);
+      }
     }
   }
   // Each live child's transition, noted while it is still in the store.
@@ -98,24 +103,24 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
 
   useEffect(() => {
     for (const id of s.leaving.keys()) {
-      if (s.scheduled.has(id)) continue;
-      s.scheduled.add(id);
+      if (s.timers.has(id)) continue;
       const timer = setTimeout(() => {
-        timers.current.delete(timer);
-        if (!s.scheduled.delete(id)) return;
+        if (s.timers.get(id) !== timer) return;
+        s.timers.delete(id);
         s.leaving.delete(id);
         s.transitions.delete(id);
         redraw();
       }, leaveMs());
-      timers.current.add(timer);
+      s.timers.set(id, timer);
     }
   });
   useEffect(() => {
-    const pending = timers.current;
+    const pending = s.timers;
     return () => {
-      for (const timer of pending) clearTimeout(timer);
+      for (const timer of pending.values()) clearTimeout(timer);
+      pending.clear();
     };
-  }, []);
+  }, [s]);
 
   if (!s.leaving.size) return ids.map((id) => ({ id, leaving: false }));
   const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));

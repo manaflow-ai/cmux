@@ -638,6 +638,24 @@ test("a transition animates a node in after the first frame and keeps a removed 
   expect(container.querySelector('[data-app-node="a"]')).toBeNull();
 });
 
+test("a reset scene draws fresh: nothing enters and nothing old stays to leave", () => {
+  const { container, store } = render(list);
+  act(() =>
+    store.apply(
+      [
+        { op: "create", id: "root", type: "VStack", props: {} },
+        { op: "create", id: "z", type: "Text", props: { text: "Eggs", transition: "slide" } },
+        { op: "children", id: "root", children: ["z"] },
+        { op: "root", id: "root" },
+      ],
+      true,
+    ),
+  );
+  const order = [...container.querySelectorAll("[data-app-node]")].map((n) => n.getAttribute("data-app-node"));
+  expect(order).toEqual(["root", "z"]);
+  expect(container.querySelector('[data-app-node="z"]')!.hasAttribute("data-entering")).toBe(false);
+});
+
 test("with motion off a removed node goes at once", () => {
   const { container, store } = render(list);
   document.documentElement.dataset.cmuxMotion = "off";

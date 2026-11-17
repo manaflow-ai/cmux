@@ -288,3 +288,47 @@ fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
     f.supervisor.unmount(CLIENT, "w").unwrap();
     assert_eq!(f.supervisor.widget_armed(CLIENT, "w"), None);
 }
+
+/// A hidden tile whose render threw is not mounted again while nobody sees it: the remount waits
+/// for the page to show it, then runs at once.
+#[test]
+fn a_hidden_stale_widget_is_mounted_again_only_when_shown() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_widget(&f.state, "broken", "renderFail", json!({ "sizes": ["small"] }));
+    f.supervisor.reload_local_apps(&prints);
+    f.install("local/broken");
+    edit(&f, "k1", "newtab", json!({ "op": "add", "app": "local/broken" })).unwrap();
+    f.supervisor
+        .mount(
+            CLIENT,
+            "w",
+            "local/broken",
+            "cmux.widget/1",
+            json!({ "place": "newtab", "size": "small", "instance": "w1" }),
+        )
+        .unwrap();
+    f.wait("the first stale", |e| e["event"] == "apps-widget-health" && e["failures"] == 1);
+    call(&f, "apps.widgets.visible", json!({ "mount_id": "w", "visible": false }), Origin::Script)
+        .unwrap();
+
+    // The 1 s retry comes due while hidden and only marks the remount owed.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.widget_retry_due(CLIENT, "w") != Some(true) {
+        assert!(Instant::now() < deadline, "the retry never came due");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    while let Ok(event) = f.events.try_recv() {
+        assert!(
+            !(event["event"] == "apps-widget-health" && event["failures"] == 2),
+            "a hidden tile was mounted again: {event}"
+        );
+    }
+
+    call(&f, "apps.widgets.visible", json!({ "mount_id": "w", "visible": true }), Origin::Script)
+        .unwrap();
+    let second =
+        f.wait("the remount on show", |e| e["event"] == "apps-widget-health" && e["failures"] == 2);
+    assert_eq!(second["retry_ms"], 2000);
+    assert_eq!(f.supervisor.widget_retry_due(CLIENT, "w"), Some(false));
+}

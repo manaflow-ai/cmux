@@ -42,8 +42,10 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         let color = node.props["color"]?.sceneColor ?? Palette.textPrimary
         label.textColor = color
         guard node.flag("strikethrough") else { return }
+        // A one-line label truncates in its paragraph; a wrapping one wraps there and the cell
+        // truncates its last line. (Turning it off needs nothing: configure sets the plain string.)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = label.lineBreakMode
+        paragraph.lineBreakMode = label.maximumNumberOfLines == 1 ? label.lineBreakMode : .byWordWrapping
         label.attributedStringValue = NSAttributedString(
             string: node.string("text") ?? "",
             attributes: [

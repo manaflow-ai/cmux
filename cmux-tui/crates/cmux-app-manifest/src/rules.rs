@@ -210,9 +210,6 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     out
 }
 
-/// Scope classes: server-only scopes belong in `server.scopes`; restricted
-/// scopes need first party or a Verified review; `process:spawn` needs a
-/// native (first-party) server.
 /// `cmux.widget/1`'s rules across its options: `defaultSize` is one of `sizes`, and a widget
 /// offered in the sidebar (which takes small and medium at its width) draws one of those.
 fn widget_rules(at: &str, imp: &Value, out: &mut Vec<Issue>) {
@@ -244,6 +241,9 @@ fn widget_rules(at: &str, imp: &Value, out: &mut Vec<Issue>) {
     }
 }
 
+/// Scope classes: server-only scopes belong in `server.scopes`; restricted
+/// scopes need first party or a Verified review; `process:spawn` needs a
+/// native (first-party) server.
 fn check_scopes(m: &Value, first_party: bool, out: &mut Vec<Issue>) {
     let native_server = m.pointer("/server/kind").and_then(Value::as_str) == Some("native");
     for (field, server) in

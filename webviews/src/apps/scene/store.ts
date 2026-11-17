@@ -71,6 +71,9 @@ export class SceneStore {
   // Height frequencies let one changed child update its ancestors without scanning their siblings.
   private readonly childHeights = new Map<string, Map<number, number>>();
   private root: string | undefined;
+  // Counts resets: a reset scene is a new tree, so the renderer draws it fresh (no enter or leave
+  // animation carried over from the old one).
+  private generation = 0;
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
@@ -80,6 +83,7 @@ export class SceneStore {
     return this.nodes.get(id);
   }
   getRoot = (): string | undefined => this.root;
+  getGeneration = (): number => this.generation;
 
   subscribeNode(id: string, listener: Listener): () => void {
     let listeners = this.listeners.get(id);
@@ -127,12 +131,13 @@ export class SceneStore {
       this.heights.clear();
       this.childHeights.clear();
       this.root = undefined;
+      this.generation += 1;
     }
     for (const op of ops) this.applyOne(op, changed);
     for (const id of changed) {
       for (const listener of this.listeners.get(id) ?? []) listener();
     }
-    if (previousRoot !== this.root) for (const listener of this.rootListeners) listener();
+    if (reset || previousRoot !== this.root) for (const listener of this.rootListeners) listener();
     // After the scene's own listeners, as the host model sets its status after applying the batch.
     // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
     const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;

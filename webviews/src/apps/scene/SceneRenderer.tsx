@@ -485,11 +485,12 @@ export function SceneRenderer({
   resolveAsset?: SceneAssetResolver;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
+  const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
       {root ? (
         <div className="cmux-app-scene-root">
-          <SceneAppeared>
+          <SceneAppeared key={generation}>
             <SceneNodeView id={root} store={store} dispatch={dispatch} />
           </SceneAppeared>
         </div>

@@ -586,6 +586,13 @@ fn serve(
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
                     );
+                } else if script.contains("THROW_IN_WIDGET") {
+                    // A widget whose render throws: the daemon keeps it mounted, stale.
+                    out.push(
+                        json!({"event": "apps-widget-health", "mount_id": mount_id, "stale": true,
+                        "reason": "render: dist/main.js:3:7 TypeError: ctx.nope is not a function",
+                        "failures": 1, "retry_ms": 1000}),
+                    );
                 } else if script.contains("THROW_AT_INIT") {
                     out.push(json!({"event": "apps-mount-failed", "mount_id": mount_id,
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
@@ -761,6 +768,14 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
         (Some("dist/main.js"), Some(2), Some(12))
     );
     assert!(broken.line().contains("the last good version stays live"), "{}", broken.line());
+
+    // A widget whose render throws stays mounted and goes stale (let it crash): the probe
+    // reports the render error at once, not a timeout.
+    std::fs::write(dir.join("dist/main.js"), "// THROW_IN_WIDGET\n").unwrap();
+    let stale = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(stale.phase, Phase::Load, "{:?}", stale.errors);
+    assert_eq!(stale.exit_code(), exit::LOAD_FAILED);
+    assert!(stale.errors[0].message.contains("TypeError"), "{:?}", stale.errors);
 
     // `ext remove` drops the copy it made, and only that.
     assert_eq!(dev::remove_made_folder(&copy), Ok(true));
