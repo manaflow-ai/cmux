@@ -176,6 +176,14 @@ struct Diag {
     repairs_rx: u64,
     repairs_rx_bytes: u64,
     repairs_rx_stale: u64,
+    /// Shards seen so far, and shards ever NACKed, for the duplicate counts.
+    seen: std::collections::HashSet<(u32, u16)>,
+    ever_nacked: std::collections::HashSet<(u32, u16)>,
+    /// A shard arriving that the viewer already had; of those, a NACKed one
+    /// (the repair of a shard that was only late, or the late original after
+    /// its repair): a useless resend.
+    dup_arrivals: u64,
+    dup_nacked_arrivals: u64,
 }
 
 impl Diag {
@@ -198,6 +206,17 @@ impl Diag {
         }
         self.last_arrival_ns = now;
         self.frame_first_ns.entry(frame).or_insert(now);
+        if !self.seen.insert((frame, index)) {
+            self.dup_arrivals += 1;
+            if self.ever_nacked.contains(&(frame, index)) {
+                self.dup_nacked_arrivals += 1;
+            }
+        }
+        if self.seen.len() > 400_000 {
+            let oldest = self.frame_first_ns.keys().next().copied().unwrap_or(0);
+            self.seen.retain(|(f, _)| *f >= oldest);
+            self.ever_nacked.retain(|(f, _)| *f >= oldest);
+        }
         while self.frame_first_ns.len() > 2048 {
             self.frame_first_ns.pop_first();
         }
@@ -215,6 +234,7 @@ impl Diag {
             let stale = self.stale(n.frame, now);
             for &i in &n.indexes {
                 self.nack_shards += 1;
+                self.ever_nacked.insert((n.frame, i));
                 if self.nacked.insert((n.frame, i)) {
                     self.nack_shards_unique += 1;
                 }
@@ -241,6 +261,8 @@ impl Diag {
             "repairs_rx": self.repairs_rx,
             "repairs_rx_bytes": self.repairs_rx_bytes,
             "repairs_rx_stale": self.repairs_rx_stale,
+            "dup_arrivals": self.dup_arrivals,
+            "dup_nacked_arrivals": self.dup_nacked_arrivals,
             "give_ups": incomplete,
             "broken_references": losses.len() - incomplete,
         })
