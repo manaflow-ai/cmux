@@ -31,6 +31,9 @@ Linux. The app is one sheet on top of it.
   their normal host-key policy. Candidate probes force strict checking and disable key updates,
   so background discovery never accepts an unknown key. Positive unknown-key diagnostics leave
   `ssh_ok` absent and the candidate selectable; all other verification failures remain rejected.
+  OpenSSH's default policy under `BatchMode` says only "Host key verification failed." for an
+  unknown key, so enrollment without the flag asks that bare failure again under the probe's
+  strict policy and offers `--accept-new-host-key` only when it names an unknown key.
   Error diagnostics are preserved under quiet SSH configurations. A configured `CheckHostIP`
   may record an already trusted key under its IP; no key is removed or replaced by this flow.
 - `cmux-tui acp host doctor NAME|HOST [--fix] [--reverse] --json` runs the checks alone. `--fix`

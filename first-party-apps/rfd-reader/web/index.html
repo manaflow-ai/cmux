@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RFDs</title>
+  <link rel="stylesheet" href="main.css">
+</head>
+<body data-variant="directory">
+  <header id="bar">
+    <button id="home" class="title" type="button">RFDs</button>
+    <span id="crumb"></span>
+    <span class="grow"></span>
+    <button id="open-search" class="ghost" type="button" title="Search (Cmd-K)">Search <kbd>⌘K</kbd></button>
+    <button id="open-jump" class="ghost" type="button" title="Jump to an RFD (Cmd-/)">Jump <kbd>⌘/</kbd></button>
+    <button id="new" type="button">New RFD</button>
+    <span id="variants" role="radiogroup" aria-label="Design variant"></span>
+  </header>
+  <div id="app">
+    <nav id="list" aria-label="RFDs">
+      <div id="filters" role="group" aria-label="State"></div>
+      <input id="filter" type="search" placeholder="Filter by title or number">
+      <ol id="rows"></ol>
+    </nav>
+    <main id="doc" tabindex="-1"></main>
+  </div>
+  <footer id="status" aria-live="polite"></footer>
+  <div id="hovercard" role="tooltip" hidden></div>
+  <dialog id="search-dialog" aria-label="Search RFDs">
+    <input id="search-input" type="search" placeholder="Search every RFD's text">
+    <div class="split">
+      <ol id="search-results"></ol>
+      <article id="search-preview" class="prose"></article>
+    </div>
+  </dialog>
+  <dialog id="jump-dialog" aria-label="Jump to an RFD">
+    <input id="jump-input" type="search" placeholder="RFD number or title">
+    <ol id="jump-results"></ol>
+  </dialog>
+  <dialog id="new-dialog" aria-label="New RFD">
+    <form id="new-form" method="dialog">
+      <h2>New RFD <span id="new-number"></span></h2>
+      <label>Title <input id="new-title" required placeholder="What this decides"></label>
+      <label>State
+        <select id="new-state">
+          <option>prediscussion</option>
+          <option>ideation</option>
+          <option selected>discussion</option>
+        </select>
+      </label>
+      <label>Authors <input id="new-authors" placeholder="comma separated"></label>
+      <label>Text <textarea id="new-body" rows="12" placeholder="## Problem and context&#10;&#10;## Proposal&#10;&#10;## Open questions"></textarea></label>
+      <p class="muted">Opens GitHub's new-file page with this RFD filled in. Commit it on a new branch there and GitHub opens the pull request: no clone.</p>
+      <div class="actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button id="new-submit" value="ok">Open pull request</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

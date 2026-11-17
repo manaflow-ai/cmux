@@ -257,6 +257,19 @@ struct IntentLog {
         closedTabs.removeAll { surfaces.contains($0.surface) }
     }
 
+    /// The created tabs still to report to the app, oldest first: the stand-in's tab id, whether it is a page tab
+    /// (the store has one report for each kind) and the daemon's tab. The daemon's tab of a creation arrives while
+    /// the pending intents are lifted, so the app hears of it when that apply ends (``OverlayReports``).
+    private var createdToReport: [(id: String, page: Bool, tab: TabModel)] = []
+
+    mutating func noteCreatedToReport(_ id: String, page: Bool, tab: TabModel) { createdToReport.append((id, page, tab)) }
+
+    /// The created tabs to report now; none is left to report after this call.
+    mutating func takeCreatedToReport() -> [(id: String, page: Bool, tab: TabModel)] {
+        defer { createdToReport = [] }
+        return createdToReport
+    }
+
     /// Whether daemon surface `surface` took a recently created stand-in's place.
     func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
 
