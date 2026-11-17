@@ -168,7 +168,8 @@ public struct TerminalProjectionGoldenRoot: View {
             readBack()
             note("\(golden.stages.count + 2).kbdown")
             await wait(Self.stageSeconds)
-        case "scrollback_reaches_line_one":
+        case "scrollback_reaches_line_one" where UserDefaults.standard.object(forKey: "CmuxMobileProjectionGoldenScrollToTop") == nil
+            || UserDefaults.standard.bool(forKey: "CmuxMobileProjectionGoldenScrollToTop"):
             for _ in 0..<8 {
                 model.scrollToTop()
                 await wait(1)

@@ -46,12 +46,13 @@ final class TerminalProjectionGoldenShotsUITests: XCTestCase {
     }
 
     @MainActor
-    private func run(_ name: String, side: String) {
+    private func run(_ name: String, side: String, scrollToTop: Bool = true) {
         XCUIDevice.shared.orientation = side == "mac" ? .landscapeLeft : .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES",
-                                "-CmuxMobileProjectionGolden", name, "-CmuxMobileProjectionGoldenSide", side]
+                                "-CmuxMobileProjectionGolden", name, "-CmuxMobileProjectionGoldenSide", side,
+                                "-CmuxMobileProjectionGoldenScrollToTop", scrollToTop ? "YES" : "NO"]
         app.launch()
         defer { app.terminate() }
         let probe = app.staticTexts["debug.terminal-demo"]
@@ -97,19 +98,26 @@ final class TerminalProjectionGoldenShotsUITests: XCTestCase {
             shot("10-portrait-again")
         }
 
-        if side == "phone", name == "scrollback_reaches_line_one" {
+        if side == "phone", name == "scrollback_reaches_line_one", !scrollToTop {
             // Real swipes toward the top, one a second, for at most 30 s:
             // the reader scrolling up brings the older rows until line 1.
             let window = app.windows.firstMatch
-            let deadline = Date().addingTimeInterval(30)
+            let deadline = Date().addingTimeInterval(120)
             var swipes = 0
-            while Date() < deadline {
+            var afterLoaded = -1
+            while Date() < deadline, afterLoaded < 10 {
                 let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
                 let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
                 from.press(forDuration: 0.01, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
                 swipes += 1
                 RunLoop.current.run(until: Date().addingTimeInterval(1))
                 if swipes % 5 == 0 { shot("swipe-\(swipes)") }
+                if afterLoaded >= 0 {
+                    afterLoaded += 1
+                } else if text.exists, text.label.contains("|line 0001") {
+                    print("[projection-golden] line 0001 held after \(swipes) swipes")
+                    afterLoaded = 0
+                }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(2))
             shot("swiped-top")
@@ -118,5 +126,5 @@ final class TerminalProjectionGoldenShotsUITests: XCTestCase {
         }
     }
 
-    @MainActor func testScrollbackSwipesPhone() { run("scrollback_reaches_line_one", side: "phone") }
+    @MainActor func testScrollbackSwipesPhone() { run("scrollback_reaches_line_one", side: "phone", scrollToTop: false) }
 }
