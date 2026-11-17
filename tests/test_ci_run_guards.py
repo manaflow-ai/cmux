@@ -193,21 +193,28 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         units = run_ci_guards.plan(self.workflow(literal), "base", "head")
         self.assertEqual(units[0].steps[1].run, "echo head")
 
-    def test_a_submodule_checkout_makes_its_group_sequential(self) -> None:
-        unit = run_ci_guards.Unit("j", "g", [
-            run_ci_guards.Step("init", "git submodule update --init vendor/bonsplit", {}, None),
-            run_ci_guards.Step("use", "python3 lint.py", {}, None),
-        ])
-        self.assertTrue(run_ci_guards.is_stateful(unit))
+    def test_a_submodule_checkout_runs_before_its_group(self) -> None:
+        """A submodule init hands the next steps the checkout only, so it is setup: it runs alone first and the
+        group's other steps then run in parallel (release-notary's ghostty-next init; release-tooling's ghostty init
+        before the Zig version sync, which failed run first in #23534)."""
+        for init in ("git submodule update --init vendor/bonsplit", "bash scripts/ci/init-submodule.sh ghostty"):
+            with self.subTest(init=init):
+                unit = run_ci_guards.Unit("j", "g", [
+                    run_ci_guards.Step("init", init, {}, None),
+                    run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
+                ])
+                self.assertFalse(run_ci_guards.is_stateful(unit))
+                self.assertEqual([step.name for step in run_ci_guards.setup_steps(unit)], ["init"])
 
-    def test_the_submodule_init_script_makes_its_group_sequential(self) -> None:
-        """release-tooling initializes ghostty with scripts/ci/init-submodule.sh before the Zig version
-        sync reads ghostty/build.zig.zon; run in parallel, the sync ran first and failed (#23534)."""
-        unit = run_ci_guards.Unit("j", "g", [
-            run_ci_guards.Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
-            run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
-        ])
-        self.assertTrue(run_ci_guards.is_stateful(unit))
+    def test_a_sandbox_hand_off_still_makes_its_group_sequential(self) -> None:
+        for step in (run_ci_guards.Step("env", 'echo X=1 >> "$GITHUB_ENV"', {}, None),
+                     run_ci_guards.Step("path", 'echo /x >> "$GITHUB_PATH"', {}, None),
+                     run_ci_guards.Step("install", "bun install", {}, "agent-chat"),
+                     run_ci_guards.Step("both", 'git submodule update --init x; echo X=1 >> "$GITHUB_ENV"', {}, None)):
+            with self.subTest(step=step.name):
+                unit = run_ci_guards.Unit("j", "g", [step, run_ci_guards.Step("use", "true", {}, None)])
+                self.assertTrue(run_ci_guards.is_stateful(unit))
+                self.assertEqual(run_ci_guards.setup_steps(unit), [])
 
     def test_the_zig_installer_test_keeps_its_github_env_to_itself(self) -> None:
         """Run in order, release-tooling's Zig download test published its fake zig through the job's
@@ -561,6 +568,108 @@ class DeterminismGateReportsEachFinding(unittest.TestCase):
             self.assertEqual(results.read_text().splitlines(), ["0\ttests/test_timing.py: assert-on-duration"])
             self.assertEqual(run_ci_guards.read_check_results(results),
                              {"tests/test_timing.py: assert-on-duration": False})
+
+
+class CheckoutSetupRunsFirst(unittest.TestCase):
+    """release-notary ran as one ordered task because its first step initializes ghostty-next: 124 steps one after
+    another, 915 s on 4 vCPU, past nightly-guards' 15-minute job on every push (run 44110521024). The init now runs
+    alone first and the rest share the pool."""
+
+    def run_main(self, units, jobs="4"):
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        events: list[tuple[str, str]] = []
+        lock = threading.Lock()
+        running = [0, 0]  # now, most at once
+
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+            results = []
+            for step in steps:
+                with lock:
+                    events.append(("start", step.name))
+                    running[0] += 1
+                    running[1] = max(running)
+                time.sleep(0.2)
+                with lock:
+                    events.append(("end", step.name))
+                    running[0] -= 1
+                result = run_ci_guards.StepResult(unit, step, True, 0.0, "")
+                results.append(result)
+                if on_result is not None:
+                    on_result(result)
+            return results
+
+        saved = run_ci_guards.plan, run_ci_guards.run_steps
+        run_ci_guards.plan = lambda workflow, base_sha, head_sha: units
+        run_ci_guards.run_steps = fake_run_steps
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = run_ci_guards.main(["--group", "release-notary", "--jobs", jobs, "--no-stamp"])
+        finally:
+            run_ci_guards.plan, run_ci_guards.run_steps = saved
+        return code, events, running[1]
+
+    def test_the_init_finishes_first_and_every_other_step_runs_in_parallel(self) -> None:
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        steps = [Step("Initialize ghostty-next", "git submodule update --init --depth 1 ghostty-next", {}, None)]
+        steps += [Step(f"guard {n}", f"python3 tests/t{n}.py", {}, None) for n in range(8)]
+        code, events, most = self.run_main([Unit("workflow-guard-tests", "release-notary", steps)])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(name for kind, name in events if kind == "start"), sorted(s.name for s in steps))
+        self.assertEqual(events[:2], [("start", "Initialize ghostty-next"), ("end", "Initialize ghostty-next")])
+        self.assertEqual(most, 4, "the group's steps did not share the pool")
+
+
+class ATimedOutRunStopsItsSteps(unittest.TestCase):
+    """Steps run in their own sessions. A run its caller's `timeout` stopped (SIGTERM) left them running: the guard
+    group's base re-run is bounded that way."""
+
+    def test_sigterm_ends_every_running_step(self) -> None:
+        import signal  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-term-") as temp:
+            pid_file = Path(temp) / "pid"
+            driver = Path(temp) / "driver.py"
+            driver.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(ROOT / 'scripts/ci')!r})\n"
+                "import run_ci_guards as r\n"
+                f"step = r.Step('sleeps', 'sleep 300 & echo $! > {pid_file}; wait', {{}}, None)\n"
+                "r.plan = lambda w, b, h: [r.Unit('workflow-guard-tests', 'g', [step])]\n"
+                "sys.exit(r.main(['--group', 'g', '--jobs', '1', '--no-stamp']))\n",
+                encoding="utf-8")
+            proc = subprocess.Popen([sys.executable, str(driver)], cwd=ROOT, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True)
+            deadline = time.monotonic() + 60
+            while not (pid_file.is_file() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            child = int(pid_file.read_text())
+            proc.send_signal(signal.SIGTERM)
+            output, _ = proc.communicate(timeout=60)
+            self.assertEqual(proc.returncode, 130, output)
+            self.assertIn("interrupted", output)
+            time.sleep(0.5)
+            with self.assertRaises(ProcessLookupError, msg="the step's child outlived the run"):
+                os.kill(child, 0)
+
+
+class ACutShortTipRunIsNoVerdict(unittest.TestCase):
+    def test_an_incomplete_results_file_fails_and_says_it_timed_out(self) -> None:
+        import json  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as temp:
+            results = Path(temp) / "r.json"
+            for complete, code in ((True, 0), (False, 1)):
+                with self.subTest(complete=complete):
+                    results.write_text(json.dumps({"_cmux_complete": complete, "a step": True}), encoding="utf-8")
+                    run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/guards_new_reds.py"), "--tip",
+                                          str(results)], capture_output=True, text=True, timeout=60)
+                    self.assertEqual(run.returncode, code, run.stdout + run.stderr)
+                    self.assertEqual("timed out" in run.stdout, not complete)
 
 
 if __name__ == "__main__":

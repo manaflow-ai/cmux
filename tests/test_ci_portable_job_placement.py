@@ -700,11 +700,18 @@ class Wiring(unittest.TestCase):
                         self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
                                       runs_on)
 
-    def test_release_notary_takes_the_placement_through_ci_guards(self):
+    def test_release_notary_takes_fleet_linux_then_a_mini_then_the_linux_pool(self):
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
-        runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
-        self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
+        job = guards["release-notary"]
+        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
+        for runs_on in routes(job, "release-notary"):
+            linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
+            mini = runs_on.index("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')")
+            self.assertLess(linux, mini)
+            self.assertLess(mini, runs_on.rindex("fromJSON(vars.RUNNER_POOLS).linux"))
+        # ci-guards.yml's matrix still takes a caller's placement (ci.yml's routes).
         for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
             self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
             self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))

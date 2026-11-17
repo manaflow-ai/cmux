@@ -149,6 +149,12 @@ def stop_running() -> None:
             pass
 
 
+def interrupt_on_term(signum, frame) -> None:
+    """SIGTERM (a caller's `timeout`) stops the run as Ctrl-C does. Steps run in their own sessions, so without this
+    a timed-out run left its steps running: the guard group's base re-run is bounded by `timeout`."""
+    raise KeyboardInterrupt
+
+
 def cache_root() -> Path:
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return Path(base) / "cmux-guards"
@@ -344,9 +350,24 @@ def hands_state(step: Step) -> bool:
     )
 
 
+def checkout_setup(step: Step) -> bool:
+    """A step whose only hand-off is the shared checkout (a submodule init): no GITHUB_ENV, GITHUB_PATH or folder."""
+    return hands_state(step) and not (
+        step.working_directory or "GITHUB_ENV" in step.run or "GITHUB_PATH" in step.run
+    )
+
+
 def is_stateful(unit: Unit) -> bool:
-    """Steps that hand state to later steps must run in order."""
-    return any(hands_state(step) for step in unit.steps)
+    """Steps that hand state to later steps through the job's sandbox must run in order. A group whose only hand-off
+    is a submodule init (release-notary's ghostty-next, release-tooling's ghostty) is not: the init changes the
+    shared checkout, so it runs first (setup_steps) and the rest run in parallel. Run as one ordered task,
+    release-notary's 124 steps took 915 s on a 4 vCPU runner, past nightly-guards' 15-minute job."""
+    return any(hands_state(step) and not checkout_setup(step) for step in unit.steps)
+
+
+def setup_steps(unit: Unit) -> list[Step]:
+    """A stateless unit's checkout setup steps, run alone and in order before any of its other steps."""
+    return [] if is_stateful(unit) else [step for step in unit.steps if checkout_setup(step)]
 
 
 def needs_clean_tree(steps: list[Step]) -> bool:
@@ -776,17 +797,24 @@ def main(argv: list[str]) -> int:
     # A stateless group's steps are independent tasks; a group whose steps
     # pass state along (GITHUB_ENV, GITHUB_PATH, a bun install) is one task.
     tasks: list[tuple[Unit, list[Step]]] = []
+    setups: list[tuple[Unit, list[Step]]] = []
     for unit in units:
         if is_stateful(unit):
             tasks.append((unit, unit.steps))
-        else:
-            tasks.extend((unit, [step]) for step in unit.steps)
+            continue
+        setup = setup_steps(unit)
+        if setup:
+            setups.append((unit, setup))
+        tasks.extend((unit, [step]) for step in unit.steps if step not in setup)
     tasks.sort(key=lambda task: -len(task[1]))
-    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
+    # Tasks that need a clean checkout run one at a time first, then each checkout setup (a submodule init: two at
+    # once would race on .git/config), then the rest share the pool.
     batches = [[task] for task in tasks if needs_clean_tree(task[1])]
+    batches.extend([task] for task in setups)
     batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
+    signal.signal(signal.SIGTERM, interrupt_on_term)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
         for batch in batches:
