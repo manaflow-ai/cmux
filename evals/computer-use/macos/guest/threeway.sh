@@ -14,7 +14,7 @@ for ph in ${phases//,/ }; do
     d=$out/$ph-$arm; mkdir -p "$d"
     echo "$(date +%T) start $ph $arm" >> "$out/progress.log"
     if [[ $ph == bg ]]; then
-      ./gr.sh -b screencapture -x -v -V 1500 "$d/rep1-$arm.mov" > "$d/rec.job"
+      ./gr.sh -b screencapture -x -v -V 600 "$d/rep1-$arm.mov" > "$d/rec.job"
       ./gr.sh -t 5000 ./cuenv3.sh python3 "$(entry_bg $arm)" --arm $arm --reps 1 --rep-start 1 --out "$d" > "$d/rep1.log" 2>&1
       pkill -INT -x screencapture; /bin/sleep 3
       ./gr.sh -t 9000 ./cuenv3.sh python3 "$(entry_bg $arm)" --arm $arm --reps 2 --rep-start 2 --out "$d" > "$d/rep23.log" 2>&1
