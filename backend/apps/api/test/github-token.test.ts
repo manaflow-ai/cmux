@@ -4,6 +4,8 @@ import type { Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
 import { describe, expect, it, vi } from "vitest"
 import type { ConnectionsState } from "../src/domains/connections.ts"
+import { mintAccessToken } from "../src/auth.ts"
+import { handleGithubToken } from "../src/integrations/github-token-route.ts"
 import { drainTokenRevocations, githubRepos, githubStatus, githubToken, nextLedgerAt, type LedgerHost } from "../src/integrations/github-tokens.ts"
 import { post, signedInWithInstall, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
@@ -708,6 +710,60 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await list(a.session, `team=${a.team}&query=${"x".repeat(257)}`)).status).toBe(400)
     const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
     expect(seam.status).toBe(404)
+  })
+
+  it("GET /repos answers a Cloud machine in every environment for its own team only, under the token route's machine gate", async () => {
+    // The test Worker runs with ENVIRONMENT=test: outside development, as staging and production.
+    const MACHINE = `vm_${"4".repeat(20)}`
+    const a = await signedInWithInstall("gh-repos-vm-1", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    // The installation holds a repository the linking user's list (acme/web, acme/api) leaves out: never listed.
+    gh.routes["https://api.github.com/installation/repositories"] = () => ok({ total_count: 3, repositories: [{ full_name: "acme/web", private: true, default_branch: "main" }, { full_name: "acme/api", private: false }, { full_name: "acme/unlinked", private: true }] })
+    // A VM install bound to `machine` in `team`, on a's UserDO (as Cloud's bind registers it), and its bearer.
+    const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(a.user))
+    const vmInstall = async (team: string, machine: string) => {
+      const id = `inst_vm${crypto.randomUUID().replace(/-/g, "").slice(0, 18)}`, grant = `grant_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+      await inDO(userDO, async (i) => {
+        const s = i.boundEngine.currentState
+        s.installs[id] = { ...s.installs[a.install], id, kind: "vm", grant, revoked_at: null, bound_team: team, bound_machine: machine }
+        s.grants[grant] = { id: grant, grantee: id, op_classes: ["vm-self"], approval: "none", expires_at: null, revoked_at: null, created_from: "install" }
+      })
+      return { id, grant, bearer: (await mintAccessToken(testEnv as any, { user: a.user, team, install: id, grant, vm: true })).token }
+    }
+    // cmux-platform's CloudDO (not in this Worker): cloud.vm.self.get answers only for the asking install's own live machine.
+    const live = new Set([MACHINE])
+    const env = { ...testEnv, CLOUD_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_e: string, p: Principal, op: string, params: { machine?: string }) => (op === "cloud.vm.self.get" && params.machine === p.bound_machine && live.has(params.machine ?? "") ? { ok: true, revision: "cloud:1", value: { machine: { id: params.machine } } } : { ok: false, code: "auth.forbidden", message: "not this machine" }) }) } }
+    const list = async (bearer: string, query: string) => {
+      const res = await handleGithubToken(new Request(`https://api.test/v1/integrations/github/repos?${query}`, { headers: { authorization: `Bearer ${bearer}` } }), env as any, "repos")
+      return { status: res.status, body: (await res.json()) as any }
+    }
+    const vm = await vmInstall(a.team, MACHINE)
+    const mine = await list(vm.bearer, `team=${a.team}`)
+    expect([mine.status, mine.body], JSON.stringify(mine.body)).toEqual([200, { repos: [{ full_name: "acme/web", private: true, default_branch: "main" }, { full_name: "acme/api", private: false, default_branch: null }], truncated: false, cursor: null }])
+    // With no team the VM's own team is used, as on /token.
+    expect((await list(vm.bearer, "")).body.repos.map((r: any) => r.full_name)).toEqual(["acme/web", "acme/api"])
+    // Every repository listed is one the same VM can mint a token for; the left-out one is refused on both.
+    const mint = (repo: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo, permissions: { contents: "read" } }) }), env as any, "token").then((r) => r.status)
+    expect([await mint("acme/web"), await mint("acme/api"), await mint("acme/unlinked")]).toEqual([200, 200, 403])
+
+    // Another team's repositories: a VM names only its machine's team.
+    const other = await signedInWithInstall("gh-repos-vm-2", "cli")
+    await linkGitHub(other.session, other.team)
+    const elsewhere = await list(vm.bearer, `team=${other.team}`)
+    expect([elsewhere.status, elsewhere.body.error.code]).toEqual([403, "auth.forbidden"])
+    // A VM of a team with no GitHub link lists nothing of a's, whatever team it names.
+    const unlinked = await signedInWithInstall("gh-repos-vm-3", "cli")
+    const theirs = await vmInstall(unlinked.team, MACHINE)
+    expect((await list(theirs.bearer, `team=${a.team}`)).status).toBe(403)
+    expect((await list(theirs.bearer, "")).status).not.toBe(200)
+    // A machine that is no longer this install's live machine (vmGate), then a revoked install: refused.
+    live.delete(MACHINE)
+    const gone = await list(vm.bearer, `team=${a.team}`)
+    expect([gone.status, gone.body.error.code]).toEqual([403, "auth.forbidden"])
+    live.add(MACHINE)
+    await inDO(userDO, async (i) => void (i.boundEngine.currentState.installs[vm.id].revoked_at = Date.now()))
+    expect((await list(vm.bearer, `team=${a.team}`)).status).toBe(401)
+    expect(JSON.stringify(gone.body) + JSON.stringify(elsewhere.body)).not.toContain("acme/")
   })
 
   // A VM install's token is gated on CloudDO's vm-self read of its own machine (github-token-route.ts); CloudDO and its

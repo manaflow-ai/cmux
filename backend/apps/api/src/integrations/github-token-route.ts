@@ -80,8 +80,11 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
   // The machine-only seam is a development surface until the hosted connector rollout. Repository
-  // enumeration answers a signed-in person (a session or their own install) in every environment; a
-  // machine's listing stays on development as before.
+  // enumeration answers in every environment: a signed-in person (a session or their own install), and a
+  // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
+  // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
+  // tokens that VM could mint: githubRepos keeps only the connections it may use and the repositories
+  // their scope and the team's allowlist cover (githubRepoAllowed, as authorize's githubCovers).
   if (sub === "machine-token" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
@@ -93,7 +96,6 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (asked !== null && (asked.length > 256 || /\p{Cc}/u.test(asked))) return failed(no(400, "request.invalid", "query is at most 256 characters of text"))
     const who = await caller(request, env, team)
     if (isFail(who)) return failed(who)
-    if (who.p.kind === "install" && who.p.install_kind === "vm" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
     // One answer walks a few upstream pages, so a filter finds a repository past the first hundred;
     // `truncated` says more remain, and `cursor` continues from there.
     const repos: Array<{ full_name: string; private: boolean; default_branch: string | null }> = []
