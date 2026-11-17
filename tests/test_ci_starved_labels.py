@@ -311,6 +311,104 @@ def dispatches(github: FakeGitHub) -> list:
             if method == "POST" and path.endswith("/actions/workflows/ci-owned-pool-rescue.yml/dispatches")]
 
 
+def gate_row(*, listening=0, busy=0, units=0, cpu=0, livelock=0, other=0, down=0, unreported=0) -> dict:
+    return {"listening": listening, "busy": busy, "down": down, "unreported": unreported, "queued": 1,
+            "oldest_queued_s": 1800, "as_of": iso(1),
+            "held_offline": {"total": units + cpu + livelock + other, "units": units, "cpu": cpu,
+                             "livelock": livelock, "other": other}}
+
+
+def gates(minutes_ago: float = 1, **rows) -> dict:
+    return {"version": 1, "as_of": iso(minutes_ago), "labels": rows}
+
+
+STD = "glaeda-std-xcode-26.6"
+
+
+class CarrierTests(unittest.TestCase):
+    """Full (busy, or held for units or load) is capacity; offline (down with no hold) is an outage."""
+
+    def state(self, label: str, reading) -> str:
+        return starved_labels.carriers(label, reading, NOW)["state"]
+
+    def test_every_carrier_busy_or_held_for_units_reads_full(self) -> None:
+        # cmux#45614: every std mini ran jobs or held its root runner for units; GitHub showed them offline.
+        found = starved_labels.carriers(STD, gates(**{STD: gate_row(busy=13, units=24, other=17)}), NOW)
+        self.assertEqual(found["state"], "full")
+        self.assertIn("13 busy", found["why"])
+        self.assertIn("24 units", found["why"])
+
+    def test_carriers_held_only_for_load_read_full(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(cpu=5, other=2)})), "full")
+
+    def test_carriers_down_with_no_hold_and_none_running_read_offline(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=4)})), "offline")
+
+    def test_one_busy_carrier_beside_down_ones_reads_full_and_names_the_down_ones(self) -> None:
+        found = starved_labels.carriers(SIDE, gates(**{SIDE: gate_row(busy=1, down=3)}), NOW)
+        self.assertEqual(found["state"], "full")
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j", "carriers": found}
+        self.assertIn("3 of its carriers are down with no hold", starved_labels.issue_body(entry, iso(0)))
+
+    def test_down_carriers_beside_unreported_ones_read_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=1, unreported=10)})), "unknown")
+
+    def test_an_idle_listener_reads_listening(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(listening=1, busy=2)})), "listening")
+
+    def test_a_label_with_no_carrier_reads_none(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row()})), "none")
+
+    def test_only_unreported_carriers_read_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(unreported=3)})), "unknown")
+
+    def test_no_stale_or_missing_reading_reads_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, None), "unknown")
+        self.assertEqual(self.state(SIDE, gates(minutes_ago=6, **{SIDE: gate_row(busy=1)})), "unknown")
+        self.assertEqual(self.state(SIDE, gates(**{OTHER: gate_row(busy=1)})), "unknown")
+
+    def test_a_label_over_several_parts_reads_its_worst_part_and_an_unlisted_part_is_unknown(self) -> None:
+        # cmux#45620: glaeda-ios-sim+glaeda-std; the reading lists std only, so std being full proves nothing.
+        both = f"glaeda-ios-sim+{STD}"
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3, units=4)})), "unknown")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(units=2)})),
+                         "full")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(down=2)})),
+                         "offline")
+
+    def test_the_stale_bound_matches_the_janitors(self) -> None:
+        text = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
+        self.assertIn(f"FLEET_GATES_STALE_S = {starved_labels.CARRIER_READING_STALE_S}\n", text)
+
+    def test_the_issue_body_says_full_or_offline(self) -> None:
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j"}
+        full = starved_labels.issue_body({**entry, "carriers": {"state": "full", "why": "x"}}, iso(0))
+        offline = starved_labels.issue_body({**entry, "carriers": {"state": "offline", "why": "x"}}, iso(0))
+        self.assertIn("full, not offline", full)
+        self.assertNotIn("outage", full)
+        self.assertIn("outage", offline)
+        self.assertIn("No runner with this label is taking jobs", starved_labels.issue_body(entry, iso(0)))
+
+    def test_main_classifies_each_starved_label_from_the_snapshot_gates(self) -> None:
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j"}
+        snapshot = {"generated_at": iso(0), "starved": [entry, {**entry, "label": OTHER}],
+                    "gates": gates(**{SIDE: gate_row(busy=2, units=3), OTHER: gate_row(down=2)})}
+        github = FakeGitHub([])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(starved_labels, "client", return_value=github):
+            path = Path(tmp) / "load.json"
+            path.write_text(json.dumps(snapshot), encoding="utf-8")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = starved_labels.main(["--snapshot", str(path)], env={"GH_REPO": "manaflow-ai/cmux", "GH_TOKEN": "t"})
+        self.assertEqual(code, 0)
+        self.assertIn(f"{SIDE} took no job for 30m, carriers full", out.getvalue())
+        self.assertIn(f"{OTHER} took no job for 30m, carriers offline", out.getvalue())
+        bodies = {body["title"]: body["body"] for method, path, body in github.calls
+                  if method == "POST" and path.endswith("/issues")}
+        self.assertIn("full, not offline", bodies[starved_labels.issue_title(SIDE)])
+        self.assertIn("an outage", bodies[starved_labels.issue_title(OTHER)])
+
+
 class RescueTests(unittest.TestCase):
     """cmux#45115 (2026-11-17): glaeda-ios-sim+glaeda-std-xcode-26.6 unserved 539 minutes, 16 jobs queued, every
     carrier held off by its mini's gate; the alert opened an issue and NOW paged it, and nothing moved a job."""
