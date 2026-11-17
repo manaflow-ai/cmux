@@ -457,6 +457,11 @@ RATCHET_BASELINES = {
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
+# Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
+# its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
+# finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
+# keeps only the installed lines its own commit still lists: a removed line is taken, an added one never is.
+LINE_BASELINES = ("concentric-containers-baseline.txt",)
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips
 # that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
@@ -1448,6 +1453,18 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             taken.append(f"{name}: {' '.join(key)} {installed} -> {now}")
         if changed:
             path.write_text("".join(lines), encoding="utf-8")
+    for name in LINE_BASELINES:
+        path = scripts_dir / name
+        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
+        if not path.is_file() or own.returncode != 0:
+            continue
+        listed = set(own.stdout.decode(errors="replace").splitlines())
+        installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
+        kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
+        if len(kept) != len(installed):
+            taken += [f"{name}: {line.rstrip()} (line removed)" for line in installed if line not in kept]
+            path.write_text("".join(kept), encoding="utf-8")
     return taken
 
 

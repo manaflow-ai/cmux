@@ -432,6 +432,19 @@ public struct WindowRegistry: Equatable, Sendable {
         return changes
     }
 
+    /// A gather (Move Space to This Window): `move`s `workspaceIDs` into window `id`, then removes those of `givers` (the
+    /// windows that owned them) that own no workspace any more, as `closeEmptied` does with an empty one: a window left
+    /// listing only guests (another window's workspaces it shows) does not stay open for them. A view that never owned
+    /// one (`openView`) is no giver and stays.
+    @discardableResult
+    public mutating func gather(_ workspaceIDs: [String], to id: String, from givers: [String]) -> Changes {
+        var changes = move(workspaceIDs, to: id)
+        let emptied = givers.filter { $0 != id && window($0)?.ownedIDs.isEmpty == true }
+        for giver in emptied { remove(giver) }
+        changes.emptied += emptied
+        return changes
+    }
+
     /// Orders each window's workspaces like `live` (the daemons' order);
     /// workspaces not in it keep their place after the ordered ones.
     public mutating func order(like live: [String]) {
