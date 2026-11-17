@@ -4,6 +4,11 @@ Status: design and v1 build, 2026-10-22. Code: `cmux-tui/crates/cmux-weft`. Depl
 `cmux-tui/crates/cmux-weft/deploy/`. The operated staging and production apps, their secrets and
 the fleet measurements are documented in the private platform repo, not here.
 
+2026-11-16: the coordinator and relay (`weft-coord`, `weft-relay`, their deploy files and the
+loopback e2e test) are deleted. Nothing in our repositories called them, and no workflow built
+them. The client, policy and wire formats stay in the crate. The staging apps in section 8 are
+still to be torn down. Sections below describe the v1 build as it was.
+
 Weft is cmux's own Tailscale-shaped network: a coordination service that knows every device
 and the policy, a WireGuard data plane that runs inside the cmux process (no root, no kernel
 extension, no system VPN prompt), and relays on Fly so two devices always reach each other.

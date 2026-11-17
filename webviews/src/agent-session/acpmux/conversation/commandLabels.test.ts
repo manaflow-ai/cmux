@@ -119,8 +119,8 @@ const CASES: [command: string, label: string][] = [
   ["lane-gh search manaflow-ai/cmux is:pr command label", "Searched GitHub for “is:pr command label”"],
   ["glaeda-gh wait pr manaflow-ai/cmux#123 --until done --timeout 30m", "Waited on manaflow-ai/cmux#123"],
   ["wt new cmux lane/command-row-labels --from origin/feat-cmux-next", "Created worktree lane/command-row-labels"],
-  // A compound command names its first step and no more, an ellipsis for the rest.
-  ["git add -A && git commit -m wip && git push", "Staged all changes …"],
+  // A compound command reads as its whole line, not its first step and " …" (2026-11-14 change).
+  ["git add -A && git commit -m wip && git push", "Ran git add -A && git commit -m wip && git push"],
   // Unknown programs never get a meaning: their line, without the plumbing after it.
   ["make -j8 2>&1 | tail -20", "Ran make -j8"],
   // A write to a file stays on the line: only /dev/null and fd copies are plumbing.
