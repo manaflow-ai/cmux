@@ -12,7 +12,9 @@ fix-cause label.
 So every job of such a workflow must skip for that event. The check evaluates
 each job's `if:` the way Actions does, with its `needs` (a job whose needs all
 skipped runs only if its condition says always() or !cancelled()). A new
-labeled workflow that runs a job for the event fails here.
+labeled workflow that runs a job for the event fails here. risk tier is the one
+exemption (EXEMPT): its evidence job takes no job-level if, so a skipped run never
+reads as a passed required check (#38003).
 
 An open pull request is not exempt from anything: risk tier and the
 backend-migrations gate are required checks read newest-by-name, and a skipped
@@ -283,9 +285,17 @@ FIX_CAUSE_EVENTS = [
 ]
 
 
+# Workflows that keep running for the event on purpose. risk-tier's evidence job never takes a job-level if:
+# a skipped job reads as a passed required risk evidence check
+# (tests/test_risk_tier_history_admission.py, #38003), so it pays its one job per label.
+EXEMPT = {"risk-tier.yml": "a skipped risk evidence job reads as a pass (#38003)"}
+
+
 def offenders(workflows: dict[str, dict]) -> list[str]:
     problems = []
     for name, document in workflows.items():
+        if name in EXEMPT:
+            continue
         for context in FIX_CAUSE_EVENTS:
             started = jobs_started(document, context)
             if started:
@@ -297,6 +307,11 @@ def offenders(workflows: dict[str, dict]) -> list[str]:
 
 
 class FixCauseLabelsStartNoJobs(unittest.TestCase):
+    def test_risk_tier_still_runs_for_the_event(self):
+        # The exemption is real: risk tier is never skipped, not even for a fix-cause label on a closed PR.
+        context = event("labeled", "fix-cause:ci-config")
+        self.assertEqual(jobs_started(label_target_workflows()["risk-tier.yml"], context), ["evidence"])
+
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.
         self.assertIn("risk-tier.yml", label_target_workflows())
