@@ -244,6 +244,117 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// the picture (Petal's telepointers: cursors as metadata, never pixels).
     /// An older viewer never says it and keeps the cursor in the picture.
     public static let telepointersCapability = "telepointers"
+
+    /// `t` of the host's ``ScreenSourceState`` (in `s`), sent when it changes.
+    public static let sourceType = "source"
+
+    /// The host's source state message.
+    public init(source state: ScreenSourceState) {
+        self.init(t: Self.sourceType, s: state.rawValue)
+    }
+
+    /// The source state this message carries; nil for any other message.
+    public var sourceState: ScreenSourceState? {
+        guard t == Self.sourceType else { return nil }
+        return s.flatMap(ScreenSourceState.init(rawValue:))
+    }
+}
+
+/// What the Mac's screen shows the capture: the picture, or nothing because
+/// the session is locked or the display asleep. A locked, dark Mac streams a
+/// few idle black frames with stats that look healthy ("3 fps, 0 KB/s, 12 ms"
+/// on Leo's NIGHTLY, 2026-11-17), so the host says which (``ScreenHostMessage/sourceType``)
+/// and the viewer tells the person. An older host never says (live); an
+/// older viewer ignores the message.
+public enum ScreenSourceState: String, Sendable, Equatable, CaseIterable {
+    case live
+    case locked
+    /// The display sleeps (the session may be unlocked).
+    case asleep
+}
+
+/// The source state from lock and display-sleep events. Locked wins over
+/// asleep: a locked Mac whose display slept needs unlocking either way.
+public struct ScreenSourceTracker: Sendable, Equatable {
+    public enum Event: Sendable, Equatable {
+        case locked, unlocked, displaySlept, displayWoke
+    }
+
+    public var locked: Bool
+    public var asleep: Bool
+
+    public init(locked: Bool = false, asleep: Bool = false) {
+        self.locked = locked
+        self.asleep = asleep
+    }
+
+    public var state: ScreenSourceState { locked ? .locked : (asleep ? .asleep : .live) }
+
+    /// Applies `event`; the new state when it changed, else nil.
+    public mutating func apply(_ event: Event) -> ScreenSourceState? {
+        let before = state
+        switch event {
+        case .locked: locked = true
+        case .unlocked: locked = false
+        case .displaySlept: asleep = true
+        case .displayWoke: asleep = false
+        }
+        return state == before ? nil : state
+    }
+}
+
+/// Where a source's lock and display-sleep events come from: the system's
+/// (``ScreenCaptureBackend``), or a test's.
+public protocol ScreenSourceEvents: Sendable {
+    /// The state now.
+    func current() -> ScreenSourceTracker
+    /// Calls `event` for each change until the returned cancel runs.
+    func observe(_ event: @escaping @Sendable (ScreenSourceTracker.Event) -> Void) -> @Sendable () -> Void
+}
+
+/// Follows a source's events and reports its state: once at ``start()``,
+/// then on each change, until ``stop()``.
+// crash-allow: `tracker` and `cancel` are read and written only under `lock`.
+public final class ScreenSourceMonitor: @unchecked Sendable {
+    private let events: any ScreenSourceEvents
+    private let changed: @Sendable (ScreenSourceState) -> Void
+    private let lock = NSLock()
+    private var tracker = ScreenSourceTracker()
+    private var cancel: (@Sendable () -> Void)?
+    private var stopped = false
+
+    public init(events: any ScreenSourceEvents, changed: @escaping @Sendable (ScreenSourceState) -> Void) {
+        self.events = events
+        self.changed = changed
+    }
+
+    public func start() {
+        // Observing first: a change between the read and the observer is not lost.
+        let cancel = events.observe { [weak self] event in self?.receive(event) }
+        let current = events.current()
+        let late = lock.withLock { () -> Bool in
+            guard !stopped else { return true }
+            self.cancel = cancel
+            tracker = current
+            return false
+        }
+        if late { cancel(); return }
+        changed(current.state)
+    }
+
+    public func stop() {
+        let cancel = lock.withLock { () -> (@Sendable () -> Void)? in
+            stopped = true
+            defer { self.cancel = nil }
+            return self.cancel
+        }
+        cancel?()
+    }
+
+    private func receive(_ event: ScreenSourceTracker.Event) {
+        guard let state = lock.withLock({ stopped ? nil : tracker.apply(event) }) else { return }
+        changed(state)
+    }
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -286,6 +397,10 @@ public protocol ScreenBackend: AnyObject, Sendable {
     /// can't (it does not list ``ScreenHostMessage/pasteImageCapability``)
     /// or the bytes are not an image.
     func pasteImage(_ data: Data, type: String) -> Bool
+    /// Calls `changed` with the source's state (live, locked, display
+    /// asleep) now and on each change, until ``stop()``. A source that
+    /// can't tell (the Screen Sharing loopback) never calls it.
+    func observeSourceState(_ changed: @escaping @Sendable (ScreenSourceState) -> Void)
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -299,6 +414,7 @@ public extension ScreenBackend {
     func setMaximumLongEdge(_ pixels: Int?) {}
     var scalesToDemand: Bool { false }
     func pasteImage(_ data: Data, type: String) -> Bool { false }
+    func observeSourceState(_ changed: @escaping @Sendable (ScreenSourceState) -> Void) {}
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -350,6 +466,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var telepointers = false
         /// The image the viewer is pasting, chunk by chunk.
         var images = ScreenImageAssembler()
+        /// The source state the viewer last heard (live until the host says otherwise).
+        var source = ScreenSourceState.live
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
@@ -533,6 +651,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
         sendCapabilities(session)
+        // Locked or display asleep: the picture is black, so the viewer hears why (and when it ends).
+        session.backend.observeSourceState { [weak self] state in self?.sendSource(state, session: session) }
         session.add(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
@@ -600,6 +720,18 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let message = ScreenHostMessage(t: "displays", displays: sizes.map { .init(w: Int($0.width), h: Int($0.height)) },
                                         current: current, name: name, fps: fps)
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
+    }
+
+    /// Tells the viewer the source's state when it changed from what it last heard.
+    private func sendSource(_ state: ScreenSourceState, session: Session) {
+        let changed = session.lock.withLock { () -> Bool in
+            guard !session.ended, session.source != state else { return false }
+            session.source = state
+            return true
+        }
+        guard changed, let data = try? JSONEncoder().encode(ScreenHostMessage(source: state)) else { return }
+        log("source: \(state.rawValue)")
+        _ = session.link.sendText(String(decoding: data, as: UTF8.self))
     }
 
     /// The viewer's display rate from its `fps` report; nil for any other
@@ -973,6 +1105,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
     /// The host's answer to ``pasteImage(_:type:id:)`` and the image id it names; any thread.
     public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome, String?) -> Void)?
+    /// The Mac's ``ScreenSourceState`` when it changes; an older host never sends it (live). Any thread.
+    public var onSourceState: (@Sendable (ScreenSourceState) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -1048,6 +1182,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                         self?.onTelepointers?(message)
                     } else if let outcome = message.pasteImageOutcome {
                         self?.onPasteImage?(outcome, message.id)
+                    } else if let state = message.sourceState {
+                        self?.onSourceState?(state)
                     }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
