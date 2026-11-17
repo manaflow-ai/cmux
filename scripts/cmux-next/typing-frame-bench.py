@@ -257,6 +257,29 @@ def focus_chat_composer(pane):
             "focus_reply": focused, "state": state}
 
 
+def composer_drawn_text(pane):
+    """The chat composer's text as the page draws it (`composerTyped.ts` reads the same node).
+
+    The chat arm's gate was the page's keydown counter, and on this path it is structurally 0: the key
+    router consumes the key before AppKit's dispatch (`handled_by: "app"`, empty trace), so no keydown
+    listener in the page ever runs. Whether the character still arrives is a different question, and this
+    answers it from what is on screen instead of from an event count.
+    """
+    reply = rpc("debug.agent_pane", {"action": "query", "selector": ".acpmux-md-root", "pane": pane}, timeout=20) or {}
+    elements = reply.get("elements") or []
+    return "".join(str(el.get("text") or "") for el in elements if isinstance(el, dict))
+
+
+def router_decision(key="x"):
+    """What the key router would do with `key` in the focused pane: its own verdict, no dispatch.
+
+    `debug.key {"dry_run": true}` on the shell window returns the router's decision and the focus it read
+    (DebugKey.swift). This names the route a real printable key takes in the chat -- primary input,
+    type-ahead, an action or the page -- instead of inferring it from an empty trace.
+    """
+    return rpc("debug.key", {"key": key, "dry_run": True}, timeout=10)
+
+
 def chat_key_route(pane):
     """The `debug.key` route whose key the chat's composer actually gets, proven before the measure.
 
@@ -269,12 +292,16 @@ def chat_key_route(pane):
     than report a wrong number.
     """
     focus_chat_composer(pane)
+    note(f"chat: router dry_run {json.dumps(router_decision())[:300]}")
     for params in ({"target": "page", "pane": pane}, {}):
         rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=20)
+        before = composer_drawn_text(pane)
         reply = rpc("debug.key", dict(params, key="x"), timeout=10)
         time.sleep(0.3)  # the page's keydown listener and its frame
         stats = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=20) or {}
+        after = composer_drawn_text(pane)
         note(f"chat: route {json.dumps(params)}: the page saw {stats.get('keys')} key(s); "
+             f"composer text {json.dumps(before)[:60]} -> {json.dumps(after)[:60]}; "
              f"debug.key {json.dumps(reply)[:220]}")
         rpc("debug.key", dict(params, key="delete"))
         if stats.get("keys"):
