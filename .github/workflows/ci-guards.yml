@@ -955,6 +955,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate side-lane runs-on reads the capability label array
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_side_lane_capability_labels.py
+
       - name: Validate that no job runs on a GitHub-hosted Mac
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_github_hosted_macos.py
