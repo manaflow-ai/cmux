@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44029146644",
+  "recorded_at": "2026-11-17T06:18:31Z",
+  "reason": "cmux-tui 86f26dbda5fd changes the image's cmux-tui (pinned f3b577861425)",
+  "dry_run": false,
+  "cmux_tui": "86f26dbda5fd8400ac5aeb04c8eca7f466549107",
+  "fixes": [
+    {
+      "sha": "a17ffbc22f0aad806d23ad734ab8c9ebec6313c1",
+      "mergedAt": "2026-11-16T21:42:06-08:00",
+      "subject": "fix(daemon): a tab that launched late takes the active tab that a close gave to its slot (#44891)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T06:18:31Z",
+    "snapshot_id": "sh-f736122ff14345b9b02c285e3a93ec27",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44029146644): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9e1e865b551cd4150a2c8027000a46dd62945804",
+    "image": "cloud-native-auto-86f26dbd-44029146644-1",
+    "revision": "ci-44029146644-1",
+    "at": "2026-11-17T06:18:31Z"
+  },
+  "rolled_back": false
+}
