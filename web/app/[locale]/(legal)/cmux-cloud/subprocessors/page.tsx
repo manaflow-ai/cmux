@@ -86,7 +86,7 @@ const subprocessors: readonly Subprocessor[] = [
   {
     category: "Meeting recording service",
     name: "Recall.ai, Inc.",
-    purpose: "Joins meetings as the notetaker, records them, and makes the transcript.",
+    purpose: "Joins meetings as the notetaker, records their audio, and makes the transcript.",
     location: "United States",
   },
   {

@@ -259,8 +259,8 @@ export default async function TermsOfServicePage() {
 
       <h3>Meeting recording and consent</h3>
       <p>
-        The cmux notetaker records and transcribes the meetings that you send it
-        to, or that match the calendar rules you turn on. Laws about recording
+        The cmux notetaker records the audio of, and transcribes, the meetings
+        that you send it to, or that match the calendar rules you turn on. Laws about recording
         conversations differ by place, and some require the consent of every
         participant. You are responsible for giving any notice and getting any
         consent that the law requires before the notetaker records a meeting,
@@ -268,8 +268,9 @@ export default async function TermsOfServicePage() {
         platform. You must not use the notetaker to record a meeting unlawfully,
         to record a meeting secretly, or to record a meeting where a participant
         objected and the law requires that participant&rsquo;s consent. You
-        must not hide, remove, or change the notice that the notetaker posts
-        when it joins.
+        must not hide, remove, or change the notices that the notetaker posts,
+        and you must tell participants who cannot see them, such as people who
+        join by phone.
       </p>
       <p>
         You agree to indemnify and hold Company (and its officers, employees,
