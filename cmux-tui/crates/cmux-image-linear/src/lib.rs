@@ -91,6 +91,8 @@ pub struct Downscaler {
     out_h: u64,
     alpha: bool,
     columns: Vec<Span>,
+    /// One input row's sums per output column, premultiplied linear R, G, B and alpha.
+    across: Vec<[u64; 4]>,
     /// The sums of the output row being filled and of the one after it: premultiplied
     /// linear R, G, B and the alpha weight.
     current: Vec<[u64; 4]>,
@@ -116,6 +118,7 @@ impl Downscaler {
             out_h,
             alpha,
             columns,
+            across: vec![[0; 4]; out_w as usize],
             current: vec![[0; 4]; out_w as usize],
             next: vec![[0; 4]; out_w as usize],
             row: 0,
@@ -135,8 +138,10 @@ impl Downscaler {
         if self.row >= self.in_h {
             return;
         }
-        let rows = span(self.row, self.in_h, self.out_h);
+        // Across first: the row's pixels into its output columns, then that row of sums
+        // down into the output rows it covers.
         let lin = to_linear_table();
+        let across = &mut self.across;
         for (column, [r, g, b, a]) in self.columns.iter().zip(pixels) {
             if a == 0 {
                 continue;
@@ -148,25 +153,28 @@ impl Downscaler {
                 u64::from(lin[usize::from(b)]) * a,
                 a,
             ];
-            let add = |sums: &mut [[u64; 4]], weight: u64| {
-                if weight == 0 {
-                    return;
+            if let Some(sum) = across.get_mut(column.first) {
+                for (s, v) in sum.iter_mut().zip(px) {
+                    *s += v * column.w0;
                 }
-                if let Some(sum) = sums.get_mut(column.first) {
-                    for (s, v) in sum.iter_mut().zip(px) {
-                        *s += v * column.w0 * weight;
-                    }
+            }
+            if column.w1 > 0
+                && let Some(sum) = across.get_mut(column.first + 1)
+            {
+                for (s, v) in sum.iter_mut().zip(px) {
+                    *s += v * column.w1;
                 }
-                if column.w1 > 0
-                    && let Some(sum) = sums.get_mut(column.first + 1)
-                {
-                    for (s, v) in sum.iter_mut().zip(px) {
-                        *s += v * column.w1 * weight;
-                    }
-                }
-            };
-            add(&mut self.current, rows.w0);
-            add(&mut self.next, rows.w1);
+            }
+        }
+        let rows = span(self.row, self.in_h, self.out_h);
+        for ((sum, current), next) in
+            across.iter_mut().zip(self.current.iter_mut()).zip(self.next.iter_mut())
+        {
+            for ((s, c), n) in sum.iter().zip(current.iter_mut()).zip(next.iter_mut()) {
+                *c += s * rows.w0;
+                *n += s * rows.w1;
+            }
+            *sum = [0; 4];
         }
         self.row += 1;
         // The output row is whole once an input row reaches its bottom edge.
