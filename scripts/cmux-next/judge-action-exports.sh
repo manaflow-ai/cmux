@@ -32,9 +32,9 @@
 # key (`--inputs-key REV`: the git trees of GENERATOR_INPUTS at REV) in a local directory,
 # CACHE/KEY/<repository path> plus CACHE/KEY/.complete (CMUX_ACTION_EXPORTS_CACHE, default a temporary
 # one), backed by R2: in CI a key the directory lacks is read from the public bucket
-# (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off), and a feat-cmux-next push's run, whose step alone
-# gets the bucket's credentials, uploads the keys it learns (HEAD's fresh export, and the base's when it
-# built it). When the base parent's key is there, the base's
+# (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off), and a run of a feat-cmux-next commit itself (a push,
+# or a base tier or tip dispatch with no same_tree_sha), whose step alone gets the bucket's
+# credentials, uploads the keys it learns (HEAD's fresh export, and the base's when it built it). When the base parent's key is there, the base's
 # fresh export is read from it and nothing is built: that build was 16 to 32 min of the daemon-test
 # job in 28 of the 68 pull request runs that checked the generated files there (2026-11-16..17), and
 # with the job's cold build it ran the job past its 60 min timeout in 12 of them. A pull request never
@@ -76,7 +76,7 @@ output() { [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "$1" >> "$GITHUB_OUTPUT"; }
 # no prefix pointer). Best effort: any failure is a miss or nothing saved.
 r2() {
   [[ -n "$r2_url" && -n "$2" ]] || return 0
-  [[ "$1" == restore || ( -n "${AWS_ACCESS_KEY_ID:-}" && "${GITHUB_EVENT_NAME:-}" == push \
+  [[ "$1" == restore || ( -n "${AWS_ACCESS_KEY_ID:-}" && "${GITHUB_EVENT_NAME:-}" != pull_request \
     && "${GITHUB_REF:-}" == refs/heads/feat-cmux-next ) ]] || return 0
   CI_CACHE_R2_PUBLIC_URL="$r2_url" CI_CACHE_R2_NAMESPACE=cmux-next-action-exports \
     CI_CACHE_R2_BUCKET="${CI_CACHE_R2_BUCKET:-cmux-ci-cache-next}" GITHUB_OUTPUT="" \

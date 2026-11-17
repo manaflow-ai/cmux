@@ -3641,10 +3641,13 @@ The base's fresh action exports, kept in R2 by their generator inputs' key
 changed a generator input, the judge needs the base parent's fresh export, and built the base for it:
 16 to 32 min of this job in 28 of the 68 pull request runs that checked the generated files here
 (2026-11-16T08:27Z..11-17T08:27Z), which with the job's cold build ran the job past its 60 min timeout
-in 12 of them. A feat-cmux-next push's run already has its commit's fresh export (the check passes, or
-the cheap regenerate makes it), so it uploads it under that commit's key; a pull request on that base
-reads it from the public URL and builds nothing. Only a feat-cmux-next push gets the bucket's
-credentials (the expressions), and the script uploads only on such a push: a pull request never writes.
+in 12 of them. A run of a feat-cmux-next commit itself already has that commit's fresh export (the
+check passes, or the cheap regenerate makes it), so it uploads it under the commit's key; a pull
+request on that base reads it from the public URL and builds nothing. In that window no push ran these
+jobs on the minis: feat-cmux-next's own judges were base tier and tip dispatches (60 daemon-test, 45
+generated-files, 13 swift-test, glaeda-cmux-jobs.jsonl), so the credentials go to a feat-cmux-next run
+that is not a pull request and has no same_tree_sha (a same-tree dispatch tests a pull request's tree).
+The script uploads only on such a ref and event too: a pull request never writes.
 The detector is scripts/cmux-next/tests/judge-action-exports.test.sh case (k).
 
 ## note-390
@@ -3652,5 +3655,6 @@ The detector is scripts/cmux-next/tests/judge-action-exports.test.sh case (k).
 Above `AWS_ACCESS_KEY_ID` in the generated-files job's `Check generated action catalog, surfaces and
 inventory` step, in `.github/workflows/cmux-next.yml`.
 
-As note-389: a feat-cmux-next push whose generated files this job checks (path routing's
-generated_host) uploads its commit's fresh action exports for the pull requests on that base.
+As note-389: a feat-cmux-next run whose generated files this job checks (path routing's
+generated_host; a base tier dispatch always) uploads its commit's fresh action exports for the pull
+requests on that base.
