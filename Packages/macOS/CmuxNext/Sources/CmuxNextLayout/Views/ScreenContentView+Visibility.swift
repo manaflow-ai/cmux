@@ -15,6 +15,15 @@ extension ScreenContentView {
     /// focused); nil updates every pane of the screen.
     func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool,
                       flashAnimated: Bool? = nil, only: Set<PaneID>? = nil) {
+        // A change that waits for its frame tick (`ScreenContentView+SnapFrame`) shows its rings and dims with it: until
+        // then the screen shows the layout before the change, with the rings and dims it had. The newest ask wins, for
+        // every pane.
+        if frameInput.snapWaitsForContent {
+            frameInput.heldChrome = { [weak self] in
+                self?.updateChrome(focused: focused, dimsInactive: dimsInactive, attention: attention, animated: animated, flashAnimated: flashAnimated)
+            }
+            return
+        }
         let multiple = paneFrames.count > 1
         let style = context.style
         let ringAllowed = (multiple || style.focusRing.showsForSinglePane)

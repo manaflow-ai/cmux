@@ -2680,7 +2680,7 @@ FAST_TIER_REPORT_CLAUSE = (
     "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
     "inputs.no_reuse == true)) "
     "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
-    "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
+    "(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
 
@@ -2696,7 +2696,7 @@ class FastTierRunner(unittest.TestCase):
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertIn(FAST_LANE_CLAUSE + FAST_TIER_REPORT_CLAUSE, runs_on)
         # The owned side lane route; the Blacksmith off switch (note-350) reads the variable earlier as well.
-        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER")
+        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)")
         self.assertLess(runs_on.index("outputs.retry_runner"), side)
         self.assertLess(runs_on.index("outputs.deferred_runner"), side)
         self.assertIn("outputs.owned_jobs", runs_on)
