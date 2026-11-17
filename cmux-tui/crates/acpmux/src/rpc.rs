@@ -878,6 +878,9 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
+    /// `acpmux share-host status` prints. Local socket only.
+    pub const MUX_SHARE_HOST_STATUS: &str = "_acpmux/share_host_status";
     /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
     /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.
     pub const MUX_MACHINE_ROUTES: &str = "_acpmux/machine_routes";
