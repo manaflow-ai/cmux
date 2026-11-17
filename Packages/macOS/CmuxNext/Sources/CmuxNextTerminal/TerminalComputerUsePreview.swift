@@ -219,13 +219,14 @@ public final class TerminalComputerUsePreview: NSView {
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Taken here, so the click never reaches the terminal under the card.
-    public override func mouseDown(with event: NSEvent) {}
-
-    public override func mouseUp(with event: NSEvent) {
-        guard card != nil, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+    /// A press on the card enlarges or shrinks it, at once (the pane's window may route the release
+    /// elsewhere), and never reaches the terminal under the card.
+    public override func mouseDown(with event: NSEvent) {
+        guard card != nil else { return }
         toggleExpanded()
     }
+
+    public override func mouseUp(with event: NSEvent) {}
 
     public override func accessibilityPerformPress() -> Bool {
         toggleExpanded()

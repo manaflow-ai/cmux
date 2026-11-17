@@ -69,4 +69,16 @@ struct TerminalComputerUsePreviewTests {
         #expect(card.isHidden && card.card == nil)
         #expect(closed.isEmpty)
     }
+
+    /// A press on the card enlarges it at once: live, the release went elsewhere and the card never grew.
+    @Test func aPressEnlargesTheCard() throws {
+        let card = TerminalComputerUsePreview()
+        card.show(Self.card())
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        card.mouseDown(with: press)
+        #expect(card.expanded)
+        card.mouseDown(with: press)
+        #expect(!card.expanded)
+    }
 }

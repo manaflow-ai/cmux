@@ -26,6 +26,9 @@ public final class ComputerUsePreviewRouter {
     /// The terminal cards made, by tab id.
     private var terminalCards: [String: TerminalComputerUsePreview] = [:]
     private var subscription: UInt64?
+    /// The session each surface's card shows (`chat:<id>`, `terminal:<tab>`): a surface shows one
+    /// card, so a line of another session that ended (its card done or gone) leaves it alone.
+    private var shownSession: [String: String] = [:]
     /// What the last line of each session did, so the log says each change once.
     private var outcomes: [String: String] = [:]
 
@@ -51,6 +54,7 @@ public final class ComputerUsePreviewRouter {
         let card: [String: JSONValue]? = if case .object(let card)? = line["card"], !hidden.contains(session) { card } else { nil }
         let state = card == nil ? "none" : (card?["done"] == .bool(true) ? "done" : "running")
         if case .string(let id)? = surface["chat"] {
+            guard applies(session, running: state == "running", to: "chat:\(id)") else { return }
             guard let view = chat(id) else { return note(session, "\(state), no chat view") }
             AgentPaneComputerUsePreview.show(Self.chatCard(card), on: view) { [weak self] session, action in
                 if action == .close { self?.hide(session) }
@@ -58,9 +62,21 @@ public final class ComputerUsePreviewRouter {
             note(session, "\(state) in its chat")
         } else if case .string(let id)? = surface["terminal"] {
             guard let (tab, host) = terminal(id) else { return note(session, "\(state), no terminal view") }
+            guard applies(session, running: state == "running", to: "terminal:\(tab)") else { return }
             show(Self.terminalCard(card), tab: tab, host: host)
             note(session, "\(state) in terminal tab \(tab)")
         }
+    }
+
+    /// Whether `session`'s line changes the card of surface `key`: a running card takes the surface
+    /// (the agent acting now), any line of the session shown changes it, and a line of another
+    /// session that is no longer running (done, gone) leaves the card shown alone.
+    func applies(_ session: String, running: Bool, to key: String) -> Bool {
+        let shown = shownSession[key]
+        guard running || shown == nil || shown == session else { return false }
+        if shownSession.count > 64 { shownSession.removeAll() }
+        shownSession[key] = session
+        return true
     }
 
     private func note(_ session: String, _ outcome: String) {

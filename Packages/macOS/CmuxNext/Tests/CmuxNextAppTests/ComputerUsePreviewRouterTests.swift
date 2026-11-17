@@ -28,4 +28,16 @@ struct ComputerUsePreviewRouterTests {
         #expect(ComputerUsePreviewRouter.chatCard(nil) == nil)
         #expect(ComputerUsePreviewRouter.terminalCard(["session": .string("s")]) == nil)
     }
+
+    /// A surface shows one card: an older session's card going (the hub drops old done cards) or
+    /// turning done leaves the newer session's card alone. Live, an old session's `card: null` took
+    /// a newer session's done card off its terminal.
+    @Test func anOlderSessionsLineLeavesTheShownCardAlone() {
+        let router = ComputerUsePreviewRouter(chat: { _ in nil }, terminal: { _ in nil })
+        #expect(router.applies("old", running: true, to: "terminal:t1"))
+        #expect(router.applies("new", running: true, to: "terminal:t1"))
+        #expect(!router.applies("old", running: false, to: "terminal:t1"))
+        #expect(router.applies("new", running: false, to: "terminal:t1"))
+        #expect(router.applies("other", running: false, to: "terminal:t2"))
+    }
 }
