@@ -303,6 +303,46 @@ import Testing
         #expect(session.historyRowsSkipped == 0)
     }
 
+    /// The attach's reply can reach the session before its own `vt-state`
+    /// (that line is decoded off the main actor; on a phone the replay of a
+    /// 4,000-row window is half a megabyte). Until the replay is applied the
+    /// rows the Mac left out are still the last attach's: no fetch may start.
+    /// Before, the next fetch asked for the window just sent again and its
+    /// attach dropped that replay on the way, so a 100,000-row scroll to line
+    /// 1 took 491 fetches at a 40 ms round trip (the load bench) for about 64
+    /// windows.
+    @Test func noFetchStartsBeforeTheLastReplayIsApplied() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let gate = ReplayGate()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: ReplayGateChannel(daemon: daemon, gate: gate))
+        }
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await ask { session.loadOlderHistory() }
+        try await waitUntil { session.historyRowsOmitted == 98_000 }
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 1 }
+
+        // The next fetch's reply is confirmed; its replay is held back.
+        gate.holding = true
+        #expect(session.loadOlderHistory())
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 2 }
+        #expect(session.historyRowsOmitted == 98_000, "the replay is still on its way")
+        #expect(!session.loadOlderHistory(), "a fetch started with the last attach's rows")
+        #expect(attaches(daemon).count == 3)
+
+        gate.release()
+        try await waitUntil { session.historyRowsOmitted == 96_000 }
+        #expect(session.loadOlderHistory(), "the next fetch starts once the replay is applied")
+        try await waitUntil { session.historyRowsOmitted == 94_000 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == 6_000)
+    }
+
     /// Calls `request` until it answers true (a fetch started, or none is
     /// needed), and never again after: unlike ``waitUntil(attempts:_:)``,
     /// whose last check would start a second fetch.
@@ -320,4 +360,65 @@ import Testing
         }
         #expect(condition())
     }
+}
+
+/// Holds back the `vt-state` replays answered while ``holding`` (the attach
+/// reply after them still goes out) until ``release()``: a reply that reaches
+/// the session before its own replay, at will.
+final class ReplayGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: [@Sendable () -> Void] = []
+    private var isHolding = false
+    var holding: Bool {
+        get { lock.withLock { isHolding } }
+        set { lock.withLock { isHolding = newValue } }
+    }
+
+    /// Whether `deliver` was held (it runs at ``release()``).
+    func hold(_ line: Data, _ deliver: @escaping @Sendable () -> Void) -> Bool {
+        guard String(decoding: line, as: UTF8.self).contains("\"event\":\"vt-state\"") else { return false }
+        return lock.withLock {
+            guard isHolding else { return false }
+            held.append(deliver)
+            return true
+        }
+    }
+
+    func release() {
+        let deliveries = lock.withLock {
+            isHolding = false
+            defer { held = [] }
+            return held
+        }
+        for deliver in deliveries { deliver() }
+    }
+}
+
+/// A daemon channel answered by a ``FakeTerminalDaemon`` through a ``ReplayGate``.
+final class ReplayGateChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let daemon: FakeTerminalDaemon
+    private let gate: ReplayGate
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init(daemon: FakeTerminalDaemon, gate: ReplayGate) {
+        self.daemon = daemon
+        self.gate = gate
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let continuation = continuation
+        for line in daemon.respond("daemon", data) {
+            let held = gate.hold(line) { continuation.yield(line) }
+            if !held { continuation.yield(line) }
+        }
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+
+    func close(code: String, reason: String) async { continuation.finish() }
 }
