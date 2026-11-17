@@ -1858,7 +1858,7 @@ pub use discover::{
     CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
     add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;
