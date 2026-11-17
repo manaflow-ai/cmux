@@ -20,7 +20,7 @@ extension CEFEngine {
                 // A tab that cannot answer (not started, closing) leaves the cache; cookies still clear.
                 _ = try? await tab.devTools(method: "Network.clearBrowserCache", params: [:])
             } else if !hasOpened(profile) {
-                Self.removeCaches(in: directory)
+                Self.removeCaches(in: directory, since: since)
             }
         }
         guard cookies else { return }
@@ -37,7 +37,9 @@ extension CEFEngine {
 
     /// Moves the caches aside here (before Chromium can open the profile)
     /// and deletes them off the main thread: they can hold many files.
-    static func removeCaches(in directory: URL) {
+    /// Returns that delete, for a test to wait for; nil when nothing moved.
+    @discardableResult
+    static func removeCaches(in directory: URL, since: Date?) -> Task<Void, Never>? {
         let manager = FileManager.default
         var aside: [URL] = []
         for name in cacheDirectories {
@@ -45,9 +47,9 @@ extension CEFEngine {
             let to = directory.appending(path: ".cleared-\(UUID().uuidString)")
             if (try? manager.moveItem(at: from, to: to)) != nil { aside.append(to) }
         }
-        guard !aside.isEmpty else { return }
+        guard !aside.isEmpty else { return nil }
         // task-owner: one-shot delete of moved-aside cache directories
-        Task.detached(priority: .utility) {
+        return Task.detached(priority: .utility) {
             for url in aside { try? FileManager.default.removeItem(at: url) }
         }
     }
