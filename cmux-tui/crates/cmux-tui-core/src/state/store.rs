@@ -374,6 +374,16 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<T> {
         read(&self.connection.get())
     }
+
+    /// Run a read against the registry connection with one try for it:
+    /// `None` while another thread holds the connection (the journal writer
+    /// at a commit), and the read did not run.
+    pub(crate) fn try_read_state<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        Some(read(&self.connection.try_get()?))
+    }
 }
 
 /// The state resources for a session snapshot's `extra.state`.
