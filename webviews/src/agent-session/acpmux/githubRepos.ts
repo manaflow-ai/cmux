@@ -192,9 +192,15 @@ export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
 
+/// Outside the hook: the React Compiler cannot lower `??=`.
+function pagePicker(): GitHubPickerStore {
+  pageStore ??= createGitHubPicker();
+  return pageStore;
+}
+
 /// The page's one store and the folder menu's handle on it.
 export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
-  const picker = store ?? (pageStore ??= createGitHubPicker());
+  const picker = store ?? pagePicker();
   const state = useSyncExternalStore(picker.subscribe, picker.snapshot, picker.snapshot);
   return {
     state,
