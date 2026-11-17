@@ -431,11 +431,13 @@ jobs:
   # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
   # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
   # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
+  # A look its 75 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
+  # person's cancel or a newer head's run cancels the whole run, which `!cancelled()` keeps out.
   # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
   again:
     name: look again
     needs: [target, look]
-    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.result == 'failure' && inputs.attempt != '1' }}
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && (needs.look.result == 'failure' || needs.look.result == 'cancelled') && inputs.attempt != '1' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:

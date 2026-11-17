@@ -106,6 +106,7 @@ nonisolated extension DeepLink {
         case .agent: [machineKey, hostHintKey, nameHintKey, messageKey]
         case .legacyWorkspace, .legacySurface: [machineKey, "stable_workspace_id", "stable_surface_id"]
         case .workspace, .pane, .tab, .session, .chiefSession, .group, .legacyPane: [machineKey]
+        case .cloudSession: []
         }
     }
 
@@ -134,6 +135,8 @@ nonisolated extension DeepLink {
             if segments.count == 1 { return .group(first, workspace: nil) }
             guard segments.count == 3, segments[1] == "workspace", isResourceID(segments[2], prefix: "ws_") else { return nil }
             return .group(first, workspace: segments[2])
+        case "cloud":
+            return cloudTarget(segments, fragment: fragment)
         case "agent":
             guard segments.count == 2, fragment == nil, isHarness(first), isAgentSession(segments[1]) else { return nil }
             return .agent(harness: first, session: segments[1])

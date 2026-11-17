@@ -1,3 +1,4 @@
+import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import { translate } from "./i18n";
@@ -46,6 +47,9 @@ export type CloudStartProgress = {
   planTeam?: CloudPlanTeamRefusal;
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
+  /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
+  /// (cloudSetup.ts), naming it; with `signingIn`, it waits for the connection a button began.
+  cloudSetup?: CloudSetupNeed;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -77,6 +81,10 @@ export type CloudStartProgress = {
   /// nothing waits on the person: the card says so. The composer is open throughout a start and what
   /// is typed moves to the chat as a draft. It holds until the start ends.
   stalled?: true;
+  /// When the start last moved (cloudStartPushed): a step, a phase, a count or a byte more. Milliseconds
+  /// since epoch. A push that repeats what the card already shows does not move it, so a copy that keeps
+  /// saying "0 of 46,516 files" four times a second still stalls.
+  advancedAt?: number;
   /// A folder too big to copy that is not a git repository (`cloud_folder_too_big`, the host's check before
   /// any machine): the card says why and offers the repositories inside it, another folder or none.
   tooBig?: CloudFolderTooBig;
@@ -228,6 +236,7 @@ export function cloudStartBegun(
   agent?: string,
   home?: boolean,
   signingIn?: boolean,
+  cloudSetup?: CloudSetupNeed,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
   return {
@@ -238,6 +247,7 @@ export function cloudStartBegun(
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -248,7 +258,7 @@ export function cloudStartSignedIn(
   key: string,
 ): CloudStartProgress | undefined {
   if (current?.key !== key || !current.signingIn) return current;
-  const { signingIn: _signedIn, ...started } = current;
+  const { signingIn: _signedIn, cloudSetup: _cloudSetup, ...started } = current;
   return started;
 }
 
@@ -270,7 +280,39 @@ function logLine(value: unknown, max: number): string | undefined {
 export function cloudStartPushed(
   current: CloudStartProgress | undefined,
   push: unknown,
+  now: number = Date.now(),
 ): CloudStartProgress | undefined {
+  const next = pushedFields(current, push);
+  if (!current || !next || next === current) return next;
+  // Only a push that moved the start counts as word from the host (watchCloudStartStall).
+  const moved = current.advancedAt === undefined || cloudStartMark(next) !== cloudStartMark(current);
+  return { ...next, advancedAt: moved ? now : current.advancedAt };
+}
+
+/// What of a start shows that it moves: its step, each step's state and phase, and the clone's counts.
+/// Times, words and repeats are not in it.
+function cloudStartMark(start: CloudStartProgress): string {
+  const clone = start.clone;
+  const setup = start.setup;
+  return JSON.stringify([
+    start.step,
+    start.initialized,
+    Boolean(start.ask),
+    Boolean(start.signingIn),
+    start.machineFinishedAt,
+    start.harnessStartedAt,
+    clone?.state,
+    clone?.phase,
+    clone?.progress?.filesDone,
+    clone?.progress?.receivedBytes,
+    clone?.progress?.objects,
+    setup?.state,
+    setup?.status,
+    setup?.logTail?.length,
+  ]);
+}
+
+function pushedFields(current: CloudStartProgress | undefined, push: unknown): CloudStartProgress | undefined {
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
@@ -506,8 +548,16 @@ export function cloudStartEnded(
     ? cloudRefusalText(answer.code, answer.message)
     : (hostFailureText(answer.code, answer.message) ?? line(answer.message, 240));
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, planTeam: _planTeam, stalled: _stalled, ...ended } = current;
+  const {
+    signingIn: _signingIn,
+    ask: _ask,
+    planTeam: _planTeam,
+    stalled: _stalled,
+    cloudSetup: _cloudSetup,
+    ...ended
+  } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -516,6 +566,7 @@ export function cloudStartEnded(
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
     ...(planTeam ? { planTeam } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -641,8 +692,9 @@ function cloudStartMayStall(start: CloudStartProgress): boolean {
   return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn;
 }
 
-/// Arms the stall timer for `start` as it is now: `stall(key)` runs once after `ms` with no newer
-/// state (each push makes a new `start`, and the caller disarms the old timer). Returns the disarm.
+/// Arms the stall timer for `start` as it is now: `stall(key)` runs once `ms` after the start last moved
+/// (`advancedAt`; arming time when it never said), so a push that only repeats itself never puts it off
+/// (each push makes a new `start`, and the caller disarms the old timer). Returns the disarm.
 export function watchCloudStartStall(
   start: CloudStartProgress | undefined,
   stall: (key: string) => void,
@@ -651,8 +703,10 @@ export function watchCloudStartStall(
     const timer = setTimeout(run, after);
     return () => clearTimeout(timer);
   },
+  now: number = Date.now(),
 ): () => void {
   if (!start || !cloudStartMayStall(start)) return () => undefined;
   const key = start.key;
-  return schedule(() => stall(key), ms);
+  const left = start.advancedAt === undefined ? ms : Math.max(0, start.advancedAt + ms - now);
+  return schedule(() => stall(key), left);
 }
