@@ -30,13 +30,17 @@
 //! The quick terminal (`quick-terminal-v1`) is the record with a mark: column
 //! `quick` (0 = a floating pane, 1 = the quick terminal and it shows, 2 = the
 //! quick terminal and it is hidden) and column `quick_from` (the pane that
-//! gets the focus back at a hide, or NULL). Each open adds the 2 columns to a
-//! table that has none, with no change of a record and no change of the
-//! schema version, so a build before the mark still opens the store: it names
-//! its 7 columns in each statement. Its write of a screen's list leaves the
-//! defaults (0, NULL): the quick terminal is a floating pane that shows then,
-//! and no pane is lost. Another value of `quick`, and a `quick_from` that is
-//! no pane id, read as no mark.
+//! gets the focus back at a hide, or NULL). Each open adds each of the 2
+//! columns that the table does not have, with no change of a record and no
+//! change of the schema version, so a build before the mark still opens the
+//! store: it names its 7 columns in each statement. Its write of a screen's
+//! list leaves the defaults (0, NULL): the quick terminal is a floating pane
+//! that shows then, and no pane is lost. Such a build ends the mark only when
+//! it writes the list of that screen: with no write of it the mark stays, so
+//! a hidden quick terminal that the build before the mark showed as a
+//! floating pane is hidden again at the next start of this build. A `quick`
+//! that is not 1 or 2 reads as no mark, and a `quick_from` that is no pane id
+//! names no pane.
 
 use cmux_layout_reducer::floating_panes::{FloatFrame, Floating, Quick, normalized};
 
@@ -60,7 +64,9 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     for (column, definition) in MARK_COLUMNS {
-        if !names.iter().any(|name| name == column) {
+        // SQLite reads the name of a column with no regard to the case of its
+        // letters: a column `QUICK` is the column `quick`.
+        if !names.iter().any(|name| name.eq_ignore_ascii_case(column)) {
             transaction.execute_batch(&format!(
                 "ALTER TABLE resource_floating_panes ADD COLUMN {column} {definition};"
             ))?;
@@ -109,7 +115,8 @@ fn desired(screen: &RegistryScreen) -> Records {
 /// The pane id, the four values and the mark of the record in `row`, whose pane id is at column `pane` and
 /// whose values follow it. `None` when the pane id is not a text or one of the four values is not an integer.
 /// A `quick` that is not an integer reads as -1, a value that no build writes, and a `quick_from` that is not a
-/// text reads as none: the record stays a floating pane, and [`matches`] is false for it.
+/// text and not NULL reads as an empty text, which is no pane id: the record stays a floating pane, [`matches`]
+/// is false for it, and the next write of the screen puts the values of this build.
 fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<Record>> {
     let Ok(id) = row.get_ref(pane)?.as_str() else {
         return Ok(None);
@@ -122,7 +129,10 @@ fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<Recor
         *value = stored;
     }
     let quick = row.get_ref(pane.saturating_add(5))?.as_i64().unwrap_or(-1);
-    let from = row.get_ref(pane.saturating_add(6))?.as_str().ok().map(str::to_owned);
+    let from = match row.get_ref(pane.saturating_add(6))? {
+        rusqlite::types::ValueRef::Null => None,
+        value => Some(value.as_str().unwrap_or_default().to_owned()),
+    };
     Ok(Some((id.to_owned(), frame, quick, from)))
 }
 
