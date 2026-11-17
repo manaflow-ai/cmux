@@ -188,8 +188,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
             // The button row's right edge against its bubble's: a pending row's and a sent row's are
-            // the same, so Copy and the buttons after it sit where they always do. (The rows' button
-            // sets differ, so their end, not Copy itself, is what lines up.)
+            // the same, so Copy and the buttons after it sit where they always do.
             const copyFromBubbleRight = (row: Element) =>
               row.querySelector(".cv-user__actions .cv-message-footer-row")!.getBoundingClientRect().right -
               row.querySelector(".cv-user__bubble")!.getBoundingClientRect().right;
@@ -214,7 +213,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               gap: words.left - icon.right,
               tokenPx,
               copyFromBubbleRight: copyFromBubbleRight(scope),
-              sentCopyFromBubbleRight: copyFromBubbleRight(document.querySelector("[data-footer-row]")!),
+              sentCopyFromBubbleRight: copyFromBubbleRight(document.querySelector("[data-sent-twin-row]")!),
             };
           });
           console.log(`PENDING_NOTE ${JSON.stringify({ theme, ...m })}`);

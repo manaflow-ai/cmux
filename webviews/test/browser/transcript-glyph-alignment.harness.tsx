@@ -165,6 +165,12 @@ function App() {
             />
           </div>
         </div>
+        {/* The same prompt sent, in the same box: the pending row's buttons end where its do. */}
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-sent-twin-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble row={{ ...row, id: "glyph-pending-prompt" }} text={PENDING_TEXT} />
+          </div>
+        </div>
         <div className="fixture-rhythm" data-glyph-row="tool">
           <ToolRow item={item} />
         </div>
