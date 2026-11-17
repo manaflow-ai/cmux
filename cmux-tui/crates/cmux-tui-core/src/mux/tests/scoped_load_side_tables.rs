@@ -77,6 +77,26 @@ fn side_tables(topology: &mut ResourceTopologySnapshot) {
     }
 }
 
+/// [`side_tables`], with the second screen in the second workspace as its
+/// active screen. Each workspace then has one screen with side table rows:
+/// the first has the rows and the bottom dock, the second has the lone
+/// pinned column.
+fn side_tables_in_two_workspaces(topology: &mut ResourceTopologySnapshot) {
+    side_tables(topology);
+    let second_workspace = restore_workspace_id(2);
+    for screen in &mut topology.screens {
+        if screen.public_id == restore_screen_id(2) {
+            screen.workspace_id = second_workspace.clone();
+            screen.position = 0;
+        }
+    }
+    for (workspace, active) in &mut topology.active_screens {
+        if *workspace == second_workspace {
+            *active = Some(restore_screen_id(2));
+        }
+    }
+}
+
 /// The screen `id` of the fixture as `topology` holds it.
 fn screen(topology: &ResourceTopologySnapshot, id: u128) -> &RegistryScreen {
     topology
@@ -127,6 +147,43 @@ fn a_workspace_subtree_load_reads_no_side_table_row_of_another_screen() {
     });
     assert!(topology.screens.is_empty(), "the fixture is wrong: the workspace has a screen");
     assert_eq!(rows, 0, "the load of a workspace with no screen read side table rows");
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The subtree of a workspace that has a screen holds that screen with the
+/// value of the full load, and the load reads no side table row of the other
+/// workspace's screen. The test loads each of the 2 workspaces alone, so each
+/// of the 3 tables holds a row that one of the 2 loads must not read: the
+/// lone pinned column for the first workspace, the 2 rows and the bottom dock
+/// for the second.
+#[test]
+fn a_workspace_subtree_load_reads_the_side_rows_of_its_own_screen_only() {
+    let (registry, root, _) = seed("subtree-own-rows", side_tables_in_two_workspaces);
+    let full = registry.resource_topology_snapshot().unwrap();
+    let mut rows_of_the_other_workspace = Vec::new();
+    for id in [1, 2] {
+        let workspace = restore_workspace_id(id);
+        let (subtree, rows) = rows_of_other_screens(|| {
+            registry.resource_topology_scoped(std::slice::from_ref(&workspace)).unwrap()
+        });
+        assert_eq!(
+            subtree.screens.iter().map(|screen| screen.public_id.clone()).collect::<Vec<_>>(),
+            vec![restore_screen_id(id)],
+            "the fixture is wrong: the subtree of workspace {id} holds its one screen"
+        );
+        assert_eq!(
+            screen(&subtree, id),
+            screen(&full, id),
+            "the subtree of workspace {id}: the screen with the value of the full load"
+        );
+        rows_of_the_other_workspace.push(rows);
+    }
+    assert_eq!(
+        rows_of_the_other_workspace,
+        vec![0, 0],
+        "a workspace's subtree load read rows of the other workspace's screen (first, second)"
+    );
     drop(registry);
     std::fs::remove_dir_all(root).unwrap();
 }
