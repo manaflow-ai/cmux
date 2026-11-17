@@ -31,6 +31,10 @@ spec = importlib.util.spec_from_file_location("hot_verify_ci", SCRIPT)
 hv = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = hv
 spec.loader.exec_module(hv)
+RECEIPT_SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-receipt.py"
+_receipt_spec = importlib.util.spec_from_file_location("hot_verify_receipt", RECEIPT_SCRIPT)
+hr = importlib.util.module_from_spec(_receipt_spec)
+_receipt_spec.loader.exec_module(hr)
 
 HEAD = "a" * 40
 OTHER = "b" * 40
@@ -321,11 +325,29 @@ class Comment(unittest.TestCase):
         with mock.patch.object(hv, "gh", side_effect=fake):
             self.assertEqual(hv.post("body", 7, merge), "posted a comment")
             self.assertIn("moved", hv.post("body", 8, merge))
-            self.assertFalse(hv.has_receipt(7))
-            self.assertTrue(hv.has_receipt(8))
-        listing = json.dumps({"id": 6, "login": "github-actions[bot]", "head": MARKER[:40]}) + "\n"
-        with mock.patch.object(hv, "gh", side_effect=lambda *a, body=None: listing if "comments" in a[1] else ""):
-            self.assertTrue(hv.has_receipt(7))
+
+    def test_the_receipt_check_reads_once_and_never_waits(self) -> None:
+        # hot-verify-receipt.py runs in `plan` with the workflow's token: one read per question, no sleep loop
+        # (tests/test_ci_no_github_token_polling.py), and an unreadable answer is an error, never "no receipt".
+        self.assertEqual(hr.MARKER_PREFIX, hv.MARKER_PREFIX)
+        self.assertNotIn("while True", RECEIPT_SCRIPT.read_text())
+
+        def answer(body, comments):
+            def run(argv, **kw):
+                text = comments if "comments" in argv[2] else body
+                return subprocess.CompletedProcess(argv, 0, text, "")
+            return run
+
+        for body, comments, want in (("no marker\n", "false\nfalse\n", False), (f"text\n{MARKER}\n", "", True),
+                                     ("", "false\ntrue\n", True), ("", "", False)):
+            with self.subTest(body=body, comments=comments), \
+                    mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
+                self.assertEqual(hr.has_receipt(7), want)
+            self.assertLessEqual(run.call_count, 2)
+        denied = subprocess.CompletedProcess([], 1, "", "HTTP 403: API rate limit exceeded")
+        with mock.patch.object(hr.subprocess, "run", return_value=denied) as run, redirect_stderr(io.StringIO()):
+            self.assertEqual(hr.main(["--pr", "7"]), 1)
+        self.assertEqual(run.call_count, 1)
 
     def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
         # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
@@ -515,7 +537,7 @@ class Workflow(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
-        self.assertIn("hot-verify-ci.py receipt --pr", "\n".join(self.job_block("plan")))
+        self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
         hand_off = "\n".join(self.job_block("hand-off"))
         self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
         self.assertIn('-f kind="$KIND"', hand_off)

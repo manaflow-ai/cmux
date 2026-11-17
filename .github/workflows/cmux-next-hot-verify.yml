@@ -85,7 +85,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      # the merged half reads the PR's comments for a look receipt (hot-verify-ci.py receipt)
+      # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
       issues: read
       pull-requests: read
     outputs:
@@ -117,7 +117,7 @@ jobs:
           set -euo pipefail
           # A merged PR that already has a look receipt (any head) needs no look at its merge commit.
           if [[ "$MERGED" == true ]]; then
-            receipt="$(python3 scripts/cmux-next/hot-verify-ci.py receipt --pr "$PR" --repo "$GITHUB_REPOSITORY")" || receipt="receipt=unknown"
+            receipt="$(python3 scripts/cmux-next/hot-verify-receipt.py --pr "$PR" --repo "$GITHUB_REPOSITORY")" || receipt="receipt=unknown"
             if [[ "$receipt" != receipt=false ]]; then
               echo "eligible=false" >> "$GITHUB_OUTPUT"
               echo "hot verify: #$PR merged with a look receipt already ($receipt); no look at its merge commit" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -433,7 +433,7 @@ jobs:
     name: look again
     needs: [target, look]
     if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.result == 'failure' && inputs.attempt != '1' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: write
