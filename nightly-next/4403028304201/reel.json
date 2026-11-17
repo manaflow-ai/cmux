@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4403028304201",
+  "notes": "notes/4403028304201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45174,
+      "title": "Agent chat: the prompt rail sits on the view's vertical center at every prompt count",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44804,
+      "title": "cmux NEXT iPhone: sign a fleet step in with a session from its submitter's Mac (no worker password)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45131,
+      "title": "feat(layout reducer): the rule of the focus keys in Rust, for tiled and floating panes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45180,
+      "title": "nightly-next: updates leave Chromium out when the engine is unchanged (reuse the published signed framework)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45140,
+      "title": "cmux-next guards base red: hot-verify looks again after a timed-out look; warm-sources follows tab-switch and the quality report",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45166,
+      "title": "update-harness: the old-to-new layout update driver (cmux#44204)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44651,
+      "title": "cmux-mobile-host: bytes in and out per service (cmux device traffic)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45037,
+      "title": "ci(app-ffi-release): a newer run replaces a build still waiting for a runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45153,
+      "title": "hot-verify plan: a merged commit with no app is planned from its first parent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44329,
+      "title": "Workspace swap waits for the new workspace's unpainted pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45126,
+      "title": "Swift acpmux protocol check: list _acpmux/attach#hold, the row store's read-free attach",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
