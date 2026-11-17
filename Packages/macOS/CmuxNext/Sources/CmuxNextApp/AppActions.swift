@@ -133,7 +133,7 @@ enum AppActions {
         LinkHandlers.bind(into: registry, context: context)
         // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
         CatalogRequestHandlers(host: services).bind(into: registry)
-        TerminalToChatPlaceholders.bind(into: registry)
+        HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
