@@ -343,6 +343,50 @@ import Testing
         #expect(attaches(daemon).last?["replay_history_rows"] as? Int == 6_000)
     }
 
+    /// A history fetch replaces a live attach on the same daemon at the size
+    /// it claims: its client info, identify and attach go in one write (one
+    /// round trip), and it does not ask where the terminal is first. Before,
+    /// each fetch took three round trips (resolve-terminal, set-client-info
+    /// with identify, attach-surface): at 40 ms, 120 ms per window of the
+    /// about 64 to line 1 of a 100,000-row history.
+    @Test func aHistoryFetchIsOneRoundTrip() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        daemon.terminals = ["term_a": 7]
+        let writes = WriteLog()
+        let link = MockMacLink { service, data in
+            writes.append(data)
+            return daemon.respond(service, data)
+        }
+        let session = DaemonTerminalSession(surface: 7, terminalID: "term_a") {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        defer { session.stop() }
+        // The fake Mac answers 80x24: a grid it does not overrule.
+        session.resize(columns: 80, rows: 24)
+        session.start { _ in }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 100_000 }
+
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 80 {
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resolve-terminal" }.isEmpty, "a fetch asked where the terminal is")
+        let fetchAttaches = writes.all.filter { String(decoding: $0, as: UTF8.self).contains("\"attach-surface\"") }.dropFirst()
+        #expect(fetchAttaches.count >= 60, "\(fetchAttaches.count) fetches")
+        #expect(fetchAttaches.allSatisfy { String(decoding: $0, as: UTF8.self).contains("\"set-client-info\"") },
+                "a fetch's attach waited for identify's reply")
+        let sized = attaches(daemon).dropFirst()
+        #expect(sized.allSatisfy { $0["cols"] as? Int == 80 && $0["rows"] as? Int == 24 })
+        #expect(attaches(daemon).last?["replay_history_start"] as? Int == 0)
+    }
+
     /// Calls `request` until it answers true (a fetch started, or none is
     /// needed), and never again after: unlike ``waitUntil(attempts:_:)``,
     /// whose last check would start a second fetch.
@@ -421,4 +465,12 @@ final class ReplayGateChannel: LinkChannel, @unchecked Sendable {
     func receive() async throws -> Data? { await iterator.next() }
 
     func close(code: String, reason: String) async { continuation.finish() }
+}
+
+/// Each write a channel sent, whole (a batch is one write).
+final class WriteLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writes: [Data] = []
+    func append(_ data: Data) { lock.withLock { writes.append(data) } }
+    var all: [Data] { lock.withLock { writes } }
 }
