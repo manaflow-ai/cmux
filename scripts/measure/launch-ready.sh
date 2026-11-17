@@ -191,7 +191,9 @@ probe() {
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   if [[ "${machines:-0}" != 0 && "$label" != prime ]]; then
-    python3 -I "$out/machines.py" "$out/home-$side" "$machines" | sed "s/^LR-MACHINES /LR-MACHINES $side $label /"
+    # As the console user, as the app: it saves the snapshot owner-only (folder 0700, file 0600).
+    GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/machines.py" "$out/home-$side" "$machines" \
+      | sed "s/^LR-MACHINES /LR-MACHINES $side $label /"
     [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
   fi
   quiesce "$app" "$side" "$label"
