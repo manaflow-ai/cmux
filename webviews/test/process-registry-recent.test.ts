@@ -27,7 +27,7 @@ test("a long list keeps every running process, however old, and the newest ended
   const ended = kept.filter((p) => p.state !== "running");
   expect(ended).toHaveLength(100);
   expect(ended[0]!.id).toBe(`${CHAT}/task-4900`);
-  expect(kept.map((p) => p.startedAt)).toEqual([...kept.map((p) => p.startedAt)].sort((a, b) => a - b));
+  expect(kept.map((p) => p.startedAt)).toEqual(kept.map((p) => p.startedAt).sort((a, b) => a - b));
 });
 
 test("updates past the window stay bounded: the oldest ended one goes as a new one arrives", () => {
