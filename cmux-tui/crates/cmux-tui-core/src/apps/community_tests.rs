@@ -119,7 +119,7 @@ fn a_listing_without_a_reviewed_commit_or_a_good_ref_is_dropped() {
 
 #[test]
 fn the_fetch_follows_cursors_up_to_the_page_bound() {
-    let mut pages = Vec::new();
+    let mut pages: Vec<(String, Result<Value, &str>)> = Vec::new();
     for page in 0..(MAX_PAGES + 2) {
         let cursor = (page > 0).then(|| format!("c{page}"));
         let url = ext_url(cursor.as_deref());
@@ -147,9 +147,9 @@ fn an_oversized_page_fails_the_fetch() {
 #[test]
 fn setups_are_best_effort_and_extensions_are_required() {
     let ok = json!({ "items": [listing("Acme", "notes", SHA_A)] });
-    let registry = FakeRegistry::with(vec![(&ext_url(None), Ok(ok))]);
+    let registry = FakeRegistry::with(vec![(ext_url(None).as_str(), Ok(ok))]);
     assert_eq!(fetch_index(registry.as_ref(), BASE).unwrap().len(), 1);
-    let registry = FakeRegistry::with(vec![(&ext_url(None), Err("500"))]);
+    let registry = FakeRegistry::with(vec![(ext_url(None).as_str(), Err("500"))]);
     assert!(fetch_index(registry.as_ref(), BASE).is_err());
 }
 
@@ -157,7 +157,7 @@ fn setups_are_best_effort_and_extensions_are_required() {
 fn the_cache_is_served_offline_and_a_failure_keeps_it() {
     let dir = temp_dir();
     let ok = json!({ "items": [listing("Acme", "notes", SHA_A)] });
-    let registry = FakeRegistry::with(vec![(&ext_url(None), Ok(ok))]);
+    let registry = FakeRegistry::with(vec![(ext_url(None).as_str(), Ok(ok))]);
     let community = Community::new(Some(&dir), BASE, registry.clone());
     let (status, start) = community.status(false, true);
     assert!(status.index.is_none() && status.stale && start);
