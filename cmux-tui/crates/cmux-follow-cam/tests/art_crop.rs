@@ -34,6 +34,7 @@ const SKY: Salient = Salient { x: 900.0, y: 0.0, w: 600.0, h: 150.0, weight: 0.3
 
 #[test]
 fn salient_set_frames_fit_crop() {
+    assert_eq!(Config::default().salient_dead_zone, 0.04);
     for aspect in [21.0 / 9.0, 16.0 / 10.0, 9.0 / 19.5, 1.0] {
         let config = Config { aspect, ..Config::default() };
         let mut camera = Camera::new(config, ART.0, ART.1);
@@ -117,6 +118,11 @@ fn salient_json_round_trips() {
     assert!(text.contains("\"kind\":\"salient\""), "{text}");
     let back: Event = serde_json::from_str(&text).expect("parse");
     assert_eq!(back, e);
+    // A config saved before salient_dead_zone existed still loads.
+    let mut old = serde_json::to_value(Config::default()).expect("json");
+    old.as_object_mut().expect("object").remove("salient_dead_zone");
+    let loaded: Config = serde_json::from_value(old).expect("parse");
+    assert_eq!(loaded, Config::default());
 }
 
 #[test]

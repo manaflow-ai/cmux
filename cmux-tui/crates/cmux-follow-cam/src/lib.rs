@@ -53,9 +53,6 @@ pub const STEP_US: u64 = 1_000_000 / 240;
 pub const CUT_SETTLE_US: u64 = 200_000;
 /// Salient regions kept for the focus (one set; the heaviest count).
 const MAX_SALIENT: usize = 32;
-/// The dead zone for a [`Signal::Salient`] focus: its crop's centre may sit
-/// up to 2% of the crop off the goal's before the goal moves.
-const SALIENT_DEAD_ZONE: f64 = 0.04;
 /// Damage rects kept for the focus (newest last).
 const MAX_DAMAGE: usize = 64;
 /// A longer gap between two `advance` calls (a backgrounded viewer) puts
@@ -150,6 +147,13 @@ pub struct Config {
     /// The middle share of the crop (each axis) the focus may move in
     /// without moving the camera.
     pub dead_zone: f64,
+    /// The dead zone while a [`Signal::Salient`] set is the focus. A fit crop
+    /// is a target to reach, not a point to keep in view, so it is far
+    /// smaller than `dead_zone`: at 0.04 the crop's centre may sit 2% of the
+    /// crop either side of the goal's before the camera moves. The smaller of
+    /// the two applies.
+    #[serde(default = "default_salient_dead_zone")]
+    pub salient_dead_zone: f64,
     /// Top speed, in crop widths per second.
     pub max_speed: f64,
     /// Top acceleration, in crop widths per second squared.
@@ -163,12 +167,17 @@ pub struct Config {
     pub damage_max_share: f64,
 }
 
+fn default_salient_dead_zone() -> f64 {
+    0.04
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             aspect: 9.0 / 16.0,
             zoom: 1.0,
             dead_zone: 0.6,
+            salient_dead_zone: default_salient_dead_zone(),
             max_speed: 3.0,
             max_accel: 12.0,
             intent_hold_us: 3_000_000,
@@ -486,7 +495,7 @@ impl Camera {
             // lands on its fit and a slightly different saliency pass does
             // not move it.
             let dead_zone = if rank == Rank::Salient {
-                SALIENT_DEAD_ZONE.min(self.config.dead_zone)
+                self.config.salient_dead_zone.min(self.config.dead_zone)
             } else {
                 self.config.dead_zone
             };
