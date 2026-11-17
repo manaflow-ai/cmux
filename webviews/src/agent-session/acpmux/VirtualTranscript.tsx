@@ -5352,6 +5352,8 @@ function TranscriptView({
     [sessionId],
   );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
+  // Every pass, on purpose: its setState runs only when the base changed, so it cannot loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
