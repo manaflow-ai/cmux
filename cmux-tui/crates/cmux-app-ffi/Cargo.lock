@@ -138,6 +138,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+ "libc",
 ]
 
 [[package]]

@@ -48,6 +48,11 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
 
+# The code-sign clone sweep (src/sign_clone_sweep.rs): confstr and
+# proc_pidinfo for this process, EBUSY.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites
 # a tracked file.
