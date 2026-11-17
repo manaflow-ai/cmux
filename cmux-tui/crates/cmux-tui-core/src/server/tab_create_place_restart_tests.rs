@@ -16,7 +16,7 @@ const WAIT: Duration = Duration::from_secs(30);
 
 /// One session folder. Each [`Self::open`] is a daemon on it.
 struct Session {
-    root: std::path::PathBuf,
+    root: PathBuf,
     name: &'static str,
 }
 
@@ -50,7 +50,7 @@ impl Session {
 
     /// The 2 locks that a daemon holds on the session for its whole life:
     /// the guard of the session's name and the lock of its writer.
-    fn locks(&self) -> Vec<std::path::PathBuf> {
+    fn locks(&self) -> Vec<PathBuf> {
         let mut locks = Vec::new();
         for entry in std::fs::read_dir(self.root.join("session-locks")).unwrap() {
             let guard = entry.unwrap().path();
@@ -73,7 +73,7 @@ impl Session {
     /// daemon for a moment more; a stop of the real daemon ends its process.
     /// The wait is on the session's own locks: a thread takes each lock (it
     /// waits as long as another holder keeps it) and lets it go at once.
-    fn wait_until_free(&self, stopped: &std::sync::Weak<Mux>) {
+    fn wait_until_free(&self, stopped: &Weak<Mux>) {
         let locks = self.locks();
         let (free, freed) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
