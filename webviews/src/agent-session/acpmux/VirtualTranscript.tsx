@@ -6837,8 +6837,10 @@ function TranscriptView({
   /// draw, not the mounted window's. A screen reader reads the attribute. The row writes it on its
   /// own mount, from this ref; a changed length is swept below.
   const setSize = String(canLoadOlder ? -1 : rows.length);
+  // The ref is written by the sweep below, never in a render: a render that React throws away must
+  // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
+  // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
   const setSizeRef = useRef(setSize);
-  setSizeRef.current = setSize;
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
@@ -6878,6 +6880,7 @@ function TranscriptView({
   /// ghost copies, which hang in the thread with the row class and have this attribute stripped on
   /// purpose (conversation/turnFold.ts `ghostOf`): an inert copy must not read as a row of the list.
   useLayoutEffect(() => {
+    setSizeRef.current = setSize;
     const threadNode = thread.current;
     if (!threadNode) return;
     for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
