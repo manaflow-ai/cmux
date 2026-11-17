@@ -813,11 +813,9 @@
 {"file":"pages/stats/styles.css","kind":"height","property":"height","values":{"64px":1,"26px":1,"6px":1}}
 {"file":"pages/stats/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"5px":1,"3px":2,"2px":3}}
 {"file":"pages/stats/styles.css","kind":"spacing","property":"gap","values":{"2px":3,"3px":1,"10px":1}}
-{"file":"pages/stats/styles.css","kind":"spacing","property":"margin","values":{"2px 0 0":1}}
 {"file":"pages/stats/styles.css","kind":"spacing","property":"margin-top","values":{"2px":1}}
 {"file":"pages/stats/styles.css","kind":"spacing","property":"padding","values":{"20px 16px 32px":1,"2px":1,"3px 10px":1,"10px 12px":1}}
 {"file":"pages/stats/styles.css","kind":"token-copy","property":"gap","values":{"2px":3}}
-{"file":"pages/stats/styles.css","kind":"token-copy","property":"margin","values":{"2px":1}}
 {"file":"pages/stats/styles.css","kind":"token-copy","property":"margin-top","values":{"2px":1}}
 {"file":"pages/stats/styles.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"prototypes/subagents/subagents.css","kind":"color","property":"background","values":{"#000000":1}}
