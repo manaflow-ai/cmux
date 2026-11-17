@@ -753,6 +753,11 @@ export type AcpmuxRow = {
   /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
   /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
   workedMessages?: { sent: number; received: number };
+  /// A finished turn that drew nothing but its closed "Worked for" (a wake that only ran tools), and
+  /// the bare turns right after it joined into its one line (conversation/turns.ts `joinBareWorked`):
+  /// each member's fold key. Opened, every member draws its own line, and `head` names the first
+  /// one's, under which a click on any of them closes them all (`foldCovers`).
+  workedRun?: { ids: readonly string[]; head?: string };
   /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
   /// `countsCalls`).
   workedCalls?: number;
