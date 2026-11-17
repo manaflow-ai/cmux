@@ -172,10 +172,14 @@ final class TerminalProjectionUITests: XCTestCase {
         terminal.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)))
         step("one-finger pan")
         shot("zoomed-panned")
-        // Two half pinches: XCUITest starts a 0.2 pinch with the fingers spread
-        // past the terminal (on the key bar), where the zoom never sees them.
-        app.pinch(withScale: 0.5, velocity: -1)
-        app.pinch(withScale: 0.5, velocity: -1)
+        // On the app's own area: a pinch in on the whole window starts its
+        // fingers outside the terminal (status bar, key bar), where the zoom
+        // never sees them.
+        let tuiArea = app.otherElements["terminal.tuiClip"].firstMatch
+        let pinchTarget: XCUIElement = tuiArea.exists ? tuiArea : app
+        print("projection ui: altproj: pinch in on \(tuiArea.exists ? "the terminal area" : "the window")")
+        pinchTarget.pinch(withScale: 0.5, velocity: -1)
+        pinchTarget.pinch(withScale: 0.5, velocity: -1)
         step("pinch in (fit width)")
         shot("fit-width-again")
         guard let gestured = wait(for: "gestured") else { return XCTFail("the demo never left the gestures stage: \(probe.label)") }

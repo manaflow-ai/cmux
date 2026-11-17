@@ -34,6 +34,9 @@ extension TerminalViewController {
         }
         tuiZoom.zoomed = { [weak self] in self?.model.zoomGestures += 1 }
         tuiZoom.install(in: tuiClip, page: tuiHost, singleTap: tuiTap)
+        // UI tests pinch on the full-screen app's area itself (a pinch on the
+        // whole window starts its fingers outside it).
+        tuiClip.accessibilityIdentifier = "terminal.tuiClip"
     }
 
     /// The surface's placement in the TUI host: its top-left and its scale.
