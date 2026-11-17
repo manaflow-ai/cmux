@@ -51,6 +51,30 @@ import Testing
         #expect(!channel.closed)
     }
 
+    /// A Mac from before the paged list (it ignores `limit`) answers the first page's watch with
+    /// its whole list, uncompressed, in the link's 16 KiB frames, and it may all arrive before
+    /// this phone's check of the Mac passed. That answer to the phone's own request is kept
+    /// whole: the hub is ready with every chat once the check passes. Before, the budget meant
+    /// for notifications cut the list off part way (at about 4 MiB) and dropped it silently.
+    @Test func anOlderMacsWholeListBeforePairingArrivesWhole() async throws {
+        let rows = 4000
+        let channel = OlderMacChannel(rows: rows)
+        let hub = AcpmuxHub()
+        // The pairing passes once the whole list was read, so all of it came before the check.
+        let bind = Task {
+            await hub.bind(channel, requestTimeout: .seconds(5), until: {
+                while !channel.listRead { try? await Task.sleep(for: .milliseconds(2)) } // test: the list is read first
+                return true
+            })
+        }
+        await bind.value
+        #expect(channel.listBytes > AcpmuxConnection.MessageJoiner.chunk * 512, "the list is \(channel.listBytes) bytes")
+        #expect(hub.isReady, "the hub was not ready after a \(channel.listBytes)-byte list: \(hub.lastError ?? "")")
+        #expect(hub.sessions.count == rows)
+        #expect(!channel.closed)
+        await hub.bind(nil)
+    }
+
     /// A small compressed frame counts at the length it inflates to: one that would inflate past
     /// the budget is refused before it is inflated, and the channel closes.
     @Test func aSmallCompressedFrameThatInflatesPastTheBudgetIsCutOff() async throws {
@@ -83,6 +107,64 @@ import Testing
         func u32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(truncatingIfNeeded: value >> (24 - 8 * $0)) } }
         return Data([DeflatedMessage.marker] + u32(text.count) + u32(written)) + body
     }
+}
+
+/// A Mac from before the paged list: `initialize` answers at once, and `_acpmux/watch` answers
+/// with every one of `rows` chats (about 2.7 KB each, like a real row), uncompressed, split into
+/// the link's 16 KiB frames.
+private final class OlderMacChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private let rows: Int
+    private var queue: [Data] = []
+    private var listQueued = false
+    private var ended = false
+    private(set) var listBytes = 0
+
+    init(rows: Int) { self.rows = rows }
+
+    var closed: Bool { lock.withLock { ended } }
+    /// The whole list was queued and read.
+    var listRead: Bool { lock.withLock { listQueued && queue.isEmpty } }
+
+    func send(_ data: Data) async throws {
+        guard let request = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let id = request["id"]?.numberValue, let method = request["method"]?.stringValue else { return }
+        let reply: String
+        switch method {
+        case "initialize":
+            reply = #"{"jsonrpc":"2.0","id":\#(Int(id)),"result":{}}"#
+        case "_acpmux/watch":
+            let preview = String(repeating: "p", count: 2600)
+            let sessions = (0..<rows).map { #"{"sessionId":"s\#($0)","name":"chat \#($0)","status":"idle","preview":"\#(preview)"}"# }
+            reply = #"{"jsonrpc":"2.0","id":\#(Int(id)),"result":{"sessions":[\#(sessions.joined(separator: ","))]}}"#
+        default:
+            return
+        }
+        let bytes = Data(reply.utf8)
+        let chunk = AcpmuxConnection.MessageJoiner.chunk
+        let frames = stride(from: 0, to: bytes.count, by: chunk).map { bytes.subdata(in: $0..<min($0 + chunk, bytes.count)) }
+        lock.withLock {
+            queue += frames
+            if method == "_acpmux/watch" {
+                listBytes = bytes.count
+                listQueued = true
+            }
+        }
+    }
+
+    func receive() async throws -> Data? {
+        while true {
+            let next: Data?? = lock.withLock {
+                if ended { return .some(nil) }
+                return queue.isEmpty ? nil : .some(queue.removeFirst())
+            }
+            if let next { return next }
+            try await Task.sleep(for: .milliseconds(2)) // test: a Mac with nothing more to say
+        }
+    }
+
+    func close(code: String, reason: String) async { lock.withLock { ended = true } }
 }
 
 /// A Mac that sends `frames`, then goes quiet.
