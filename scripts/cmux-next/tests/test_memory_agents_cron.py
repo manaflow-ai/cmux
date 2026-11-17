@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import ctypes
 import importlib.util
+import json
 import os
+import tempfile
 import sys
 import unittest
 from unittest import mock
@@ -182,6 +184,40 @@ class HeapSummaryTests(unittest.TestCase):
         self.assertEqual(list(got["by_path"]), ["/chat", "/"])
         self.assertEqual(got["error_count"], 1)
         self.assertEqual(got["errors"], ["no live page 4"])
+
+
+class ReleaseAppTests(unittest.TestCase):
+    """The memory rows are the Release (bench) app's: a Debug app (the cached `cmux DEV` of the build part, whose
+    bundle carries `<name>.debug.dylib`) read 1035.4 MB where a Release app reads 807-847 MB (ae071ce5 at 824d2970,
+    because the controller ran the part without --config=bench). The part refuses a Debug app instead of storing a row."""
+
+    def bundle(self, d, *files):
+        macos = os.path.join(d, "cmux DEV split-spring.app", "Contents", "MacOS")
+        os.makedirs(macos)
+        for name in files:
+            open(os.path.join(macos, name), "w").close()
+        return os.path.join(d, "cmux DEV split-spring.app")
+
+    def test_a_debug_bundle_is_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            app = self.bundle(d, "cmux DEV", "cmux DEV.debug.dylib", "__preview.dylib")
+            self.assertIn("Debug", cron.app_build_problem(app) or "")
+
+    def test_a_release_bundle_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(cron.app_build_problem(self.bundle(d, "cmux DEV")))
+
+    def test_main_stores_no_row_for_a_debug_app(self):
+        with tempfile.TemporaryDirectory() as d:
+            app = self.bundle(d, "cmux DEV", "cmux DEV.debug.dylib")
+            out = os.path.join(d, "report.json")
+            with mock.patch.object(cron.subprocess, "run") as run:
+                status = cron.main(["--app", app, "--json", out])
+            run.assert_not_called()
+            self.assertEqual(status, 1)
+            report = json.load(open(out))
+            self.assertEqual(report["rows"], [])
+            self.assertIn("Debug", " ".join(report["incomplete"]))
 
 
 if __name__ == "__main__":
