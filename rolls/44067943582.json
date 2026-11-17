@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44067943582",
+  "recorded_at": "2026-11-17T11:02:16Z",
+  "reason": "cmux-tui 759ed6153583 changes the image's cmux-tui (pinned 413d72630f98)",
+  "dry_run": false,
+  "cmux_tui": "759ed6153583c3e469a54ba7c377ee01163bca53",
+  "fixes": [
+    {
+      "sha": "759ed6153583c3e469a54ba7c377ee01163bca53",
+      "mergedAt": "2026-11-17T02:21:31-08:00",
+      "subject": "fix(cmux-flow-trace): the writer parks on a drain that pops nothing and sleeps with no timer after 1 s idle"
+    },
+    {
+      "sha": "f52be9f794ad674a91463a49929bf805a81d83dd",
+      "mergedAt": "2026-11-17T02:21:31-08:00",
+      "subject": "test(cmux-flow-trace): red: the writer spins over a claimed, unpublished slot (74 M loops in 300 ms) and an idle writer wakes 20 times a second for good"
+    },
+    {
+      "sha": "5a927eef3caf288ff7bf44dbc302b131ce82da7d",
+      "mergedAt": "2026-11-17T01:56:07-08:00",
+      "subject": "[startup] launch record v2 and the launch-shell plan (#45097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T11:02:16Z",
+    "snapshot_id": "sh-5cfda07244434ca9bc9ca2df2b4748e6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44067943582): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a5d01a4592c922af3cf86ff3a929bd0180995dfb",
+    "image": "cloud-native-auto-759ed615-44067943582-1",
+    "revision": "ci-44067943582-1",
+    "at": "2026-11-17T11:02:16Z"
+  },
+  "rolled_back": false
+}
