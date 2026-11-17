@@ -41,6 +41,11 @@ extension TabCell {
                 _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
             } else if hasStateMark {
                 _ = placeTrailingStateMark(center: CGPoint(x: statusSlot.midX, y: midY), onPath: onPath)
+                // The spinner handing its place to the dot fades out under it, in the same slot.
+                if spinnerExitsInSlot, spinnerLayer != nil {
+                    spinnerInSlot = true
+                    _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
+                }
             } else if spinnerLayer != nil {
                 spinnerInSlot = true
                 _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)

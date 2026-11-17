@@ -32,6 +32,7 @@ extension TabCell: StatusIndicatorConfigClient {
             let spinner = makeSpinner()
             let wasHidden = spinner.layer.isHidden || spinner.plan.glyph == .none || isSpinnerExiting
             isSpinnerExiting = false
+            spinnerExitsInSlot = false
             spinner.apply(plan, config: StatusIndicatorAppearance.shared.config)
             if wasHidden {
                 showSpinner(spinner, animated: item.indicator.isLoading)
@@ -45,6 +46,7 @@ extension TabCell: StatusIndicatorConfigClient {
                 let variant = handsToDot && TabTunables.loadingAnimation.value == .instant ? .fade : TabTunables.loadingAnimation.value
                 hideSpinner(spinnerLayer, variant: variant)
                 dotFadesIn = handsToDot && spinnerLayer === self.spinnerLayer
+                spinnerExitsInSlot = dotFadesIn
             }
         }
         layoutLayers()
@@ -140,6 +142,7 @@ extension TabCell: StatusIndicatorConfigClient {
         spinner.layer.removeFromSuperlayer()
         spinnerLayer = nil
         isSpinnerExiting = false
+        spinnerExitsInSlot = false
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke): now

@@ -57,9 +57,9 @@ import Testing
         let cell = Self.cell(busy: true, look: look)
         #expect(Self.separateMarks(cell) == 1, "\(look): \(Self.separateMarks(cell)) marks")
         let spinner = try #require(cell.spinnerLayer?.frame, "\(look): no busy indicator")
-        // The status slot is the x's slot: the hovered x takes the mark's place.
-        let slotMidX = cell.bounds.width - cell.metrics.contentTrailingInset - cell.metrics.closeButtonSize / 2
-        #expect(abs(spinner.midX - slotMidX) <= 0.5, "\(look): the mark is at \(spinner.midX), the slot's middle at \(slotMidX)")
+        // The status slot (the x's) is where an idle unread tab draws its dot.
+        let idle = try #require(Self.cell(busy: false, look: look).badgeLayer?.frame, "\(look): an idle unread tab draws no dot")
+        #expect(abs(spinner.midX - idle.midX) <= 0.5, "\(look): the mark is at \(spinner.midX), an idle unread tab's dot at \(idle.midX)")
     }
 
     @Test(arguments: TabBusyUnreadMark.allCases.filter { $0 != .pair })
@@ -73,6 +73,27 @@ import Testing
         #expect(abs(dot.midX - busyMark.midX) <= 0.5, "\(look): the dot lands at \(dot.midX), the mark was at \(busyMark.midX)")
         let idleTitleEnd = try #require(cell.titleFade.geometry?.visibleWidth)
         #expect(idleTitleEnd == busyTitleEnd, "\(look): the title's visible width moved from \(busyTitleEnd) to \(idleTitleEnd)")
+        // A spinner still fading out does so under the dot, never beside it.
+        if let leaving = cell.spinnerLayer?.frame {
+            #expect(abs(leaving.midX - dot.midX) <= 0.5, "\(look): the leaving spinner is at \(leaving.midX), the dot at \(dot.midX)")
+        }
+    }
+
+    /// The same hand-over with the Debug loading animation at each prototype: the title holds through every exit.
+    @Test(arguments: TabLoadingAnimation.allCases)
+    func theTitleEndHoldsUnderEveryLoadingAnimation(animation: TabLoadingAnimation) throws {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(TabTunables.all)
+        defer { store.set(TabTunables.loadingAnimation.key, nil) }
+        try #require(store.set(TabTunables.loadingAnimation.key, .choice(animation.rawValue)) == .choice(animation.rawValue))
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let cell = Self.cell(busy: true, look: .spinner)
+        let busyTitleEnd = try #require(cell.titleFade.geometry?.visibleWidth)
+        cell.update(item: Self.item(busy: false))
+        cell.layoutLayers()
+        #expect(cell.titleFade.geometry?.visibleWidth == busyTitleEnd, "\(animation): the title's visible width moved")
     }
 
     @Test func thePairLookKeepsTheOldTwoMarks() {

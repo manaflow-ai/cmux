@@ -158,6 +158,9 @@ final class TabCell {
     var isSpinnerExiting = false
     /// The unread dot about to take the leaving spinner's place fades in with its exit (`TabBusyUnreadMark`).
     var dotFadesIn = false
+    /// The leaving spinner fades out in the status slot it held, under the dot taking its place, never in the
+    /// cluster beside it, so the title's end holds through the hand-over (`TabBusyUnreadMark`).
+    var spinnerExitsInSlot = false
     var badgeLayer: CALayer?
     var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
