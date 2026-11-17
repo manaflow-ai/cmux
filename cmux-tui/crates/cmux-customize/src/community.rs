@@ -34,6 +34,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::library::Changed;
+
+pub mod art;
 use crate::profile::{Profile, valid_name};
 use crate::{Customize, Error};
 
@@ -110,6 +112,8 @@ pub struct Package {
     pub themes: Vec<String>,
     /// The library entry it installs as; its profile's name.
     pub profile: Profile,
+    /// A theme's wallpapers, header image and flourishes (empty for a snippet).
+    pub art: art::Art,
 }
 
 /// Where an installed theme or snippet came from.
@@ -248,16 +252,26 @@ pub fn read_package(dir: &Path) -> Result<Package, Error> {
     let version = Some(header_text(&header, "version", marker, false)?).filter(|v| !v.is_empty());
     let entry = entry_name(tier, &id);
     debug_assert!(valid_name(&entry));
-    let (profile, themes) = match tier {
-        Tier::Theme => theme_profile(dir, &header)?,
-        Tier::Snippet => (snippet_profile(dir, &header)?, Vec::new()),
+    let (profile, themes, art) = match tier {
+        Tier::Theme => {
+            let art = art::read_art(dir, &header)?;
+            let (profile, themes) = theme_profile(dir, &header, &entry, &art)?;
+            (profile, themes, art)
+        }
+        Tier::Snippet => (snippet_profile(dir, &header)?, Vec::new(), art::Art::default()),
     };
     let profile = Profile { name: entry, description: description.clone(), ..profile };
-    Ok(Package { tier, id, name, description, version, header, themes, profile })
+    Ok(Package { tier, id, name, description, version, header, themes, profile, art })
 }
 
-/// A theme repository's profile: its theme files, and the active one.
-fn theme_profile(dir: &Path, header: &Value) -> Result<(Profile, Vec<String>), Error> {
+/// A theme repository's profile: its theme files (backdrop values pointed
+/// at the installed art), and the active one.
+fn theme_profile(
+    dir: &Path,
+    header: &Value,
+    entry: &str,
+    art: &art::Art,
+) -> Result<(Profile, Vec<String>), Error> {
     let paths: Vec<String> = match header.get("themes") {
         None | Some(Value::Null) => {
             let mut found = Vec::new();
@@ -303,11 +317,13 @@ fn theme_profile(dir: &Path, header: &Value) -> Result<(Profile, Vec<String>), E
             .ok_or_else(|| refuse(format!("{path}: a theme file is themes/NAME.json")))?;
         let text = read_text(dir, path, theme_file::MAXIMUM_BYTES as u64)?
             .ok_or_else(|| refuse(format!("{path}: not in the repository")))?;
+        let text = art::rewrite(&text, path, entry, art)?;
+        let themes_dir = dir.join(theme_file::FOLDER_NAME);
         let file = ThemeFile::read(
             name,
             Some(Ok(text.as_str())),
             &json!({}),
-            None,
+            Some(&themes_dir),
             schema,
             &Domains::default(),
         );
@@ -536,8 +552,14 @@ pub fn card(verb: &str, package: &Package, receipt: &Receipt, reviewed: bool) ->
         (None, None) => short(&receipt.commit).to_owned(),
     };
     let author = package.id.split('/').next().unwrap_or_default();
+    let images = package.art.images.len();
+    let with = if images == 0 {
+        String::new()
+    } else {
+        format!(", with {}", crate::count(images, "image"))
+    };
     format!(
-        "{verb} {} \"{}\" by {author} from {} @ {at}: no code runs.{}",
+        "{verb} {} \"{}\" by {author} from {} @ {at}{with}: no code runs.{}",
         package.tier.name(),
         package.name,
         receipt.reference,
@@ -654,7 +676,17 @@ impl Customize {
         let words = vec![format!("{} {}", package.tier.name(), receipt.reference)];
         let mut profile = package.profile.clone();
         profile.created_ms = now_ms;
+        // The art first, so the theme never points at pictures that are not
+        // there; a failed library change puts the earlier art back.
+        let staged = art::install(&self.roots().config_dir, &receipt.entry, &package.art)?;
         let change = self.library_put(profile, package.tier.name(), words, top, origin, now_ms)?;
+        match staged {
+            Some(staged) => staged.keep(),
+            // An update that no longer carries art: the old copy goes.
+            None => {
+                art::remove(&self.roots().config_dir, &receipt.entry)?;
+            }
+        }
         file.installed.retain(|have| have.entry != receipt.entry);
         file.installed.push(receipt);
         self.write_receipts(&mut file)?;
@@ -678,6 +710,7 @@ impl Customize {
         } else {
             None
         };
+        art::remove(&self.roots().config_dir, &receipt.entry)?;
         let mut file = self.read_receipts()?;
         file.installed.retain(|have| have.entry != receipt.entry);
         self.write_receipts(&mut file)?;

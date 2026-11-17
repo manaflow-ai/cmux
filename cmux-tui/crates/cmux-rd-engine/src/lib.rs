@@ -600,7 +600,9 @@ impl MediaEngine {
             .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
+            // The encoder dropped the frame: its change still has to reach the viewer.
             state.gate.clear_in_flight();
+            state.gate.requeue(req.damage);
             return Ok(Output::default());
         };
         let tile = state.tile_of.is_some();
@@ -649,7 +651,13 @@ impl MediaEngine {
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
-        state.force_idr = None;
+        // Only a frame asked for as a keyframe (or one that is independent anyway) answers a
+        // pending keyframe. A recovery that came in while an older P-frame request was still
+        // being encoded stays pending, so the next request is the keyframe: clearing it here
+        // lost the recovery, and a viewer that moved routes waited for another ask.
+        if req.force_idr || enc.idr || tile {
+            state.force_idr = None;
+        }
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;
@@ -732,8 +740,16 @@ impl MediaEngine {
                 self.ack_rtts.pop_front();
             }
         }
+        // While the path is away (D12) only the newest frame is repaired, as an outage
+        // end sends only the newest frame: an older frame's resend lands in the hold's
+        // burst behind it, while the newest one is what the viewer waits on (a key press's
+        // echo lost in the hold would otherwise wait for the path to be proven back).
+        let away = self.cc.frozen();
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
+            if away && nack.frame != state.last_frame {
+                continue;
+            }
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
             for &i in &nack.indexes {
                 if budget == 0 {
@@ -748,17 +764,22 @@ impl MediaEngine {
                 }
             }
         }
-        let mut action = state.gate.ack(fb.acked_frame, now_us);
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
-        if fb.need_recovery && idr_allowed {
+        // While the path is away (D12) a keyframe would only join the hold; the viewer
+        // keeps asking until a frame it can decode arrives, so the ask waits for the path.
+        if fb.need_recovery && idr_allowed && !self.cc.frozen() {
+            // Set the keyframe up before the gate polls, so the one poll below hands it out.
+            // Polling twice (ack, then damage) let the ack hand pending damage a frame number
+            // and the second poll answer Wait over it: that frame was never encoded.
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = Some(IdrReason::Recovery);
             state.gate.clear_in_flight();
             let full = state.full();
-            action = state.gate.damage(full, now_us);
+            state.gate.requeue(full);
         }
+        let action = state.gate.ack(fb.acked_frame, now_us);
         out.encode = self.request(stream, action);
     }
 
@@ -776,6 +797,12 @@ impl MediaEngine {
             }
             let Some(from) = state.probe_from_us else { continue };
             if now_us < from.saturating_add(TAIL_PROBE_US) {
+                continue;
+            }
+            if self.cc.frozen() {
+                // The path is away (D12): a probe would only join the hold. The wait
+                // starts over when it is back, and a long hold spends no probes.
+                state.probe_from_us = Some(now_us);
                 continue;
             }
             if state.probes < TAIL_PROBES {

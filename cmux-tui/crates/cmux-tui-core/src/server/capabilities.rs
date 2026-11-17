@@ -64,6 +64,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
@@ -86,6 +89,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        // The start takes `permission_mode` wherever it is served; only a start on the caller's
+        // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
+        capabilities.push(AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODE_CAPABILITY);
         // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
         // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
@@ -96,6 +102,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
+        // The owner's model credential with the start and its refresh (agent_session_start.rs).
+        capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {

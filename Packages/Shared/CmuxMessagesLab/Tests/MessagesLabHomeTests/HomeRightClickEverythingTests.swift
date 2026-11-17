@@ -92,11 +92,13 @@ import Testing
 
     @Test func aQuotedReplyPictureHasTheAttachmentMenu() throws {
         let png = AttachmentRef(hash: "h1", name: "shot.png", mimeType: "image/png", byteCount: 10, width: 400, height: 300)
-        let items = [
-            item(1, Self.me, [.attachment(png)]),
-            item(2, Self.chief, [.text("Looking at it now.")]),
-            item(3, Self.me, [.text("Is the second button cut off?")], replyTo: CmuxHomeCore.PartRef(message: MessageID("msg_1"), partIndex: 0), threadRoot: MessageID("msg_1")),
-        ]
+        // The root sits more than `ThreadQuoteNearby.messages` messages above the reply: a root right above is in view
+        // with its reply and gets no quote (user 2026-11-05, msg 23140), so the quote shows only for a farther root.
+        let between = ThreadQuoteNearby.messages
+        let items = [item(1, Self.me, [.attachment(png)])]
+            + (0..<between).map { item(2 + $0, Self.chief, [.text("Looking at it now, step \($0 + 1).")]) }
+            + [item(2 + between, Self.me, [.text("Is the second button cut off?")],
+                    replyTo: CmuxHomeCore.PartRef(message: MessageID("msg_1"), partIndex: 0), threadRoot: MessageID("msg_1"))]
         let (window, controller) = controller(items)
         defer { window.close() }
         let demo = try #require(controller.demo as MessagesWindowView?)
