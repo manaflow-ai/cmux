@@ -108,11 +108,11 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          mkdir -p "$RUNNER_TEMP/tab-switch"
           if ! [[ -x "$client" ]]; then
             echo "::error title=Tab switch::$client is not installed on runner $RUNNER_NAME; nothing was measured."
             exit 1
           fi
+          mkdir -p "$RUNNER_TEMP/tab-switch"
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
           "$client" run --class exclusive --measurement --display --background \

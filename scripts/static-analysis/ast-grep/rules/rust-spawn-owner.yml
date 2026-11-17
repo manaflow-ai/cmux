@@ -1,0 +1,64 @@
+# Port of scripts/cmux-next/check-spawn-owner.py (cmuxterm-hq#9096): a task or process started with
+# no owner. The original counts text lines per file against spawn-owner-baseline.tsv; this matches
+# calls in the syntax tree, so a spawn in a comment, a string or a `#[cfg(test)]` module anywhere in
+# the file is not one, and a call split over lines is one.
+id: rust-spawn-owner
+language: rust
+severity: warning
+message: task or thread spawned with no owner (it outlives the thing that started it)
+note: >-
+  Ports scripts/cmux-next/check-spawn-owner.py (the gate; baseline scripts/cmux-next/spawn-owner-baseline.tsv).
+  Spawn with the owner's `Scope::spawn` / `spawn_named` / `spawn_until_cancelled` (cmux-scope), or start the
+  process with `cmux_process::Command` and keep its `Child`.
+files:
+  - 'cmux-tui/crates/**/*.rs'
+ignores:
+  - 'cmux-tui/crates/cmux-process/**'
+  - 'cmux-tui/crates/cmux-scope/**'
+  - '**/tests/**'
+  - '**/benches/**'
+  - '**/examples/**'
+  - '**/fixtures/**'
+  - '**/target/**'
+  - '**/tests.rs'
+  - '**/*_tests.rs'
+  - '**/*_test.rs'
+rule:
+  any:
+    # A macro's body (`tokio::select! { .. }`, `vec![..]`) is a token tree, not calls, so a spawn
+    # in one is matched as text: one finding for the macro, however many spawns it holds.
+    - kind: macro_invocation
+      has:
+        kind: token_tree
+        regex: '(^|[^\w:])(tokio\s*::\s*(task\s*::\s*)?|task\s*::\s*|(std\s*::\s*)?thread\s*::\s*)spawn\s*\('
+      not:
+        inside: { kind: token_tree, stopBy: end }
+    - pattern: tokio::spawn($$$)
+    - pattern: tokio::task::spawn($$$)
+    - pattern: task::spawn($$$)
+    - pattern: std::thread::spawn($$$)
+    - pattern: thread::spawn($$$)
+    # A bare `spawn(..)` in a file that imports tokio's or std's by name.
+    - all:
+        - pattern: spawn($$$)
+        - inside:
+            kind: source_file
+            stopBy: end
+            has:
+              kind: use_declaration
+              regex: '^use\s+(tokio::(task::)?spawn\b|std::thread::spawn\b|tokio::(task::)?\{[^}]*\bspawn\b|std::thread::\{[^}]*\bspawn\b)'
+    # `.spawn()` of a process in a file that names std's or tokio's `Command`.
+    - all:
+        - pattern: $CMD.spawn()
+        - inside:
+            kind: source_file
+            stopBy: end
+            has:
+              stopBy: end
+              any:
+                - { kind: use_declaration, regex: '\b(std|tokio)::process::(Command\b|\{[^}]*\bCommand\b)' }
+                - { kind: scoped_identifier, regex: '^(::)?(std|tokio)::process::Command$' }
+                - { kind: scoped_type_identifier, regex: '^(::)?(std|tokio)::process::Command$' }
+                - { kind: use_declaration, regex: '^use\s+(std|tokio)::process;' }
+  not:
+    matches: rust-test-code

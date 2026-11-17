@@ -26,6 +26,7 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
+        context.services.cloudTeam.bind(into: registry, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -55,8 +56,6 @@ enum CloudHandlers {
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            // The chat the person asked from, read now: sign-in may finish after focus moved.
-            let chat = CloudChatPick.chatTab(invocation, context.services)
             let start: @MainActor () -> ActionWorkFailure? = {
                 guard cloud.isSignedIn else { return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst) }
                 if let reason = cloud.unavailableReason { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
@@ -66,8 +65,10 @@ enum CloudHandlers {
                 let start = CloudHandlerRules().ask("cloud_handler_new_machine_start", [
                     "isDefault": request.takesPlainPath, "byUser": actionOrigin == .user, "hasWindow": window != nil,
                 ])?["start"] as? String
+                // A person's New Cloud Machine opens a chat that runs in Cloud (New Cloud Chat), in the folder of the
+                // tab it was asked from, no setup dialog: the chat's first send starts its machine.
                 if start == "setup" {
-                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
+                    _ = context.registry.perform("palette.newCloudChat", invocation: invocation)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
@@ -138,9 +139,9 @@ enum CloudHandlers {
         ActionRunScope.current?.origin ?? invocation.origin
     }
 
-    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked).
-    static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext) -> @MainActor () async -> Bool {
-        let person = origin(of: invocation) == .user, request = CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }); return { person ? true : await request.allowed(registry.descriptor(for: id)?.title ?? id.rawValue, in: context.services.windows.active?.window) }
+    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked; `shown` gets its dialog's id).
+    static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
+        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
     }
 
     /// The origin of a connect an invocation starts: `user` only for the
