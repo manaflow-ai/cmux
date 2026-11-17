@@ -18,6 +18,10 @@
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
+    "glaeda-promote-trusted-light-xcode-26.6": {
+      "fallback": "Blacksmith macOS after the owned-pool grace",
+      "after_minutes": 5
+    },
     "glaeda-promote-trusted-std-xcode-26.6": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -70,6 +74,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_FFI_RELEASE_POOL": {
+      "fallback": "unset falls back to the build's earlier routes (the promote pool, vars.CI_SIDE_LANE_RUNNER, Blacksmith); set, a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS by the workflow's rescue job",
+      "after_minutes": 20
+    },
     "CI_NEXT_PROMOTE_POOL": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5

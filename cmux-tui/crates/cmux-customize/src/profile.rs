@@ -81,6 +81,29 @@ impl Customize {
                 "{name:?}: a profile name is lowercase letters, digits, '-' and '_' (like \"compact-night\")"
             )));
         }
+        let (profile, left_out) = self.shareable_profile(name, description, now_ms)?;
+        let path = self.roots().profiles_dir().join(format!("{name}.json"));
+        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
+        text.push('\n');
+        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
+        Ok(Saved {
+            name: name.to_owned(),
+            path,
+            settings: profile.settings.len(),
+            files: profile.files.keys().cloned().collect(),
+            left_out,
+        })
+    }
+
+    /// What is live now as a profile to share, and what was left out of it
+    /// (one line each). The live tree must validate, as for an apply. What
+    /// `save` writes and `cmux setup export` puts in a setup repo.
+    pub(crate) fn shareable_profile(
+        &self,
+        name: &str,
+        description: &str,
+        now_ms: u64,
+    ) -> Result<(Profile, Vec<String>), Error> {
         let scan = tree::scan(self.roots())?;
         let mut live = BTreeMap::new();
         for path in scan.tree.keys() {
@@ -165,17 +188,7 @@ impl Customize {
                 ));
             }
         }
-        let path = self.roots().profiles_dir().join(format!("{name}.json"));
-        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
-        text.push('\n');
-        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
-        Ok(Saved {
-            name: name.to_owned(),
-            path,
-            settings: profile.settings.len(),
-            files: profile.files.keys().cloned().collect(),
-            left_out,
-        })
+        Ok((profile, left_out))
     }
 
     /// The saved profiles, by name.

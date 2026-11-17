@@ -17,8 +17,7 @@ private let terminalChatLog = Logger(subsystem: "dev.cmux.mobile", category: "te
 /// A terminal tab whose agent is Claude Code or Codex has two faces: its terminal and a View
 /// Only chat of the session its agent runs (the chat the Mac's Toggle opens, acpmux `watch`).
 /// Both stay built while the tab is open (`TerminalChatPair`), so a swap is a flag flip: no
-/// reload, the chat's scroll kept. A chat tab of such a session has the same control; its
-/// terminal face is the terminal tab running the session.
+/// reload, the chat's scroll kept. The page menu's Show Chat / Show Terminal row swaps them.
 ///
 /// Every decision (which faces a tab offers and opens on, what a tap does, which chat shows a
 /// session) is Rust's: cmux-mobile-link-ffi `terminal_chat.rs`, over the Mac's own route
@@ -171,7 +170,7 @@ extension WorkspaceTabsSource {
         }
     }
 
-    /// A tap on face `to` of tab `tabID` (the control or the page menu's row).
+    /// A tap on face `to` of tab `tabID` (the page menu's Show Chat / Show Terminal row).
     // perf-hot: 100ms ios-terminal-chat-swap
     func swapTerminalChat(_ tabID: String, to: TabFace) {
         guard let workspace, let tab = workspaceTab(tabID) else { return }
@@ -224,26 +223,6 @@ extension WorkspaceTabsSource {
     }
 }
 
-/// The control on a chat tab of a session a terminal runs (or ran): its terminal face reveals
-/// that terminal; with none, the face is dimmed and a tap says why.
-struct ChatTerminalToggle: View {
-    let source: WorkspaceTabsSource
-    let tab: WorkspaceTab
-    let workspace: Workspace
-    let topInset: CGFloat
-
-    var body: some View {
-        let faces = source.pairFaces(tab, in: workspace)
-        if faces.offered {
-            TerminalChatToggleControl(showsChat: true, chatEnabled: faces.chatEnabled, terminalEnabled: faces.terminalEnabled) { chat in
-                source.swapTerminalChat(tab.id, to: chat ? .chat : .terminal)
-            }
-            .padding(.top, topInset + 8)
-            .padding(.trailing, 12)
-        }
-    }
-}
-
 /// A terminal tab's two faces, both kept built: the terminal and, once a chat shows its
 /// session, the chat. A swap changes which one is visible and takes touches; neither
 /// reloads, so the chat keeps its scroll and the terminal its grid (as the Mac parks both
@@ -267,47 +246,9 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
     }
 }
 
-/// The Chat | Terminal control (the Mac's two faces: `>_` and a chat bubble, the current one
-/// lit), on glass at the page's top trailing corner, at one place on both faces. A face that
-/// cannot show is dimmed; a tap on it says why. VoiceOver reads a radio group.
-struct TerminalChatToggleControl: View {
-    let showsChat: Bool
-    var chatEnabled = true
-    var terminalEnabled = true
-    let select: (_ chat: Bool) -> Void
-
-    var body: some View {
-        HStack(spacing: 2) {
-            segment(chat: true, symbol: "bubble.left", label: "Chat", enabled: chatEnabled)
-            segment(chat: false, symbol: "terminal", label: "Terminal", enabled: terminalEnabled)
-        }
-        .padding(3)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Toggle Terminal and Chat")
-        .accessibilityIdentifier("tab.terminalChatToggle")
-    }
-
-    private func segment(chat: Bool, symbol: String, label: LocalizedStringKey, enabled: Bool) -> some View {
-        let lit = chat == showsChat
-        return Button { select(chat) } label: {
-            Image(systemName: symbol)
-                .font(.body.weight(lit ? .semibold : .regular))
-                .foregroundStyle(lit ? Color.primary : Color.secondary)
-                .opacity(enabled || lit ? 1 : 0.4)
-                .frame(width: 40, height: 32)
-                .background(lit ? Color.primary.opacity(0.12) : .clear, in: .capsule)
-                .contentShape(.capsule)
-        }
-        .buttonStyle(.cmuxPressFill)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(lit ? [.isSelected] : [])
-        .accessibilityIdentifier(chat ? "tab.terminalChatToggle.chat" : "tab.terminalChatToggle.terminal")
-    }
-}
-
-/// A terminal tab's page with its chat face (`WorkspaceTabPage`): the pair, the control, and the
-/// one request a chat face may need (`openTerminalChatIfNeeded`).
+/// A terminal tab's page with its chat face (`WorkspaceTabPage`): the pair and the one request a
+/// chat face may need (`openTerminalChatIfNeeded`). The page menu's Show Chat / Show Terminal row
+/// swaps the faces; the page has no floating Chat | Terminal control (Aziz, 2026-11-16).
 struct TerminalChatPage<Terminal: View>: View {
     let source: WorkspaceTabsSource
     let tab: WorkspaceTab
@@ -327,23 +268,13 @@ struct TerminalChatPage<Terminal: View>: View {
                 if let chatSession {
                     AgentChatTranscript(
                         store: source.terminalChatStore(tab, in: workspace, chatSession: chatSession, faces: faces),
-                        surface: source.surface("\(tab.id)#chat"), topInset: topInset + 52, onUserScroll: reportScroll)
+                        surface: source.surface("\(tab.id)#chat"), topInset: topInset + 8, onUserScroll: reportScroll)
                         .background(Color.cmuxMobileBackground)
                 } else {
                     CmuxSpinner(label: Text("Opening chat…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.cmuxMobileBackground)
                 }
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if faces.offered {
-                TerminalChatToggleControl(showsChat: showsChat, chatEnabled: faces.chatEnabled,
-                                          terminalEnabled: faces.terminalEnabled) { chat in
-                    source.swapTerminalChat(tab.id, to: chat ? .chat : .terminal)
-                }
-                .padding(.top, topInset + 8)
-                .padding(.trailing, 12)
             }
         }
         // Runs again when another chat shows the session, so the pairing kept on disk follows it.
