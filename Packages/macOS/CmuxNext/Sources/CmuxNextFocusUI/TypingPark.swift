@@ -1,12 +1,12 @@
 /// Text for a page that its pane no longer shows. A person types into a new tab whose page cannot take keys yet,
 /// and then presses the New Tab key again. The key router's type-ahead queue keeps the text of one page, and a key
-/// with Command ends it, so that text was lost. It waits here, by its page, and it is typed into that page when the
-/// page's field reports ready.
+/// with Command or Control ends it, so that text was lost. It waits here, by its page, and it is typed into that
+/// page when the page's field reports ready.
 ///
 /// The rules:
 /// - A text waits for one page object. A page that is gone takes its text with it.
-/// - A text that waited `limit` or longer from the key that parked it is dropped: it does not come late into a
-///   field that the person does not see.
+/// - A text that waited `limit` or longer from the key that parked it is dropped. The limit counts from that key,
+///   not from the keys of the text.
 /// - Two texts for one page are typed in the order of their keys: the second waits until the first landed.
 /// - The keys from a Return on that waited behind a text are not parked. The text stands in its field, and it is not
 ///   sent in a tab that the person does not see.
@@ -66,7 +66,11 @@ public nonisolated struct TypingPark<Page: AnyObject> {
         self.limit = limit
     }
 
-    /// Whether a text waits for `page` or is on its way into it.
+    /// Whether the park has no text: none waits and none is on its way.
+    public var isEmpty: Bool { entries.isEmpty }
+
+    /// Whether a text waits for `page` or is on its way into it. It reads no clock: a text that waited the limit
+    /// counts until ``prune(now:)`` drops it.
     public func holds(_ page: Page) -> Bool {
         entries.contains { $0.page === page }
     }

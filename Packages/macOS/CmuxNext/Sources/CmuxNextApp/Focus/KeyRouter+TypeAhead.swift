@@ -63,7 +63,7 @@ extension KeyRouter {
         let focus = controller.focus.state
         guard focus.resolved.mayQueueTyping, let pane = focus.resolved.pane, let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
         let surface = String(describing: ObjectIdentifier(readiness))
-        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface) || parkedTyping.park.holds(readiness)
+        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface) || parkedTyping.holds(readiness)
         let otherPage = keyInOtherPage(window, controller: controller)
         let facts = Facts(pageInputPending: !readiness.isReady || waiting, keyInOtherPage: otherPage)
         // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.

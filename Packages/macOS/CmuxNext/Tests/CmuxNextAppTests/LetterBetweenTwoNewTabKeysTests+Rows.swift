@@ -336,6 +336,8 @@ extension LetterBetweenTwoNewTabKeysTests {
             // Print only: the app's input journal has the focus messages of the pages from here on.
             let journalWasOn = InputJournal.shared.isEnabled
             if !journalWasOn { InputJournal.shared.configure(InputJournalPolicy(enabled: true, recordsCharacters: false)) }
+            // The row leaves the journal as it found it, also when it stops early.
+            defer { if !journalWasOn { InputJournal.shared.configure(InputJournalPolicy(enabled: false, recordsCharacters: false)) } }
             let mark = InputJournal.shared.entries(last: 1).last?.seq ?? 0
             let tab1 = try scene.newTab()
             await Self.frame(scene.services)
@@ -450,10 +452,10 @@ extension LetterBetweenTwoNewTabKeysTests {
                              process (no New Tab field, the chat composer has the focus, the app has the page's focus count). \
                              The page's last word: \(pageWas); the app's count: \(page1.focusEpoch). \(place); \(process)
                              """)
-                #expect(landed && text?.contains("x") == true,
+                #expect(landed && text == "x",
                         """
                         the app did not type into the page that the pane no longer shows (its call returned \(landed), the field \
-                        has the text: \(text ?? "not read")). \(place); \(process)
+                        has the text: \(text ?? "not read"), want the letter x and no other text). \(place); \(process)
                         """)
             }
         }

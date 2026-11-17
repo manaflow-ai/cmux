@@ -29,19 +29,20 @@ public protocol ParkedTypingRouter: AnyObject {
 }
 
 /// The key router's park for the text that a New Tab page waits for when the next New Tab key comes (New Tab key, a
-/// letter, New Tab key, fast). A key with Command ends the router's type-ahead queue, and the queue keeps the text of
-/// one page, so that letter was lost. It is parked now, and it is typed into its own page when the field of that
-/// page reports ready (``TypingPark`` has the rules and the counts).
+/// letter, New Tab key, fast). A key with Command or Control ends the router's type-ahead queue, and the queue keeps
+/// the text of one page, so that letter was lost. It is parked now, and it is typed into its own page when the field
+/// of that page reports ready (``TypingPark`` has the rules and the counts).
 ///
-/// One rule says what is parked, with no list of actions: the text that a key with Command took out of the queue is
-/// parked only when, while that same key is in dispatch, a New Tab page opens in the pane that shows the text's page
-/// (the app tells it after the opening's key hold began). Each other key with Command drops the text, as before: a
-/// key that opens a terminal, a browser or a chat tab, a tab switch, Paste, Close Tab.
+/// One rule says what is parked, with no list of actions: the text that a key with Command or Control took out of
+/// the queue is parked only when, while that same key is in dispatch, a New Tab page opens in the pane that shows the
+/// text's page (the app tells it after the opening's key hold began). Each other key with Command or Control drops
+/// the text, as before: a key that opens a terminal, a browser or a chat tab, a tab switch, Paste, Close Tab.
 ///
 /// A surface is the name of a page object in the router's queue (the text of its object identifier).
 @MainActor
 public final class ParkedTyping<Router: ParkedTypingRouter> {
-    /// The text that a key with Command took out of the queue. It counts only while that key is in dispatch.
+    /// The text that a key with Command or Control took out of the queue. It is kept until the next such key, and it
+    /// counts only while its own key is in dispatch.
     private struct Taken {
         let event: NSEvent
         let text: String
@@ -71,7 +72,17 @@ public final class ParkedTyping<Router: ParkedTypingRouter> {
         return park.counts.named
     }
 
-    /// The key with Command `event` ends the queue. The text that waits in the queue is kept for this key.
+    /// Whether a text waits for `page` or is on its way into it, for a key in that page. A text that waited the limit
+    /// is dropped and counted first: it is not typed, so it holds no key behind it. With nothing parked the answer is
+    /// false with no read of the clock.
+    public func holds(_ page: Router.Page) -> Bool {
+        guard !park.isEmpty else { return false }
+        park.prune(now: now())
+        return park.holds(page)
+    }
+
+    /// The key with Command or Control `event` ends the queue. The text that waits in the queue is kept until the next
+    /// such key, and it counts only while this key is in dispatch (``newTabPageOpens(showing:)``).
     ///
     /// - Parameters:
     ///   - event: The key-down in dispatch.
