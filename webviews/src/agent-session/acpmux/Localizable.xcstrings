@@ -156243,6 +156243,534 @@
         }
       }
     },
+    "transport.intentInvalidOpen": {
+      "comment": "Agent pane: the app refused the request that opens a chat (a cmux bug); may follow 'Couldn't start <agent>:'",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منع cmux فتح هذه المحادثة. هذا خطأ في cmux وليس شيئًا فعلته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao otvaranje ovog chata. To je greška u cmuxu, a ne nešto što ste vi uradili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede åbningen af denne chat. Det er en fejl i cmux, ikke noget du har gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat das Öffnen dieses Chats blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked opening this chat. That’s a bug in cmux, not something you did."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bloqueó la apertura de este chat. Es un error de cmux, no algo que hayas hecho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a bloqué l’ouverture de ce chat. C’est un bug de cmux, pas une erreur de votre part."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato l’apertura di questa chat. È un bug di cmux, non qualcosa che hai fatto tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がこのチャットを開くのをブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានរារាំងការបើកការជជែកនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 채팅을 여는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte åpningen av denne chatten. Det er en feil i cmux, ikke noe du har gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował otwarcie tego czatu. To błąd w cmux, a nie coś, co zrobiłeś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou a abertura deste chat. É um bug do cmux, não algo que você fez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал открытие этого чата. Это ошибка cmux, а не ваши действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการเปิดแชตนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu sohbetin açılmasını engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував відкриття цього чату. Це помилка cmux, а не ваші дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn việc mở cuộc trò chuyện này. Đây là lỗi của cmux, không phải do bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了打开此聊天。这是 cmux 的错误，不是你的操作导致的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了開啟此聊天。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
+    "transport.intentInvalidStart": {
+      "comment": "Agent pane: the app refused the request that starts a chat (a cmux bug); may follow 'Couldn't start <agent>:'",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منع cmux بدء هذه المحادثة. هذا خطأ في cmux وليس شيئًا فعلته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao pokretanje ovog chata. To je greška u cmuxu, a ne nešto što ste vi uradili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede start af denne chat. Det er en fejl i cmux, ikke noget du har gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat den Start dieses Chats blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked starting this chat. That’s a bug in cmux, not something you did."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bloqueó el inicio de este chat. Es un error de cmux, no algo que hayas hecho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a bloqué le démarrage de ce chat. C’est un bug de cmux, pas une erreur de votre part."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato l’avvio di questa chat. È un bug di cmux, non qualcosa che hai fatto tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がこのチャットの開始をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានរារាំងការចាប់ផ្តើមការជជែកនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 채팅을 시작하는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte oppstarten av denne chatten. Det er en feil i cmux, ikke noe du har gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował rozpoczęcie tego czatu. To błąd w cmux, a nie coś, co zrobiłeś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou o início deste chat. É um bug do cmux, não algo que você fez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал запуск этого чата. Это ошибка cmux, а не ваши действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการเริ่มแชตนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu sohbetin başlatılmasını engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував запуск цього чату. Це помилка cmux, а не ваші дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn việc bắt đầu cuộc trò chuyện này. Đây là lỗi của cmux, không phải do bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了启动此聊天。这是 cmux 的错误，不是你的操作导致的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了啟動此聊天。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
+    "transport.intentInvalidSend": {
+      "comment": "Agent pane: the app refused the request that sends a message (a cmux bug)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منع cmux إرسال هذه الرسالة. هذا خطأ في cmux وليس شيئًا فعلته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao slanje ove poruke. To je greška u cmuxu, a ne nešto što ste vi uradili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede afsendelsen af denne besked. Det er en fejl i cmux, ikke noget du har gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat das Senden dieser Nachricht blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked sending this message. That’s a bug in cmux, not something you did."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bloqueó el envío de este mensaje. Es un error de cmux, no algo que hayas hecho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a bloqué l’envoi de ce message. C’est un bug de cmux, pas une erreur de votre part."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato l’invio di questo messaggio. È un bug di cmux, non qualcosa che hai fatto tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がこのメッセージの送信をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានរារាំងការផ្ញើសារនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 메시지를 보내는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte sendingen av denne meldingen. Det er en feil i cmux, ikke noe du har gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował wysłanie tej wiadomości. To błąd w cmux, a nie coś, co zrobiłeś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou o envio desta mensagem. É um bug do cmux, não algo que você fez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал отправку этого сообщения. Это ошибка cmux, а не ваши действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการส่งข้อความนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu mesajın gönderilmesini engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував надсилання цього повідомлення. Це помилка cmux, а не ваші дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn việc gửi tin nhắn này. Đây là lỗi của cmux, không phải do bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了发送此消息。这是 cmux 的错误，不是你的操作导致的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了傳送此訊息。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
+    "transport.intentInvalidSetting": {
+      "comment": "Agent pane: the app refused the request that changes a chat setting (a cmux bug)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منع cmux تغيير هذا الإعداد. هذا خطأ في cmux وليس شيئًا فعلته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao promjenu ove postavke. To je greška u cmuxu, a ne nešto što ste vi uradili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede ændringen af denne indstilling. Det er en fejl i cmux, ikke noget du har gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat das Ändern dieser Einstellung blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked changing this setting. That’s a bug in cmux, not something you did."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bloqueó el cambio de este ajuste. Es un error de cmux, no algo que hayas hecho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a bloqué la modification de ce réglage. C’est un bug de cmux, pas une erreur de votre part."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato la modifica di questa impostazione. È un bug di cmux, non qualcosa che hai fatto tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がこの設定の変更をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានរារាំងការផ្លាស់ប្តូរការកំណត់នេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 설정을 변경하는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte endringen av denne innstillingen. Det er en feil i cmux, ikke noe du har gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował zmianę tego ustawienia. To błąd w cmux, a nie coś, co zrobiłeś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou a alteração desta configuração. É um bug do cmux, não algo que você fez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал изменение этого параметра. Это ошибка cmux, а не ваши действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการเปลี่ยนการตั้งค่านี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu ayarın değiştirilmesini engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував зміну цього параметра. Це помилка cmux, а не ваші дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn việc thay đổi cài đặt này. Đây là lỗi của cmux, không phải do bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了更改此设置。这是 cmux 的错误，不是你的操作导致的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了變更此設定。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
     "transport.pathOutsideRoots": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -455313,534 +455841,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "保留這個"
-          }
-        }
-      }
-    },
-    "stuck.title": {
-      "comment": "Agent pane: calm warning title when an agent appears stuck or silent",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent may be stuck"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قد يكون الوكيل عالقًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent je možda zapeo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten er muligvis gået i stå"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agent steckt möglicherweise fest"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es posible que el agente esté atascado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’agent semble bloqué"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’agente potrebbe essere bloccato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが行き詰まっている可能性があります"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារអាចកំពុងជាប់គាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 멈춘 것 같습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten kan ha stoppet opp"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent mógł utknąć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O agente pode estar travado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент, возможно, застрял"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์อาจติดขัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aracı takılmış olabilir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент, можливо, застряг"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác nhân có thể bị kẹt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智能体可能遇到阻碍"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理可能遇到阻礙"
-          }
-        }
-      }
-    },
-    "stuck.nudge": {
-      "comment": "Agent pane: button to prefill an editable hint, without sending it",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nudge with hint"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تنبيه مع تلميح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potakni uz savjet"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giv et hint"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mit Hinweis anstoßen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dar una pista"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Donner un indice"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerisci un indizio"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヒントを送る"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ដល់តម្រុយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "힌트로 도와주기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gi et hint"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podsuń wskazówkę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dar uma dica"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подсказать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งคำใบ้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İpucuyla yönlendir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дати підказку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gợi ý"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提供提示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提供提示"
-          }
-        }
-      }
-    },
-    "stuck.silentDiagnosis": {
-      "comment": "Agent pane: attention diagnosis for a silent agent turn",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No response from the agent for a while"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يستجب الوكيل منذ فترة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent se već neko vrijeme ne javlja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten har ikke svaret i et stykke tid"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agent hat seit einiger Zeit nicht geantwortet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El agente lleva un rato sin responder"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’agent ne répond plus depuis un moment"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’agente non risponde da un po’"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "しばらくエージェントから応答がありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបមួយរយៈហើយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 한동안 응답하지 않았습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten har ikke svart på en stund"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent od pewnego czasu nie odpowiada"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O agente não responde há algum tempo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент давно не отвечает"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ไม่ตอบสนองมาสักพัก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aracı bir süredir yanıt vermiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент уже деякий час не відповідає"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác nhân đã không phản hồi một lúc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智能体已有一段时间没有响应"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理已有一段時間沒有回應"
-          }
-        }
-      }
-    },
-    "stuck.nudgePrompt": {
-      "comment": "Agent pane: editable prompt prefilled with the stuck diagnosis; {diagnosis} is the observed problem",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The agent may be stuck: {diagnosis}. Please try a different approach."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قد تكون عالقًا: {diagnosis}. جرّب نهجًا مختلفًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Možda si zapeo: {diagnosis}. Pokušaj drukčiji pristup."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du er muligvis gået i stå: {diagnosis}. Prøv en anden tilgang."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du steckst möglicherweise fest: {diagnosis}. Versuche einen anderen Ansatz."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es posible que estés atascado: {diagnosis}. Prueba otro enfoque."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu sembles bloqué : {diagnosis}. Essaie une autre approche."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potresti essere bloccato: {diagnosis}. Prova un altro approccio."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行き詰まっている可能性があります: {diagnosis}。別の方法を試してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អ្នកអាចកំពុងជាប់គាំង៖ {diagnosis}។ សូមសាកល្បងវិធីផ្សេង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "막혔을 수 있습니다: {diagnosis}. 다른 방법을 시도해 주세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du kan ha stoppet opp: {diagnosis}. Prøv en annen fremgangsmåte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Możesz mieć problem: {diagnosis}. Spróbuj innego podejścia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Você pode estar travado: {diagnosis}. Tente outra abordagem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Похоже, вы застряли: {diagnosis}. Попробуйте другой подход."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คุณอาจติดขัด: {diagnosis} ลองวิธีอื่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Takılmış olabilirsin: {diagnosis}. Farklı bir yaklaşım dene."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Схоже, ти застряг: {diagnosis}. Спробуй інший підхід."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你可能遇到阻碍：{diagnosis}。请尝试其他方法。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"
           }
         }
       }

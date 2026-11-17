@@ -147,7 +147,8 @@
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
-# deletes the set when it ends. The artifact holds the screenshots, each
+# deletes the set when it ends. Every simulator comes from sim_create, which a
+# fleet worker may serve slim (see sim_create below). The artifact holds the screenshots, each
 # benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
 # built app (zipped) and the PTY recordings with their replay rates.
 set -euo pipefail
@@ -405,6 +406,27 @@ trap cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 
+# sim_create NAME DEVICE_TYPE RUNTIME [SET]: every simulator this step makes, printed as its UDID and
+# shut down. On a build fleet worker that offers it, $CMUX_CI_SIM_CREATE (hq
+# build-fleet/cmd/worker/sim_slim.go) makes it: slim (simslim, about a quarter of a stock
+# simulator's memory) when the step declared the simulator features it needs (cmux-ci run
+# --sim-features, or the controller's default for the mode) and the worker slims, checked by
+# `simslim doctor --requires` before the step gets it, else stock; a slim failure is the worker's and
+# gives a stock simulator, never a failed step. Without it (Blacksmith, an older worker, a local
+# run) it is the stock `simctl create` it always was. Mid-step, a test that finds it needs a feature
+# after all can turn it on with no reboot: "$CMUX_CI_SIMSLIM" [--set SET] enable UDID icloud,photos.
+sim_create() {
+  local name=$1 type=$2 rt=$3 set=${4:-}
+  if [[ -n "${CMUX_CI_SIM_CREATE:-}" && -x "${CMUX_CI_SIM_CREATE}" ]]; then
+    "${CMUX_CI_SIM_CREATE}" "$name" "$type" "$rt" ${set:+"$set"}
+  elif [[ -n "$set" ]]; then
+    xcrun simctl --set "$set" create "$name" "$type" "$rt"
+  else
+    xcrun simctl create "$name" "$type" "$rt"
+  fi
+}
+# --- end sim_create
+
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
 # provisioned by hand). Bump the version and the zip's sha256 together.
@@ -611,9 +633,16 @@ fi
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-udid="$(simctl create cmux-next-ios-sim "$device_type" "$runtime")"
+udid="$(sim_create cmux-next-ios-sim "$device_type" "$runtime" "$sims")"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
+if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then
+  note "- simulators: stock (slimming fell back: $(head -c 300 "$CMUX_CI_SIM_STATE/fallback"))"
+elif [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 ]]; then
+  note "- simulators: slim (features: ${CMUX_CI_SIM_FEATURES:-none})"
+else
+  note "- simulators: stock"
+fi
 simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
 note "- simulator: ${device_type##*.} on ${runtime##*.}"
 simctl install "$udid" "$app"
@@ -623,6 +652,14 @@ sleep 8
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
+# The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
+# for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
+if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
+  "${CMUX_CI_SIMSLIM}" --set "$sims" measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
+  note "- simulator memory at launch: $(tr -d '\n' <"$out/simulator-memory.json" | head -c 300)"
+else
+  rm -f "$out/simulator-memory.json"
+fi
 
 # keep_test_logs LOG XCRESULT NAME: the run's log, console output (print
 # lines), per-test results, counts and failures into the artifact as NAME-*.
@@ -660,7 +697,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   t0=$SECONDS
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
-  test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  test_udid="$(sim_create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
@@ -831,7 +868,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   t0=$SECONDS
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
-  ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  ui_udid="$(sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
   if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
@@ -905,7 +942,7 @@ fi
 
 # --- Chief layout benchmark -------------------------------------------------
 if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
-  perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  perf_udid="$(sim_create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
   if [[ "$mode" == chief-live-perf-baseline ]]; then
     perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
