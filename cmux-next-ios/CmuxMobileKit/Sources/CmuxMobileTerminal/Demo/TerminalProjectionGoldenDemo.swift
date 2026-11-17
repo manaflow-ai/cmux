@@ -122,6 +122,12 @@ public struct TerminalProjectionGoldenRoot: View {
         var out = "grid \(grid.columns)x\(grid.rows)\(model.isTUI ? " alternate screen" : "") side \(side.rawValue)"
         out += " mac \(golden.macColumns)x\(golden.macRows) mac-pty-resizes-asked \(mac.resizesAsked)\n"
         if let rows = surface.screenRows() {
+            // The oldest rows the phone holds (its scrollback's first lines).
+            var head = 0
+            for index in 0..<rows.rows.count where head < 6 && !rows.rows[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                out += "head" + String(format: "%5d|", index) + rows.rows[index] + "|\n"
+                head += 1
+            }
             let keep = grid.rows + 12
             let first = max(0, rows.rows.count - keep)
             for index in first..<rows.rows.count {

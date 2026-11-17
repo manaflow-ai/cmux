@@ -96,5 +96,27 @@ final class TerminalProjectionGoldenShotsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(3))
             shot("10-portrait-again")
         }
+
+        if side == "phone", name == "scrollback_reaches_line_one" {
+            // Real swipes toward the top, one a second, for at most 30 s:
+            // the reader scrolling up brings the older rows until line 1.
+            let window = app.windows.firstMatch
+            let deadline = Date().addingTimeInterval(30)
+            var swipes = 0
+            while Date() < deadline {
+                let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                from.press(forDuration: 0.01, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
+                swipes += 1
+                RunLoop.current.run(until: Date().addingTimeInterval(1))
+                if swipes % 5 == 0 { shot("swipe-\(swipes)") }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(2))
+            shot("swiped-top")
+            print("[projection-golden] swipes \(swipes) head: \(text.exists ? String(text.label.prefix(600)) : "-")")
+            XCTAssertTrue(text.exists && text.label.contains("head") && text.label.contains("|line 0001"), "line 0001 is not the phone's first row after \(swipes) swipes")
+        }
     }
+
+    @MainActor func testScrollbackSwipesPhone() { run("scrollback_reaches_line_one", side: "phone") }
 }
