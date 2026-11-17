@@ -256,6 +256,26 @@ class TheRepository(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(jobs.under(path, entry) or jobs.under(entry, path) for entry in inputs), path)
 
+    def test_deleting_an_acpmux_runtime_fixture_runs_the_acpmux_tests(self):
+        # The reproduced false skip on #45420: a pull request that deletes a file acpmux's tests read at run time
+        # routed acpmux-tests=false, because the head's graph no longer holds the deleted path. Each file input of
+        # the job outside cmux-tui (one per top-level directory), deleted in a head tree, must still run the job.
+        _, all_jobs = jobs.load_map((ROOT / jobs.MAP).read_text())
+        job = next(j for j in all_jobs if j.id == "acpmux-tests")
+        with git_tree.GitTree(ROOT) as base:
+            entries = base.entries()
+            outside = sorted(path for path in jobs.Graph(base, [], all_jobs).inputs(job)
+                             if not path.startswith(f"{verdict.WORKSPACE}/") and path in entries
+                             and entries[path][0] in git_tree.REGULAR)
+            sample = list({path.split("/", 1)[0]: path for path in reversed(outside)}.values())
+            self.assertTrue(sample, "acpmux-tests has no file input outside cmux-tui to delete")
+            for path in sample:
+                head_entries = {p: e for p, e in entries.items() if p != path}
+                with self.subTest(path=path), git_tree.GitTree(ROOT, base.ref, entries=head_entries) as head:
+                    result = jobs.route(head, [path], map_text=(ROOT / jobs.MAP).read_text(), base_tree=base)
+                    run = {key[1]: value for key, value in result.run.items()}
+                    self.assertTrue(run["acpmux-tests"], result.lines())
+
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
         self.assertEqual(jobs.workflow_paths(text, "push"), ["a/**", "b.txt"])
