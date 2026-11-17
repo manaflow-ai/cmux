@@ -13,7 +13,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 900, height: 760 }, deviceScaleFactor: 2 });
     page.on("pageerror", (error) => console.log("pageerror", error.message));
     await stubMockBridge(page, { ready: { sessionId } });
-    await page.goto(`${server.url}?mock`, { waitUntil: "networkidle" });
+    await page.goto(`${server.url}?mock`, { waitUntil: "load", timeout: 180_000 });
     const button = page.locator(".acpmux-next-step__answer").first();
     await button.waitFor({ timeout: 120_000 }).catch(async (error) => {
       await page.screenshot({ path: path.join(out, `${sessionId}-no-card.png`) });
