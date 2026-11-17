@@ -1,5 +1,5 @@
 //! `cmux-rd windows-host`: this Windows PC on the account's device hub, next to `cmux-rd
-//! linux-host` and sharing its hub client (src/screen_host/). It registers the PC as a
+//! linux-host` and sharing its hub client (the cmux-hub-host crate). It registers the PC as a
 //! `windows` device with its own device key, anchors it (it renews its own host session for 30
 //! days with that key, no token) and holds the hub socket, so the PC lists on the account's
 //! Macs as a Windows PC and as online while the host runs. It checks that it can capture this
@@ -17,11 +17,11 @@
 //! Mac offers to view it, and any session the hub still hands it is ended with the reason.
 //! The plan is in docs/device-hub/windows-host.md.
 
+use cmux_hub_host::hub::{now_ms, Hub, HubError};
+use cmux_hub_host::identity::{self, Account, Device};
+use cmux_hub_host::net::Message;
+use cmux_hub_host::printable;
 use crate::screen_host::consent::LocalConsent;
-use crate::screen_host::hub::{now_ms, Hub, HubError};
-use crate::screen_host::identity::{self, Account, Device};
-use crate::screen_host::net::Message;
-use crate::screen_host::printable;
 use crate::Res;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -197,7 +197,7 @@ fn enable(args: &Args) -> Res<()> {
         device.save(&dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register()?;
+        hub.register(crate::screen_host::PLATFORM)?;
         Ok((hub, user_id))
     };
     // The hub never registers a removed id again: a refused identity gets a fresh one, as the
