@@ -37,6 +37,7 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-hub-host",
+ "cmux-image-linear",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -1731,6 +1732,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-image-linear"
+version = "0.1.0"
+dependencies = [
+ "png",
+]
+
+[[package]]
 name = "cmux-imessage"
 version = "0.1.0"
 dependencies = [
@@ -1941,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2698,22 +2706,18 @@ name = "cmux-weft"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum",
  "base64",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
  "hex",
- "ip_network",
  "proptest",
  "reqwest",
  "ring",
- "rusqlite",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "subtle",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",

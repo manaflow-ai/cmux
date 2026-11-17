@@ -324,6 +324,8 @@ pub struct Supervisor {
     /// `integration.request` for provider `github`, answered here
     /// (`github_gateway.rs`). Unset, the call goes to the provider.
     pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -399,6 +401,9 @@ impl Supervisor {
         }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
+            // A refused package is missing from the App Store: say so in the
+            // daemon log too, not only in the apps log nobody opens.
+            eprintln!("cmux-tui: app package {} refused: {issue}", dir.display());
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
                 level: "warn".into(),
                 message: format!("{}: {issue}", dir.display()),
@@ -472,6 +477,7 @@ impl Supervisor {
             router,
             fetcher,
             github: OnceLock::new(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),

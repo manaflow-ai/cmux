@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod community;
+#[cfg(unix)]
 mod composer;
 #[cfg(unix)]
 mod deploy;
@@ -54,6 +56,8 @@ mod hosts;
 mod load_trial;
 #[cfg(unix)]
 mod local_reload;
+#[cfg(unix)]
+mod locale;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]

@@ -126,6 +126,29 @@ impl Facts {
             ),
         }
     }
+
+    /// Grants and sandbox after a confirmed install: exactly what the
+    /// consent card listed and the person confirmed (`AppsPageConfirmations`
+    /// lists `scopes`, and `optionalScopes` too when the install asks for
+    /// them). Two kinds stay out because the card does not grant them: an
+    /// elevated scope keeps its own confirmation sheet, and a scope the
+    /// tier may never hold (restricted for an unverified app) is refused at
+    /// any time. The sandbox stays the tier's default (unverified starts
+    /// sandboxed) unless the card granted a scope that reaches out (`net:`,
+    /// `integration:`): the person allowed that, so the app may use it.
+    pub fn confirmed_install(&self, grant_optional: bool) -> (BTreeSet<String>, bool) {
+        let optional = self.optional.iter().filter(|_| grant_optional);
+        let grants: BTreeSet<String> = self
+            .requested
+            .iter()
+            .chain(optional)
+            .filter(|s| !is_elevated(s) && self.tier_may_hold(s))
+            .cloned()
+            .collect();
+        let reaches_out = grants.iter().any(|s| cmux_app_manifest::scope_reaches_out(s));
+        let sandboxed = self.tier == Tier::Unverified && !reaches_out;
+        (grants, sandboxed)
+    }
 }
 
 /// Elevated scopes (scope-classes.json): never granted at install, for any
@@ -248,6 +271,10 @@ pub struct SetOp {
     pub sandboxed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<(String, bool)>,
+    /// With `installed: true`: the consent card also listed the manifest's
+    /// `optionalScopes`, so the install grants them too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grant_optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,9 +527,15 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     let installing = set.installed == Some(true) && !before.installed;
     let uninstalling = set.installed == Some(false) && before.installed;
     let mut effects = Vec::new();
-    let mut record = if installing {
-        let source = if facts.source == Source::Local { Source::Local } else { Source::User };
-        fresh(facts, source)
+    let mut record = if installing && facts.source == Source::Local {
+        // A local app is the person's own folder, added without a consent
+        // card: it starts with the tier's defaults (sandboxed, read scopes).
+        fresh(facts, Source::Local)
+    } else if installing {
+        // Installing needs origin user: the person confirmed the consent
+        // card, so the app gets what the card listed.
+        let (grants, sandboxed) = facts.confirmed_install(set.grant_optional);
+        Record { grants, sandboxed, ..fresh(facts, Source::User) }
     } else if uninstalling {
         effects.push(Effect::StopHost(set.app.clone()));
         effects.push(Effect::ClearStorage(set.app.clone()));
@@ -581,4 +614,88 @@ fn commit(
         next.revision += 1;
     }
     Outcome { mirror: next, effects, replayed: false, changed }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(tier: Tier, source: Source) -> Facts {
+        let set = |scopes: &[&str]| scopes.iter().map(|s| s.to_string()).collect();
+        Facts {
+            tier,
+            source,
+            // A weather widget: reads the workspace, fetches one host; one
+            // restricted scope an unverified app can never hold.
+            requested: set(&["workspace:read", "net:api.open-meteo.com", "fs:write"]),
+            // An optional standard scope and an elevated one (its own sheet).
+            optional: set(&["settings:read", "terminal:backend"]),
+        }
+    }
+
+    fn install(facts: &Facts, grant_optional: bool) -> Record {
+        let op = Op::Set(SetOp {
+            key: "install".into(),
+            app: "cmux/weather".into(),
+            origin: Origin::User,
+            installed: Some(true),
+            grant_optional,
+            ..SetOp::default()
+        });
+        let outcome = reduce(&Mirror::default(), &op, Some(facts)).expect("install");
+        outcome.mirror.apps["cmux/weather"].clone()
+    }
+
+    fn names(grants: &BTreeSet<String>) -> Vec<&str> {
+        grants.iter().map(String::as_str).collect()
+    }
+
+    /// The consent card lists `scopes` (and `optionalScopes` with
+    /// grant_optional); confirming it grants each one the tier may hold,
+    /// never an elevated one, and a granted `net:` scope is usable at once.
+    #[test]
+    fn a_confirmed_install_grants_every_scope_its_consent_card_listed() {
+        let store = facts(Tier::Unverified, Source::Bundled);
+        let record = install(&store, false);
+        assert_eq!(names(&record.grants), ["net:api.open-meteo.com", "workspace:read"]);
+        assert!(!record.sandboxed, "the card granted the network: the sandbox must not refuse it");
+        assert_eq!(record.source, Source::User);
+
+        let record = install(&store, true);
+        assert_eq!(
+            names(&record.grants),
+            ["net:api.open-meteo.com", "settings:read", "workspace:read"],
+            "optional scopes on the card are granted; the elevated one keeps its own sheet"
+        );
+
+        for tier in [Tier::Verified, Tier::FirstParty] {
+            let record = install(&facts(tier, Source::Bundled), true);
+            assert_eq!(
+                names(&record.grants),
+                ["fs:write", "net:api.open-meteo.com", "settings:read", "workspace:read"],
+                "{tier:?}"
+            );
+            assert!(!record.sandboxed);
+        }
+    }
+
+    /// An unverified app whose card lists nothing that reaches out stays
+    /// sandboxed (app-platform.md 10) with exactly its listed scopes.
+    #[test]
+    fn a_confirmed_install_without_network_scopes_stays_sandboxed() {
+        let mut quiet = facts(Tier::Unverified, Source::Bundled);
+        quiet.requested = ["workspace:read", "workspace:write"].map(String::from).into();
+        let record = install(&quiet, false);
+        assert_eq!(names(&record.grants), ["workspace:read", "workspace:write"]);
+        assert!(record.sandboxed);
+    }
+
+    /// A local app is added without a consent card: tier defaults.
+    #[test]
+    fn a_local_app_keeps_the_tier_defaults() {
+        let record = install(&facts(Tier::Unverified, Source::Local), true);
+        assert_eq!(names(&record.grants), ["workspace:read"]);
+        assert!(record.sandboxed);
+        assert_eq!(record.source, Source::Local);
+    }
 }
