@@ -5716,7 +5716,9 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     if found is None:
         raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
-    red_on_base = set().union(*found.values())
+    # The base run itself must have a concrete red verdict; an unknown line from another constrained replay is not
+    # evidence that the base branch fails this step.
+    red_on_base = found["new"] | found["base"] | found["flaky"] | found["tip"]
     if missing := sorted(charged - red_on_base):
         raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
                       f"{'; '.join(missing)[:600]}")
