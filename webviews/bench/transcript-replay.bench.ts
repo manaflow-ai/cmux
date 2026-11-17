@@ -797,11 +797,11 @@ async function pairedLiveRound(ctx: Ctx, god: ReplayLog, small: ReplayLog): Prom
   }
 }
 
-/// PAIRED=1 with PROFILE=1: per burst kind, the functions that cost god more per record than small, from the same
+/// PAIRED=1 with PROFILE=1 (PROFILE_TOP=N lists N functions a kind, 20 by default): per burst kind, the functions that cost god more per record than small, from the same
 /// checkpoints played seconds apart (pure). Self and total time per record are summed over the kind's checkpoints, so
 /// a function whose cost grows with the rows a chat holds leads the list; the self line also gives each page's sum, and
 /// the effect lines name the React effect (`effectTimes`) a commit's extra time went to.
-export function pairedProfile(god: Live, small: Live, top = 20): string[] {
+export function pairedProfile(god: Live, small: Live, top = Number(process.env.PROFILE_TOP) || 20): string[] {
   const lines: string[] = [];
   const r3 = (ms: number) => Math.round(ms * 1000) / 1000;
   for (const kind of ["token", "thought", "tool_output", "tool_call"] as const) {
