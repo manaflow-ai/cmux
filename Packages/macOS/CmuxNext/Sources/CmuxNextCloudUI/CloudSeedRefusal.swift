@@ -45,21 +45,33 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// Whether the copy fits a machine with a `diskMb` disk. A copy whose size cmux-tui could not read is made.
     public func fits(diskMb: Int?) -> Bool { (copyBytes ?? 0) <= Self.room(diskMb: diskMb) }
 
-    /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name.
+    /// Whether connecting GitHub lets the machine clone the folder instead: only a repository it can't read without
+    /// the cmux GitHub App (``needsGitHub``). Not a folder that is not git, a submodule's local work, commits that are
+    /// not on GitHub, or a remote elsewhere: connecting GitHub changes none of those.
+    public var gitHubHelps: Bool { fallbackCode == Self.needsGitHub }
+
+    /// The code the page's start card reads for a copy that does not fit (``tooLarge``): ``needsGitHub`` when
+    /// connecting GitHub helps (its Connect GitHub, then Retry), else nil (the card's own failure, with Retry).
+    public var pageCode: String? { gitHubHelps ? Self.needsGitHub : nil }
+
+    /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name, and connecting
+    /// GitHub only when that helps (``gitHubHelps``).
     public var tooLarge: String {
-        String(format: String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module),
-               ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
+        let words = gitHubHelps
+            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module)
+            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
+        return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 
     /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. A copy that
-    /// does not fit the machine's `diskMb` disk is not made: `declined(``tooLarge``)` is thrown.
-    @MainActor public static func copying<Copied>(machine: String, diskMb: Int?, declined: (String) -> any Error,
+    /// does not fit the machine's `diskMb` disk is not made: `declined(refusal)` is thrown (its ``tooLarge`` and ``pageCode``).
+    @MainActor public static func copying<Copied>(machine: String, diskMb: Int?, declined: (CloudSeedRefusal) -> any Error,
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         let first = try await copy(.ask)
         guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
         Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info(
             "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public); copy fits: \(refused.fits(diskMb: diskMb), privacy: .public)")
-        guard refused.fits(diskMb: diskMb) else { throw declined(refused.tooLarge) }
+        guard refused.fits(diskMb: diskMb) else { throw declined(refused) }
         return try await copy(.copy)
     }
 }

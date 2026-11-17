@@ -44,7 +44,7 @@ struct CloudSeedRefusalTests {
 
     @Test func aSeedThatIsNotRefusedCopiesOnce() async throws {
         var asked: [CloudMoveCLI.SeedRefusal] = []
-        let seeded = try await CloudSeedRefusal.copying(machine: "m", diskMb: nil, declined: { Declined(reason: $0) }) { refusal in
+        let seeded = try await CloudSeedRefusal.copying(machine: "m", diskMb: nil, declined: { Declined(reason: $0.tooLarge) }) { refusal in
             asked.append(refusal)
             return (CloudMoveCLI.Answer(ok: true), "seeded")
         }
@@ -57,7 +57,7 @@ struct CloudSeedRefusalTests {
     @Test func aRefusedSeedCopiesTheFolderWithoutAsking() async throws {
         for (bytes, disk): (Int64?, Int?) in [(1_900_000_000, 16_384), (23_200_000_000, 65_536), (nil, nil)] {
             var asked: [CloudMoveCLI.SeedRefusal] = []
-            let copied = try await CloudSeedRefusal.copying(machine: "m", diskMb: disk, declined: { Declined(reason: $0) }) { refusal in
+            let copied = try await CloudSeedRefusal.copying(machine: "m", diskMb: disk, declined: { Declined(reason: $0.tooLarge) }) { refusal in
                 asked.append(refusal)
                 return refusal == .ask
                     ? (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "no_base", copyBytes: bytes), "")
@@ -74,7 +74,7 @@ struct CloudSeedRefusalTests {
         var asked: [CloudMoveCLI.SeedRefusal] = []
         var reason = ""
         do {
-            _ = try await CloudSeedRefusal.copying(machine: "cloud-chats", diskMb: 16_384, declined: { Declined(reason: $0) }) { refusal in
+            _ = try await CloudSeedRefusal.copying(machine: "cloud-chats", diskMb: 16_384, declined: { Declined(reason: $0.tooLarge) }) { refusal in
                 asked.append(refusal)
                 return (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "seed.needs_github", copyBytes: 23_200_000_000), "")
             }
@@ -83,6 +83,26 @@ struct CloudSeedRefusalTests {
         #expect(asked == [.ask], "a 23.2 GB copy to a 16 GB disk was made")
         #expect(reason.contains("cloud-chats") && reason.contains("23"))
         #expect(reason != "why", "the start ended with cmux-tui's clone reason, not that the folder does not fit")
+    }
+
+    /// Only a repository the machine can't read without the cmux GitHub App says to connect GitHub, and only it carries
+    /// `seed.needs_github` to the page's start card (its Connect GitHub button); a folder that is not git, a submodule's
+    /// local work, commits that are not on GitHub or an unknown reason say only to choose a smaller folder.
+    @Test func onlyARefusalGitHubCanFixSuggestsConnectingIt() throws {
+        func refusal(_ fallback: String?) throws -> CloudSeedRefusal {
+            try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: fallback,
+                                                              copyBytes: 23_200_000_000), machine: "cloud-chats"))
+        }
+        let needsApp = try refusal("seed.needs_github")
+        #expect(needsApp.gitHubHelps)
+        #expect(needsApp.pageCode == "seed.needs_github")
+        #expect(needsApp.tooLarge.contains("GitHub") && needsApp.tooLarge.contains("cloud-chats"))
+        for fallback in ["not_git", "submodule_local_work", "no_base", "not_github", "no_remote", "unmerged", "seed.clone_failed", nil] {
+            let other = try refusal(fallback)
+            #expect(!other.gitHubHelps, "\(fallback ?? "nil")")
+            #expect(other.pageCode == nil, "\(fallback ?? "nil")")
+            #expect(!other.tooLarge.contains("GitHub") && other.tooLarge.contains("cloud-chats"), "\(fallback ?? "nil")")
+        }
     }
 
     /// The refusal names the seed plan's code (`not_git`, `submodule_local_work`, ...) so the log says why.

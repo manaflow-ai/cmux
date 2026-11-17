@@ -83,7 +83,7 @@ struct CloudStartChat {
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
             // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
             let plan = CloudMachineCreation.proRefusal(error) != nil
-            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : "cloud_start_failed", message: message, details: plan ? services.cloud.auth.planRefusalTeams : nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
+            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? services.cloud.auth.planRefusalTeams : nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
         }
     }
 
@@ -147,7 +147,7 @@ struct CloudStartChat {
                 let copy: Copied
                 do {
                     copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli,
-                                                declined: { CloudMove.Failure(message: $0, retry: again) },
+                                                declined: { CloudMove.Failure(message: $0.tooLarge, code: $0.pageCode, retry: again) },
                                                 // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
                                                 failed: { CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText($0)), retry: again) }) {
                         report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size))
@@ -183,9 +183,9 @@ struct CloudStartChat {
     /// (``CloudStartSession``). A start whose copy under `key` already finished on `machine` gets that copy's folder,
     /// never copied again: that would overwrite what its chat changed. `progress` gets the copy's progress lines.
     /// A machine that can't clone the folder from its git remote gets the whole folder copied, never asked; a copy its
-    /// disk cannot hold (``CloudSeedRefusal``) throws `declined(reason)`. A copy that times out or doesn't launch throws `failed(error)`.
+    /// disk cannot hold (``CloudSeedRefusal``) throws `declined(refusal)`. A copy that times out or doesn't launch throws `failed(error)`.
     func copyFolder(_ folder: CloudMoveFolder, key: String, account: [String?], to machine: CloudMachineSession, cli: CloudMoveCLI,
-                    declined: (String) -> any Error, failed: (any Error) -> any Error,
+                    declined: (CloudSeedRefusal) -> any Error, failed: (any Error) -> any Error,
                     progress: (SeedProgress) -> Void) async throws -> Copied {
         let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
@@ -375,7 +375,7 @@ extension CloudStartSession {
         do {
             copy = try await CloudStartChat(services: services).copyFolder(
                 folder, key: key, account: account, to: session, cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout),
-                declined: { Declined(reason: $0) }, failed: { $0 }) { _ in }
+                declined: { Declined(reason: $0.tooLarge) }, failed: { $0 }) { _ in }
         } catch let declined as Declined {
             throw ActionFailure(message: declined.reason)
         } catch {

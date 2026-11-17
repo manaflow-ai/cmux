@@ -10746,6 +10746,137 @@
           }
         }
       }
+    },
+    "cloud.seedRefused.tooLargeNoGitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم هذا المجلد %1$@، وهو أكبر مما يتسع له %2$@. اختر مجلدًا أصغر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mapa ima %1$@, više nego što %2$@ ima mjesta. Odaberite manju mapu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappe fylder %1$@, mere end %2$@ har plads til. Vælg en mindre mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner ist %1$@ groß, mehr als auf %2$@ Platz hat. Wähle einen kleineren Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta carpeta ocupa %1$@, más de lo que cabe en %2$@. Elige una carpeta más pequeña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier fait %1$@, plus que ce que %2$@ peut contenir. Choisissez un dossier plus petit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa cartella occupa %1$@, più di quanto %2$@ possa contenere. Scegli una cartella più piccola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダは %1$@ あり、%2$@ の空き容量を超えています。小さいフォルダを選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនេះមានទំហំ %1$@ ដែលធំជាងទំហំដែល %2$@ អាចផ្ទុកបាន។ សូមជ្រើសថតតូចជាងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더는 %1$@로, %2$@에 남은 공간보다 큽니다. 더 작은 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappen er på %1$@, mer enn %2$@ har plass til. Velg en mindre mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten folder zajmuje %1$@, więcej niż mieści %2$@. Wybierz mniejszy folder."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pasta tem %1$@, mais do que cabe em %2$@. Escolha uma pasta menor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер этой папки — %1$@, это больше, чем помещается на %2$@. Выберите папку поменьше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์นี้มีขนาด %1$@ ซึ่งมากกว่าพื้นที่ที่ %2$@ รองรับได้ เลือกโฟลเดอร์ที่เล็กกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasör %1$@ boyutunda; %2$@ makinesinde bu kadar yer yok. Daha küçük bir klasör seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір цієї папки — %1$@, це більше, ніж вміщує %2$@. Виберіть меншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục này có dung lượng %1$@, lớn hơn chỗ trống của %2$@. Hãy chọn thư mục nhỏ hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹大小为 %1$@，超出了 %2$@ 的可用空间。请选取较小的文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案夾大小為 %1$@，超出 %2$@ 的可用空間。請選擇較小的檔案夾。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
