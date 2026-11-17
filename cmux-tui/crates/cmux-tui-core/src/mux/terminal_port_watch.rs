@@ -496,7 +496,8 @@ impl TerminalPortWatch {
 /// under that lock. A pass takes its mux before it lets the watch's lock
 /// go, and a pass that met a busy registry puts its request back before it
 /// lets its mux go. So a taken request with no mux of the worker, read
-/// under the watch's lock, is a pass that ran to its end.
+/// under the watch's lock, is a pass that ended (it ran to its end or it
+/// panicked).
 fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
     // A pass that panics leaves no stale `worker`: the next output starts one.
     struct OnPanic<'a>(&'a TerminalPortWatch);

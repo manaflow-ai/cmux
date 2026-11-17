@@ -71,7 +71,7 @@ fn cmux_next_an_idle_port_watch_worker_does_not_keep_a_dropped_mux() {
     // takes its mux before it takes the request, with the watch locked, and
     // a pass that met a busy registry puts the request back before it gives
     // its mux back. So a taken request with one mux left, read under that
-    // lock, is a pass that ran to its end.
+    // lock, is a pass that ended (it ran to its end or it panicked).
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let state = mux.terminal_port_watch.lock();
@@ -144,7 +144,7 @@ fn cmux_next_a_port_watch_worker_that_waits_for_the_registry_does_not_keep_the_m
     assert!(let_go, "the port watch worker keeps the mux while it waits for the registry");
     // The pass that met the busy registry runs now.
     assert!(
-        reached(&mux, &|state, muxes| !state.reconcile && muxes == 1),
+        reached(&mux, &|state, muxes| state.worker && !state.reconcile && muxes == 1),
         "the pass that waited for the registry never ran"
     );
     let weak = Arc::downgrade(&mux);
