@@ -323,7 +323,7 @@ fn sign_clone_scan_asks_only_single_name_executables() {
     assert!(bytes.is_ok());
     assert_eq!(asked, vec![helper.clone()]);
     assert_eq!(scan_clone(&clone, |_| Some(true)), Err(Verdict::InUse { open: helper.clone() }));
-    assert_eq!(scan_clone(&clone, |_| None), Err(Verdict::Unknown { at: helper.clone() }));
+    assert_eq!(scan_clone(&clone, |_| None), Err(Verdict::Unknown { at: helper }));
     let missing = scratch.0.join("missing");
     assert_eq!(scan_clone(&missing, |_| Some(false)), Err(Verdict::Unknown { at: missing }));
 }
@@ -376,7 +376,7 @@ fn sign_clone_x_dir_resolves_only_under_the_allowed_root() {
     let x = allowed.join("ab/cd/X");
     std::fs::create_dir_all(&user_temp).unwrap();
     std::fs::create_dir_all(&x).unwrap();
-    assert_eq!(x_dir(&user_temp, &allowed), Some(x.clone()));
+    assert_eq!(x_dir(&user_temp, &allowed), Some(x));
     let elsewhere = scratch.0.join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     assert_eq!(x_dir(&user_temp, &elsewhere), None);

@@ -15,7 +15,7 @@
 //! not be read, 2 usage.
 
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use cmux_sign_clone_sweep::{Report, Row, Verdict};
 use serde_json::{Value, json};
@@ -58,7 +58,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[cfg(target_os = "macos")]
 fn sweep(output: OutputMode, dry_run: bool) -> i32 {
-    let started = SystemTime::now().checked_sub(STARTING).unwrap_or(SystemTime::UNIX_EPOCH);
+    let now = std::time::SystemTime::now();
+    let started = now.checked_sub(STARTING).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
     let unlimited = cmux_sign_clone_sweep::Budget::UNLIMITED;
     let Some((rows, report)) = cmux_sign_clone_sweep::host::run_pass(started, unlimited, dry_run)
     else {
