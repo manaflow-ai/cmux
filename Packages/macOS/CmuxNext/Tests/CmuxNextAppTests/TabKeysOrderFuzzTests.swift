@@ -12,8 +12,10 @@ import Testing
 
 /// New Tab and Close Tab keys in one pane, mixed and as a held key, against a pure oracle (``TabKeysOracle``): the
 /// effect of key N is computed on the tabs that keys 1 to N-1 made, and the daemon's replies, in any order and at any
-/// delay, never change that. The keys run the two actions' own handlers in a whole window (the `large` session); the
-/// daemon is a model (``TabKeysModelDaemon``) whose events and replies the seed hands over at random points.
+/// delay, never change that. Each key is a key-down event through the app's key router (`KeyRouter.interceptKeyDown`),
+/// as the app gets a key, in a whole window (the `large` session). A key directly after the same key can have the
+/// repeat flag, as a held key has it. The daemon is a model (``TabKeysModelDaemon``) whose events and replies the
+/// seed hands over at random points.
 ///
 /// One run for each seed gives four results, each its own test:
 /// - `order`: the strip's tab list and its selected tab are the oracle's at once after each key, after the key's turn
@@ -24,8 +26,10 @@ import Testing
 /// - `shown`: after each turn the pane shows the selected tab (the test makes the frame's own call).
 /// - `focus`: after each turn the key focus is on that tab, where it is a tab the keys made.
 /// - `typed` (the seeds with letter keys): a letter key directly after a New Tab key is for the new tab. The window's
-///   key hold takes it; the hold then lives, with no field ready, while a tab the keys made is selected and until
-///   the next Close Tab key; and the view that had the keyboard before the first New Tab key gets no key.
+///   key hold must take it. When the hold ends, the check says where the letter went: to the field of a page that
+///   reported ready, to no view (lost), to a view, or away with its own tab when that tab closed. A letter that is
+///   lost and a letter that went to a view of another tab are differences. The seed goes on after one, and the
+///   failure text has the counts of the whole seed.
 ///
 /// The whole tree. The daemon sends a `tree-changed` for each close and for each move, and the app answers each one
 /// with a read of the whole tree. This store has no driver, so the test makes the steps of `DaemonStore.resync()`
@@ -40,12 +44,21 @@ import Testing
 /// wall-clock limits are not controlled. The store's list is compared at the end only: between a create and its move
 /// the store holds the tab at the end of the pane. Close Tab is pressed only on a tab the keys made.
 ///
-/// Limits of `typed`. The two keys go through the action registry, so the hold's own rule for a chord key (the keys
-/// typed before a chord go on first) does not run. No page reports its field ready here (the inert address), so that
-/// the field got the letter is not asserted. The hold's time limit never passes in these seeds (its clock stands
-/// still). The letter comes directly after the key's handler, before the app's next turn. A hold that ends with no
-/// field ready sends its keys on as the product does, to what has the keyboard then. The seeds with no letter keys
-/// have no probe view and the hold's own clock.
+/// Limits of the keys. The test makes each key event: none comes from the system's event queue, and no menu sees
+/// one. Close Tab never empties the pane here, so the rule for a held Close Tab key after a pane's last tab does
+/// not run.
+///
+/// Limits of `typed`. No page reports its field ready here (the inert address), so no letter can go to a field: the
+/// check sees only a hold that ends with no field ready. Each key with Command ends the hold (the keys typed before
+/// it go on first), so a letter waits only until the next key of the seed. A letter after the last key of a seed
+/// stays in the hold, and the check does not say where it went. Such a hold gives no key to what had the
+/// keyboard at its opening. The check counts that letter as lost, with that rule in its text: the letter was typed
+/// for the new tab. For a letter that the hold gave on, the check reads the view that had the keyboard before the
+/// key or the delivery in which the hold ended; it does not assert that the view took the key. When the key router
+/// took the letter again at the hold's end, the check does not see where it went, and says so as a difference of
+/// the letters' setup. The hold's time limit never passes in these seeds (its clock stands still). The letter comes
+/// directly after the key's call, before the app's next turn. The seeds with no letter keys have no probe view and
+/// the hold's own clock.
 ///
 /// Limits of a seed that goes on. The next key of a seed depends on what is selected, so after a difference the keys
 /// of one seed can differ between two versions of the code. The oracle keeps each opener that the keys made; the
@@ -99,6 +112,12 @@ struct TabKeysOrderFuzzTests {
         var differences = 0
         /// The run ended the window's hold itself (`Seed.endsHoldEarly`).
         var holdEnded = false
+        /// The letter keys of the run: all of them, those that went to no view, and those that went to a view of
+        /// another tab than their own.
+        var letters = 0
+        var lettersLost = 0
+        var lettersElsewhere = 0
+        var lettersText: String { "\(letters) letter keys, \(lettersLost) lost, \(lettersElsewhere) to a view of another tab" }
     }
 
     /// One run for each seed, shared by its tests.
@@ -142,7 +161,7 @@ struct TabKeysOrderFuzzTests {
         let outcome = try await Self.outcome(seed)
         #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
         #expect(outcome.typedSetup == nil, "\(seed.testDescription): \(outcome.typedSetup ?? "")")
-        #expect(outcome.typed == nil, "\(seed.testDescription): \(outcome.typed ?? "")")
+        #expect(outcome.typed == nil, "\(seed.testDescription): \(outcome.lettersText). \(outcome.typed ?? "")")
     }
 
     /// A test of the `typed` check itself. The run ends the window's hold as a failed opening does, directly after the
@@ -190,9 +209,11 @@ final class TabKeysKeyProbe: NSView {
     /// The newest event sequence the store got: what the driver's inbox calls taken.
     private var handed: UInt64 = 0
     private let input: NewTabInputCoordinator
+    private var keyboard: TabKeysKeyboard
     private var probe: TabKeysKeyProbe?
-    /// The window's key hold took a letter key, and no Close Tab key came after it.
-    private var lettersWait = false
+    /// The letter key that waits in the window's hold: its event, the tab that it is for, and the probe's count at
+    /// the key.
+    private var letter: (key: NSEvent, tab: String, probeKeys: Int)?
 
     init(_ seed: TabKeysOrderFuzzTests.Seed, store: DaemonStore, controller: WindowController) throws {
         let services = controller.services
@@ -207,6 +228,8 @@ final class TabKeysKeyProbe: NSView {
         try #require(start == held.map(\.id), "fixture: the strip \(start) is not the store's list \(held.map(\.id))")
         let selected = try #require(pane.stripModel.selectedID?.rawValue, "fixture: the pane selects no tab")
         let selectedIndex = try #require(start.firstIndex(of: selected), "fixture: the selected tab is not in the strip")
+        let window = try #require(pane.view.window, "fixture: the pane's view is in no window")
+        keyboard = TabKeysKeyboard(router: services.keyRouter, window: window, seed: seed.value, held: seed.closeEvery != nil)
         self.seed = seed
         self.store = store
         self.controller = controller
@@ -236,7 +259,7 @@ final class TabKeysKeyProbe: NSView {
             input.scheduleDeadline = { _, _ in Task {} }
             let probe = TabKeysKeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
             pane.view.addSubview(probe)
-            if let window = pane.view.window, window.makeFirstResponder(probe), window.firstResponder === probe {
+            if window.makeFirstResponder(probe), window.firstResponder === probe {
                 self.probe = probe
             } else {
                 found.typedSetup = "fixture: the probe view did not get the keyboard before the first key, so no letter key was typed"
@@ -281,22 +304,25 @@ final class TabKeysKeyProbe: NSView {
     private func press(_ number: Int) async {
         let selectedIsMade = oracle.selected?.hasPrefix("t") == true
         let closes = selectedIsMade && (seed.closeEvery.map { number % $0 == 0 } ?? (random.next(in: 0...9) < 4))
-        let registry = controller.services.registry
         let point: String
+        var letterTab: String?
         if closes, let target = oracle.selected {
             point = "key \(number) (Close Tab on \(target))"
             trace.append(point)
-            lettersWait = false
-            let ran = registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            let refusal = chord("w", code: 13, action: "closeTab")
+            settleLetter(point, atChord: true, closed: target)
             oracle.close(target)
-            if ran { compare("\(point), at once", frame: false) } else { differs("\(point): the action was refused") }
+            if let refusal { differs("\(point): \(refusal)") } else { compare("\(point), at once", frame: false) }
         } else {
             opened += 1
             let tab = "t\(opened)"
             point = "key \(number) (New Tab, \(tab))"
             trace.append(point)
             let before = Set(pane.orderedIDs.map(\.rawValue)), held = Set(pane.pane.tabs.map(\.id))
-            let ran = registry.perform("newTab.default", invocation: ActionInvocation(origin: .user))
+            let refusal = chord("t", code: 17, action: "newTab.default")
+            settleLetter(point, atChord: true)
+            let ran = refusal == nil
+            letterTab = tab
             let made = pane.orderedIDs.map(\.rawValue).filter { !before.contains($0) }
             // The store's new record names the tab also when the strip does not list exactly one new tab.
             let recorded = pane.pane.tabs.map(\.id).filter { !held.contains($0) }
@@ -310,10 +336,10 @@ final class TabKeysKeyProbe: NSView {
             if ran, made.count == 1 {
                 compare("\(point), at once", frame: false)
             } else {
-                differs("\(point): the action \(ran ? "ran" : "was refused") and the strip has \(made.count) new tabs at once")
+                differs("\(point): \(refusal ?? "the action ran") and the strip has \(made.count) new tabs at once")
             }
         }
-        if !closes { typeLetter(point) }
+        if let letterTab { typeLetter(point, tab: letterTab) }
         await turn()
         if model.creates.count != opened {
             return fail(\.setup, "\(point): \(model.creates.count) create requests arrived for \(opened) New Tab keys in the keys' turns")
@@ -321,44 +347,91 @@ final class TabKeysKeyProbe: NSView {
         compare("\(point), after its turn")
     }
 
-    /// The seeds with letter keys: one letter key for the window's key hold, directly after about half of the New Tab
-    /// keys and before the app's next turn.
-    private func typeLetter(_ point: String) {
-        guard seed.letters, random.next(in: 0...1) == 0, found.typed == nil, found.typedSetup == nil else { return }
-        guard let window = pane.view.window,
-              let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
-                                         context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7) else {
-            return fail(\.typedSetup, "fixture: \(point): the pane has no window or no key event could be made")
+    /// One key-down with Command (``TabKeysKeyboard``). Nil: the router took the key and ran `action` in the key's own
+    /// call. Else what it did.
+    private func chord(_ characters: String, code: UInt16, action: ActionID) -> String? {
+        let key = keyboard.chord(characters, code: code, action: action)
+        if key.repeats { trace.append("(the key repeats)") }
+        return key.refusal
+    }
+
+    /// The seeds with letter keys: one letter key through the key router, directly after about half of the New Tab
+    /// keys and before the app's next turn. The window's key hold must take it.
+    private func typeLetter(_ point: String, tab: String) {
+        guard seed.letters, random.next(in: 0...1) == 0, found.typedSetup == nil else { return }
+        guard let (key, taken) = keyboard.letter() else { return fail(\.typedSetup, "fixture: \(point): no key event could be made") }
+        trace.append("a letter key for \(tab)")
+        found.letters += 1
+        guard taken, input.log.last?.hasPrefix("hold key #") == true else {
+            return fail(\.typed, "\(point): the window's key hold did not take the letter key for \(tab), typed directly after the key "
+                + "(the key router \(taken ? "took the key in another way" : "passed the key on")). \(holdLog)")
         }
-        trace.append("a letter key")
-        if input.capture(key, in: window) {
-            lettersWait = true
-            if seed.endsHoldEarly, !found.holdEnded {
-                // The fault of the test of the check: the hold ends as a failed opening ends it.
-                trace.append("the run ends the hold")
-                input.cancel(in: window)
-                found.holdEnded = true
-            }
-        } else {
-            fail(\.typed, "\(point): the window's key hold did not take a letter key typed directly after it. \(holdLog)")
+        letter = (key, tab, probe?.keys ?? 0)
+        if seed.endsHoldEarly, !found.holdEnded {
+            // The fault of the test of the check: the hold ends as a failed opening ends it.
+            trace.append("the run ends the hold")
+            input.cancel(in: keyboard.window)
+            found.holdEnded = true
+            settleLetter("\(point), the run ended the hold")
         }
     }
 
     /// The end of the hold's own log. It holds no text of a key.
     private var holdLog: String { "The hold's log ends: \(input.log.suffix(6).joined(separator: " | "))" }
 
-    /// The letter keys against their rule: they wait in the window's hold, and the view that had the keyboard before
-    /// the first New Tab key gets none.
-    private func compareLetters(_ point: String) {
-        if let probe, probe.keys > 0 {
-            fail(\.typed, "\(point): the view that had the keyboard before the first New Tab key got \(probe.keys) keys. \(holdLog)")
+    /// Where the letter key that waited in the window's hold went, when that hold ended: read from the hold's own log
+    /// after the entry of that key. `atChord`: a key with Command came, which ends the hold. `closed`: the tab that
+    /// this key closes.
+    private func settleLetter(_ point: String, atChord: Bool = false, closed: String? = nil) {
+        guard let waits = letter else { return }
+        let log = input.log
+        guard let held = log.lastIndex(where: { $0.hasPrefix("hold key #") }) else {
+            letter = nil
+            return fail(\.typedSetup, "\(point): the hold's log has no entry of the letter key for \(waits.tab). \(holdLog)")
         }
-        guard lettersWait, let window = pane.view.window, !input.isHolding(in: window) else { return }
-        lettersWait = false
-        // A hold that gave its keys to a field that reported ready ended as it must.
-        if input.log.last(where: { $0.hasPrefix("release") || $0.hasPrefix("drained to field") })?.hasPrefix("drained to field") == true { return }
-        fail(\.typed, "\(point): the hold with the letter keys ended with no field ready while \(oracle.selected ?? "-") is selected. \(holdLog)")
+        let after = log[(held + 1)...]
+        guard let end = after.first(where: { $0.hasPrefix("release") || $0.hasPrefix("drained to field") }) else {
+            guard atChord else { return }
+            letter = nil
+            found.lettersLost += 1
+            return fail(\.typed, "\(point): the hold with the letter key for \(waits.tab) did not end at a key with Command, "
+                + "so that key ran before the letter typed ahead of it. \(holdLog)")
+        }
+        letter = nil
+        // A page reported its field ready, and the hold gave it each key.
+        if end.hasPrefix("drained to field") { return }
+        if let probe, probe.keys > waits.probeKeys {
+            found.lettersElsewhere += 1
+            return fail(\.typed, "\(point): the view that had the keyboard before the first New Tab key got the letter key for \(waits.tab) "
+                + "(it got \(probe.keys) keys in this run). \(holdLog)")
+        }
+        // The letter's own tab closed: the letter goes with it.
+        if closed == waits.tab || !oracle.tabs.contains(waits.tab) { return }
+        if after.contains(where: { $0.hasPrefix("dropped ") }) {
+            found.lettersLost += 1
+            return fail(\.typed, "\(point): the letter key for \(waits.tab) is lost. The hold ended with no field ready (\(end)) and gave the key "
+                + "to no view, by the product's rule that such a hold gives no key to what had the keyboard at its opening. \(holdLog)")
+        }
+        // The hold gave the key on, and the key router took it again (its queue for a page that is not ready, or a
+        // primary input): a key with Command ends that queue, and the check does not read it.
+        if !keyboard.router.menuMayClaim(waits.key) {
+            return fail(\.typedSetup, "\(point): the hold ended with no field ready (\(end)) and the key router took the letter key for "
+                + "\(waits.tab) again: the check does not see where it went. \(holdLog)")
+        }
+        // The hold gave the key on. The view that had the keyboard before the key or the delivery in which it ended:
+        var view = keyboard.before as? NSView
+        while let current = view, !(current is AgentPaneView) { view = current.superview }
+        let tabs = controller.services.agentTabs
+        let own = names.filter { $0.value == waits.tab }.keys.contains { tabs.existingView($0, machine: pane.daemon.machineID) === view }
+        if view != nil, own { return }
+        let responder = keyboard.before.map { String(describing: type(of: $0)) } ?? "no view"
+        found.lettersElsewhere += 1
+        fail(\.typed, "\(point): the hold ended with no field ready (\(end)) and gave the letter key for \(waits.tab) on while \(responder), "
+            + "not a view of that tab, had the keyboard: it got the key or the key is lost. \(holdLog)")
     }
+
+    /// The letter keys against their rule, at each comparison.
+    private func compareLetters(_ point: String) { settleLetter(point) }
 
     // MARK: Deliveries
 
@@ -367,6 +440,7 @@ final class TabKeysKeyProbe: NSView {
     private func deliver() async -> String? {
         let events = model.pendingEvents, replies = model.pendingReplies
         guard owed else { return nil }
+        keyboard.before = keyboard.window.firstResponder
         let what: String
         if treeOwed, let first = model.createReplyBeforeTree {
             // The daemon wrote this reply before the tree that holds its tab: the app gets it, and a turn, first.
