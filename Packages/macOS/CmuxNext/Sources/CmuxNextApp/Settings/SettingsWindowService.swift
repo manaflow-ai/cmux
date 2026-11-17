@@ -47,6 +47,11 @@ final class SettingsWindowService: InternalPageProvider {
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
     /// Cached projection for the wallpaper grid in the host-lists payload.
     var backdropRowsCache = BackdropCatalogPageRowsCache()
+    /// Settings > Menus' reads and writes (ContextMenusSettingsPage); one route, so its menus' JSON is built once per change.
+    private(set) lazy var contextMenusRoute = ContextMenusPageProvider { [weak services] in
+        guard let services, let settings = services.settings else { return nil }
+        return ContextMenusSettingsPage(registry: services.registry, settings: settings)
+    }
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button

@@ -3,6 +3,8 @@
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2},
+    {"title": "A workspace of its own (launch focuses the agent chat, which no script splits)", "cmux": ["workspace", "new", "--name", "Panes"]},
+    {"title": "Show it (a new workspace takes no focus)", "cmux": ["workspace", "name:Panes", "focus"], "wait": 1.5},
     {"title": "A second pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 2},
     {"title": "A third pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 1.2, "clip": true},
     {"title": "Close it", "cmux": ["action", "run", "closePane"], "wait": 1.2, "clip": true},

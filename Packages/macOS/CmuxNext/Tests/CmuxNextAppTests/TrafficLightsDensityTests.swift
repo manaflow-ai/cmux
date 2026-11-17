@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Austin 2026-11-10: "We need to make sure that the traffic lights are aligned to the densities as well
 /// (will need to adjust them as well according to which density the user selects)". In a real window the
 /// lights center on the top row's line, the line the toolbar band and the tab pills share, at every density;
 /// with the `lights` line (the row follows the lights) they stay where macOS puts them.
-@MainActor @Suite(.serialized) struct TrafficLightsDensityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TrafficLightsDensityTests {
     private func window() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
         let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))

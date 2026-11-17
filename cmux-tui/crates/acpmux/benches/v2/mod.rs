@@ -365,7 +365,7 @@ mod tests {
     use super::*;
 
     /// Rows intentionally left without a source writer while a later PR owns their gate.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr12.follow_driver_views"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`. A PR's
     /// part is its number and then any letters and digits (`03a3`).
@@ -455,13 +455,73 @@ mod tests {
         found
     }
 
+    /// The `json!` object around `at`: from the `{` before it that no `}` closes to the `}` that
+    /// closes it; None when that `{` does not open a `json!(` call. Braces are counted as they
+    /// stand, so a string value holding a brace would mislead it; no gate line has one.
+    fn json_object_around(text: &str, at: usize) -> Option<&str> {
+        let bytes = text.as_bytes();
+        let mut depth = 0_usize;
+        let open = (0..at).rev().find(|index| match bytes[*index] {
+            b'}' => {
+                depth += 1;
+                false
+            }
+            b'{' if depth == 0 => true,
+            b'{' => {
+                depth -= 1;
+                false
+            }
+            _ => false,
+        })?;
+        if !text[..open].trim_end().ends_with("json!(") {
+            return None;
+        }
+        let mut depth = 0_usize;
+        let close = (open..bytes.len()).find(|index| match bytes[*index] {
+            b'{' => {
+                depth += 1;
+                false
+            }
+            b'}' => {
+                depth -= 1;
+                depth == 0
+            }
+            _ => false,
+        })?;
+        Some(&text[open..=close])
+    }
+
+    /// The gate lines a source spells as a `json!` object with a `"name": "v2.` key, each with
+    /// the file and line its name is on, and those of them that lack `small_p95` or `god_p95`.
+    fn json_lines_without_the_home_shape(file: &Path, text: &str) -> (usize, Vec<String>) {
+        let name = regex::Regex::new(r#""name"\s*:\s*"v2\."#).unwrap();
+        let (mut lines, mut found) = (0, Vec::new());
+        for at in name.find_iter(text).map(|m| m.start()) {
+            let Some(object) = json_object_around(text, at) else { continue };
+            lines += 1;
+            let lacks: Vec<_> = ["small_p95", "god_p95"]
+                .into_iter()
+                .filter(|field| {
+                    !regex::Regex::new(&format!(r#""{field}"\s*:"#)).unwrap().is_match(object)
+                })
+                .collect();
+            if !lacks.is_empty() {
+                let line = text[..at].lines().count();
+                found.push(format!("{file:?}:{line} lacks {lacks:?}: {object}"));
+            }
+        }
+        (lines, found)
+    }
+
     /// The home reads `small_p95` and `god_p95` from every line (`parse_measure`); a hand-written
-    /// line without them once stopped the nightly report from being written at all.
+    /// line without them once stopped the nightly report from being written at all. A line is
+    /// hand-written as a format string holding `\"name\":\"v2.` or as a `json!` object with a
+    /// `"name": "v2.` key; both are read.
     #[test]
     fn a_hand_written_gate_line_carries_small_p95_and_god_p95() {
         // The registry's own tests spell broken lines on purpose.
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
-        let mut lines = 0;
+        let (mut lines, mut json_lines) = (0, 0);
         let mut found = Vec::new();
         for file in gate_writer_sources() {
             if file.starts_with(&registry) {
@@ -470,8 +530,12 @@ mod tests {
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
             lines += text.matches(r#"\"name\":\"v2."#).count();
             found.extend(hand_written_lines_without_the_home_shape(&file, &text));
+            let (in_json, lacking) = json_lines_without_the_home_shape(&file, &text);
+            json_lines += in_json;
+            found.extend(lacking);
         }
         assert!(lines >= 3, "the scan read too few hand-written gate lines: {lines}");
+        assert!(json_lines >= 3, "the scan read too few json! gate lines: {json_lines}");
         assert!(found.is_empty(), "gate lines the home cannot read:\n{}", found.join("\n"));
     }
 
@@ -490,6 +554,28 @@ mod tests {
             r#"    \"god_p95\":{c},\"unit\":\"ns\"}}")"#
         );
         assert!(hand_written_lines_without_the_home_shape(Path::new("a.rs"), continued).is_empty());
+    }
+
+    #[test]
+    fn the_json_line_check_reads_the_whole_object() {
+        let without = concat!(
+            "write_gate_line(&json!({\n",
+            r#"    "name": "v2.pr06.client_chat_held", "capped": {"p95": 1}, "unit": "bytes""#,
+            "\n}));"
+        );
+        let (lines, found) = json_lines_without_the_home_shape(Path::new("a.rs"), without);
+        assert_eq!((lines, found.len()), (1, 1), "{found:?}");
+        assert!(found[0].contains("small_p95") && found[0].contains("god_p95"), "{found:?}");
+        let with = concat!(
+            "let line = serde_json::json!({\n",
+            r#"    "name":"v2.pr04b.mirror_v1_rows", "rounds": {"n": 5},"#,
+            "\n",
+            r#"    "small_p95":small, "god_p95":god, "unit":"ns""#,
+            "\n});"
+        );
+        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), with), (1, Vec::new()));
+        let not_json = r#"let row = Row { name: "v2.x" }; let v = map(&{ "name": "v2.y" });"#;
+        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), not_json), (0, Vec::new()));
     }
 
     /// Whether a source's name is this row's: equal, or a `format!` whose holes fit.
@@ -758,10 +844,6 @@ mod tests {
         ("v2.pr04.chat_stopped_reader", "one peak resident rise a side, each in its own process"),
     ];
 
-    /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
-    /// `gate_rounds` after it lands, and leave this list then.
-    const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[];
-
     /// A gate that keeps the best of several rounds hides a round that did different work from
     /// the rest (cmux#43438's replay append read 0.995x on rounds that returned early). A source
     /// that writes `god_p95_all` for a row calls `gate_rounds::report` on the way to that line:
@@ -802,8 +884,7 @@ mod tests {
                     continue;
                 }
                 checked += 1;
-                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name)
-                    || ROUNDS_WAIT_ON_ANOTHER_PR.contains(&row.name);
+                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name);
                 let called = source.called_from(reached);
                 if calls_a_shared_writer(&source, &called) {
                     shared += 1;

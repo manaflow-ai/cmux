@@ -31,7 +31,7 @@ use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
 pub use crate::machine_record::{
     CONSENT_REQUIRED, Consent, ConsentState, MachineCredential, SIGNED_IN_MACHINES,
-    require_consent, require_joined_consent,
+    require_consent, require_joined_consent, signed_in_machines_granted,
 };
 use crate::machine_record::{
     CREDENTIAL_FILE, CopyState, authority, consent_home, copied_here, copy_state, load, other_box,
@@ -709,6 +709,13 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
 /// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
+}
+
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
 }
 
 /// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
