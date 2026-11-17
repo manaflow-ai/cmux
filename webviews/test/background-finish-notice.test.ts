@@ -16,7 +16,7 @@ afterAll(() => teardownDom(saved, { window: dom.window }));
 const T0 = 1_794_000_000_000;
 type Row = { id: string; kind: string; text?: string; background?: { cause?: { weight?: string } } };
 
-async function replay(exit: number | "killed", resultNamesPrompt = true) {
+async function replay(exit: number | "killed", resultNamesPrompt = true, harness = "codex") {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   let seq = 0;
@@ -56,7 +56,7 @@ async function replay(exit: number | "killed", resultNamesPrompt = true) {
     },
   };
   const running = [
-    event("created", { harness: "codex" }),
+    event("created", { harness }),
     event("turn_started", { client: "watch", prompt: "build it", promptId: "p1" }),
     event("user_message", { client: "watch", promptId: "p1", text: "build it" }),
     say("Building in the background."),
@@ -97,7 +97,7 @@ async function replay(exit: number | "killed", resultNamesPrompt = true) {
   return {
     queued: whileRunning.queue ?? [],
     rows: after.rows,
-    drawn: turnView(after.rows as never, new Set(), { agentFamily: "codex" }) as Row[],
+    drawn: turnView(after.rows as never, new Set(), { agentFamily: harness }) as Row[],
   };
 }
 
@@ -110,6 +110,18 @@ test("a background success waits unseen, then draws one line and no prompt or ac
   const line = drawn.find((row) => row.kind === "backgroundTurn");
   expect(line?.background?.cause?.weight).toBe("result");
   expect(texts(drawn).some((text) => text.includes("The notice confirms the build."))).toBe(false);
+});
+
+// That fold is ChatGPT's and Codex's minimal conclusion fold. Claude's reply draws under the line
+// (Leo, 2026-11-04: "doesn't make sense to fold claude's transcripts like that"; 2026-11-17: "im
+// seeing no outputs from chats again").
+test("in a Claude chat a background success draws its line and, under it, the agent's reply", async () => {
+  const { queued, drawn } = await replay(0, true, "claude");
+  expect(queued).toEqual([]);
+  const at = drawn.findIndex((row) => row.kind === "backgroundTurn");
+  expect(drawn[at]?.background?.cause?.weight).toBe("result");
+  const reply = drawn.findIndex((row) => row.text?.includes("The notice confirms the build."));
+  expect(reply).toBeGreaterThan(at);
 });
 
 test("a background failure draws its line over the agent's reply, with no prompt row", async () => {
