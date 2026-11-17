@@ -102,7 +102,7 @@ export function railPlacement(
 /// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
 /// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
 /// thing shifts"). `fit-480` shipped that, but a chat short of 48 prompts then drew its rail above the
-/// view's middle, and a tall one below it in a short pane. `fit-480-center` ships: the rail's middle is
+/// view's middle. `fit-480-center` ships: the rail's middle is
 /// always the view's middle (Lucas, 2026-11-17: "the timeline ... is always vertically aligned, and is
 /// on the vertical center of the screen"); each new prompt grows it half a row at each end. The
 /// gallery compares the arms.
