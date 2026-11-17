@@ -12,6 +12,6 @@ extension DaemonService {
     public func setFloatingFrame(of pane: PaneID, to frame: CGRect) {
         guard floatsPanes else { return }
         let wire = FloatingPaneSnapshot.Frame(x: Double(frame.minX), y: Double(frame.minY), w: Double(frame.width), h: Double(frame.height))
-        Task { await run("float-pane") { _ = try await $0.floatPane(pane, mode: .on, frame: wire) } }
+        Task { await run("float-pane") { _ = try await $0.request(FloatPaneRequest(pane: pane, mode: .on, frame: wire)) } }
     }
 }
