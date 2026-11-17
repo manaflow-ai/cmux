@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44126939421",
+  "recorded_at": "2026-11-17T16:48:53Z",
+  "reason": "cmux-tui 20f220212fb8 changes the image's cmux-tui (pinned c3eb1920f876)",
+  "dry_run": false,
+  "cmux_tui": "20f220212fb8b9aaa1d0d1254698535acd0cf174",
+  "fixes": [
+    {
+      "sha": "20f220212fb8b9aaa1d0d1254698535acd0cf174",
+      "mergedAt": "2026-11-17T08:10:41-08:00",
+      "subject": "acpmux: a Cloud machine's model route applies only where its host resolves (carries #45368) (#45583)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T16:48:53Z",
+    "snapshot_id": "sh-6f5df3e32e1e4a378d005ad032ba8360",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44126939421): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2eec2b836e8c8922a173b22b526cb71911c637e2",
+    "image": "cloud-native-auto-20f22021-44126939421-1",
+    "revision": "ci-44126939421-1",
+    "at": "2026-11-17T16:48:53Z"
+  },
+  "rolled_back": false
+}
