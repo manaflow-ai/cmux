@@ -86,10 +86,15 @@ public final class PaneZoomIndicatorView: NSView {
         return hit
     }
 
+    /// The button's frame in an indicator with `bounds`: the bounds less the glass's padding.
+    static func buttonFrame(in bounds: NSRect) -> NSRect? {
+        bounds.insetBy(dx: padding, dy: padding)
+    }
+
     override public func layout() {
         super.layout()
         surface?.frame = bounds
-        button.frame = bounds.insetBy(dx: Self.padding, dy: Self.padding)
+        if let frame = Self.buttonFrame(in: bounds) { button.frame = frame }
         button.layer?.cornerRadius = Metrics.buttonCornerRadius
         button.contentTintColor = performWithTheme { Palette.litGlyph }
     }
