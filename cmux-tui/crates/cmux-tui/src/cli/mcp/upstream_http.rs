@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::upstream::Failure;
+use super::Failure;
 
 /// The largest reply read (a tool result with screenshots stays far under it).
 const MAX_REPLY_BYTES: u64 = 16 << 20;

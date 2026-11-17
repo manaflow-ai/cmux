@@ -51,7 +51,6 @@ mod tests;
 mod tool_list;
 mod transport;
 mod upstream;
-mod upstream_http;
 mod upstream_listing;
 mod v2_tools;
 mod video_tools;

@@ -30,8 +30,10 @@ use serde_json::{Map, Value, json};
 
 use super::computer_use_gate::{self, AppCaller, Gate};
 use super::cua_recovery;
-use super::upstream_http::{self, Http};
+#[path = "upstream_http.rs"]
+pub(super) mod upstream_http;
 use cmux_json::JsonSet as _;
+use upstream_http::Http;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.

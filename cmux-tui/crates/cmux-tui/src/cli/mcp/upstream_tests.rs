@@ -961,7 +961,7 @@ fn an_http_upstream_off_loopback_is_refused() {
         "http://::1/mcp",
         "http://127.0.0.1:notaport/mcp",
     ] {
-        let error = upstream_http::endpoint(url).expect_err(url);
+        let error = upstream::upstream_http::endpoint(url).expect_err(url);
         assert!(error.contains("loopback"), "{url}: {error}");
         let mut server = http_upstream("acpmux", url);
         assert!(server.descriptors(&BTreeSet::new()).is_empty(), "{url}");
@@ -969,7 +969,7 @@ fn an_http_upstream_off_loopback_is_refused() {
         assert!(error.contains("loopback"), "{url}: {error}");
     }
     for url in ["http://127.0.0.1:9/mcp", "http://localhost:9/mcp/x?y=1", "http://[::1]:9/mcp"] {
-        assert!(upstream_http::endpoint(url).is_ok(), "{url}");
+        assert!(upstream::upstream_http::endpoint(url).is_ok(), "{url}");
     }
     // Loopback, but nothing listens there.
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
