@@ -96,7 +96,7 @@ enum NewTabPage {
         let current = current ?? services.windows.active?.state.workspaceID
         let limit = services.settings?.snapshot.nativeNewTabPage == true ? nil : AgentPaneOmnibar.maximumEntries
         return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { id in
-            services.locateTabOnAnyMachine(id).flatMap { services.tabFavicon($0.0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
+            services.locateTab(id).flatMap { services.tabFavicon($0.0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
         }, walk: { services.machines.allWorkspaces.map { workspace, _ in rows(services, workspace) } })
     }
 
