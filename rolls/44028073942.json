@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44028073942",
+  "recorded_at": "2026-11-17T06:09:16Z",
+  "reason": "cmux-tui f3b577861425 changes the image's cmux-tui (pinned f8b76f71b3f4)",
+  "dry_run": false,
+  "cmux_tui": "f3b577861425ca23039d39b857432c74e45c3850",
+  "fixes": [
+    {
+      "sha": "f3b577861425ca23039d39b857432c74e45c3850",
+      "mergedAt": "2026-11-16T21:41:10-08:00",
+      "subject": "cmux-tui: workspace registry stress harness; a rename, move or empty create no longer walks every surface (#44998)"
+    },
+    {
+      "sha": "513c508a3c35a33a4a84a6f02ff4b5b93fa00f21",
+      "mergedAt": "2026-11-16T21:40:34-08:00",
+      "subject": "acpmux: rows only the send relay lists say so, and info/send reach them through it (#45094)"
+    },
+    {
+      "sha": "ae2ec171ba4ae8268cc1c445cc6b9996b546fb3d",
+      "mergedAt": "2026-11-17T05:38:34Z",
+      "subject": "Apps: a confirmed store install grants every scope its consent card listed; app hosts get the full locale (#44843)"
+    },
+    {
+      "sha": "28763e799fdec4a9be4da0b6094c7a2bd7d2a411",
+      "mergedAt": "2026-11-17T05:32:35Z",
+      "subject": "Community themes: wallpapers, header image and flourishes (#45039)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T06:09:16Z",
+    "snapshot_id": "sh-908f4b7c2de04b2eb97546c61c1a7d5b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44028073942): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9d97f4fdcd85753c0e76a809bc06eb1410a43030",
+    "image": "cloud-native-auto-f3b57786-44028073942-1",
+    "revision": "ci-44028073942-1",
+    "at": "2026-11-17T06:09:16Z"
+  },
+  "rolled_back": false
+}
