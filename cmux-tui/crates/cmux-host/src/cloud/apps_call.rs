@@ -40,22 +40,75 @@ pub struct AppsCall {
 /// Whether `path` is an apps route: `/v1/cloud/apps` or under `/v1/cloud/apps/`, plain segments
 /// only (letters, digits, `-`, `_`), so no `..`, query, fragment or escape reaches another route.
 pub fn allowed_path(path: &str) -> bool {
-    unimplemented!("red: allowed_path")
+    let Some(rest) = path.strip_prefix(APPS_PATH) else { return false };
+    if rest.is_empty() {
+        return true;
+    }
+    let Some(rest) = rest.strip_prefix('/') else { return false };
+    path.len() <= MAX_PATH
+        && !rest.is_empty()
+        && rest.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
 }
 
 /// The `apps.call` object of a socket line, checked.
 pub fn check_call(value: &Value) -> Result<AppsCall, String> {
-    unimplemented!("red: check_call")
+    let text = |key: &str| value.get(key).and_then(Value::as_str);
+    let method = text("method").unwrap_or_default();
+    if !METHODS.contains(&method) {
+        return Err(format!("apps.call method must be one of {}", METHODS.join(", ")));
+    }
+    let path = text("path").unwrap_or_default();
+    if !allowed_path(path) {
+        return Err(format!("apps.call sends only {APPS_PATH} and the paths under it"));
+    }
+    let body = match value.get("body") {
+        None | Some(Value::Null) => None,
+        Some(body @ Value::Object(_)) => {
+            if body.to_string().len() > MAX_BODY {
+                return Err("apps.call body is over 64 KiB".to_owned());
+            }
+            Some(body.clone())
+        }
+        Some(_) => return Err("apps.call body must be a JSON object".to_owned()),
+    };
+    let idempotency_key = match value.get("idempotencyKey") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(key))
+            if !key.is_empty()
+                && key.len() <= MAX_KEY
+                && key.bytes().all(|b| b.is_ascii_graphic()) =>
+        {
+            Some(key.clone())
+        }
+        Some(_) => return Err("apps.call idempotencyKey must be printable ASCII".to_owned()),
+    };
+    Ok(AppsCall { method: method.to_owned(), path: path.to_owned(), body, idempotency_key })
 }
 
 /// The reply line for the platform's answer: its status and body, never the bearer.
 pub fn reply_for(answer: &Answer, machine: &str) -> Value {
-    unimplemented!("red: reply_for")
+    match answer {
+        Answer::Http { status, body } => {
+            json!({ "ok": true, "status": status, "body": body, "machine": machine })
+        }
+        Answer::Transport => refusal(
+            "integration.unreachable",
+            "Check this machine's connection and retry the apps request.",
+        ),
+    }
 }
 
 /// The `apps.listener` object of a socket line: its port.
 pub fn check_listener(value: &Value) -> Result<u16, String> {
-    unimplemented!("red: check_listener")
+    value
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0)
+        .ok_or_else(|| "apps.listener needs a port from 1 to 65535".to_owned())
 }
 
 /// The asking process's uid, from the socket's peer credentials.
@@ -90,5 +143,30 @@ pub fn peer_uid(stream: &UnixStream) -> Option<u32> {
 /// The reply for `apps.listener`: the process on `port` under `proc_root`, when it is the
 /// asking user's (`peer_uid`; root may read any), else a refusal naming `--cmd` and `--dir`.
 pub fn listener_reply(proc_root: &Path, port: Result<u16, String>, peer_uid: Option<u32>) -> Value {
-    unimplemented!("red: listener_reply")
+    let port = match port {
+        Ok(port) => port,
+        Err(why) => return refusal("request.invalid", &why),
+    };
+    let found = match cmux_apps::infer::infer(&cmux_apps::system::RealFs, proc_root, port) {
+        Ok(found) => found,
+        Err(e) => return refusal("app.infer", &e.to_string()),
+    };
+    let owner = std::fs::metadata(proc_root.join(found.pid.to_string())).map(|m| m.uid()).ok();
+    let mine = match (peer_uid, owner) {
+        (Some(0), Some(_)) => true,
+        (Some(peer), Some(owner)) => peer == owner,
+        _ => false,
+    };
+    if !mine {
+        let message =
+            format!("port {port} is held by another user's process; pass --cmd CMD and --dir DIR");
+        return refusal("app.infer", &message);
+    }
+    json!({
+        "ok": true,
+        "pid": found.pid,
+        "dir": found.dir.display().to_string(),
+        "argv": found.argv,
+        "command": found.command,
+    })
 }

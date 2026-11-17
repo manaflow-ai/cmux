@@ -18,8 +18,7 @@ use super::super::{GlobalArgs, OutputMode};
 
 /// Whether `rest` (the words after `app`) is one of these verbs.
 pub(super) fn owns(rest: &[String]) -> bool {
-    let _ = rest;
-    false
+    rest.first().is_some_and(|verb| cmux_apps::cli::VERBS.contains(&verb.as_str()))
 }
 
 pub(super) fn parse(rest: &[String]) -> Result<Parsed, String> {
