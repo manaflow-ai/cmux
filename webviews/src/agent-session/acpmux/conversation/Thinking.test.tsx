@@ -1,7 +1,7 @@
 // l10n-allow-file: the status copy is supplied by the pane's string table.
 // The first streamed answer token turns the live line to "Writing" in the same frame, before that
 // frame paints, so "Thinking" never flashes under the answer. The line never hides mid-turn.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -267,18 +267,28 @@ test("a late draw bringing a key the pulse already heard keeps the time it was h
   expect(container.querySelector(".cv-worked")?.textContent).toContain("Waiting");
 });
 
-test("a late draw bringing a key the pulse already heard does not start its Writing window again", async () => {
-  const quietAt = Date.now() - 6_000;
-  const pulse = handPulse({ quietKey: "a:1" });
-  const line = (quietKey: string) => (
-    <Thinking liveState="writing" quietKey={quietKey} quietAt={quietAt} pulse={pulse} />
-  );
-  act(() => root!.render(line("a:1")));
-  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
-  act(() => pulse.emit({ quietKey: "a:2" }));
-  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
-  await act(() => new Promise((done) => setTimeout(done, WRITING_MS + 300)));
-  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
-  act(() => root!.render(line("a:2")));
-  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
-}, 15_000);
+test("a late draw bringing a key the pulse already heard does not start its Writing window again", () => {
+  jest.useFakeTimers();
+  try {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const quietAt = clock - 6_000;
+    const pulse = handPulse({ quietKey: "a:1" });
+    const line = (quietKey: string) => (
+      <Thinking liveState="writing" quietKey={quietKey} quietAt={quietAt} now={now} pulse={pulse} />
+    );
+    act(() => root!.render(line("a:1")));
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+    act(() => pulse.emit({ quietKey: "a:2" }));
+    expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+    act(() => {
+      clock += WRITING_MS + 300;
+      jest.advanceTimersByTime(WRITING_MS + 300);
+    });
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+    act(() => root!.render(line("a:2")));
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+  } finally {
+    jest.useRealTimers();
+  }
+});

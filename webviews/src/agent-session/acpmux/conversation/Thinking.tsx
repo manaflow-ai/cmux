@@ -78,8 +78,9 @@ function useQuiet(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {
       const left = span.until - now();
-      timer = left > 0 ? setTimeout(settle, left) : undefined;
-      if (left <= 0) setQuiet(true);
+      timer = undefined;
+      if (left > 0) timer = setTimeout(settle, left);
+      else setQuiet(true);
     };
     if (span.until <= now()) setQuiet(true);
     else {
@@ -92,7 +93,7 @@ function useQuiet(
       span.key = moved;
       span.until = now() + ms;
       setQuiet(false);
-      timer ??= setTimeout(settle, ms);
+      if (timer === undefined) settle();
     });
     return () => {
       off?.();

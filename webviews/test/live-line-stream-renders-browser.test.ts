@@ -76,6 +76,8 @@ await requireBrowserLane("live-line-stream-renders-browser.test.ts", async () =>
         const top = line?.offsetTop;
         if (top !== undefined && probe.top !== undefined && top !== probe.top) probe.moves += 1;
         if (top !== undefined) probe.top = top;
+        // raf-read: it counts changes of the line's place frame to frame, not what one frame paints;
+        // offsetTop forces the pending layout, so a move is counted in the frame it is laid out.
         if (probe.on) requestAnimationFrame(look);
       };
       requestAnimationFrame(look);
