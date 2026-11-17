@@ -10,15 +10,15 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The rule of an agent chat in a pane spring (#36677, Leo 2026-11-05: "the main pane waits for the right pane to shift
-/// before it shifts. Like, why are you waiting?"): in a split beside it, the close of the pane beside it, a zoom and the
-/// unzoom, the chat takes its REST size in the spring's first frame and keeps it to the landing, so that its page
-/// lays out once per spring. A page that gets a size per frame lays out per frame, and one layout of a long chat takes
-/// longer than the spring: on a film of #41411, which gave the chat its pane's size in every frame, the final wrap of a
-/// 150-row chat came 90 to 190 ms later in each of these four motions.
+/// The rule of an agent chat when its pane changes size by a layout change (#36677): in a split beside it, the close of
+/// the pane beside it, a zoom and the unzoom, the chat takes its REST size once, in the frame that shows the change, so
+/// that its page lays out once per change. A page that gets a size per frame lays out per frame, and one layout of a
+/// long chat takes longer than a motion of the pane: on a film of #41411, which gave the chat its pane's size in every
+/// frame, the final wrap of a 150-row chat came 90 to 190 ms later in each of these four changes. Each of the four is
+/// one commit now: the pane has no frame between its two sizes, and the chat must not get one either.
 ///
 /// What the test measures: the SIZES of the pane's view (what the layout sizes) and of the chat's view in it, read in
-/// each frame of the spring and from their frame notices. It does not count page layouts and it does not measure the
+/// each frame from the key's turn to rest and from their frame notices. It does not count page layouts and it does not measure the
 /// film's times: a page lays out when its view takes a new size, and that is the part the layout decides.
 ///
 /// The app's own answer decides here: a real `WorkspaceContentController` on an offline store, whose
@@ -58,7 +58,7 @@ struct AgentChatTakesOneSizePerSpringTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: Change.allCases)
-    func theChatTakesItsRestSizeOnceInTheSpring(of change: Change) throws {
+    func theChatTakesItsRestSizeOnceInTheChange(of change: Change) throws {
         typealias Kinds = PaneContentFollowsPaneAllKindsTests
         let shown = try Kinds.shown(.agent)
         defer { withExtendedLifetime(shown.keeping) { shown.close() } }
@@ -128,31 +128,28 @@ struct AgentChatTakesOneSizePerSpringTests {
         try #require(view.window === window, "the pane does not show the chat")
         try #require(Kinds.rect(pane.view) == paneRect(), "at rest the pane's view is at \(Kinds.rect(pane.view)) in a pane at \(paneRect())")
 
-        /// Runs `turn` (a key's turn) and the spring it starts, to the landing's frame and what the landing leaves for
-        /// after its commit. From the turn to there, the pane's view (what the layout sizes) and the chat in it each
-        /// take ONE new size, in the spring's first frame, and that size is the size at the landing. The sizes are read
-        /// in each frame too: on a zoom the layout holds the zooming pane's frame notices until the landing
-        /// (`ScreenContentView`, `paneFrameNotices`), so the notices alone show one size there whatever each frame had.
+        /// Runs `turn` (a key's turn) and the frames after it, to rest and to what the frame that showed the change
+        /// leaves for after its commit. From the turn to there, the pane's view (what the layout sizes) and the chat in
+        /// it each take ONE new size, in the first frame tick, and that size is the size at rest. The sizes are read in
+        /// each frame too, so a size that a frame had and no notice told is seen.
         func takesOneSize(_ name: String, _ turn: () throws -> Void) throws {
             let start = paneRect()
             let paneSizes = Kinds.Sizes(of: pane.view), chatSizes = Kinds.Sizes(of: view)
             try turn()
-            var widths: Set<CGFloat> = []
-            var frames = 0
+            var frames = 0, moving = true
             var afterTheFirstFrame: (pane: CGSize, chat: CGSize)?
             var inFrames: (pane: [CGSize], chat: [CGSize]) = ([], [])
-            while frames < 600, root.advanceFrame(Self.dt) {
+            while frames < 600, moving {
+                moving = root.advanceFrame(Self.dt)
                 content.contentView.layoutSubtreeIfNeeded()
                 frames += 1
-                widths.insert(paneRect().width)
                 if afterTheFirstFrame == nil { afterTheFirstFrame = (pane.view.frame.size, view.frame.size) }
                 if inFrames.pane.last != pane.view.frame.size { inFrames.pane.append(pane.view.frame.size) }
                 if inFrames.chat.last != view.frame.size { inFrames.chat.append(view.frame.size) }
             }
-            try #require(frames > 3, "\(name) did not spring (\(frames) frames)")
-            try #require(frames < 600, "\(name): the spring did not land in 600 frames")
-            try #require(widths.count > 3 && abs(paneRect().width - start.width) > 100,
-                         "the pane did not move on the spring of \(name): widths \(widths.sorted()), from \(start.width) to \(paneRect().width)")
+            try #require(frames < 600, "\(name): the layout did not come to rest in 600 frames")
+            try #require(abs(paneRect().width - start.width) > 100,
+                         "the pane did not change size in \(name): from \(start.width) to \(paneRect().width)")
             content.contentView.layoutSubtreeIfNeeded()
             let release = landing.work
             landing.work.removeAll()
@@ -160,10 +157,10 @@ struct AgentChatTakesOneSizePerSpringTests {
             content.contentView.layoutSubtreeIfNeeded()
             content.contentView.layoutSubtreeIfNeeded()
             let landed = paneRect()
-            #expect(Kinds.rect(pane.view) == landed, "\(name): after the landing the pane's view is at \(Kinds.rect(pane.view)), its pane at \(landed)")
+            #expect(Kinds.rect(pane.view) == landed, "\(name): at rest the pane's view is at \(Kinds.rect(pane.view)), its pane at \(landed)")
             let first = try #require(afterTheFirstFrame)
             #expect(first.pane == pane.view.frame.size && first.chat == view.frame.size,
-                    "\(name): in the spring's first frame the pane's view was \(first.pane) and the chat \(first.chat); at the landing they are \(pane.view.frame.size) and \(view.frame.size)")
+                    "\(name): in the first frame tick the pane's view was \(first.pane) and the chat \(first.chat); at rest they are \(pane.view.frame.size) and \(view.frame.size)")
             #expect(paneSizes.taken.count == 1,
                     "\(name): the pane's view took \(paneSizes.taken.count) sizes in \(frames) frames, not one: \(paneSizes.taken.prefix(6))")
             #expect(chatSizes.taken.count == 1,

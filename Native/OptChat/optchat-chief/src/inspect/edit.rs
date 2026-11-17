@@ -251,6 +251,14 @@ impl Editor {
         self.change("delete", Target::Message(id), TOMBSTONE)
     }
 
+    /// Writes `text`, a new description of the image note `id` names, over
+    /// the note (`memory redescribe`, brain/redescribe.rs), as an edit: the
+    /// change book journals it as `redescribe` and builds the summaries above
+    /// the note again.
+    pub fn redescribe(&self, id: u64, text: &str) -> Answer {
+        self.change("redescribe", Target::Message(id), text)
+    }
+
     /// Whether a delete of message `id` is in the change book (undone too).
     pub fn has_deleted(&self, id: u64) -> bool {
         self.lock()
