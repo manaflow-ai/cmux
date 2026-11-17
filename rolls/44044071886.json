@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44044071886",
+  "recorded_at": "2026-11-17T08:16:04Z",
+  "reason": "cmux-tui d23aedd2cc7c changes the image's cmux-tui (pinned de0da3a70ff3)",
+  "dry_run": false,
+  "cmux_tui": "d23aedd2cc7cd9076ff3f94d7f76eb7956390ce8",
+  "fixes": [
+    {
+      "sha": "d23aedd2cc7cd9076ff3f94d7f76eb7956390ce8",
+      "mergedAt": "2026-11-16T23:55:50-08:00",
+      "subject": "cmux-encode: no frames drop after an OpenH264 keyframe (a share's first key presses wait 33 ms, not 233) (#45102)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T08:16:04Z",
+    "snapshot_id": "sh-7da7081a60604b1abda807516c948fd0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44044071886): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "98304d3785431aeab95ad5fd7740407ce7e6469f",
+    "image": "cloud-native-auto-d23aedd2-44044071886-1",
+    "revision": "ci-44044071886-1",
+    "at": "2026-11-17T08:16:04Z"
+  },
+  "rolled_back": false
+}
