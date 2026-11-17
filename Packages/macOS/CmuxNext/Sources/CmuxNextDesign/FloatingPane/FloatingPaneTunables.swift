@@ -2,10 +2,9 @@ public import CmuxNextDesignTokens
 public import CoreGraphics
 
 /// The knobs of a floating pane's look (Debug Settings > Floating Pane, DEV and NIGHTLY): its background, a
-/// material behind it, a tint, the border, the shadow and the corners. The palette's "Debug: Floating Pane
-/// Look" opens this section; each open floating pane redraws as a knob moves. Release and RC never activate the
-/// store, so they keep these defaults. A value is local to the app and is not in the session. Labels are English
-/// developer text, as for every Debug Settings section (`TunableSection`).
+/// material behind it, a tint, the border, the shadow and the corners. Each open floating pane redraws as a knob
+/// moves. Release and RC never activate the store, so they keep these defaults. A value is local to the app and is
+/// not in the session. Labels are English developer text, as for every Debug Settings section (`TunableSection`).
 public nonisolated struct FloatingPaneTunables {
     public nonisolated init() {}
     public static let section = TunableSection(id: "floatingPane", title: "Floating Pane", symbol: "macwindow.on.rectangle", order: 15)
