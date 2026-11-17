@@ -286,6 +286,7 @@ pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
+mod terminal_input;
 pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
 };

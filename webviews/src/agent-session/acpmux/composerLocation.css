@@ -1947,3 +1947,40 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+/* A chat a cmux terminal runs: in place of the model and mode chips, where they are set
+   (TerminalPickersNote.tsx), quiet and on one line like the chips it stands for. The badge is a
+   chip's height and inset with the row's icon gap, so its glyph and label sit on the chips' line;
+   it is not a control (no hover wash, the default pointer). */
+.acpmux-composer-bar .acpmux-terminal-pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--acpmux-row-icon-gap);
+  min-width: 0;
+  min-height: 28px;
+  overflow: hidden;
+  padding-inline: var(--acpmux-row-inset);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers[data-look="sentence"] {
+  display: block;
+  min-height: 0;
+  text-overflow: ellipsis;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers .acpmux-icon,
+.acpmux-composer-bar .acpmux-terminal-pickers svg {
+  flex: none;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The trailing look: at the row's end, before the actions (gallery only). */
+.acpmux-composer-bar .acpmux-chips:has(> .acpmux-terminal-pickers[data-look="trailing"]) {
+  margin-inline-start: auto;
+}

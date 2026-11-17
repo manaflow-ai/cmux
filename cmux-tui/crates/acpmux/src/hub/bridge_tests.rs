@@ -5,22 +5,39 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 #[test]
-fn only_an_all_text_prompt_is_carried() {
+fn a_prompt_reaches_the_app_with_its_images_and_files() {
     let blocks = [
-        json!({"type": "text", "text": "one"}),
-        json!({"type": "image", "data": "..."}),
-        json!({"type": "text", "text": "two"}),
+        json!({"type": "text", "text": "look"}),
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBOR"}),
+        json!({"type": "resource_link", "uri": "file:///tmp/a.rs", "name": "a.rs"}),
+        json!({"type": "resource", "resource": {"uri": "file:///tmp/b.txt", "text": "bee"}}),
     ];
-    assert_eq!(text_of(&blocks), None, "an image would be lost: refused, not cut");
-    let texts = [json!({"type": "text", "text": "one"}), json!({"type": "text", "text": "two"})];
-    assert_eq!(text_of(&texts).as_deref(), Some("one\n\ntwo"));
-    assert_eq!(text_of(&[json!({"type": "text", "text": "  "})]), None);
+    let content = content_of(&blocks).unwrap();
+    assert_eq!(
+        content.text,
+        "look\n\n@/tmp/a.rs\n\n<context ref=\"file:///tmp/b.txt\">\nbee\n</context>"
+    );
+    assert_eq!(content.images, vec![("image/png".to_owned(), "iVBOR".to_owned())]);
+    let only_image = [json!({"type": "image", "mimeType": "image/png", "data": "x"})];
+    assert_eq!(content_of(&only_image).unwrap().text, "");
+    assert!(content_of(&[json!({"type": "text", "text": "  "})]).is_err());
+    assert!(content_of(&[json!({"type": "image", "data": "..."})]).is_err(), "no media type");
+    let blob = json!({"type": "resource", "resource": {"uri": "file:///z.bin", "blob": "AA", "mimeType": "application/zip"}});
+    assert!(content_of(&[blob]).is_err(), "a binary file is refused, not cut");
+    // The inbox message: content blocks, the text first.
+    let wire = claude_content("look", &content.images);
+    assert_eq!(wire[0], json!({"type": "text", "text": "look"}));
+    assert_eq!(
+        wire[1]["source"],
+        json!({"type": "base64", "media_type": "image/png", "data": "iVBOR"})
+    );
+    assert_eq!(claude_content("plain", &[]), json!("plain"));
 }
 
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
-    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
-    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi");
+    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi", false).unwrap();
+    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi", false);
     assert!(again.is_err(), "one id, one send");
     assert_eq!(delivered("s1", "u-find"), Some(("u-find".into(), "p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
@@ -33,7 +50,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
 /// A resend waiting on a delivery the inbox refused fails with it, never answers as a turn.
 #[tokio::test]
 async fn a_resend_of_a_delivery_that_failed_fails_too() {
-    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi").unwrap();
+    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi", false).unwrap();
     let waiting = tokio::spawn(turn_of(rx));
     let gone = deliveries().by_uuid.remove("u-fail").unwrap();
     gone.turn.send_replace(Some(Err("refused".into())));
@@ -554,8 +571,8 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
 
 #[test]
 fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
-    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]").unwrap();
-    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]").unwrap();
+    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]", false).unwrap();
+    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]", false).unwrap();
     assert_eq!(delivered_text("sc", "hi"), None, "the app got the hinted text");
     assert_eq!(delivered_text("other", "hi\n\n[hint]"), None);
     assert_eq!(
@@ -573,7 +590,7 @@ fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
 /// contains a delivery's text is the terminal's own.
 #[test]
 fn a_queue_line_may_be_a_deliverys_only_by_exact_text() {
-    deliveries().claim("u-q1".into(), "sq", "pq1", "test", "test").unwrap();
+    deliveries().claim("u-q1".into(), "sq", "pq1", "test", "test", false).unwrap();
     assert!(!may_be_delivery("sq", "please test the migration"), "containment is not it");
     assert!(!may_be_delivery("other", "test"));
     assert!(may_be_delivery("sq", " test "));
@@ -586,7 +603,7 @@ fn a_queue_line_may_be_a_deliverys_only_by_exact_text() {
 /// A delivery taken back in the terminal before it ran ends with why at once (review P2-F2).
 #[test]
 fn a_delivery_taken_back_in_the_terminal_ends_with_why() {
-    let rx = deliveries().claim("u-t1".into(), "st", "pt1", "later", "later").unwrap();
+    let rx = deliveries().claim("u-t1".into(), "st", "pt1", "later", "later", false).unwrap();
     assert!(!taken_back("st", "other text"));
     assert!(taken_back("st", "later"));
     assert!(matches!(&*rx.borrow(), Some(Err(why)) if why.contains("taken back")));
@@ -597,7 +614,7 @@ fn a_delivery_taken_back_in_the_terminal_ends_with_why() {
 /// delivery (review P1-F2).
 #[test]
 fn a_refused_batch_gives_its_claims_back() {
-    deliveries().claim("u-r1".into(), "sr", "pr1", "hi", "hi").unwrap();
+    deliveries().claim("u-r1".into(), "sr", "pr1", "hi", "hi", false).unwrap();
     let shown = delivered("sr", "u-r1").unwrap();
     assert!(delivered("sr", "u-r1").is_none());
     unclaim(&[Claim::Shown(shown.0)]);
@@ -946,6 +963,7 @@ async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queu
         pid,
         started: crate::adopt_live::pid_start_ms(pid),
         store: home.clone(),
+        input: None,
     };
     {
         let mut meta = session.meta.lock().unwrap();

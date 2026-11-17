@@ -163,6 +163,25 @@ fn bridged_line(
     super::bridge::delivered(session_id, record.get("uuid")?.as_str()?)
 }
 
+/// Whether `record` says a Stop cut the running turn: Claude Code's `[Request interrupted by
+/// user…]` line, Codex's `turn_aborted`.
+fn interrupted(family: &str, record: &Value) -> bool {
+    match family {
+        "codex" => {
+            record.get("type").and_then(Value::as_str) == Some("event_msg")
+                && record.pointer("/payload/type").and_then(Value::as_str) == Some("turn_aborted")
+        }
+        _ => {
+            record.get("type").and_then(Value::as_str) == Some("user")
+                && record.get("isSidechain").and_then(Value::as_bool) != Some(true)
+                && record
+                    .pointer("/message/content")
+                    .and_then(crate::adopt_replay::text_of)
+                    .is_some_and(|t| t.starts_with("[Request interrupted by user"))
+        }
+    }
+}
+
 /// Most prompts kept as queued in the terminal (`Watching::queued`). Past it a prompt typed
 /// mid-turn is not shown at once but when it runs (its attachment or its line), so the cap never
 /// forgets a prompt that showed and never shows one twice.
@@ -508,6 +527,12 @@ impl Hub {
                                 (!human)
                                     .then(|| super::bridge::delivered_queued(&session.id, &text))
                                     .flatten()
+                            })
+                            // Typed into the terminal by acpmux: the person's line, by its text.
+                            .or_else(|| {
+                                human
+                                    .then(|| super::bridge::delivered_typed(&session.id, &text))
+                                    .flatten()
                             });
                         let typed = bridged
                             .is_none()
@@ -546,6 +571,13 @@ impl Hub {
                 *open = Some(self.begin_watched_turn(session, &text, at, Some(prompt_id)));
                 continue;
             }
+            // A Stop (Esc in the terminal, or the chat's Stop typed there) ends the turn it cut.
+            if interrupted(&watching.family, &record) {
+                if let Some(turn) = open.take() {
+                    self.end_watched_turn_as(session, &turn, at, "cancelled");
+                }
+                continue;
+            }
             for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
                 match step {
                     Step::Prompt(text) => {
@@ -562,9 +594,13 @@ impl Hub {
                         }
                         // A prompt acpmux queued into the Codex thread (`bridge.rs`) shows as
                         // sent, under its id: its rollout line is known by its text alone.
-                        let bridged = (watching.family == "codex")
-                            .then(|| super::bridge::delivered_text(&session.id, &text))
-                            .flatten();
+                        // One acpmux typed into the terminal (`terminal_input.rs`) is the
+                        // person's line: known by its text too.
+                        let bridged = if watching.family == "codex" {
+                            super::bridge::delivered_text(&session.id, &text)
+                        } else {
+                            super::bridge::delivered_typed(&session.id, &text)
+                        };
                         let (text, prompt_id) = match bridged {
                             Some((uuid, prompt_id, sent)) => {
                                 claims.push(super::bridge::Claim::Shown(uuid));
@@ -651,12 +687,26 @@ impl Hub {
 
     /// The records a turn ends with, once the transcript says it ended or the next prompt came.
     fn end_watched_turn(&self, session: &Session, turn: &WatchedTurn, at: Option<u64>) {
+        self.end_watched_turn_as(session, turn, at, "end_turn");
+    }
+
+    /// [`end_watched_turn`] with its stop reason (`cancelled` for a turn a Stop cut).
+    fn end_watched_turn_as(
+        &self,
+        session: &Session,
+        turn: &WatchedTurn,
+        at: Option<u64>,
+        stop_reason: &str,
+    ) {
         let WatchedTurn { turn_id, prompt_id, turn_seq, .. } = turn;
-        let end = json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq});
+        let end = json!({"stopReason": stop_reason, "turnId": turn_id, "turnSeq": turn_seq});
         self.append_at(session, "mux", "turn_end", end, None, at);
-        let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+        let status = if stop_reason == "cancelled" { "cancelled" } else { "completed" };
+        let result = json!({"status": status, "stopReason": stop_reason, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
         self.append_at(session, "mux", "turn_result", result, None, at);
         super::bridge::answered(&session.id, prompt_id, turn_id);
+        // A prompt waiting to be typed into the terminal goes now (`terminal_input.rs`).
+        super::terminal_input::turn_ended();
     }
 
     /// `_acpmux/watch_take_over`: ends the watch so the chat runs the conversation itself.

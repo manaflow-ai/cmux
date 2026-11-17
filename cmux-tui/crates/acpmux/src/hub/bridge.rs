@@ -68,6 +68,8 @@ pub(super) struct Pending {
     wire: String,
     /// The watch showed its line (known by its text, which another line may repeat).
     shown: bool,
+    /// Typed into the terminal (`terminal_input.rs`): its line is the person's, known by its text.
+    typed: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
 }
@@ -103,6 +105,7 @@ impl Deliveries {
         prompt_id: &str,
         text: &str,
         wire: &str,
+        typed: bool,
     ) -> Result<watch::Receiver<Outcome>, watch::Receiver<Outcome>> {
         if let Some((_, p)) = self.of_prompt(session_id, prompt_id) {
             return Err(p.turn.subscribe());
@@ -115,6 +118,7 @@ impl Deliveries {
             text: text.to_owned(),
             wire: wire.to_owned(),
             shown: false,
+            typed,
             order: self.next,
             turn,
         };
@@ -237,6 +241,16 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<ShownDelive
     Some(show(&uuid, p))
 }
 
+/// The delivery a prompt line the person's terminal wrote shows, when acpmux typed it there
+/// (`terminal_input.rs`, a harness with no inbox): the oldest unshown typed delivery with exactly
+/// that text, marked shown. Only a typed one: an inbox delivery's line names its uuid.
+pub(super) fn delivered_typed(session_id: &str, text: &str) -> Option<ShownDelivery> {
+    let mut all = deliveries();
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown && p.typed)?;
+    let uuid = uuid.clone();
+    Some(show(&uuid, p))
+}
+
 /// The turn outcome of delivery `prompt_id`, for tests.
 #[cfg(test)]
 pub(super) fn delivery_turn(session_id: &str, prompt_id: &str) -> Option<watch::Receiver<Outcome>> {
@@ -246,7 +260,21 @@ pub(super) fn delivery_turn(session_id: &str, prompt_id: &str) -> Option<watch::
 /// A delivery for tests that drive the watch alone: `uuid` into `session_id` as `prompt_id`.
 #[cfg(test)]
 pub(super) fn test_delivery(session_id: &str, prompt_id: &str, uuid: &str, text: &str) {
-    let _ = deliveries().claim(uuid.to_owned(), session_id, prompt_id, text, text);
+    let _ = deliveries().claim(uuid.to_owned(), session_id, prompt_id, text, text, false);
+}
+
+/// Delivery `uuid` will never reach its app (`why`): its call and any resend answer so.
+pub(super) fn fail_delivery(uuid: &str, why: &str) {
+    if let Some(p) = deliveries().by_uuid.remove(uuid) {
+        p.turn.send_replace(Some(Err(why.to_owned())));
+    }
+}
+
+/// [`fail_delivery`], answering the prompt id of the delivery that failed (none when it was gone).
+pub(super) fn fail_delivery_of(uuid: &str, why: &str) -> Option<String> {
+    let p = deliveries().by_uuid.remove(uuid)?;
+    p.turn.send_replace(Some(Err(why.to_owned())));
+    Some(p.prompt_id)
 }
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
@@ -262,18 +290,65 @@ async fn turn_of(mut rx: watch::Receiver<Outcome>) -> Outcome {
     tokio::time::timeout(ANSWER_WAIT, wait).await.ok()?.ok()?.clone()
 }
 
-/// The text of a prompt's content blocks, when they are all text: an image or a file would not
-/// reach the app (its inbox takes text), so such a prompt is refused rather than cut.
-fn text_of(blocks: &[Value]) -> Option<String> {
-    blocks
-        .iter()
-        .map(|b| match b.get("type").and_then(Value::as_str) {
-            Some("text") => b.get("text").and_then(Value::as_str),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(|texts| texts.join("\n\n"))
-        .filter(|text| !text.trim().is_empty())
+/// A prompt as the app takes it: its text (text blocks, and each file as a mention or its
+/// contents) and its images (media type, base64), as a chat send carries them.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct Content {
+    pub(super) text: String,
+    pub(super) images: Vec<(String, String)>,
+}
+
+/// The prompt `blocks` as the app takes them, or why one cannot reach it.
+/// - text: as typed;
+/// - a file (`resource_link`): `@path` for a local file, the harness's own mention, else a link;
+/// - a file's contents (`resource` with text): a `<context ref>` block, as an ACP adapter sends it;
+/// - an image, or a resource holding one: an image.
+pub(super) fn content_of(blocks: &[Value]) -> Result<Content, String> {
+    let mut texts = Vec::new();
+    let mut images = Vec::new();
+    let s = |b: &Value, k: &str| b.get(k).and_then(Value::as_str).map(str::to_owned);
+    for b in blocks {
+        match b.get("type").and_then(Value::as_str) {
+            Some("text") => texts.extend(s(b, "text")),
+            Some("image") => match (s(b, "mimeType"), s(b, "data")) {
+                (Some(mime), Some(data)) => images.push((mime, data)),
+                _ => return Err("an image without its data".to_owned()),
+            },
+            Some("resource_link") => {
+                let uri = s(b, "uri").ok_or("a file without its address")?;
+                let name = s(b, "name").unwrap_or_else(|| uri.clone());
+                texts.push(match uri.strip_prefix("file://") {
+                    Some(path) => format!("@{path}"),
+                    None => format!("[{name}]({uri})"),
+                });
+            }
+            Some("resource") => {
+                let r = b.get("resource").ok_or("a file without its contents")?;
+                let uri = s(r, "uri").unwrap_or_default();
+                match (s(r, "text"), s(r, "blob"), s(r, "mimeType")) {
+                    (Some(text), _, _) => {
+                        texts.push(format!("<context ref=\"{uri}\">\n{text}\n</context>"));
+                    }
+                    (None, Some(blob), Some(mime)) if mime.starts_with("image/") => {
+                        images.push((mime, blob));
+                    }
+                    _ => {
+                        return Err(format!(
+                            "{uri} is neither text nor an image, so the app cannot read it"
+                        ));
+                    }
+                }
+            }
+            other => {
+                return Err(format!("a {} block", other.unwrap_or("untyped")));
+            }
+        }
+    }
+    let text = texts.join("\n\n");
+    if text.trim().is_empty() && images.is_empty() {
+        return Err("an empty prompt".to_owned());
+    }
+    Ok(Content { text, images })
 }
 
 /// Where a bridged chat's prompt goes: the Claude Code session's inbox, or the Codex thread's
@@ -298,19 +373,39 @@ impl Target {
         }
     }
 
-    /// Delivers `wire` as message `uuid` from `sender`.
-    async fn deliver(&self, wire: &str, uuid: &str, sender: &str) -> Result<(), String> {
+    /// Delivers `wire` and `images` as message `uuid` from `sender`.
+    async fn deliver(
+        &self,
+        wire: &str,
+        images: &[(String, String)],
+        uuid: &str,
+        sender: &str,
+    ) -> Result<(), String> {
         match self {
             Target::Claude { config, peer, token } => {
                 let from = crate::claude_peers::from_address(sender);
-                crate::claude_peers::deliver(config, peer, wire, uuid, &from, token.as_deref())
+                let content = claude_content(wire, images);
+                crate::claude_peers::deliver(config, peer, content, uuid, &from, token.as_deref())
                     .await
             }
             Target::Codex { home, thread } => {
-                crate::codex_desktop::deliver(home, &thread.id, wire, uuid).await.map(drop)
+                crate::codex_desktop::deliver(home, &thread.id, wire, images, uuid).await.map(drop)
             }
         }
     }
+}
+
+/// A Claude Code inbox message's content: the text alone, or with images its content blocks
+/// (stream-json's `image` block, base64).
+pub(super) fn claude_content(wire: &str, images: &[(String, String)]) -> Value {
+    if images.is_empty() {
+        return json!(wire);
+    }
+    let text = (!wire.is_empty()).then(|| json!({"type": "text", "text": wire}));
+    let images = images.iter().map(|(mime, data)| {
+        json!({"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}})
+    });
+    Value::Array(text.into_iter().chain(images).collect())
 }
 
 impl Hub {
@@ -435,21 +530,29 @@ impl Hub {
                 return Some(Ok(reply));
             }
         }
+        // Attachments reach a terminal's harness only (Write to a chat a terminal runs); a chat the
+        // desktop bridge listed takes text alone, as before.
+        let to_terminal = terminal.is_some();
         let target = match terminal {
             Some(driver) => match terminal_target(&family, &agent_session_id, driver.clone()).await
             {
-                TerminalTarget::Ready(target) => Some(target),
+                TerminalTarget::Ready(target) => Some(Route::Inbox(target)),
                 // The terminal's harness ended: a watch as any other (Take Over runs it here).
                 TerminalTarget::Gone => {
                     self.terminal_ended(session, &driver).await;
                     None
                 }
+                // Typed into its cmux terminal instead (`terminal_input.rs`): Claude Code reads
+                // a paste and Return as the person's own prompt.
+                TerminalTarget::NoInbox(_) if family == "claude" && driver.input.is_some() => {
+                    Some(Route::Typed(driver))
+                }
                 TerminalTarget::NoInbox(why) => return Some(Err(no_inbox(&why))),
             },
-            None => {
-                self.listed_target(session, family.clone(), agent_session_id.clone(), registered)
-                    .await
-            }
+            None => self
+                .listed_target(session, family.clone(), agent_session_id.clone(), registered)
+                .await
+                .map(Route::Inbox),
         };
         let Some(target) = target else {
             // A registered name keeps its address while its app is closed: a send the outbox
@@ -459,11 +562,30 @@ impl Hub {
             return (registered && retried_client(client))
                 .then(|| Err(not_running(&session.meta().name)));
         };
-        let Some(text) = text_of(blocks) else {
+        let text_only =
+            blocks.iter().all(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                && blocks.iter().any(|b| {
+                    b.get("text").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty())
+                });
+        if !to_terminal && !text_only {
             return Some(Err(RpcError::invalid_params(
                 "only text reaches a session another app runs: send it without attachments, or take the chat over",
             )));
+        }
+        let content = match content_of(blocks) {
+            Ok(content) => content,
+            Err(why) => {
+                return Some(Err(RpcError::invalid_params(format!(
+                    "{why} cannot reach a session another app runs: send it without it, or take the chat over"
+                ))));
+            }
         };
+        if matches!(target, Route::Typed(_)) && !content.images.is_empty() {
+            return Some(Err(no_inbox(
+                "an image reaches the terminal's Claude Code only through its inbox (its cross-session messaging is off); paste it in the terminal",
+            )));
+        }
+        let text = content.text.clone();
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
         // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
@@ -471,7 +593,9 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let claude = matches!(target, Target::Claude { .. });
+        // Only Claude Code's inbox wraps a message in its own text (`with_reply_hint`); keys
+        // typed into its terminal (`Route::Typed`) arrive bare, so they take the full hint.
+        let claude = matches!(target, Route::Inbox(Target::Claude { .. }));
         let wire = with_reply_hint(
             &text,
             reply_name(opts).as_deref(),
@@ -498,13 +622,43 @@ impl Hub {
             return Some(Err(e));
         }
         // Claimed under one lock: two sends of one id never both go.
-        let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire);
+        let typed = matches!(target, Route::Typed(_));
+        let claimed =
+            deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire, typed);
         let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
-        if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
+        let target = match target {
+            Route::Inbox(target) => target,
+            Route::Typed(driver) => {
+                let typed = self.type_into(session, &driver, &agent_session_id, &uuid, &wire).await;
+                if let Err(e) = typed {
+                    let gone = deliveries().by_uuid.remove(&uuid);
+                    if let Some(p) = gone {
+                        p.turn.send_replace(Some(Err(e.clone())));
+                    }
+                    return Some(Err(undelivered(&e)));
+                }
+                let details = json!({"pid": driver.pid, "typed": true});
+                let mut record = json!({"promptId": prompt_id, "uuid": uuid});
+                if let (Some(record), Some(more)) = (record.as_object_mut(), details.as_object()) {
+                    record.extend(more.clone());
+                }
+                self.append(session, "mux", "bridge_delivered", record);
+                if let Some(ids) = delivered_ids().get_mut(&session.id) {
+                    ids.insert(prompt_id.clone());
+                }
+                if let Some(f) = opts.on_accepted.take() {
+                    f(
+                        json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
+                    );
+                }
+                return Some(answer(&prompt_id, turn_of(rx).await, Some(&details)));
+            }
+        };
+        if let Err(e) = target.deliver(&wire, &content.images, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
             if let Some(p) = gone {
@@ -666,6 +820,12 @@ fn terminal_remote_refused(family: &str) -> RpcError {
 fn no_inbox(why: &str) -> RpcError {
     RpcError::new(-32000, format!("bridge.no_inbox: {why}; type it in the terminal for now"))
         .with_data(json!({"reason": "bridge.no_inbox", "retryable": true}))
+}
+
+/// How a bridged prompt reaches its app: its inbox or queue, or typed into its cmux terminal.
+enum Route {
+    Inbox(Target),
+    Typed(crate::store::TerminalDriver),
 }
 
 /// Where a terminal-driven chat's prompt goes ([`terminal_target`]).

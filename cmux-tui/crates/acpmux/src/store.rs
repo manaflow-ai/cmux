@@ -139,6 +139,21 @@ pub struct TerminalDriver {
     pub started: Option<u64>,
     /// The harness's store the conversation is in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
     pub store: PathBuf,
+    /// The cmux terminal that process runs in, as the environment its exec was given names it
+    /// (read from the kernel, `hub/terminal_input.rs` `of_process`): the chat's Stop,
+    /// and its prompts while the harness has no inbox, reach the harness as keys typed there
+    /// (`hub/terminal_input.rs`). None outside a cmux terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<TerminalInput>,
+}
+
+/// A cmux terminal's input (`TerminalDriver::input`): its session daemon's socket
+/// (`CMUX_TUI_SOCKET`) and the terminal's id there (`CMUX_TUI_TERMINAL_ID`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInput {
+    pub socket: PathBuf,
+    pub terminal_id: String,
 }
 
 /// A watched chat's open turn (`Watching::open`).

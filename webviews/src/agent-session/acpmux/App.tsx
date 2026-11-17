@@ -206,7 +206,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -244,6 +244,7 @@ import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
+import { TerminalPickersNote } from "./TerminalPickersNote";
 import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
@@ -822,7 +823,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
+import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -1439,7 +1440,23 @@ export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
-function DefaultComposerChips({
+/// The composer row's chips. A chat a cmux terminal runs (Toggle Terminal and Chat, `terminal`)
+/// keeps Send, Stop and its attachments: each goes into that terminal's harness (acpmux
+/// `hub/bridge.rs`, `hub/terminal_input.rs`). Its model, effort and mode chips cannot apply there:
+/// the terminal's Claude Code or Codex runs its own and takes no change of them from outside its
+/// terminal, and a pick here would start this chat's own harness (acpmux refuses that while the
+/// terminal runs it). The row says where they are set instead.
+function DefaultComposerChips(props: {
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+  startsChat?: boolean;
+}) {
+  if (!props.startsChat && props.snapshot.summary?.terminal === true) return <TerminalPickersNote />;
+  return <PickerChips {...props} />;
+}
+
+function PickerChips({
   snapshot,
   cwd,
   onAddAgent,

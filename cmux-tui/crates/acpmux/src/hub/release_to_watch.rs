@@ -240,6 +240,7 @@ impl Hub {
             tokio::task::spawn_blocking(move || transcript_end(&start, codex))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?;
+        let driven = terminal.is_some();
         let watching = Watching {
             family: family.to_owned(),
             file,
@@ -251,7 +252,7 @@ impl Hub {
         };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
-        if terminal.is_some() {
+        if driven {
             self.mark_terminal_driven(session, family);
         }
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has `watching`.
@@ -374,6 +375,9 @@ impl Hub {
         if cleared {
             self.save_meta(session);
             self.unmark_terminal_driven(session);
+            // What acpmux itself still held to type into the terminal goes, with why: once off,
+            // nothing is written into that terminal.
+            self.drop_typed(session);
         }
     }
 
@@ -466,8 +470,12 @@ pub(crate) const TERMINAL_TAG: &str = "via";
 pub(crate) const TERMINAL_TAG_VALUE: &str = "terminal";
 
 /// The binding of terminal process `pid` (its start time read now) whose conversation is in `store`.
+/// The cmux terminal it runs in comes from the environment the kernel recorded for its exec
+/// (`hub/terminal_input.rs` `of_process`), never from what a caller sends.
 fn driver(pid: u32, store: std::path::PathBuf) -> crate::store::TerminalDriver {
-    crate::store::TerminalDriver { pid, started: crate::adopt_live::pid_start_ms(pid), store }
+    let started = crate::adopt_live::pid_start_ms(pid);
+    let input = super::terminal_input::of_process(pid);
+    crate::store::TerminalDriver { pid, started, store, input }
 }
 
 /// The harness's own command that resumes `family` conversation `id` in a terminal.
