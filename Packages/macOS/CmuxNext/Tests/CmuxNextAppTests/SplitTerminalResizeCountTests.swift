@@ -10,12 +10,11 @@ import CmuxNextTerminalGeometry
 import Foundation
 import Testing
 
-/// One Cmd-D resizes each terminal's PTY once (review of pl-motion-core b14). A split's new pane gets its
-/// terminal from the daemon's echo while the pane still springs (~75 ms in): the new terminal's first grid
-/// report (`TerminalSession.init`, forced, from a view that is not in the pane yet) must not reach the PTY
-/// before the spring lands, or the PTY resizes and reflows twice (the prompt redrawn at a size no frame rests
-/// at, then again at the final one). No layout hold holds the grids: each terminal sends its final grid itself
-/// when the spring starts, or when it joins a pane on a spring. Real terminal sessions; the PTY owner side is
+/// One Cmd-D resizes each terminal's PTY once. A split is one commit: its own
+/// turn changes no pane on screen and resizes no PTY, and the first frame after it shows every pane at its
+/// place, where each terminal the split resizes sends its grid. The new pane gets its terminal from the
+/// daemon's echo some frames later (~75 ms): that terminal joins a pane at rest, and its PTY is resized
+/// once, never first at a size no frame rests at. Real terminal sessions; the PTY owner side is
 /// the app's (`DaemonTerminalIO.resize`: each reported grid goes to the `ResizeCoordinator` on the main
 /// actor). Frames step at a fixed 120 Hz dt.
 @MainActor
@@ -174,9 +173,10 @@ struct SplitTerminalResizeCountTests {
         }
     }
 
-    /// Cmd-D on p2 of p1 | p2; p3's terminal arrives 9 frames (75 ms) into the spring, as the daemon's echo
-    /// does. Every terminal's PTY resizes at most once, at its final grid, and the new pane's exactly once.
-    @Test func aSplitResizesEachPTYOnceIncludingTheNewPanesTerminalAttachedMidSpring() async throws {
+    /// Cmd-D on p2 of p1 | p2: the key's turn resizes no PTY, and the first frame shows the split. p3's terminal
+    /// arrives 9 frames (75 ms) after the key, as the daemon's echo does, into a pane at rest. Every terminal's
+    /// PTY resizes at most once, at its final grid, and the new pane's exactly once.
+    @Test func aSplitResizesEachPTYOnceIncludingTheNewPanesTerminalAttachedAfterTheSplitShowed() async throws {
         _ = NSApplication.shared
         let screen = Screen(Self.pair)
         defer { screen.close() }
@@ -185,18 +185,20 @@ struct SplitTerminalResizeCountTests {
         await screen.drain()
         for terminal in screen.terminals.values { terminal.pty.applied.removeAll() }
 
-        // The key's turn: the sizing, then the split.
+        // The key's turn: the sizing, then the split. It changes no pane on screen, so it resizes no PTY.
         let changes = screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal)
         _ = screen.model.showSplitSizing(changes)
         screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(Self.pairSplit))])
         screen.root.syncWithModel()
-        var moving = true
-        for _ in 1...9 { moving = await screen.step() }
-        #expect(moving, "the split landed before its new pane's terminal arrived")
-        try screen.attachTerminal("p3")
         await screen.deliver()
-        for _ in 1...240 where moving { moving = await screen.step() }
-        #expect(!moving, "the split never landed")
+        for (pane, terminal) in screen.terminals {
+            #expect(terminal.pty.applied.isEmpty, "\(pane): the key's turn resized the PTY: \(terminal.pty.applied)")
+        }
+        // The first frame shows the split whole; the frames after it move nothing.
+        let moving = await screen.step()
+        #expect(!moving, "the frame that shows the split asks for more frames")
+        for _ in 2...9 { await screen.step() }
+        try screen.attachTerminal("p3")
         await screen.drain()
 
         for pane: PaneID in ["p1", "p2", "p3"] {

@@ -2349,6 +2349,23 @@ mod tests {
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv"})
 
+    def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "concentric-containers-baseline.txt"
+        self.write(f"scripts/cmux-next/{name}", "# only shrinks\nA.swift: kept\nC.swift: added\n")
+        self.commit("pushed concentric baseline: one line fixed and removed, one added")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# only shrinks\nA.swift: kept\nB.swift: fixed\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# only shrinks\nA.swift: kept\n")
+        self.assertEqual(taken, [f"{name}: B.swift: fixed (line removed)"])
+        self.assertEqual(gate.LINE_BASELINES, (name,))
+
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)

@@ -2,20 +2,20 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The dim over the other panes while a pane zooms or goes back (`PaneZoomMotion.dim`). One view in the
-/// overlay plane, above every pane's ring and above pages, below the drop highlight: four plain layers
-/// around the zooming pane's content rect (above, below, left, right), one opacity for all four. It has
-/// no mask, no blur and no animation of its own: after each overlay sync of a zoom frame it takes the
-/// value the zoom's spring has now (times `Palette.zoomDim`) and the pane's rect of that frame. The
-/// four layers are square, so the small areas outside the pane's rounded corners stay undimmed.
+/// The dim over the other panes of a screen around a zoom (``PaneZoomDim``). One view in the overlay plane, above
+/// every pane's ring and above pages, below the drop highlight: one layer that carries the dim's opacity, with four
+/// plain layers in it around the content rect of the pane that zooms (above, below, left, right). It has no mask and
+/// no blur. The four layers are square, so the small areas outside the pane's rounded corners stay undimmed.
 ///
-/// It is in the plane only while a pane zooms: the sync of the frame the zoom lands in takes it out, so a
-/// zoom at rest and a layout with no zoom draw nothing more and carry no layer for it.
+/// Its opacity is the only thing that changes while it shows, on the render server (`Motion.panes`, the pane veil's
+/// fade): no pane moves under it. It is in the plane only around a zoom: a layout at rest carries no layer for it.
 final class PaneZoomDimView: NSView {
     static let dimIdentifier = NSUserInterfaceItemIdentifier("pane.zoom.dim")
 
+    /// Carries the dim's opacity; the four parts are its sublayers.
+    private let dim = CALayer()
     private let parts = [CALayer(), CALayer(), CALayer(), CALayer()]
-    /// The opacity at a zoom's end (`Palette.zoomDim` in this view's theme), read with the colors.
+    /// The dim's full strength (`Palette.zoomDim` in this view's theme), read with the colors.
     private var amount: CGFloat = 0
 
     init() {
@@ -23,7 +23,9 @@ final class PaneZoomDimView: NSView {
         identifier = Self.dimIdentifier
         wantsLayer = true
         setAccessibilityElement(false)
-        for part in parts { layer?.addSublayer(part) }
+        dim.opacity = 0
+        layer?.addSublayer(dim)
+        for part in parts { dim.addSublayer(part) }
     }
 
     @available(*, unavailable)
@@ -34,48 +36,35 @@ final class PaneZoomDimView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// A dim that follows `root`'s overlay syncs in `plane` for as long as the returned observation lives.
-    static func follow(_ root: LayoutRootView, in plane: OverlayPlane) -> LayoutOverlaySyncObservation {
-        let dim = PaneZoomDimView()
-        return root.observeOverlaySync { [weak root, weak plane] in
-            guard let root, let plane else { return }
-            dim.sync(root, in: plane)
-        }
-    }
-
-    /// Shows the dim of the shown screen whose pane zooms (the active screen first), or leaves the plane.
-    private func sync(_ root: LayoutRootView, in plane: OverlayPlane) {
-        var zooming: ScreenContentView?
-        for screen in root.screenViews.values where !screen.isHidden && screen.zoomMotion.pane != nil {
-            if zooming == nil || screen.screenID == root.model.activeScreenID { zooming = screen }
-        }
-        guard let screen = zooming, let pane = screen.zoomMotion.pane, let host = root.context.hosts[pane],
-              host.superview === screen, screen.zoomMotion.dim.value > 0 else {
-            if superview != nil { removeFromSuperview() }
-            return
-        }
-        // Directly below the drop highlight: above each ring, also one that joined the plane after the dim.
-        let siblings = plane.subviews
-        if siblings.firstIndex(of: self).map({ $0 + 1 < siblings.count && siblings[$0 + 1] === root.highlight }) != true {
-            plane.addSubview(self, positioned: .below, relativeTo: root.highlight)
+    /// Puts the dim over `extent` less `hole` (the plane's coordinates), below `sibling` in `plane`.
+    func place(in plane: NSView, below sibling: NSView, extent: CGRect, hole: CGRect) {
+        if superview !== plane {
+            plane.addSubview(self, positioned: .below, relativeTo: sibling)
             applyColors()
         }
-        // The plane's items are in the root's coordinates; the layers are in this view's.
-        let extent = root.convert(screen.bounds, from: screen)
-        let shown = root.convert(host.contentRect, from: host).offsetBy(dx: -extent.minX, dy: -extent.minY)
-            .intersection(CGRect(origin: .zero, size: extent.size))
-        // A pane with nothing of it in the screen leaves no hole: the second layer takes the whole extent.
-        let hole = shown.isNull ? .zero : shown
         if frame != extent { frame = extent }
-        let opacity = amount * min(screen.zoomMotion.dim.value, 1)
-        if alphaValue != opacity { alphaValue = opacity }
+        // The hole in this view's coordinates, inside it. A pane with nothing of it in the screen leaves no hole.
+        let shown = hole.offsetBy(dx: -extent.minX, dy: -extent.minY).intersection(CGRect(origin: .zero, size: extent.size))
+        let clear = shown.isNull ? .zero : shown
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        parts[0].frame = CGRect(x: 0, y: 0, width: extent.width, height: hole.minY)
-        parts[1].frame = CGRect(x: 0, y: hole.maxY, width: extent.width, height: extent.height - hole.maxY)
-        parts[2].frame = CGRect(x: 0, y: hole.minY, width: hole.minX, height: hole.height)
-        parts[3].frame = CGRect(x: hole.maxX, y: hole.minY, width: extent.width - hole.maxX, height: hole.height)
+        dim.frame = CGRect(origin: .zero, size: extent.size)
+        parts[0].frame = CGRect(x: 0, y: 0, width: extent.width, height: clear.minY)
+        parts[1].frame = CGRect(x: 0, y: clear.maxY, width: extent.width, height: extent.height - clear.maxY)
+        parts[2].frame = CGRect(x: 0, y: clear.minY, width: clear.minX, height: clear.height)
+        parts[3].frame = CGRect(x: clear.maxX, y: clear.minY, width: extent.width - clear.maxX, height: clear.height)
         CATransaction.commit()
+    }
+
+    /// The dim comes, on the pane veil's fade: from nothing to its full strength, or, `continuing` a dim that was
+    /// going, from the strength it shows.
+    func fadeIn(continuing: Bool) {
+        Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
+    }
+
+    /// The dim goes: from its full strength to nothing, on the pane veil's fade.
+    func fadeOut() {
+        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: Float(amount))
     }
 
     override func viewDidChangeEffectiveAppearance() {
