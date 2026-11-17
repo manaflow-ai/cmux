@@ -748,6 +748,7 @@ try {
       // Each idle stretch of 2 ms or more, as start+length from the attach: where the page waited.
       const gaps: string[] = [];
       let gapFrom = -1;
+      const runs: { task: string; at: number; ms: number }[] = [];
       profile.samples.forEach((id, index) => {
         const delta = (profile.timeDeltas[index] ?? 0) / 1000;
         clockAt += delta;
@@ -767,6 +768,20 @@ try {
           gaps.push(`${(gapFrom - from).toFixed(0)}+${(clockAt - delta - gapFrom).toFixed(0)}`);
         gapFrom = -1;
         busy += delta;
+        // The task timeline: each sample's outermost page function and React phase, merged into runs.
+        let outer = "";
+        let phase = "";
+        for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
+          const fn = up.callFrame.functionName;
+          if (!phase && (fn === "renderRootSync" || fn === "renderRootConcurrent")) phase = " render";
+          else if (!phase && fn === "commitRoot") phase = " commit";
+          else if (!phase && fn === "flushPassiveEffects") phase = " passive effects";
+          if (up.callFrame.url.includes("/src/")) outer = name(up.callFrame);
+        }
+        const task = `${outer || name(node.callFrame)}${phase}`;
+        const last = runs.at(-1);
+        if (last && last.task === task && clockAt - delta - (last.at + last.ms) < 1) last.ms = clockAt - last.at;
+        else runs.push({ task, at: clockAt - delta, ms: delta });
         windowSelf.set(name(node.callFrame), (windowSelf.get(name(node.callFrame)) ?? 0) + delta);
         const seen = new Set<string>();
         for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
@@ -779,6 +794,9 @@ try {
       console.log(
         `attach to latest in the profiled load: attach answered at ${from.toFixed(0)} ms, latest in the page at ${to.toFixed(0)} ms (${(to - from).toFixed(0)} ms): busy ${busy.toFixed(0)} ms, idle ${idle.toFixed(0)} ms`,
       );
+      console.log("  task timeline (ms after the attach, ms, outermost page function and React phase):");
+      for (const run of runs.filter((each) => each.ms >= 1))
+        console.log(`  ${(run.at - from).toFixed(1)}\t${run.ms.toFixed(1)}\t${run.task.slice(0, 140)}`);
       console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);
       console.log("  top self time (ms):");
       for (const [key, ms] of [...windowSelf].sort((a, b) => b[1] - a[1]).slice(0, 30))
