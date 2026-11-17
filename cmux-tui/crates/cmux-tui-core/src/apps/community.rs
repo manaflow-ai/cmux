@@ -238,7 +238,7 @@ fn fetch_kind(
     let mut items = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
-        let mut url = format!("{base}/v1/{route}?limit={PAGE_LIMIT}");
+        let mut url = format!("{base}/v1/{route}?status=reviewed&limit={PAGE_LIMIT}");
         if let Some(cursor) = &cursor {
             url.push_str("&cursor=");
             url.push_str(&encode(cursor));
@@ -254,7 +254,7 @@ fn fetch_kind(
             if !item["kind"].is_string() {
                 item["kind"] = Value::String(kind.to_string());
             }
-            if row(&item, &Installed::default()).is_some() {
+            if reviewed(&item) && row(&item, &Installed::default()).is_some() {
                 items.push(item);
             }
         }
@@ -429,6 +429,13 @@ pub(super) fn row(item: &Value, installed: &Installed) -> Option<CommunityRow> {
         installed: is_installed,
         reference,
     })
+}
+
+/// The in-app browser lists reviewed items only. The registry asks for them
+/// (`status=reviewed`), and a listing that says `community` is dropped here
+/// too. A listing with no status counts as reviewed.
+pub(super) fn reviewed(item: &Value) -> bool {
+    item["status"].as_str().is_none_or(|status| status == "reviewed")
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -779,8 +786,8 @@ impl Supervisor {
         });
         match p.sort.unwrap_or(Sort::Featured) {
             Sort::Featured => {}
-            Sort::Downloads => rows.sort_by(|a, b| b.downloads.cmp(&a.downloads)),
-            Sort::Stars => rows.sort_by(|a, b| b.stars.cmp(&a.stars)),
+            Sort::Downloads => rows.sort_by_key(|r| std::cmp::Reverse(r.downloads)),
+            Sort::Stars => rows.sort_by_key(|r| std::cmp::Reverse(r.stars)),
             Sort::Updated => rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
             Sort::Name => rows.sort_by_key(|r| r.name.to_lowercase()),
         }

@@ -66,8 +66,8 @@ const BASE: &str = "https://registry.test";
 
 fn ext_url(cursor: Option<&str>) -> String {
     match cursor {
-        None => format!("{BASE}/v1/extensions?limit=100"),
-        Some(c) => format!("{BASE}/v1/extensions?limit=100&cursor={c}"),
+        None => format!("{BASE}/v1/extensions?status=reviewed&limit=100"),
+        Some(c) => format!("{BASE}/v1/extensions?status=reviewed&limit=100&cursor={c}"),
     }
 }
 
@@ -142,6 +142,20 @@ fn an_oversized_page_fails_the_fetch() {
         }
     }
     assert!(fetch_index(&Huge, BASE).unwrap_err().contains("8 MiB"));
+}
+
+#[test]
+fn only_reviewed_listings_are_kept_and_no_status_counts_as_reviewed() {
+    let mut community = listing("Acme", "draft", SHA_A);
+    community["status"] = json!("community");
+    let mut reviewed_one = listing("Acme", "notes", SHA_A);
+    reviewed_one["status"] = json!("reviewed");
+    let page = json!({ "items": [community, reviewed_one, listing("Acme", "old", SHA_A)] });
+    let registry = FakeRegistry::with(vec![(ext_url(None).as_str(), Ok(page))]);
+    let items = fetch_index(registry.as_ref(), BASE).unwrap();
+    let repos: Vec<&str> = items.iter().filter_map(|i| i["repo"].as_str()).collect();
+    assert_eq!(repos, ["notes", "old"]);
+    assert!(registry.calls.lock().unwrap()[0].contains("status=reviewed"));
 }
 
 #[test]

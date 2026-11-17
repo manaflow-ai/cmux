@@ -11,7 +11,7 @@ const BASE: &str = "https://registry.test";
 
 fn with_registry(f: &Fixture, items: Vec<Value>) -> Arc<FakeRegistry> {
     let registry = FakeRegistry::with(vec![(
-        format!("{BASE}/v1/extensions?limit=100").as_str(),
+        format!("{BASE}/v1/extensions?status=reviewed&limit=100").as_str(),
         Ok(json!({ "items": items })),
     )]);
     let community = Community::new(Some(&f.state), BASE, registry.clone());
