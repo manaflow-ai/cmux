@@ -8,7 +8,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The most entries a settings list holds, and the most sections the planner
+/// reads.
 const MAX_ENTRIES: usize = 256;
+/// The most nodes per section, workspace ids per node and workspace rules the
+/// planner reads: the document's own item limit, so every sidebar the
+/// document can hold keeps its settings (at 256 every setting was dropped
+/// once one section held 257 workspaces).
+const MAX_NODES: usize = crate::sidebar_doc::model::MAX_ITEMS;
 const MAX_ID: usize = 128;
 const MAX_ORDER: i64 = 1_000_000;
 
@@ -150,10 +157,10 @@ fn config(
 
     let mut workspaces = BTreeMap::new();
     if let Some(entries) = request.workspaces.as_object() {
-        if entries.len() > MAX_ENTRIES {
+        if entries.len() > MAX_NODES {
             problems.push(Problem {
                 path: "sidebar.workspaces".into(),
-                why: format!("ignored object with more than {MAX_ENTRIES} entries"),
+                why: format!("ignored object with more than {MAX_NODES} entries"),
             });
             return (hidden, order, workspaces);
         }
@@ -259,7 +266,7 @@ fn plan(
         }
         section_keys.insert(section.id.clone());
         section_keys.extend(section.keys.iter().cloned());
-        for (node_index, node) in section.nodes.iter().take(MAX_ENTRIES).enumerate() {
+        for (node_index, node) in section.nodes.iter().take(MAX_NODES).enumerate() {
             if node.kind == "group" {
                 group_ids.entry(section.id.clone()).or_default().insert(node.id.clone());
                 if let Some(name) = &node.name {
@@ -267,7 +274,7 @@ fn plan(
                 }
             }
             for (workspace_index, workspace) in
-                node.workspace_ids.iter().take(MAX_ENTRIES).enumerate()
+                node.workspace_ids.iter().take(MAX_NODES).enumerate()
             {
                 if section_for_workspace.contains_key(workspace) {
                     problems.push(Problem {
@@ -315,9 +322,9 @@ fn plan(
     let mut workspace_orders = BTreeMap::new();
     let mut workspace_group_for = BTreeMap::new();
     for section in input.iter().take(input_len) {
-        for node in section.nodes.iter().take(MAX_ENTRIES) {
+        for node in section.nodes.iter().take(MAX_NODES) {
             if node.kind == "group" {
-                for workspace in node.workspace_ids.iter().take(MAX_ENTRIES) {
+                for workspace in node.workspace_ids.iter().take(MAX_NODES) {
                     workspace_group_for
                         .insert(workspace.clone(), (section.id.clone(), node.id.clone()));
                 }
@@ -392,13 +399,15 @@ pub fn respond(request: &Request) -> Reply {
     let mut problems = Vec::new();
     let input_too_large = request.input.len() > MAX_ENTRIES
         || request.input.iter().any(|section| {
-            section.nodes.len() > MAX_ENTRIES
-                || section.nodes.iter().any(|node| node.workspace_ids.len() > MAX_ENTRIES)
+            section.nodes.len() > MAX_NODES
+                || section.nodes.iter().any(|node| node.workspace_ids.len() > MAX_NODES)
         });
     if input_too_large {
         problems.push(Problem {
             path: "sidebar.input".into(),
-            why: format!("ignored sidebar document larger than {MAX_ENTRIES} entries per level"),
+            why: format!(
+                "ignored sidebar document with more than {MAX_ENTRIES} sections or {MAX_NODES} entries per level"
+            ),
         });
     }
     let (hidden, order, workspaces) = config(request, &mut problems);
@@ -502,12 +511,12 @@ mod tests {
 
     #[test]
     fn oversized_document_keeps_the_projection_unchanged() {
-        let nodes = (0..257)
-            .map(|index| json!({"id": format!("ws-{index}"), "kind": "workspace", "workspace_ids": [format!("ws-{index}")]}))
+        let sections = (0..257)
+            .map(|index| json!({"id": format!("sec-{index}"), "keys": ["projects"], "region": "middle", "nodes": []}))
             .collect::<Vec<_>>();
         let request: Request = serde_json::from_value(json!({
             "sections": {"hidden": ["projects"]},
-            "input": [{"id": "projects", "region": "middle", "nodes": nodes}]
+            "input": sections
         }))
         .unwrap();
         let reply = respond(&request);
@@ -537,3 +546,7 @@ mod tests {
         assert!(reply.problems.iter().any(|problem| problem.path.ends_with("workspace_ids[1]")));
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_section_customization_stress_tests.rs"]
+mod stress_tests;

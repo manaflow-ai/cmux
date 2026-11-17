@@ -444,12 +444,13 @@ public final class HomeNativeTranscriptView: NSView {
     /// The Chief chat's scale: its default size times Agent Chat Zoom.
     static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
 
-    /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
+    /// The person's text scale (Text Size, never the density: ``Typography/chatUserScale``) applies to the native
+    /// first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale * Self.chatScale)
+            applyTextScale(Typography.chatUserScale * Self.chatScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
@@ -489,8 +490,10 @@ public final class HomeNativeTranscriptView: NSView {
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
         // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
+        // Default's caption at every density (user 2026-11-16: Compact draws the chat as Default does).
         let caption = Typography.caption
-        let font = NSFont(descriptor: caption.fontDescriptor, size: caption.pointSize * Self.chatScale) ?? caption
+        let size = TypeScale.Base.caption * Typography.chatUserScale * Self.chatScale
+        let font = NSFont(descriptor: caption.fontDescriptor, size: size) ?? caption
         noticeLabel.font = font
         noticeButton.font = font
         needsLayout = true
