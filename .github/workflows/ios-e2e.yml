@@ -430,16 +430,15 @@ jobs:
       - name: Boot fresh named simulator
         run: |
           set -euo pipefail
-          # Newest available iOS runtime, then the newest iPhone it supports.
-          # "iPhone" productFamily also lists iPod touch, and the last device
-          # type overall may have no runtime on the image.
-          read -r runtime devtype < <(xcrun simctl list runtimes -j | python3 -c '
-          import json, sys
-          runtimes = [r for r in json.load(sys.stdin)["runtimes"]
-                      if r.get("isAvailable") and r.get("platform") == "iOS"]
-          if not runtimes:
-              sys.exit("no available iOS runtime")
-          runtime = max(runtimes, key=lambda r: [int(x) for x in r["version"].split(".")])
+          # The fleet's pinned iOS runtime when the host has it, else the
+          # newest (scripts/ci/ios_sim_runtime.py --prefer-pin), then the
+          # newest iPhone it supports. "iPhone" productFamily also lists iPod
+          # touch, and the last device type overall may have no runtime on the image.
+          runtimes_json="$(xcrun simctl list runtimes -j)"
+          runtime_id="$(printf '%s' "$runtimes_json" | python3 -I scripts/ci/ios_sim_runtime.py --prefer-pin --runtime-only)"
+          read -r runtime devtype < <(printf '%s' "$runtimes_json" | RUNTIME_ID="$runtime_id" python3 -c '
+          import json, os, sys
+          runtime = next(r for r in json.load(sys.stdin)["runtimes"] if r["identifier"] == os.environ["RUNTIME_ID"])
           phones = [d for d in runtime.get("supportedDeviceTypes", [])
                     if d.get("productFamily") == "iPhone" and d["name"].startswith("iPhone")]
           if not phones:
