@@ -18,6 +18,7 @@ export default function CmuxCloudDpaPage() {
   return (
     <>
       <h1>cmux Cloud Data Processing Addendum</h1>
+      <p>Last updated: [LEGAL REVIEW: publication date].</p>
       <p>
         <strong>DRAFT, legal review needed.</strong> Items marked
         &ldquo;[LEGAL REVIEW]&rdquo; are not decided.
@@ -25,8 +26,8 @@ export default function CmuxCloudDpaPage() {
       <p>
         This Data Processing Addendum (&ldquo;DPA&rdquo;) is part of the{" "}
         <a href="https://cmux.com/terms-of-service#cmux-cloud">Terms of Service</a>{" "}
-        between Manaflow, Inc. (&ldquo;Company&rdquo;) and the organization that
-        uses cmux Cloud (&ldquo;Customer&rdquo;). cmux Cloud means the hosted
+        between Manaflow, Inc. (&ldquo;Company&rdquo;) and the organization or
+        person that is the customer under the Terms (&ldquo;Customer&rdquo;). cmux Cloud means the hosted
         service at <a href="https://cmux.cloud">cmux.cloud</a> and the cloud
         machines that Customer creates from the cmux app or the cmux.com
         dashboard. Customer accepts this DPA when it accepts the Terms. [LEGAL
@@ -46,7 +47,8 @@ export default function CmuxCloudDpaPage() {
         tools, agent work, model call requests and answers, archive copies of
         agent conversations, and memory (&ldquo;Customer Personal Data&rdquo;), Customer
         is the controller and Company is the processor. For account, billing,
-        security, and usage data that Company needs to run its business,
+        security, usage, support, and feedback data that Company needs to run
+        its business,
         Company is the controller, as the{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes.
@@ -224,7 +226,8 @@ export default function CmuxCloudDpaPage() {
           Data subjects: Customer&rsquo;s users; members of Customer&rsquo;s
           Slack workspace; participants in meetings that the notetaker joins;
           people whose data is in Customer&rsquo;s calendars, files, and
-          connected tools.
+          connected tools; people who visit the apps, pages, and links that
+          Customer publishes with cmux Cloud.
         </li>
         <li>
           Categories of data: names, email addresses, and profile details;

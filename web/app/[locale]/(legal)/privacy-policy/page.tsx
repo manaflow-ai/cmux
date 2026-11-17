@@ -47,6 +47,7 @@ export default async function PrivacyPolicyPage({ params }: PageProps) {
   );
 }
 
+// [LEGAL REVIEW: set every locale's date to the publication date of the cmux Cloud section.]
 const lastUpdatedByLocale = {
   en: "Last updated: July 14, 2026",
   ja: "最終更新日: 2026 年 7 月 14 日",

@@ -65,7 +65,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Cloud machines",
     name: "Daytona [confirm legal entity]",
-    purpose: "Runs cloud machines when a team chooses this provider.",
+    purpose: "Runs Windows cloud machines.",
     location: "[confirm]",
   },
   {
