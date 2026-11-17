@@ -13,6 +13,8 @@ import QuartzCore
 /// needs the view's layout and the view never needs the Mac's pixels.
 @MainActor
 public protocol ScreenCamera: AnyObject {
+    /// The Mac sends focus signals (an older Mac sends none: no Follow button).
+    var isAvailable: Bool { get }
     /// Follow is on: the view shows `crop(at:aspect:)` every frame.
     var isFollowing: Bool { get }
     /// The person took the camera (a pinch or a drag) and has not handed it back.
@@ -31,15 +33,21 @@ public protocol ScreenCamera: AnyObject {
     func toggle()
 }
 
-/// Where the view's scroll view must be to show `crop` of `display`
-/// (stub: not computed yet).
+/// Where the view's scroll view must be to show `crop` of `display`: the
+/// zoom that fits the whole crop in the view, and the content offset that
+/// centres it there. A crop taller than the view's shape (a readable-width
+/// portrait crop of a landscape screen) shows letterboxed above and below.
 public struct ScreenCameraFraming: Equatable, Sendable {
     public var zoomScale: CGFloat
     public var contentOffset: CGPoint
 
+    /// `crop` is a fraction of `display` (its rect in the scroll view's
+    /// unzoomed content); `viewSize` is the scroll view's bounds.
     public init(crop: CGRect, display: CGRect, viewSize: CGSize) {
-        zoomScale = 1
-        contentOffset = .zero
+        let width = max(crop.width * display.width, 1), height = max(crop.height * display.height, 1)
+        zoomScale = min(viewSize.width / width, viewSize.height / height)
+        contentOffset = CGPoint(x: (display.minX + crop.minX * display.width) * zoomScale - (viewSize.width - width * zoomScale) / 2,
+                                y: (display.minY + crop.minY * display.height) * zoomScale - (viewSize.height - height * zoomScale) / 2)
     }
 
     public init(zoomScale: CGFloat, contentOffset: CGPoint) {
@@ -47,5 +55,15 @@ public struct ScreenCameraFraming: Equatable, Sendable {
         self.contentOffset = contentOffset
     }
 
-    public func visible(display: CGRect, viewSize: CGSize) -> CGRect { .zero }
+    /// The part of `display` the view shows at this zoom and offset (a
+    /// fraction of it, cut to the display): what the person framed by hand.
+    public func visible(display: CGRect, viewSize: CGSize) -> CGRect {
+        guard display.width > 0, display.height > 0, zoomScale > 0 else { return .zero }
+        let shown = CGRect(x: contentOffset.x / zoomScale, y: contentOffset.y / zoomScale,
+                           width: viewSize.width / zoomScale, height: viewSize.height / zoomScale)
+        let cut = shown.intersection(display)
+        guard !cut.isNull, cut.width > 0, cut.height > 0 else { return .zero }
+        return CGRect(x: (cut.minX - display.minX) / display.width, y: (cut.minY - display.minY) / display.height,
+                      width: cut.width / display.width, height: cut.height / display.height)
+    }
 }
