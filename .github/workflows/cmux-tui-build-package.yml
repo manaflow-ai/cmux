@@ -457,7 +457,7 @@ jobs:
       # these legs restored held dependency builds only: every build recompiled 98-138 workspace
       # crates, 916-1008 s per build step (runs 43630816742 and 43630990255, 2026-11-14), and the
       # NEXT nightly waits for that tree. scripts/ci/machine-channel-warm-target.sh in the build
-      # steps restores unchanged sources' recorded mtimes and records after the build; the
+      # steps restores unchanged sources' recorded mtimes, and "Stage binary" records once it has staged; the
       # macOS-on-Linux leg also passes its cross toolchain as MACHINE_CHANNEL_WARM_TOOLCHAIN, so a
       # new clang, lld, zig, SDK label or stub set empties the disk. With the disk mounted the
       # rust-cache steps are skipped (the script refuses an existing target dir); a failed mount
@@ -600,14 +600,12 @@ jobs:
           # then write) when they are missing: each group gets its own copy.
           zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
           # Start from the mounted warm target (thin: the machine channel's disk; fat: the shipped
-          # legs' disk, mounted on feat-cmux-next pushes only), and record it after the build, also
-          # a failed one (the recorded mtimes only ever describe built content). Without a mounted
-          # disk both calls do nothing.
+          # legs' disk, mounted on feat-cmux-next pushes only); "Record the warm target" records it
+          # after "Stage binary". Without a mounted disk the restore does nothing.
           disk=/home/runner/cmux-tui-fat-warm
           [[ "$LTO" != thin ]] || disk=/home/runner/machine-channel-warm
-          warm() { ../scripts/ci/machine-channel-warm-target.sh "$1" "$disk" "$t"; }
-          warm restore || echo "warning: warm target restore failed; building as is" >&2
-          trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          ../scripts/ci/machine-channel-warm-target.sh restore "$disk" "$t" \
+            || echo "warning: warm target restore failed; building as is" >&2
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
@@ -783,11 +781,11 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only) and
-          # record it after the build, also a failed one. Without a mounted disk both do nothing.
-          warm() { ./scripts/ci/machine-channel-warm-target.sh "$1" /home/runner/cmux-tui-fat-warm "$WARM_TARGET"; }
-          warm restore || echo "warning: warm target restore failed; building as is" >&2
-          trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
+          # "Record the warm target" records it after "Stage binary". Without a mounted disk the
+          # restore does nothing.
+          ./scripts/ci/machine-channel-warm-target.sh restore /home/runner/cmux-tui-fat-warm "$WARM_TARGET" \
+            || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
           bash tests/test_tailnet_cross_link.sh
           # hosts and bins in one command: every cargo invocation at once.
@@ -822,6 +820,11 @@ jobs:
         env:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           STAGE_TARGET: ${{ matrix.target }}
+          LTO: ${{ inputs.lto }}
+          DARWIN_ON_LINUX: ${{ matrix.darwin_on_linux }}
+          WARM_TARGET: ${{ matrix.build_target }}
+          # The build step's toolchain stamp, so the record keeps it (empty off the macOS-on-Linux legs).
+          MACHINE_CHANNEL_WARM_TOOLCHAIN: ${{ matrix.darwin_on_linux && format('{0}-{1}', steps.darwin-cross.outputs.key, hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**')) || '' }}
         shell: bash
         run: |
           mkdir -p dist
@@ -910,6 +913,18 @@ jobs:
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
+          # Record the warm target the build step restored (scripts/ci/machine-channel-warm-target.sh;
+          # nothing when no disk is linked), only now that its binaries are in dist: record prunes the
+          # disk to its bound, and the prune removes whole target triples. Run from the build steps'
+          # exit trap, it deleted target/aarch64-unknown-linux-musl, and with it the binaries this leg
+          # had just built, on every aarch64 machine-channel leg from 2026-11-17 13:54Z ("cp: cannot
+          # stat .../release/cmux-tui", job 134236280020), so the channel waited for the full publish.
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            disk=/home/runner/cmux-tui-fat-warm
+            [[ "$LTO" != thin || "$DARWIN_ON_LINUX" == true ]] || disk=/home/runner/machine-channel-warm
+            ./scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
+              || echo "warning: warm target record failed" >&2
+          fi
 
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false

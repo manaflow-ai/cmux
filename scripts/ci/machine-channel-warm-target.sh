@@ -22,7 +22,8 @@
 # changed. A changed file keeps its fresh mtime: correctness never depends on
 # the snapshot. Without a mounted disk it does nothing (cold build).
 #
-# record (after the build, before the sticky disk's post step commits it):
+# record (after the build has been staged, before the sticky disk's post step commits it;
+# the prune may remove the target triple's whole dir, binaries included):
 # bound the disk (scripts/blacksmith-testbox-target-prune.sh), then record the
 # source mtimes and the commit next to the artifacts.
 #
