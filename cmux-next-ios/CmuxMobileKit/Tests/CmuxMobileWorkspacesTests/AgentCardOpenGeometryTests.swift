@@ -181,7 +181,7 @@ import UIKit
         let live = Self.liveRows(harness.window)
         try #require(!live.isEmpty, "the live page laid out its rows")
 
-        let bottomInset = WorkspaceTabPage.bottomInset(surface: surface, insets: harness.insets, pageHeight: harness.size.height)
+        let bottomInset = WorkspaceTabPage.bottomInset(surface: surface)
         let card = await Self.previewRows(harness, store: store, topInset: topInset, bottomInset: bottomInset)
         let shift = Self.shift(card: card, live: live, cardHeight: harness.cardHeight)
         print("CARDOPENGEOMETRY measured turns=\(turns) page=\(harness.size) card=\(harness.cardHeight) worst=\(shift.worst): \(shift.line)")
@@ -205,7 +205,7 @@ import UIKit
 
         let store = Self.store(turns: turns, paragraphs: paragraphs)
         let surface = AgentChatSurface()
-        let bottomInset = WorkspaceTabPage.bottomInset(surface: surface, insets: harness.insets, pageHeight: harness.size.height)
+        let bottomInset = WorkspaceTabPage.bottomInset(surface: surface)
         let card = await Self.previewRows(harness, store: store, topInset: topInset, bottomInset: bottomInset)
 
         // The zoom: the page is built and drawn with no accessory; then the accessory lands.

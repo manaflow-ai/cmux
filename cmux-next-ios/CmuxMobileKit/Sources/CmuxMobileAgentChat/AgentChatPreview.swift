@@ -1,6 +1,5 @@
 #if os(iOS)
 import CmuxMobileDesign
-import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -58,49 +57,60 @@ public struct AgentChatPreview: View {
     }
 
     public var body: some View {
-        // Bottom aligned like the transcript at rest in follow mode: the
-        // turns keep their natural height and the overflow clips at the top.
+        // Laid out as the live page at rest (`ChatTranscriptController`), so a card opens into
+        // its page without a jump: the rows bottom aligned on the composer's gap
+        // (`bottomInset`, `AgentChatSurface.restingTranscriptBottomInset`), the overflow
+        // clipped at the top, in the chat's own Text and Width; with no turns, the page's empty
+        // state centered between the header and the composer.
+        let display = ChatDisplayPreferences.shared.settings(for: store.summary)
         Color.cmuxMobileBackground
             .overlay(alignment: .bottom) {
-                content
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, bottomInset)
+                if isEmpty {
+                    AgentChatEmptyState(store: store)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, topInset)
+                        .padding(.bottom, max(0, bottomInset - ChatTranscriptController.contentGap))
+                } else {
+                    rows
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                        // The column's cap (Text and Width's standard width), as the transcript's.
+                        .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
+                        .padding(.bottom, bottomInset)
+                }
             }
-            .overlay(alignment: .top) {
-                // The status bar region stays clear, as on the live page.
-                Color.clear.frame(height: topInset)
-            }
+            .modifier(ChatTextSize(display: display))
             .clipped()
             .allowsHitTesting(false)
     }
 
-    @ViewBuilder private var content: some View {
-        if turns == nil, store.isLoadingHistory, !store.hasTurns {
-            // An existing chat still loading: not the new-chat prompt.
-            CmuxSpinner()
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 240)
-        } else if turns.map(\.isEmpty) ?? !store.hasTurns {
-            VStack(spacing: 12) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 22))
-                    .frame(width: 48, height: 48)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-                Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
+    private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
+
+    private var rows: some View {
+        let rows = model.tail(of: store, turns: turns)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows) { row in
+                ChatRowView(row: row, context: model.context(store))
+                    .modifier(PreviewRowProbe(id: row.id))
+                    .padding(.top, row.gap)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 240)
+        }
+        .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+/// A chat's Text and Width text size over the person's own (`ChatDisplaySettings.category`),
+/// as the live transcript's trait override (`ChatTranscriptController.applyDisplay`).
+struct ChatTextSize: ViewModifier {
+    let display: ChatDisplaySettings
+    @Environment(\.dynamicTypeSize) private var system
+
+    func body(content: Content) -> some View {
+        if let category = display.category(system: UIContentSizeCategory(system)), let size = DynamicTypeSize(category) {
+            content.environment(\.dynamicTypeSize, size)
         } else {
-            let rows = model.tail(of: store, turns: turns)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(rows) { row in
-                    ChatRowView(row: row, context: model.context(store))
-                        .modifier(PreviewRowProbe(id: row.id))
-                        .padding(.top, row.gap)
-                }
-            }
-            .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+            content
         }
     }
 }

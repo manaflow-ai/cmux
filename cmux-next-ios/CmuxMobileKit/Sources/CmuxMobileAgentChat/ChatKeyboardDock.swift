@@ -394,6 +394,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
+        // A stack not measured yet rests from the page's bottom: placed again at the page's size.
+        if placement == .external, externalRest == nil { externalMetricsChanged() }
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
@@ -658,10 +660,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 externalRestBottomMax?.constant = rest
                 view.setNeedsLayout()
             }
+            // The resting stack the tab's grid card is drawn with, and any tab not measured yet.
+            if let height = surface.stackHeight, height > 0, view.bounds.height > 0 {
+                let resting = ChatRestingStack(height: height, bottomGap: view.bounds.height - rest)
+                if surface.restingStack != resting { surface.restingStack = resting }
+                AgentChatSurface.lastRestingStack = resting
+            }
         } else if externalRest == nil {
-            let rest = view.bounds.height - 72 - Self.dockGap
-            externalRestBottom?.constant = rest
-            externalRestBottomMax?.constant = rest
+            // Not measured yet (the page is built under the zoom that opens it, before TabsKit
+            // shows its composer): placed as its card was (`AgentChatSurface.placementStack`),
+            // so the card opens into the page without a jump.
+            let stack = surface.placementStack
+            let rest = view.bounds.height - stack.bottomGap
+            if externalRestBottom?.constant != rest {
+                externalRestBottom?.constant = rest
+                externalRestBottomMax?.constant = rest
+                view.setNeedsLayout()
+            }
+            if surface.drawnStackHeight == nil, abs(stackHeight - stack.height) > 0.01 {
+                stackHeight = stack.height
+                dockHeightConstraint?.constant = stack.height
+            }
         }
     }
 

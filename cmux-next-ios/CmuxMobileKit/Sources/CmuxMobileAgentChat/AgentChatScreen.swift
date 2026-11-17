@@ -10,6 +10,17 @@ import CmuxSpinner
 import SwiftUI
 import UIKit
 
+/// A workspace tab's composer stack at rest: its height and its bottom's distance from the
+/// page's bottom (TabsKit rests it 8 pt above the toolbar capsule).
+struct ChatRestingStack: Equatable {
+    var height: CGFloat
+    var bottomGap: CGFloat
+
+    /// Before any tab measured its stack: the transcript's long-standing defaults (a 96 pt
+    /// stack resting 80 pt above the page's bottom).
+    static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
+}
+
 /// View state of one open agent chat, shared by its transcript and its
 /// bottom stack. The pushed `AgentChatScreen` owns one; a workspace tab
 /// (CmuxTabsKit) keeps one per tab so the transcript (the tab's page) and
@@ -199,6 +210,26 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// A workspace tab's composer stack at rest (the keyboard down), as its transcript placed it
+    /// last. The tab's grid card and its page both place the newest turn from this one value
+    /// (`restingTranscriptBottomInset`), so a card opens into its page without a jump.
+    var restingStack: ChatRestingStack?
+    /// The resting stack a tab placed last on this phone, for a tab whose own stack is not
+    /// measured yet (not shown in this launch): every tab's resting composer is the same
+    /// capsule over the same toolbar, so its card and its page's first frames use this.
+    static var lastRestingStack: ChatRestingStack?
+
+    /// The resting stack this tab's card and page are placed from: its own, else the last one
+    /// measured, else `ChatRestingStack.fallback`.
+    var placementStack: ChatRestingStack { restingStack ?? Self.lastRestingStack ?? .fallback }
+
+    /// The transcript's bottom content inset at rest: the space from the stack's top to the
+    /// page's bottom, plus the transcript's gap above the stack. The live transcript's
+    /// (`ChatTranscriptController.bottomInset`) and the grid card's (`AgentChatPreview`).
+    public var restingTranscriptBottomInset: CGFloat {
+        let stack = placementStack
+        return max(0, stack.height + stack.bottomGap) + ChatTranscriptController.contentGap
+    }
     /// Window y the bottom stack may not rise above: under the transcript's header and,
     /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
     /// out; the composer's slash-command list scrolls inside the room below it.
