@@ -1371,14 +1371,14 @@
         },
         {
           "key": "appearance.fontSmoothing",
-          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.",
+          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.",
           "title": {
             "key": "settings.appearance.fontSmoothing",
             "text": "Text Smoothing"
           },
           "help": {
             "key": "settings.appearance.fontSmoothing.help",
-            "text": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+            "text": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
           },
           "kind": "choice",
           "swift_owner": "FontSmoothingSetting",

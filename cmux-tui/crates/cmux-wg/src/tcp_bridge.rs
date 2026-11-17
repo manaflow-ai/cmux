@@ -118,7 +118,12 @@ impl TcpStack {
                     (socket.state(), socket_flow(socket))
                 };
                 match state {
-                    tcp::State::Established => {
+                    // The peer's FIN can arrive in the same poll as the ACK
+                    // that completes the handshake (a request sent and
+                    // half-closed at once, or the two reordered): the socket
+                    // goes from SYN-RECEIVED straight to CLOSE-WAIT, and is a
+                    // connection all the same.
+                    tcp::State::Established | tcp::State::CloseWait => {
                         let Some((local, remote)) = flow else {
                             self.sockets.remove(handle);
                             continue;
@@ -203,7 +208,7 @@ impl TcpStack {
                     self.conns.swap_remove(index);
                     continue;
                 }
-                if socket.state() == tcp::State::Established {
+                if matches!(socket.state(), tcp::State::Established | tcp::State::CloseWait) {
                     match handoff {
                         Handoff::Connect(reply) => {
                             let _ = reply.send(Ok(stream));
@@ -230,6 +235,16 @@ impl TcpStack {
                     index += 1;
                     continue;
                 }
+            }
+
+            if matches!(
+                socket.state(),
+                tcp::State::CloseWait
+                    | tcp::State::LastAck
+                    | tcp::State::Closing
+                    | tcp::State::TimeWait
+            ) {
+                conn.remote_fin = true;
             }
 
             // Owner -> socket.
@@ -277,7 +292,23 @@ impl TcpStack {
             // Socket -> owner.
             if let Some(sender) = conn.inbound.as_ref() {
                 let mut reader_gone = false;
-                while socket.can_recv() {
+                // Bytes kept from a closed socket go first.
+                while !conn.drained.is_empty() {
+                    match sender.try_reserve() {
+                        Ok(permit) => {
+                            if let Some(chunk) = conn.drained.pop_front() {
+                                progressed = true;
+                                permit.send(chunk);
+                            }
+                        }
+                        Err(TrySendError::Full(())) => break,
+                        Err(TrySendError::Closed(())) => {
+                            reader_gone = true;
+                            break;
+                        }
+                    }
+                }
+                while !reader_gone && conn.drained.is_empty() && socket.can_recv() {
                     match sender.try_reserve() {
                         Ok(permit) => {
                             let mut chunk = vec![0u8; socket.recv_queue().min(INBOUND_CHUNK_BYTES)];
@@ -297,10 +328,31 @@ impl TcpStack {
                         }
                     }
                 }
+                // A closed socket (TIME-WAIT, CLOSED) keeps its buffer only
+                // until TIME-WAIT's timer resets it: take what the owner has
+                // not read yet, or a slow reader loses the stream's tail.
+                while !reader_gone && !socket.is_open() && socket.can_recv() {
+                    let mut chunk = vec![0u8; socket.recv_queue().min(INBOUND_CHUNK_BYTES)];
+                    match socket.recv_slice(&mut chunk) {
+                        Ok(count) if count > 0 => {
+                            chunk.truncate(count);
+                            conn.drained.push_back(Bytes::from(chunk));
+                        }
+                        _ => break,
+                    }
+                }
                 if reader_gone {
                     conn.inbound = None;
-                } else if !socket.may_recv() && !socket.can_recv() {
+                    conn.drained.clear();
+                } else if !socket.may_recv() && !socket.can_recv() && conn.drained.is_empty() {
                     // Remote FIN and every byte delivered: EOF to the owner.
+                    // A socket that ended without the FIN (an RST, the user
+                    // timeout) ends its owner's reads with an error, as a
+                    // kernel socket does, never with an EOF that would pass
+                    // a cut-off stream for a whole one.
+                    if !conn.remote_fin {
+                        conn.reset.store(true, Ordering::Release);
+                    }
                     conn.inbound = None;
                 }
             } else if socket.can_recv() {
@@ -309,6 +361,12 @@ impl TcpStack {
                 let _ = socket.recv(|buffer| (buffer.len(), ()));
             }
 
+            // A closed connection stays until its owner has taken every
+            // byte it received (a slow reader and a full stream channel).
+            if conn.inbound.is_some() && !conn.drained.is_empty() {
+                index += 1;
+                continue;
+            }
             if !socket.is_open() && conn.pending_stream.is_none() {
                 let handle = conn.handle;
                 self.sockets.remove(handle);
