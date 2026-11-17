@@ -32,9 +32,14 @@ import CmuxNextWakeupsTestSupport
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-        func standInUntilPainted() {
+        /// It keeps a picture of itself (a chat shown before); false: a brand-new page.
+        var hasPicture = true
+
+        func standInUntilPainted() -> Bool {
             stoodIn += 1
+            guard hasPicture else { return false }
             picture.isHidden = false
+            return true
         }
 
         func paint() {
@@ -68,13 +73,14 @@ import CmuxNextWakeupsTestSupport
     /// The forced never-paints case on the wall clock, for the A/B (no limit asserted: it is a measure): five switches to
     /// a workspace whose page never paints, each timed from the switch to the frame the workspace shows in, and whether
     /// its page showed its picture then (`never-paints:` line).
-    @Test func neverPaintsTimeToFirstVisible() async throws {
+    @Test(arguments: [true, false]) func neverPaintsTimeToFirstVisible(hasPicture: Bool) async throws {
         var times: [Double] = [], pictures = 0
         for _ in 0..<5 {
             let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
             let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
             WorkspaceSwitchRedrawHoldTests.show(old, in: root)
             let page = UnpaintedPage()
+            page.hasPicture = hasPicture
             let new = WorkspaceSwitchRedrawHoldTests.workspace(page)
             let start = ContinuousClock.now
             root.show(new)
@@ -86,7 +92,7 @@ import CmuxNextWakeupsTestSupport
             #expect(shown, "a page that never paints kept its workspace unseen past 2 s")
         }
         let sorted = times.sorted()
-        print("never-paints: first visible ms \(sorted.map { ($0 * 10).rounded() / 10 }) p50 \(sorted[2]) max \(sorted[4]); with its picture \(pictures)/5")
+        print("never-paints (\(hasPicture ? "has a picture" : "no picture")): first visible ms \(sorted.map { ($0 * 10).rounded() / 10 }) p50 \(sorted[2]) max \(sorted[4]); with its picture \(pictures)/5")
     }
 
     /// interim-coord 2026-11-17: "500 ms worst case is too long for a switch ... bring the cap down to about 2 frames
@@ -127,6 +133,28 @@ import CmuxNextWakeupsTestSupport
         #expect(page.stoodIn == 1 && !page.picture.isHidden, "the unpainted page showed clear, not its picture")
         page.paint()
         #expect(page.picture.isHidden && new.alphaValue == 1)
+    }
+
+    /// A page with no picture of itself (a brand-new chat, a New Tab page whose engine draws over covers) would show clear
+    /// at two frames: it keeps today's hold, the old workspace until it paints or ``PanePaintHold/limit`` passes.
+    @Test func aPageWithNoPictureKeepsTheOldWorkspaceUntilTheLongerLimit() async throws {
+        let clock = ManualClock()
+        let (window, root) = Self.root(clock: clock, framesPerSecond: 60)
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let page = UnpaintedPage()
+        page.hasPicture = false
+        let new = WorkspaceSwitchRedrawHoldTests.workspace(page)
+        root.show(new)
+        try await clock.waitForSleeper()
+        clock.advance(by: Self.twoFrames(at: 60))
+        #expect(await Self.settles { page.stoodIn == 1 }, "the page was not asked for its picture at two frames")
+        for _ in 0..<100 { await Task.yield() }
+        #expect(new.alphaValue == 0 && !old.isHidden, "a page with no picture showed clear at two frames")
+        try await clock.waitForSleeper()
+        clock.advance(by: PanePaintHold.limit - Self.twoFrames(at: 60))
+        #expect(await Self.settles { new.alphaValue == 1 && old.isHidden }, "the hold outlived its 500 ms limit")
     }
 
     /// Fifty quick Cmd-Ns (`RapidWorkspaceCreateTests`): each swap that hands the hold on starts its own two frames, so
