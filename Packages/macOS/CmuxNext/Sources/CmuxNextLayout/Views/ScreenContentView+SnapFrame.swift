@@ -178,9 +178,6 @@ extension ScreenContentView {
         frameInput.changeIsUnshown = false
         reconcileDock()
         reconcileCanvasStacking()
-        guard let chrome = frameInput.heldChrome else { return }
-        frameInput.heldChrome = nil
-        chrome()
     }
 
     /// The panes and dividers a change took out go. A pane a later change took back stays (it is in the layout again).
