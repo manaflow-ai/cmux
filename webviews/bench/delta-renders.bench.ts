@@ -21,6 +21,7 @@
 import path from "node:path";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
+import { installReactWatch, requireProductionReact } from "./support/benchPage";
 import { warmViteServer } from "../test/support/warmDevServer";
 
 const argv = process.argv.slice(2);
@@ -67,8 +68,15 @@ function perDelta(renders: Renders, deltas: number) {
 }
 
 async function openChat(page: Page, port: number, turns: number) {
+  // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+  await installReactWatch(page);
   await page.goto(`http://127.0.0.1:${port}/?mock`);
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  // After the pane is up: react-dom rides a lazy chunk, so a page asked right after `goto` has not
+  // fetched it yet. This bench counts renders, not milliseconds, and a built pane page never
+  // installs these debug hooks, so it keeps the dev server and labels its numbers dev
+  // (bench/support/benchPage.ts, bench/dev-server-benches.json).
+  await requireProductionReact(page, { dev: true });
   const seeded = (await page.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,

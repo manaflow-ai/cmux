@@ -1838,6 +1838,11 @@ pub struct RegistryScreen {
     pub zoomed_pane: Option<PanePublicId>,
     pub auto_layout: Option<Vec<PanePublicId>>,
     pub viewport: RegistryViewport,
+    /// `floating-panes-v1`: the panes shown above the tiled layout, back to front. Never part of a JSON
+    /// column (an older build would refuse the field): the list lives in `resource_floating_panes`
+    /// (screen_rows/floating_panes.rs) and is overlaid at load.
+    #[serde(skip)]
+    pub floating: Vec<cmux_layout_reducer::floating_panes::Floating<PanePublicId>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

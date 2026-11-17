@@ -4,6 +4,7 @@ import { acpmuxPerf } from "./perf";
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
+import { useClaudeConnectFlow } from "./ClaudeConnectRow";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
@@ -227,6 +228,8 @@ export function ComposerPickers({
   // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
+  // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
+  const claudeConnect = useClaudeConnectFlow();
   const summary = snapshot.summary;
   // A usage update reaches the chip's context note without the pane (liveSummary.ts): the pickers
   // render only when its whole percent moves.
@@ -1231,6 +1234,7 @@ export function ComposerPickers({
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
+      {claudeConnect.dialog}
       {picksModel ? (
         <ModelPicker
           catalog={pickerEntries}
@@ -1269,6 +1273,7 @@ export function ComposerPickers({
           onSetUpPick={setUpPick}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
+          {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
           {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={

@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.developerTools.appPages.help",
-            "text": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+            "text": "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings."
           },
           "kind": "toggle",
           "default": true,
@@ -54,7 +54,7 @@
           },
           "help": {
             "key": "settings.internalDeveloperMode.help",
-            "text": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+            "text": "Shows \"Debug: …\" commands in the Command Palette."
           },
           "kind": "toggle",
           "default": false,

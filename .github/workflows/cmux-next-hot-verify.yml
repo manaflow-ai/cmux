@@ -20,8 +20,9 @@ name: cmux-next hot verify
 #   - look: the build-fleet gateway runner's thin cmux-ci client submits cmuxterm-hq's
 #     build-fleet/pr_capture/fleet-step-hot-verify.sh (a display worker copies the NEXT nightly, applies the
 #     change with the engine from the feat-cmux-next tip, shoots, clicks, records) and reads its out.tar. It
-#     does not wait for web or rust: the worker applies the change from the source itself, so the look comes
-#     first and those two serve everyone else's `pr:N` paths beside it.
+#     does not wait for web (the worker serves the head's web from its own checkout), but a rust look waits for
+#     the rust job: the worker looks at a sha: source, which gets no cargo build, so the daemon comes only from the published
+#     tree, and 6 of 8 looks that failed on a worker (2026-11-15/16) had started before it was published.
 #   - publish: the pr-media environment (it admits only the protected branches) checks every file with the
 #     shared pr-media privacy check (the worker's own text reader's lines too), uploads through
 #     .github/actions/pr-media-publish and writes the comment (scripts/cmux-next/hot-verify-ci.py render/post).
@@ -30,7 +31,8 @@ name: cmux-next hot verify
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
+    # closed: a PR that merged with no look receipt gets one look at its merge commit (the `plan` job).
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   # GitHub dispatches only a workflow it knows on a branch; a push that changes this file registers it on
   # feat-cmux-next (its jobs skip), as cmux-tui-tree-request.yml does.
   push:
@@ -60,12 +62,18 @@ on:
         required: false
         default: "0"
         type: string
+      kind:
+        description: "head: the PR head; merge: a merged PR's merge commit"
+        required: false
+        default: "head"
+        type: string
 
 permissions: {}
 
-# One look per pull request: a newer head replaces the older one, in either half.
+# One look per pull request: a newer head replaces the older one, in either half. The look at a merge commit has
+# its own group, so it never cancels a head look still queued or running when the PR merged.
 concurrency:
-  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}
+  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -73,11 +81,14 @@ jobs:
   # forks never run, and CI_QUOTA_HOLD=1 pauses it while the GITHUB_TOKEN budget is held for the nightly.
   plan:
     name: plan the look
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
+      # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
+      issues: read
+      pull-requests: read
     outputs:
       eligible: ${{ steps.plan.outputs.eligible }}
       layers: ${{ steps.plan.outputs.layers }}
@@ -98,9 +109,26 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # A merged PR (the closed event) is planned at its merge commit: on feat-cmux-next, the engine plans the
+          # change from the commit's first parent, with the nightly behind it.
+          HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
+          MERGED: ${{ github.event.action == 'closed' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # A merged PR that already has a look receipt (any head) needs no look at its merge commit. Only a receipt
+          # that was found skips. An unreadable answer (the token out of quota) still looks: a second look costs one
+          # fleet look and edits the bot's receipt comment, while skipping lost #45098's look (run 44033383427).
+          if [[ "$MERGED" == true ]]; then
+            receipt="$(python3 scripts/cmux-next/hot-verify-receipt.py --pr "$PR" --repo "$GITHUB_REPOSITORY")" || receipt="receipt=unknown"
+            if [[ "$receipt" == receipt=unknown ]]; then
+              echo "hot verify: #$PR's look receipt could not be read; looking at its merge commit anyway" | tee -a "$GITHUB_STEP_SUMMARY"
+            elif [[ "$receipt" != receipt=false ]]; then
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+              echo "hot verify: #$PR merged with a look receipt already ($receipt); no look at its merge commit" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           # The plan sorts the change against its merge base with origin/feat-cmux-next (no app on Linux):
           # 45 days of history, as the fleet step's engine clone keeps.
           since="$(date -u -d '45 days ago' +%Y-%m-%d)"
@@ -115,9 +143,14 @@ jobs:
             timeout 120 git fetch -q --no-tags --filter=blob:none --deepen="$depth" origin \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" "+refs/pull/$PR/head:refs/remotes/pr/head"
           done
-          if [[ "$(git rev-parse refs/remotes/pr/head)" != "$HEAD_SHA" ]]; then
+          if [[ "$MERGED" != true && "$(git rev-parse refs/remotes/pr/head)" != "$HEAD_SHA" ]]; then
             echo "eligible=false" >> "$GITHUB_OUTPUT"
             echo "hot verify: #$PR moved past ${HEAD_SHA:0:12}; its own run plans it" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$MERGED" == true ]] && ! git merge-base --is-ancestor "$HEAD_SHA" "refs/remotes/origin/$BASE_REF" 2>/dev/null; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "hot verify: #$PR's merge commit ${HEAD_SHA:0:12} is not on $BASE_REF; no look" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           [[ -f scripts/cmux-next/hot-verify.py ]] || git -c advice.detachedHead=false checkout -q --detach "$HEAD_SHA"
@@ -159,14 +192,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
+          KIND: ${{ github.event.action == 'closed' && 'merge' || 'head' }}
           LAYERS: ${{ needs.plan.outputs.layers }}
           EVENT_AT: ${{ github.event.pull_request.updated_at }}
         run: |
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
           if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" 2> "$RUNNER_TEMP/dispatch.err"; then
+              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
             echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "hot verify: could not start the look on feat-cmux-next ($(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)); this workflow may not be there yet" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -186,6 +220,7 @@ jobs:
       ok: ${{ steps.check.outputs.ok }}
       pr: ${{ steps.check.outputs.pr }}
       head: ${{ steps.check.outputs.head }}
+      pr_head: ${{ steps.check.outputs.pr_head }}
       web: ${{ steps.check.outputs.web }}
       rust: ${{ steps.check.outputs.rust }}
     steps:
@@ -201,23 +236,25 @@ jobs:
           [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full commit sha"; exit 1; }
           [[ "$LAYERS" =~ ^(web|rust|customize)(,(web|rust|customize)){0,2}$ ]] || { echo "::error::layers takes web, rust and customize"; exit 1; }
-          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-")] | @tsv')"
-          IFS=$'\t' read -r head_repo live base_ref state draft merged_at <<<"$info"
+          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-"), (.merge_commit_sha // "-")] | @tsv')"
+          IFS=$'\t' read -r head_repo live base_ref state draft merged_at merge_sha <<<"$info"
           ok=true
           # A merged pull request is looked at too, at its merged head: a look queued behind a busy gateway label
           # often starts after the merge, and `look again` runs after it (the worker takes a merged head on GitHub's
-          # PR API's word, cmuxterm-hq#11742). Closed without a merge, or a draft: no look.
+          # PR API's word, cmuxterm-hq#11742). Or at its merge commit (kind merge, dispatched when it merged with no
+          # receipt). Closed without a merge, or a draft: no look.
           if [[ "$head_repo" != "$GITHUB_REPOSITORY" || "$base_ref" != feat-cmux-next ]]; then
             echo "hot verify: #$PR is not a same-repository pull request into feat-cmux-next; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
           elif [[ "$draft" == true || ( "$state" != open && "$merged_at" == - ) ]]; then
             echo "hot verify: #$PR is $state${draft/true/ (draft)}; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
-          elif [[ "$live" != "$HEAD_SHA" ]]; then
+          elif [[ "$live" != "$HEAD_SHA" && ( "$merged_at" == - || "$merge_sha" != "$HEAD_SHA" ) ]]; then
             echo "hot verify: #$PR moved to ${live:0:12}; its own run looks at it" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
           fi
           {
             echo "ok=$ok"
             echo "pr=$PR"
             echo "head=$HEAD_SHA"
+            echo "pr_head=$live"
             [[ ",$LAYERS," == *,web,* ]] && echo "web=true" || echo "web=false"
             [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
           } >> "$GITHUB_OUTPUT"
@@ -244,7 +281,8 @@ jobs:
       - name: Wait for latest.json to name this head
         env:
           PR: ${{ needs.target.outputs.pr }}
-          HEAD_SHA: ${{ needs.target.outputs.head }}
+          # the PR's own head: the publisher builds refs/pull/N/head, also for a look at the merge commit
+          HEAD_SHA: ${{ needs.target.outputs.pr_head }}
         run: |
           set -euo pipefail
           url="https://files.cmux.com/cmux-next-web/pr/$PR/latest.json"
@@ -314,8 +352,10 @@ jobs:
   # step at the HQ main commit the controller runs, and reads its out.tar. No checkout of pull request code.
   look:
     name: look
-    needs: target
-    if: ${{ needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    needs: [target, rust]
+    # After the rust job: skipped when the change has no rust layer, green with a warning when the tree never
+    # comes (the engine's receipt then says the apply failed).
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 75
     permissions:
@@ -395,12 +435,14 @@ jobs:
   # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
   # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
   # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
+  # A look its 75 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
+  # person's cancel or a newer head's run cancels the whole run, which `!cancelled()` keeps out.
   # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
   again:
     name: look again
     needs: [target, look]
-    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.result == 'failure' && inputs.attempt != '1' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && (needs.look.result == 'failure' || needs.look.result == 'cancelled') && inputs.attempt != '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -412,10 +454,11 @@ jobs:
           HEAD_SHA: ${{ needs.target.outputs.head }}
           LAYERS: ${{ inputs.layers }}
           EVENT_AT: ${{ inputs.event_at }}
+          KIND: ${{ inputs.kind }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f attempt=1
+            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
           echo "hot verify: the look failed on the fleet; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Every write goes through .github/actions/pr-media-publish (the private-terms list, OCR, the shared privacy

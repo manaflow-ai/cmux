@@ -181,8 +181,11 @@ impl Hub {
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
+        // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
+        let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (profile, preset_digest, account_home) = self
+            .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
+            .await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
     }
 
@@ -194,7 +197,7 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_read(meta, false, profile, defaults_env).await.map(|(p, ..)| p)
+        self.spawn_profile_read(meta, false, profile, defaults_env, None).await.map(|(p, ..)| p)
     }
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
@@ -205,6 +208,7 @@ impl Hub {
         forking: bool,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
         let mut p = profile.clone();
         let mut digest = None;
@@ -305,9 +309,23 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // The owner's Cloud credential: straight to the provider, no coderouter route
+        // (`agent_credentials.rs`). Its names only are logged, never a value.
+        let direct = credential.is_some_and(|c| {
+            let family = crate::config::derive_family(&meta.harness, &p);
+            let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
+            let names: Vec<&str> = c.names().collect();
+            if applied {
+                tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
+            } else {
+                tracing::warn!(session = %meta.id, %family, ?names, "a credential of another family: the agent keeps this machine's route");
+            }
+            applied
+        });
         // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
-        // (codex_cloud_auth.rs). A bound route owns the provider instead.
-        if crate::codex_app_server::is_profile_launch(&p.argv)
+        // (codex_cloud_auth.rs). A bound route or the owner's credential owns the provider instead.
+        if !direct
+            && crate::codex_app_server::is_profile_launch(&p.argv)
             && !p.env.contains_key(crate::routes::NAME_KEY)
         {
             let env = p.env.clone();
@@ -357,7 +375,10 @@ impl Hub {
         // (`agent/command.rs`), so only those count as its sign-in (#43821).
         // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
         // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
-        let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
+        // The owner's credential owns the provider, as for Codex above: a kept team choice on the
+        // machine must not clear the token the launch just set.
+        let claude_on_cloud = !direct
+            && crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY)
             && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
             && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
@@ -597,22 +618,7 @@ impl std::ops::Deref for Spawn {
     }
 }
 
-/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
-pub fn expand_env_value(
-    value: &str,
-    cwd: &std::path::Path,
-    home: &std::path::Path,
-    model: &str,
-) -> String {
-    let mut out = value
-        .replace("${cwd}", &cwd.to_string_lossy())
-        .replace("${home}", &home.to_string_lossy())
-        .replace("${model}", model);
-    if let Some(rest) = out.strip_prefix("~/") {
-        out = format!("{}/{rest}", home.to_string_lossy());
-    }
-    out
-}
+pub use crate::config::expand_env_value;
 
 #[cfg(test)]
 #[path = "spawn_claude_cloud_tests.rs"]

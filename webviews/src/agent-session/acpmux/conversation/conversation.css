@@ -231,8 +231,9 @@
      bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
      mirrors it. */
   /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
-     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
-  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+     the chat's text scale has beyond it (--cmux-chat-text-scale: Default's at Compact, user 2026-11-16, so the
+     bubble is Default's there too). */
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
@@ -2605,10 +2606,10 @@ pre.cv-math-source {
   height: var(--cv-footer-row);
   padding-top: 0;
 }
-/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
-   its ⌃B hint on its line. */
+/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+   scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -4254,12 +4255,16 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The command after "Ran" in the row's own font and size, as the Codex app draws it (Lucas,
+   2026-11-14: "the commands from a terminal command 'Ran' should be the same font"). The opened Shell
+   block keeps the code font. */
 .cv-command__line {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
   font-style: normal;
-  font-weight: 400;
-  font-size: calc(var(--cv-font-size) * 12.5 / 14);
+  /* The row's own line box, so a large text size never lets the line out of its row. */
   line-height: calc(var(--cv-font-size) * 20 / 14);
-  font-family: var(--cv-mono);
 }
 .cv-command__meta {
   display: flex;
@@ -6680,12 +6685,27 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The rows beside the bottom stack (besideStack.ts): written on the scroller as the stack moves, and
+   read by its mask alone, so a write restyles the scroller and none of its rows. */
+@property --acpmux-beside-images {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-sizes {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-positions {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
-.acpmux-scroll[data-fade-bottom] {
-  --acpmux-fade-bottom: 18px;
-}
+/* No soft edge above the composer: rows keep full ink down to the stack's top and stop there, as
+   the Codex app's do under its composer (Lucas, 2026-11-17: "remove the fade and just make it white
+   like how codex does it", of a line and its icons washed out at the composer's corner). The mask
+   still hides the rows under the stack; `--acpmux-fade-bottom` stays 0. */
 /* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
    washed out almost three lines above the composer (Leo, 2026-10-27). */
 /* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
@@ -6725,27 +6745,33 @@ a.cv-sha:focus-visible {
   -webkit-mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -6760,44 +6786,52 @@ a.cv-sha:focus-visible {
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 .acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
@@ -7008,12 +7042,13 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-row);
 }
-/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+/* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
+   TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-tool-row-height);
+  min-height: var(--cv-live-step-height);
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
@@ -7693,7 +7728,8 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it, the selection's own included
+   (above or below the selection, selectionReplyPlace). It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone.
    Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
    here"): the chip is glass with a veil of the theme's solid surface (--glass-surface) at
@@ -8037,7 +8073,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
    anchored right and as wide as its words when they are wider than the bubble's text. */
 .cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
-  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   display: block;
   position: relative;
@@ -8052,4 +8088,15 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   width: max-content;
   min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
   justify-content: flex-start;
+}
+
+/* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
+   path shows as the pane's tooltip. */
+.cv-tool__file {
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+}
+.cv-tool__file:hover {
+  text-decoration-color: currentColor;
 }
