@@ -162,7 +162,9 @@ fn keeps_its_own(argv: &[String]) -> Option<&'static str> {
     if program != "codex" {
         return Some("the profile names its own codex");
     }
-    let listens_elsewhere = argv.windows(2).any(|w| w[0] == "--listen" && w[1] != "stdio://")
+    let listens_elsewhere = argv
+        .windows(2)
+        .any(|w| matches!(w, [flag, value] if flag == "--listen" && value != "stdio://"))
         || argv.iter().any(|a| a.strip_prefix("--listen=").is_some_and(|v| v != "stdio://"));
     listens_elsewhere.then_some("the profile's app-server listens elsewhere")
 }
@@ -243,7 +245,7 @@ pub fn sha256_file(path: &Path) -> std::io::Result<String> {
         if n == 0 {
             break;
         }
-        hash.update(&buf[..n]);
+        hash.update(buf.get(..n).unwrap_or_default());
     }
     Ok(format!("{:x}", hash.finalize()))
 }
