@@ -35,6 +35,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import pwd
 import shutil
 import sqlite3
@@ -119,7 +120,8 @@ class PromptWatch:
         self.stop_flag = threading.Event()
         self.paused = threading.Event()  # set while the timing rounds run: the polls would load the Mac they time
         self.ignore = set()
-        self.processes = {}  # name -> first seen (s since start)
+        self.processes = {}  # name -> first seen (s since start), a prompt process not running before
+        self.base_processes = set()
         self.windows = {}  # owner -> first seen
         self.window_errors = []
         self.polls = 0
@@ -139,7 +141,16 @@ class PromptWatch:
 
     def start(self):
         self.base_owners = self.owners()
+        self.base_processes = {n for n in self.process_names() if n in PROMPT_PROCESSES}
         self.thread.start()
+
+    @staticmethod
+    def process_names():
+        try:
+            listing = subprocess.run(["ps", "-axo", "comm="], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            listing = ""
+        return {os.path.basename(line.strip()) for line in listing.splitlines()}
 
     def run(self):
         while not self.stop_flag.is_set():
@@ -148,27 +159,23 @@ class PromptWatch:
                 continue
             self.polls += 1
             now = round(time.monotonic() - self.t0, 2)
-            try:
-                listing = subprocess.run(["ps", "-axo", "comm="], capture_output=True, text=True, timeout=10).stdout
-            except (OSError, subprocess.SubprocessError):
-                listing = ""
-            for line in listing.splitlines():
-                name = os.path.basename(line.strip())
-                if name in PROMPT_PROCESSES:
+            for name in self.process_names():
+                if name in PROMPT_PROCESSES and name not in self.base_processes:
                     self.processes.setdefault(name, now)
             owners = self.owners()
             if owners is not None:
                 for owner in owners:
                     if owner in self.ignore:
                         continue
-                    if owner in PROMPT_PROCESSES or (self.base_owners is not None and owner not in self.base_owners):
+                    if self.base_owners is not None and owner not in self.base_owners:
                         self.windows.setdefault(owner, now)
             self.stop_flag.wait(0.25)
 
     def stop(self):
         self.stop_flag.set()
         self.thread.join(timeout=15)
-        return {"polls": self.polls, "prompt_processes_seen": self.processes,
+        return {"polls": self.polls, "new_prompt_processes_seen": self.processes,
+                "prompt_processes_before": sorted(self.base_processes),
                 "new_window_owners_seen": self.windows, "base_window_owners": sorted(self.base_owners or []),
                 "window_list_errors": self.window_errors}
 
@@ -187,6 +194,32 @@ class TccLog:
         except OSError as error:
             self.process, self.error = None, str(error)
 
+    @staticmethod
+    def app_requests(lines, bundle_id):
+        """tccd's kTCCServiceScreenCapture requests whose requesting process is BUNDLE_ID: per msgID the function,
+        preflight, the responsible process and AUTHREQ_RESULT (authValue 0 denied, 1 unknown, 2 allowed)."""
+        found = {}
+        for line in lines:
+            try:
+                message = json.loads(line).get("eventMessage") or ""
+            except ValueError:
+                continue
+            match = re.search(r"msgID=([0-9.]+)", message)
+            if not match:
+                continue
+            entry = found.setdefault(match.group(1), {})
+            grab = lambda pattern: (re.search(pattern, message) or [None, None])[1]  # noqa: E731
+            if message.startswith("AUTHREQ_CTX:"):
+                entry.update(service=grab(r"service=(\w+)"), function=grab(r"function=(\w+)"),
+                             preflight=grab(r"preflight=(\w+)"))
+            elif message.startswith("AUTHREQ_ATTRIBUTION:"):
+                entry.update(requesting=grab(r"requesting=\{TCCDProcess: identifier=([^,]+)"),
+                             responsible=grab(r"responsible=\{TCCDProcess: identifier=([^,]+)"))
+            elif message.startswith("AUTHREQ_RESULT:"):
+                entry["result"] = message[len("AUTHREQ_RESULT: "):][:160]
+        return [dict(e, msg_id=k) for k, e in found.items()
+                if e.get("service") == "kTCCServiceScreenCapture" and e.get("requesting") == bundle_id]
+
     def stop(self, bundle_id, executable):
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()  # our own child
@@ -196,9 +229,10 @@ class TccLog:
                 self.process.kill()
         self.handle.close()
         lines = Path(self.path).read_text(errors="replace").splitlines()
+        requests = self.app_requests(lines, bundle_id)
         screen = [line for line in lines if "ScreenCapture" in line]
         app = [line for line in screen if bundle_id in line or (executable and executable in line)]
-        return {"lines": len(lines), "screen_capture_lines": len(screen), "screen_capture_lines_naming_app": len(app),
+        return {"app_screen_capture_requests": requests, "lines": len(lines), "screen_capture_lines": len(screen), "screen_capture_lines_naming_app": len(app),
                 "app_examples": [line[:600] for line in app[:5]], "screen_examples": [line[:400] for line in screen[:5]],
                 "first_line": lines[0][:300] if lines else None}
 
@@ -386,14 +420,14 @@ class Sources:
     def run(self, name, index):
         path = os.path.join(self.scratch, f"{name}-{index}.png")
         if name == "idle":
-            time.sleep(0.15)
+            # The baseline: the same debug.hangs reads around a no-op (a step's 150 ms sleep came back as 295 ms).
             return {}, None
         if name == "window.screenshot":
             reply = self.c.action("window.screenshot", focus=False, out=path)
         elif name == "debug.window_snapshot.raw":
-            reply = self.c.call("debug.window_snapshot", {"webviews": False, "path": path}, timeout=60)
+            reply = self.c.call("debug.window_snapshot", {"kind": "main", "webviews": False, "path": path}, timeout=60)
         elif name == "debug.window_snapshot.pages":
-            reply = self.c.call("debug.window_snapshot", {"path": path}, timeout=60)
+            reply = self.c.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
         else:
             reply = self.c.call("browser.page.screenshot", {"tab": self.ids["chromium"]}, timeout=60)
         error = (reply or {}).get("error") if isinstance(reply, dict) else None
