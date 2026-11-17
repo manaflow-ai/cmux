@@ -13,8 +13,12 @@ interface CallContext {
   userId: string;
   origin: string;
   stackToken: string | null;
-  /** `host`: a device-key renewal session, which may only serve this device as a host. */
-  scope: "full" | "host";
+  /**
+   * `host`: a device-key renewal session, which may only serve this device as a host. `machine`:
+   * a joined machine's sign-in (index.ts authMachine), which may also register and share it, never
+   * anchor it: it renews only by signing in again, which asks cmux-platform each time.
+   */
+  scope: "full" | "host" | "machine";
   /** A host session's cmux relay entitlement, as recorded at its last anchor. */
   hostRelay: boolean;
 }
@@ -42,6 +46,10 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
+  /** 1 once the switch was set on purpose (`PUT .../mac-screen`): a join never changes it after. */
+  mac_screen_chosen: number;
+  /** The device's own screen sharing status (`cmux.screen-share.status/1`), JSON; null until reported. */
+  screen_share: string | null;
 }
 
 interface SessionRow {
@@ -149,6 +157,8 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["devices", "name_pinned", "INTEGER NOT NULL DEFAULT 0"],
   ["devices", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["devices", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "mac_screen_chosen", "INTEGER NOT NULL DEFAULT 0"],
+  ["devices", "screen_share", "TEXT"],
   ["permissions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["permissions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["sessions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
@@ -183,7 +193,55 @@ function publicDevice(d: DeviceRow, online: boolean) {
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
+    screenShare: screenShareOf(d),
     online,
+  };
+}
+
+/** The states of `cmux.screen-share.status/1` (acpmux `screen_share.rs`). */
+const SCREEN_SHARE_STATES = ["granted", "needs_grant", "not_installed", "unsupported"];
+const SCREEN_SHARE_GRANTS = ["screen_recording", "accessibility"];
+const SCREEN_SHARE_SESSIONS = ["this_user", "other_user", "nobody", "unknown"];
+
+function screenShareOf(d: DeviceRow): Record<string, unknown> | null {
+  if (!d.screen_share) return null;
+  try {
+    return JSON.parse(d.screen_share) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A device's report of its own screen sharing status, kept to the fields a row reads: `state`,
+ * `missing`, `holder`, `session`, `osVersion`, `checkedAtMs`, `detail`. Anything else is refused.
+ */
+export function screenShareReport(body: Record<string, unknown>): Record<string, unknown> {
+  const state = body.state;
+  if (typeof state !== "string" || !SCREEN_SHARE_STATES.includes(state)) throw badRequest(`state must be one of ${SCREEN_SHARE_STATES.join(", ")}`);
+  const missing = body.missing ?? [];
+  if (!Array.isArray(missing) || missing.some((g) => typeof g !== "string" || !SCREEN_SHARE_GRANTS.includes(g)) || new Set(missing).size !== missing.length) {
+    throw badRequest(`missing must list each of ${SCREEN_SHARE_GRANTS.join(", ")} at most once`);
+  }
+  if ((state === "needs_grant") !== missing.length > 0) throw badRequest("missing is non-empty exactly when state is needs_grant");
+  const session = body.session ?? "unknown";
+  if (typeof session !== "string" || !SCREEN_SHARE_SESSIONS.includes(session)) throw badRequest(`session must be one of ${SCREEN_SHARE_SESSIONS.join(", ")}`);
+  const text = (v: unknown, field: string, max: number) => {
+    if (v == null) return undefined;
+    if (typeof v !== "string" || v.length > max) throw badRequest(`${field} must be a string of at most ${max} characters`);
+    return v;
+  };
+  const checkedAtMs = body.checkedAtMs;
+  if (!Number.isSafeInteger(checkedAtMs) || (checkedAtMs as number) < 0) throw badRequest("checkedAtMs must be a time in ms");
+  return {
+    schema: "cmux.screen-share.status/1",
+    state,
+    missing,
+    holder: text(body.holder, "holder", 100),
+    session,
+    osVersion: text(body.osVersion, "osVersion", 64),
+    checkedAtMs,
+    detail: text(body.detail, "detail", 300),
   };
 }
 
@@ -351,19 +409,22 @@ export class UserDO extends DurableObject<Env> {
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
-      const scope = request.headers.get(SCOPE_HEADER) === "host" ? "host" : "full";
+      const header = request.headers.get(SCOPE_HEADER);
+      const scope = header === "host" || header === "machine" ? header : "full";
       const hostRelay = request.headers.get(HOST_RELAY_HEADER) === "1";
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
       const h = readDeviceHeaders(request.headers, now);
-      // A host session is one device's: every request it carries is signed by that device.
-      if (scope === "host" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
+      // A host or machine session is one device's: every request it carries is signed by that device.
+      if (scope !== "full" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
         throw new ApiError(403, "host_scope", "this session belongs to another device");
       }
       if (request.method === "POST" && url.pathname === "/v1/devices") {
         // A host session updates its own registration, never makes a device.
         if (scope === "host" && !this.device(h.id)) throw new ApiError(403, "host_scope", "a host session cannot register a new device");
-        return await this.register(request, url, body, h, now);
+        const registered = await this.register(request, url, body, h, now, scope);
+        if (scope === "machine") this.dropMachineAnchor(h.id);
+        return registered;
       }
       const existing = this.device(h.id);
       if (!existing) throw new ApiError(401, "bad_signature", "unknown device");
@@ -371,6 +432,7 @@ export class UserDO extends DurableObject<Env> {
       await checkDeviceSignature(existing.signing_key, request.method, url, body, h);
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
+      if (scope === "machine") this.dropMachineAnchor(h.id);
       const me = { ...existing, last_seen_at: now };
       return await this.dispatch(request, url, body, me, { userId, origin, stackToken, scope, hostRelay });
     } catch (err) {
@@ -397,9 +459,10 @@ export class UserDO extends DurableObject<Env> {
     throw badRequest("body must be a JSON object");
   }
 
-  private async register(request: Request, url: URL, raw: Uint8Array, h: { id: string; ts: string; sig: string }, now: number): Promise<Response> {
+  private async register(request: Request, url: URL, raw: Uint8Array, h: { id: string; ts: string; sig: string }, now: number, scope: CallContext["scope"]): Promise<Response> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
+    if (body.shareByJoin !== undefined && typeof body.shareByJoin !== "boolean") throw badRequest("shareByJoin must be a boolean");
     const name = str(body.name, "name", 100);
     if (body.platform !== "macos" && body.platform !== "ios" && body.platform !== "linux") {
       throw badRequest("platform must be macos, ios or linux");
@@ -436,8 +499,25 @@ export class UserDO extends DurableObject<Env> {
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
+    this.joinDefault(h.id, scope, body.shareByJoin === true);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
+  }
+
+  /**
+   * Joining is the consent (design remote-screen-share-zero-touch Z4): a machine the person
+   * joined from their computer registers from its own machine sign-in with `shareByJoin`, and
+   * its Mac Screen sharing turns on. Only while nobody set the switch on purpose: an explicit
+   * off (`PUT .../mac-screen`, from the app, the CLI or the machine) always wins, and no later
+   * join or update turns it back on. A device signed in through the app (`full` scope) never
+   * gets it, so a Mac that was only signed in keeps its switch off.
+   */
+  private joinDefault(id: string, scope: CallContext["scope"], asked: boolean) {
+    if (!asked || scope !== "machine") return;
+    const d = this.device(id);
+    if (!d || !HOST_PLATFORMS.includes(d.platform) || d.mac_screen_chosen === 1 || d.mac_screen_shared === 1) return;
+    this.sql.exec("UPDATE devices SET mac_screen_shared = 1 WHERE id = ?", id);
+    this.audit("shared", { hostId: id, detail: "joined" });
   }
 
   private async dispatch(request: Request, url: URL, raw: Uint8Array, me: DeviceRow, c: CallContext): Promise<Response> {
@@ -447,6 +527,9 @@ export class UserDO extends DurableObject<Env> {
     const n = parts.length;
     if (c.scope === "host" && !this.hostAllowed(m, parts, me, raw)) {
       throw new ApiError(403, "host_scope", "a host session can only serve this Mac; open cmux for this change");
+    }
+    if (c.scope === "machine" && !this.machineAllowed(m, parts, me, raw)) {
+      throw new ApiError(403, "machine_scope", "a joined machine's session can only set up and serve this machine; open cmux for this change");
     }
     if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
@@ -463,6 +546,7 @@ export class UserDO extends DurableObject<Env> {
       if (n === 2 && m === "PATCH") return this.renameDevice(b!, this.parse(raw));
       if (n === 2 && m === "DELETE") return this.removeDevice(b!);
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
+      if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
     }
     if (a === "permissions") {
@@ -685,12 +769,29 @@ export class UserDO extends DurableObject<Env> {
     return json({});
   }
 
+  /** A host's own screen sharing status (`cmux.screen-share.status/1`), for every row that lists it. */
+  private reportScreenShare(me: DeviceRow, id: string, body: Record<string, unknown>): Response {
+    if (id !== me.id) {
+      this.liveDevice(id);
+      throw new ApiError(403, "not_host", "only the device itself reports its screen sharing status");
+    }
+    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac or a Linux desktop shares its screen");
+    const report = JSON.stringify(screenShareReport(body));
+    if (report !== me.screen_share) {
+      this.sql.exec("UPDATE devices SET screen_share = ? WHERE id = ?", report, id);
+      this.broadcast({ type: "devices.changed" });
+    }
+    return json({ device: publicDevice(this.device(id)!, this.online(id)) });
+  }
+
   private async setSharing(me: DeviceRow, id: string, body: Record<string, unknown>): Promise<Response> {
     if (id !== me.id) {
       this.liveDevice(id);
       throw new ApiError(403, "not_host", "only the device itself can change its Mac Screen sharing");
     }
     if (typeof body.shared !== "boolean") throw badRequest("shared must be a boolean");
+    // Set on purpose: from now on a join default never changes it (joinDefault).
+    if (me.mac_screen_chosen !== 1) this.sql.exec("UPDATE devices SET mac_screen_chosen = 1 WHERE id = ?", id);
     const was = me.mac_screen_shared === 1;
     if (was !== body.shared) {
       this.sql.exec("UPDATE devices SET mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
@@ -1092,6 +1193,8 @@ export class UserDO extends DurableObject<Env> {
     const [a, b, d] = parts;
     const n = parts.length;
     if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
+    // Its own screen sharing status: what it can serve, read where it runs.
+    if (a === "devices" && n === 3 && d === "screen-share" && m === "PUT" && b === me.id) return true;
     if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
       try {
         return (JSON.parse(new TextDecoder().decode(raw)) as { shared?: unknown }).shared === false;
@@ -1117,6 +1220,29 @@ export class UserDO extends DurableObject<Env> {
       return this.session(b!)?.host_id === me.id;
     }
     return false;
+  }
+
+  /**
+   * What a machine session may do: what a host session may, and turn this
+   * machine's sharing on. Its registration passed before dispatch. Not:
+   * another device, permissions above the saved ones, relay writes, a session
+   * as viewer, or an anchor: device-key renewal would outlive the credential,
+   * so a revoked machine would keep its host session for 30 days.
+   */
+  /**
+   * A device a machine session speaks for renews only by signing in again: an anchor it
+   * kept from an earlier person's sign-in would let device-key renewal outlive a revoked
+   * credential for the rest of its 30 days, so the machine's first signed call drops it.
+   */
+  private dropMachineAnchor(deviceId: string) {
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", deviceId);
+  }
+
+  private machineAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
+    const [a, b, d] = parts;
+    const n = parts.length;
+    if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) return true;
+    return this.hostAllowed(m, parts, me, raw);
   }
 
   /** The signed-in app lets its Mac renew its own host session for 30 days. */
@@ -1155,8 +1281,25 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
+  /**
+   * The hub user a cmux-platform user id is (machine.ts). This instance is the
+   * alias `machine-alias:<project>:<platform id>`, never a user's own.
+   */
+  private async machineAlias(request: Request): Promise<Response> {
+    this.sql.exec("CREATE TABLE IF NOT EXISTS machine_alias(k INTEGER PRIMARY KEY CHECK (k = 1), user_id TEXT NOT NULL)");
+    if (request.method === "PUT") {
+      const { userId } = (await request.json()) as { userId?: unknown };
+      if (typeof userId !== "string" || !userId) return json({ ok: false }, 400);
+      this.sql.exec("INSERT INTO machine_alias(k, user_id) VALUES (1, ?) ON CONFLICT(k) DO UPDATE SET user_id = excluded.user_id", userId);
+      return json({ ok: true });
+    }
+    const row = this.sql.exec("SELECT user_id FROM machine_alias WHERE k = 1").toArray()[0];
+    return json({ userId: (row?.user_id as string | undefined) ?? null });
+  }
+
   private async internal(path: string, request: Request): Promise<Response> {
     if (path === "/internal/renew-device") return this.renewDevice(request);
+    if (path === "/internal/machine-alias") return this.machineAlias(request);
     const body = (await request.json()) as { sid?: string; reason?: string; path?: string };
     const s = body.sid ? this.session(body.sid) : null;
     if (!s) return json({ ok: false }, 404);

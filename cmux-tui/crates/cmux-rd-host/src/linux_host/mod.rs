@@ -34,25 +34,20 @@
 //! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
 //! only.
 
-pub(crate) mod b64;
 mod consent;
-pub(crate) mod hub;
-pub(crate) mod identity;
-pub(crate) mod net;
-pub(crate) mod rd_doc;
-pub(crate) mod session;
 mod setup;
 pub(crate) mod stack_login;
 mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
+use cmux_hub_host::hub::{now_ms, Hub, HubError};
+use cmux_hub_host::identity::{self, Account, Device};
+use cmux_hub_host::net::Message;
+use cmux_hub_host::printable;
+use cmux_hub_host::session::{self, ServeCommand, Ticket};
 use consent::{LocalConsent, Pending};
-use hub::{now_ms, Hub, HubError};
-use identity::{Account, Device};
-use net::Message;
 use serde_json::Value;
-use session::{ServeArgs, Ticket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -124,55 +119,6 @@ fn exit_code(e: &(dyn std::error::Error + Send + Sync + 'static)) -> i32 {
     } else {
         1
     }
-}
-
-/// Bidi formatting characters: they reorder what a terminal shows (U+202E turns a name
-/// around) though `char::is_control` does not count them.
-fn is_bidi_control(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-    )
-}
-
-/// Text from the hub or a viewer, safe to print to a terminal or the journal: C0 and C1
-/// controls, whole ANSI escape sequences (CSI, OSC and the like) and bidi controls removed.
-pub(crate) fn printable(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\u{1b}' => match chars.next() {
-                // CSI: parameters and intermediates, then one final character in @..~.
-                Some('[') => {
-                    for c in chars.by_ref() {
-                        if ('@'..='~').contains(&c) {
-                            break;
-                        }
-                    }
-                }
-                // OSC, DCS, SOS, PM, APC: a string ended by BEL or ESC \.
-                Some(']' | 'P' | 'X' | '^' | '_') => {
-                    while let Some(c) = chars.next() {
-                        if c == '\u{7}' {
-                            break;
-                        }
-                        if c == '\u{1b}' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                            }
-                            break;
-                        }
-                    }
-                }
-                // A two-character escape (ESC c, ESC 7, ...).
-                _ => {}
-            },
-            c if c.is_control() || is_bidi_control(c) => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// One `requests` line.
@@ -419,7 +365,7 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
         device.save(dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register()?;
+        hub.register("linux")?;
         Ok((hub, user_id))
     })?;
     let anchored_until = hub.anchor()?;
@@ -759,7 +705,14 @@ fn run(args: &Args) -> Res<()> {
     // read this to say so. A grant made later takes a restart.
     let applies_input = capture.applies_input();
     identity::write_private(&runtime.join("capture"), capture.name().as_bytes())?;
-    let serve_args = ServeArgs(serve_args);
+    // `cmux-rd serve` from this same binary, logging as `linux-host`.
+    let serve_args = ServeCommand {
+        program: std::env::current_exe()?,
+        args: ["serve".to_owned()].into_iter().chain(serve_args).collect(),
+        disclaim: false,
+        log_prefix: "linux-host".into(),
+        status_prefix: "cmux-rd linux-host".into(),
+    };
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
         return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
@@ -803,7 +756,7 @@ fn hold_socket(
     hub: &Arc<Hub>,
     dir: &std::path::Path,
     runtime: &std::path::Path,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
 ) -> Res<()> {
@@ -893,7 +846,7 @@ fn handle_push(
     push: &Value,
     dir: &std::path::Path,
     runtime: &std::path::Path,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
 ) {
@@ -945,7 +898,7 @@ fn start_session(
     hub: &Arc<Hub>,
     ticket: Ticket,
     view_only: bool,
-    serve_args: &ServeArgs,
+    serve_args: &ServeCommand,
     current: &Current,
 ) {
     let stop = Arc::new(AtomicBool::new(false));
@@ -1002,6 +955,7 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_hub_host::b64;
 
     #[test]
     fn args_take_positionals_flags_and_values() {
@@ -1179,12 +1133,8 @@ mod tests {
     }
 
     #[test]
-    fn hub_text_is_printed_without_control_characters() {
-        assert_eq!(printable("Ann's Mac"), "Ann's Mac");
-        assert_eq!(printable("\u{1b}[2J\u{1b}[31mEvil\u{1b}[0m"), "Evil");
-        assert_eq!(printable("a\u{1b}]0;title\u{7}b"), "ab");
-        assert_eq!(printable("x\ny\rz\t\u{0}\u{7f}\u{9b}1m"), "xyz1m");
-        assert_eq!(printable("\u{202e}cod.exe\u{202c}\u{2066}\u{200f}"), "cod.exe");
+    fn request_lines_are_printed_without_control_characters() {
+        use cmux_hub_host::text::is_bidi_control;
         let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
         for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
             assert!(!line.chars().any(|c| c.is_control() || is_bidi_control(c)), "{line:?}");

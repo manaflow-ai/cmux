@@ -1532,7 +1532,7 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         return STEP_NAMES_UNKNOWN
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
-    named, unread = [], []
+    named, rendered, unread = [], [], []
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
             return STEP_NAMES_UNKNOWN
@@ -1541,11 +1541,21 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         except Refused:
             # A name _check_matcher does not read (two expressions: 'Reviewer path (${{ needs.plan.outputs.lane }},
             # ${{ matrix.family }})') still names JOB when JOB's name is its text with each expression rendered.
-            (named if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
+            (rendered if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
             continue
         if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
                                                        for start in matcher["prefixes"])):
             named.append(spec)
+    # A name that only renders as JOB's names it only when no workflow job is named JOB outright; beside one that is,
+    # it is a job whose name is not read, like any other (its steps, if they fit, must give the same marks). A name
+    # that is one expression and no text (cmux-next.yml's cmux-scheme-compile, `${{ inputs.dev_daily == true && ...
+    # || 'cmux app scheme compile (Debug)' }}`) renders as anything: read as a second job named JOB, it left every log
+    # of 'cmux-next checks (god files, concurrency, crash safety, l10n)' with no headers and unplaced (cmux#44442 at
+    # 656af9e3, #44349, #44164 on 2026-11-16), so each of its reds was compared whole.
+    if named:
+        unread += rendered
+    else:
+        named = rendered
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
