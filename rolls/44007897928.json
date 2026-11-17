@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44007897928",
+  "recorded_at": "2026-11-17T03:16:26Z",
+  "reason": "cmux-tui 7aaaf036694a changes the image's cmux-tui (pinned 1b1cd8045c95)",
+  "dry_run": false,
+  "cmux_tui": "7aaaf036694ab3790bb40bc828fad4f55b77d433",
+  "fixes": [
+    {
+      "sha": "7aaaf036694ab3790bb40bc828fad4f55b77d433",
+      "mergedAt": "2026-11-16T18:47:14-08:00",
+      "subject": "fix(cmux-tui terminal hosts): a replacement host waits for the PTY fence of the dead host (#44970)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T03:16:26Z",
+    "snapshot_id": "sh-0ed4b05ebad44b26962caba0d1729aaa",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44007897928): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "65f8df69e77d3217c64bda8bd9879a3010651ee1",
+    "image": "cloud-native-auto-7aaaf036-44007897928-1",
+    "revision": "ci-44007897928-1",
+    "at": "2026-11-17T03:16:26Z"
+  },
+  "rolled_back": false
+}
