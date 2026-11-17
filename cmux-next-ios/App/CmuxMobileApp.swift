@@ -15,6 +15,10 @@ struct CmuxMobileApp: App {
     @UIApplicationDelegateAdaptor(CmuxMobileAppDelegate.self) private var appDelegate
     @State private var auth: CmuxMobileAuthModel
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh).
+    @State private var liveCode: LiveCodeRedraw
+    #endif
 
     init() {
         // An update from the classic app (the same bundle id) left its Keychain items and
@@ -41,7 +45,9 @@ struct CmuxMobileApp: App {
         LiveFeedFixture.shared.startIfRequested()
         // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
         // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
-        LiveCodeRedraw.shared.startFromEnvironment()
+        let liveCode = LiveCodeRedraw()
+        liveCode.startFromEnvironment()
+        _liveCode = State(initialValue: liveCode)
         #endif
     }
 
@@ -71,7 +77,7 @@ struct CmuxMobileApp: App {
             }
             #if DEBUG
             // Rebuilt with the new code after each live code patch (LiveCodeRedraw).
-            .liveCodeRedraw()
+            .liveCodeRedraw(liveCode)
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,

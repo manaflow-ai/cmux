@@ -205,7 +205,7 @@ Only a DEBUG configuration is built this way, and only the app's DEBUG code star
 (`LiveCodeRedraw`), so Release, TestFlight and App Store builds are as before.
 
 The redraw: SwiftUI calls a `body` again only when something it read changed, so after each patch
-the app's root (`liveCodeRedraw()`) takes a new identity and SwiftUI builds the whole tree again
+the app's root (`liveCodeRedraw(_:)`) takes a new identity and SwiftUI builds the whole tree again
 with the new code. State below the root starts over, as after a relaunch; the process, its
 connections and models stay. dyld_dynamic_interpose is there in the simulator's dyld (the app logs
 it when it starts watching); without it the rebind of the app's symbol pointers alone repoints.

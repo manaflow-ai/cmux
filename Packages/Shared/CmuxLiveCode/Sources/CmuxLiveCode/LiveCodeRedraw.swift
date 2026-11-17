@@ -4,7 +4,7 @@
 // patches patch.py drops there. Only the app's DEBUG code starts it.
 //
 // The redraw: SwiftUI calls a view's `body` again only when something it read changed, so a patched
-// `body` would not run until then. After each change the root (`liveCodeRedraw()`) takes a new
+// `body` would not run until then. After each change the root (`liveCodeRedraw(_:)`) takes a new
 // identity, and SwiftUI builds the whole tree again with the new code. Its state below the root
 // starts over, as after a relaunch, but the process, its connections and the app's models stay.
 #if os(iOS)
@@ -13,25 +13,24 @@ import Observation
 import SwiftUI
 import UIKit
 
-/// The live folder's watcher and the generation the root view is keyed by.
+/// The live folder's watcher and the generation the root view is keyed by. The app makes one at its
+/// composition root and passes it to `liveCodeRedraw(_:)`.
 @MainActor
 @Observable
 public final class LiveCodeRedraw {
-    public static let shared = LiveCodeRedraw()
-
     /// Starts at 0 and grows by one per applied or undone patch.
     public private(set) var generation = 0
     @ObservationIgnored private var engine: LiveEngine?
     @ObservationIgnored private var folder: LiveFolder?
 
-    private init() {}
+    public init() {}
 
     /// Watches the folder CMUX_LIVE_CODE_DIR names; does nothing without it.
     public func startFromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard engine == nil, let path = environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty else { return }
         let folder = LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true))
-        let engine = LiveEngine(folder: folder) { generation in
-            Task { @MainActor in LiveCodeRedraw.shared.redraw(generation) }
+        let engine = LiveEngine(folder: folder) { [weak self] generation in
+            Task { @MainActor in self?.redraw(generation) }
         }
         self.folder = folder
         self.engine = engine
@@ -63,7 +62,7 @@ public final class LiveCodeRedraw {
 }
 
 private struct LiveCodeRedrawModifier: ViewModifier {
-    @State private var live = LiveCodeRedraw.shared
+    let live: LiveCodeRedraw
 
     func body(content: Content) -> some View {
         content.id(live.generation)
@@ -73,8 +72,8 @@ private struct LiveCodeRedrawModifier: ViewModifier {
 extension View {
     /// The live code root: rebuilt with the new code after each patch (LiveCodeRedraw). Put it on
     /// the app's root view, in DEBUG code only.
-    public func liveCodeRedraw() -> some View {
-        modifier(LiveCodeRedrawModifier())
+    public func liveCodeRedraw(_ live: LiveCodeRedraw) -> some View {
+        modifier(LiveCodeRedrawModifier(live: live))
     }
 }
 #endif
