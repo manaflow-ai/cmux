@@ -2,12 +2,23 @@ import CmuxNextApps
 import Foundation
 import Testing
 
-/// What opening an app shows, read from the App Store examples cmux ships
-/// (`AppPlatform/store`, the folder the daemon lists): a scene page, a web
-/// app in a browser tab, or nothing for a command-only app.
+/// What opening an app shows, read from the App Store examples cmux ships: a
+/// scene page, a web app in a browser tab, or nothing for a command-only app.
+/// The manifests come from their source, `samples/apps/<name>`: the shipped
+/// copy (`AppPlatform/store`) is build output that a clean checkout lacks
+/// until `build-web-bundles.sh` runs.
 struct AppOpenTargetTests {
+    private static let samples = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent() // CmuxNextAppsTests
+        .deletingLastPathComponent() // Tests
+        .deletingLastPathComponent() // CmuxNext
+        .deletingLastPathComponent() // macOS
+        .deletingLastPathComponent() // Packages
+        .deletingLastPathComponent() // repository root
+        .appending(path: "samples/apps", directoryHint: .isDirectory)
+
     private func shipped(_ name: String) throws -> AppManifest {
-        let file = AppPlatformResources.storeExamples.appending(path: name).appending(path: "cmux-app.v2.json")
+        let file = Self.samples.appending(path: name).appending(path: "cmux-app.v2.json")
         return try #require(AppManifest.decode(try Data(contentsOf: file)), "\(name) decodes")
     }
 
