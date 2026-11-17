@@ -1213,6 +1213,18 @@ struct RetryModelChoice {
 
     /// The Mac's title (`turn.retryWith`).
     static let title = "Retry with another model"
+    static let systemImage = "arrow.triangle.2.circlepath"
+
+    /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
+    /// button, which takes the same button and label styles (a `Menu` draws as `ImageRenderer`'s
+    /// yellow placeholder).
+    @ViewBuilder func control(still: Bool) -> some View {
+        if still {
+            Button {} label: { Label(Self.title, systemImage: Self.systemImage) }
+        } else {
+            menu
+        }
+    }
 
     var menu: some View {
         Menu {
@@ -1228,7 +1240,7 @@ struct RetryModelChoice {
                 }
             }
         } label: {
-            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+            Label(Self.title, systemImage: Self.systemImage)
         }
         .accessibilityIdentifier("chat.retryWithModel")
     }
@@ -1246,6 +1258,7 @@ struct AnswerActionRow: View {
     var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1260,24 +1273,23 @@ struct AnswerActionRow: View {
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
-            ShareLink(item: turn.answerMarkdown) {
+            if still {
+                // Share and More are UIKit controls, a placeholder in a still: their glyphs alone.
                 IconActionLabel("square.and.arrow.up")
+            } else {
+                ShareLink(item: turn.answerMarkdown) {
+                    IconActionLabel("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
             }
-            .accessibilityLabel("Share")
             if isLast {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
-            Menu {
-                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
-                    Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                    Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    retryWith?.menu
-                    polish
-                }
-            } label: {
+            if still {
                 IconActionLabel("ellipsis")
+            } else {
+                moreMenu
             }
-            .accessibilityLabel("More")
             Spacer()
             if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
@@ -1291,6 +1303,20 @@ struct AnswerActionRow: View {
         .padding(.vertical, insetsTargets ? -6 : 0)
         .padding(.top, insetsTargets ? 2 : 0)
         .padding(.leading, -14)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
+                Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                retryWith?.menu
+                polish
+            }
+        } label: {
+            IconActionLabel("ellipsis")
+        }
+        .accessibilityLabel("More")
     }
 }
 

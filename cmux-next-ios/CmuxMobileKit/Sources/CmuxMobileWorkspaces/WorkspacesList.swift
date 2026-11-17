@@ -2040,13 +2040,7 @@ struct NewWorkspaceButton: View, Equatable {
         }
     }
 
-    static func agentName(_ harness: String) -> String {
-        switch harness {
-        case "claude": "Claude"
-        case "codex": "Codex"
-        default: harness.prefix(1).uppercased() + harness.dropFirst()
-        }
-    }
+    static func agentName(_ harness: String) -> String { AgentHarnessName.of(harness) }
 
     private func openFolder() {
         guard let folder = WorkspaceFolderPath(folderText), let mac = target else { return }

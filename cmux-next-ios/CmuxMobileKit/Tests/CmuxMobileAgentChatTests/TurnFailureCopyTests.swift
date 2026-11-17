@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -25,6 +26,20 @@ import Testing
         #expect(TurnFailureCopy(message: expired, harness: "cmux").kind == .modelServiceExpired)
         let unreachable = #"API Error: 502 {"error":{"code":"router.unreachable","message":"the cmux model router did not answer"}}"#
         #expect(TurnFailureCopy(message: unreachable, harness: "cmux").kind == .modelServiceUnreachable)
+    }
+
+    /// Leo, 2026-11-17: the error card said "Reviving claude-sr2-coord after rate-limit loop is rate
+    /// limited or out of capacity": the tab's title (its session's name) stood in for the agent. The
+    /// chat's agent is the harness's name, whatever the tab is called or which route it takes.
+    @Test func theSubjectIsTheAgentNeverTheSessionTitle() {
+        // No name given: the harness's name, not its profile id.
+        #expect(TurnFailureCopy(message: "overloaded", harness: "claude-sr").sentence.hasPrefix("Claude is rate limited"))
+        #expect(TurnFailureCopy(message: "overloaded").sentence.hasPrefix("The agent is rate limited"))
+        for (harness, name) in [("claude", "Claude"), ("claude-cr", "Claude"), ("codex", "Codex"), ("opencode", "OpenCode"),
+                                ("cmux", "Cmux"), ("goose", "Goose"), ("", "Agent")] {
+            #expect(AgentHarnessName.of(harness) == name, "\(harness)")
+        }
+        #expect(AgentHarnessName.of(nil) == "Agent")
     }
 
     @Test func macKindsCarryOver() {
@@ -108,3 +123,20 @@ import Testing
         #expect(AgentTurn(id: "u", prompt: "x", promptAt: Date()).lastAnswerMarkdown == nil)
     }
 }
+
+#if os(iOS)
+/// The chat a workspace tab opens names its agent by the harness, and keeps the tab's title as
+/// its own name: the error card's sentence takes the agent as its subject.
+@MainActor @Suite struct AgentSubjectIsNotTheTabTitleTests {
+    @Test func aTitledTabsChatSaysClaude() {
+        let tab = WorkspaceTab(id: "t", kind: .agent, title: "Reviving claude-sr2-coord after rate-limit loop", harness: "claude-sr")
+        let workspace = Workspace(id: "w", macID: "m", title: "cmux", directory: "~/cmux", tabs: [tab], lastActivityAt: Date())
+        let store = AgentSessionDirectory().store(workspace: workspace, tab: tab, macName: "Mac")
+        #expect(store.summary.agentName == "Claude")
+        #expect(store.summary.name == "Reviving claude-sr2-coord after rate-limit loop", "the chat keeps its title")
+        let copy = TurnFailureCopy(message: "API Error: 429 rate_limit_error", harness: store.summary.harness,
+                                   harnessName: store.summary.agentName)
+        #expect(copy.sentence == "Claude is rate limited or out of capacity. Try again in a moment, or switch model.")
+    }
+}
+#endif

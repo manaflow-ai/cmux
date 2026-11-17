@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
@@ -180,7 +181,7 @@ public final class CloudChatRelay {
         guard !isRetired, let session = hub.sessions[sessionID], session.peer == nil else { return nil }
         if let store = stores[sessionID] { return store }
         let summary = AgentSessionSummary(
-            id: session.id, name: session.name, harness: session.harness, agentName: session.harness,
+            id: session.id, name: session.name, harness: session.harness, agentName: AgentHarnessName.of(session.harness),
             cwd: session.cwd, workspaceTitle: machine.name, macName: machine.name,
             status: session.summaryStatus, macID: macID
         )

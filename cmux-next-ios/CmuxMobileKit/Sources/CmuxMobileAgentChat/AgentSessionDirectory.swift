@@ -104,7 +104,10 @@ public final class AgentSessionDirectory {
 
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(
-            id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
+            id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude",
+            // The agent's name, not the tab's title (the session's name): the chat's sentences
+            // ("Reply to …", the error card's "… is rate limited") take it as their subject.
+            agentName: AgentHarnessName.of(tab.harness ?? "claude"),
             cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
             status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
             macID: workspace.macID

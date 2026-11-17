@@ -482,13 +482,7 @@ public struct DaemonTree: Sendable {
         return line.isEmpty ? nil : String(line.prefix(80))
     }
 
-    static func agentName(_ harness: String) -> String {
-        switch harness {
-        case "claude": "Claude"
-        case "codex": "Codex"
-        default: harness.prefix(1).uppercased() + harness.dropFirst()
-        }
-    }
+    static func agentName(_ harness: String) -> String { AgentHarnessName.of(harness) }
 
     /// `~/` for paths under a home directory (`/Users/<name>/`).
     static func abbreviated(_ path: String?) -> String? {
