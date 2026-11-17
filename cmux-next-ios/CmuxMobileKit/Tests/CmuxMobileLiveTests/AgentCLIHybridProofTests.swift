@@ -44,7 +44,13 @@ import Testing
                 return nil
             }
             let bytes = try #require(outputs.count == 1 ? outputs.first : nil, "\(label): \(events)")
-            #expect(bytes == step.terminalBytes, "\(label): not the bytes cmux-tui checked against ghostty-vt")
+            // cmux-tui's `vt::frame_bytes` wraps each frame in a synchronized update (DEC 2026);
+            // the phone writes the same bytes without it (`AgentCLIHybridFrame.terminalBytes`).
+            let syncBegin = Data("\u{1b}[?2026h".utf8), syncEnd = Data("\u{1b}[?2026l".utf8)
+            #expect(step.terminalBytes.starts(with: syncBegin) && step.terminalBytes.suffix(syncEnd.count) == syncEnd,
+                    "\(label): cmux-tui's bytes are no longer one synchronized update")
+            let reference = Data(step.terminalBytes.dropFirst(syncBegin.count).dropLast(syncEnd.count))
+            #expect(bytes == reference, "\(label): not the bytes cmux-tui checked against ghostty-vt")
             #expect(events.last == .hybridFrame(stream: fixture.stream, frame: step.frame,
                                                 resumed: firstOfConnection && step.base != nil), "\(label)")
             let decodedFrame = decoder.decode(step.lean)
@@ -475,7 +481,8 @@ import Testing
                 }.joined()
             }
             // The frame drew: the phone now has a stream and frame to resume from.
-            try await waitUntil { session.isAttached && output().contains("\u{1b}[?2026l") }
+            // The frame's last bytes: the cursor's place (1, 3), then shown.
+            try await waitUntil { session.isAttached && output().contains("\u{1b}[4;2H\u{1b}[?25h") }
             if !daemonStillLists {
                 // The Mac's daemon was replaced by one from before the hybrid stream.
                 daemon.advertisesHybrid = false
