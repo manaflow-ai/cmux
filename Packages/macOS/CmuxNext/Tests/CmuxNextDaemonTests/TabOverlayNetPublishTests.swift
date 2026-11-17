@@ -126,4 +126,63 @@ struct TabOverlayNetPublishTests {
         #expect(pane.tabs.count == 2)
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
+
+    /// The time of the store's work for a hold of the New Tab key whose answers come one by one after the keys
+    /// (decision of 2026-11-17): a print with no bound, for 3 sizes of the hold. Each key is one creation that
+    /// waits. Each answer is the daemon's `tab-added` event with the creation's transaction, then the reply's
+    /// settlement. The times are of a Debug build with no daemon, no window and no reader of the tab list.
+    ///
+    /// The conditions are of the model only: each key adds one stand-in tab, and after the last answer the pane has
+    /// no stand-in tab and one tab more for each key.
+    @Test func aHoldWithHeldAnswersReportsTheTimeOfTheStoresApplies() throws {
+        for keys in [10, 30, 93] { try Self.reportTheApplies(of: keys) }
+    }
+
+    static func milliseconds(since began: ContinuousClock.Instant) -> Double {
+        let took = ContinuousClock.now - began
+        return Double(took.components.seconds) * 1e3 + Double(took.components.attoseconds) / 1e15
+    }
+
+    static func reportTheApplies(of keys: Int) throws {
+        let store = Self.store()
+        let pane = try shown(store)
+        var asks: [(transaction: ClientTransactionID, page: TabSnapshot)] = []
+        let keysBegan = ContinuousClock.now
+        for _ in 0..<keys {
+            let ask = (transaction: ClientTransactionID.generate(), page: page())
+            store.intend(.createTab(pane: shownPane, provisional: ask.page), transaction: ask.transaction)
+            asks.append(ask)
+        }
+        let intends = milliseconds(since: keysBegan)
+        try #require(pane.tabs.count == 1 + keys, "setup: the pane lists \(pane.tabs.count) tabs after \(keys) keys, want \(1 + keys)")
+
+        var applies: [Double] = []
+        var settles: [Double] = []
+        for (index, ask) in asks.enumerated() {
+            let sequence = UInt64(index + 1)
+            let surface = SurfaceID(rawValue: 5_000 + sequence)
+            var entity = TabSnapshot(surface: surface, kind: .conversation)
+            entity.conversation = ask.page.conversation
+            let added = TabDelta(workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 100), pane: shownPane,
+                                 surface: surface, index: nil, entity: entity, clientTransactionID: ask.transaction)
+            let applyBegan = ContinuousClock.now
+            _ = store.apply(batch: [DaemonEventEnvelope(sequence: sequence, event: .tabAdded(added))])
+            applies.append(milliseconds(since: applyBegan))
+            let settleBegan = ContinuousClock.now
+            store.noteSettled(ask.transaction, at: sequence)
+            settles.append(milliseconds(since: settleBegan))
+        }
+
+        func text(_ value: Double) -> String { String(format: "%.2f", value) }
+        let left = pane.tabs.filter { ProvisionalTab.isProvisional($0.id) }.count
+        print("new tab hold in the store, \(count) workspaces, \(keys) keys with the answers held: the keys' intents took "
+            + "\(text(intends)) ms in sum; the store's applies of the \(applies.count) answers' events took "
+            + "\(text(applies.reduce(0, +))) ms in sum (the first \(text(applies.first ?? -1)) ms, the last "
+            + "\(text(applies.last ?? -1)) ms); the \(settles.count) settlements of the replies took "
+            + "\(text(settles.reduce(0, +))) ms in sum; stand-in tabs left: \(left); the pane lists \(pane.tabs.count) tabs "
+            + "(a Debug build, no daemon, no window, no reader of the tab list)")
+        #expect(left == 0 && pane.tabs.count == 1 + keys,
+                "the model: \(left) stand-in tabs left and \(pane.tabs.count) tabs after \(keys) answers, want 0 and \(1 + keys)")
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
 }
