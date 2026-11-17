@@ -119,7 +119,8 @@ const copy = host?.shadowRoot;
 w.atBundle = host && copy ? {
   shown: true,
   header: box(copy.querySelector(".header")),
-  row: box(copy.querySelector('[data-row-id="r60"]')),
+  // Written at the latest row, the copy leaves r60 out (out of view).
+  row: copy.querySelector('[data-row-id="r60"]') ? box(copy.querySelector('[data-row-id="r60"]')) : null,
   last: copy.querySelector('[data-row-id="r99"]') ? box(copy.querySelector('[data-row-id="r99"]')) : null,
   composer: box(copy.querySelector(".composer textarea")),
   text: copy.querySelector(".composer .prompt")!.textContent,
@@ -127,7 +128,7 @@ w.atBundle = host && copy ? {
   scrollTop: copy.querySelector(".acpmux-scroll")!.scrollTop,
   rows: copy.querySelectorAll(".acpmux-row").length,
   headerColor: getComputedStyle(copy.querySelector(".header")!).backgroundColor,
-  indent: getComputedStyle(copy.querySelector('[data-row-id="r60"]')!).left,
+  indent: getComputedStyle(copy.querySelector(".acpmux-row")!).left,
 } : { shown: false };
 const root = document.getElementById("root")!;
 const user = document.createElement("style");

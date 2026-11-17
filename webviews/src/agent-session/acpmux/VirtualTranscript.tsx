@@ -4184,10 +4184,13 @@ function TranscriptView({
   // does, and the room it leaves when it goes stays under the last row (`noticeHold`, the line's change
   // since the room last took it; negative for one that went). The room takes it once the rows move
   // anyway (they grew: a reply streaming on, a send), or at Jump to latest or the reader's wheel past
-  // the end (`takeRoom`, `giveTrayRoom`). A line there at the chat's first draw is room as before.
+  // the end (`takeRoom`, `giveTrayRoom`). A line there at the chat's first draw lies over the foot too:
+  // after a restart the chat's saved copy drew without it, and the live page that took over with the
+  // line as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused).
   const noticeHeldAt = noticeBase.current;
+  const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
   const noticeHold =
-    following && !sessionSwitched && openedAtLatest && dockSpace > 0 && rowsGrew <= 0.5
+    following && dockSpace > 0 && !noticeTaken
       ? Math.min(dockSpace - Math.max(0, trayHold) - cardHold, dockNotice - noticeHeldAt)
       : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
