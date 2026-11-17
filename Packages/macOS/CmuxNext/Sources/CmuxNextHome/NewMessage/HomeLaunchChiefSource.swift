@@ -89,6 +89,8 @@ public final class LaunchChiefHold {
     private var delivered: [IdempotencyKey: HomeOpResult] = [:]
     private var deliver: Deliver?
     private var draining = false
+    /// Who waits for the Chief to be named (``resolved()``).
+    private var resolveWaiters: [CheckedContinuation<ConversationID?, Never>] = []
     /// The real Chief, once named.
     public private(set) var chief: ConversationID?
     public private(set) var isCancelled = false
@@ -120,6 +122,22 @@ public final class LaunchChiefHold {
         self.chief = chief
         self.deliver = deliver
         drain()
+        endWaits(with: chief)
+    }
+
+    /// The real Chief once it is named (at once when it is), for what the page's settings card
+    /// was asked before then (a rename, an engine change): it applies to the Chief then. Nil when
+    /// the hold was cancelled first (the page went or quit before its Chief answered).
+    public func resolved() async -> ConversationID? {
+        if let chief { return chief }
+        guard !isCancelled else { return nil }
+        return await withCheckedContinuation { resolveWaiters.append($0) }
+    }
+
+    private func endWaits(with chief: ConversationID?) {
+        let waiters = resolveWaiters
+        resolveWaiters = []
+        for waiter in waiters { waiter.resume(returning: chief) }
     }
 
     /// Ends the hold before the Chief was named: each waiting send is refused and its parts come
@@ -133,6 +151,7 @@ public final class LaunchChiefHold {
         let waiters = held.flatMap(\.waiters)
         held = []
         for waiter in waiters { waiter.resume(throwing: HomeRejection.invalid("launch_chief.cancelled")) }
+        endWaits(with: nil)
         return parts
     }
 

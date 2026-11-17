@@ -202,10 +202,9 @@ final class TopHomePageView: NSView {
                     // The page opened it, not the person, so a Chief that arrives later replaces it.
                     followedChief = first.rawValue
                 } else if launch == nil, let services, HomeLaunchComposer.shows(shown: shown, composing: isComposingNewMessage, defaultConversation: first,
-                                                                                launchChief: store.launchChief, classic: HomeDock.classic) {
-                    // A bare launch's page: the Chief's own view over a provisional Chief, as `host` (`shown` stays nil, so the first conversation listed opens).
-                    launch = HomeLaunchComposer(home: store, me: home.homeSource.me, title: HomeStrings.chiefName, in: transcriptColumn) { HomeHostView(services: services, conversation: $1.rawValue, owner: $0) }
-                    (host, home.launchPage) = (launch?.view as? HomeHostView, launch); DebugTimings.markLaunch("home.launch_composer")
+                                                                                launchChief: store.launchChief, classic: HomeDock.classic) {  // a bare launch: the Chief's own view over a provisional Chief, as `host`; `shown` stays nil
+                    launch = HomeLaunchComposer(home: store, me: home.homeSource.me, title: HomeStrings.chiefName, isCloud: HomeLaunchChiefEngine.guessesCloud(signedIn: services.cloud.isSignedIn, engine: services.settings?.snapshot.homeChiefEngine, localRunning: home.localChiefRunning), in: transcriptColumn) { page in home.launchPage = page; return HomeHostView(services: services, conversation: HomeLaunchChiefSource.conversation.rawValue, owner: page.store) }
+                    host = launch?.view as? HomeHostView; DebugTimings.markLaunch("home.launch_composer")
                     if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
                 }
                 launch = launch?.handingOff(toChief: Self.chief(home), showing: shown)

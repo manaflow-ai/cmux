@@ -135,7 +135,7 @@ struct HomeLaunchChiefTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let home = Self.store(LaunchChiefHold(), cache: HomeCache(url: url))
         home.start()
-        let page = HomeLaunchComposer(home: home, me: Self.me, title: "Chief") { _, _ in NSView() }
+        let page = HomeLaunchComposer(home: home, me: Self.me, title: "Chief") { _ in NSView() }
         let send = Task { try await page.hold.hold([.text("held")], key: .make()) }
         for _ in 0..<100 where page.hold.heldParts.isEmpty { await Task.yield() }
         page.store.setDraft("typed", for: Self.launch)
@@ -151,7 +151,7 @@ struct HomeLaunchChiefTests {
         next.start()
         defer { next.stop() }
         #expect(next.draft(for: Self.launch) == "held\ntyped")
-        let again = HomeLaunchComposer(home: next, me: Self.me, title: "Chief") { _, _ in NSView() }
+        let again = HomeLaunchComposer(home: next, me: Self.me, title: "Chief") { _ in NSView() }
         #expect(again.store.draft(for: Self.launch) == "held\ntyped")
         #expect(next.draft(for: Self.launch) == nil)
         // A launch whose Chief answers at once mounts no page: the kept text goes to the Chief's draft.

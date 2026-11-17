@@ -78,8 +78,7 @@ final class HomeHostView: NSView {
     var debugConversation: String { control.conversation.rawValue }
     #endif
 
-    /// `owner`: another store than Home's (a bare launch's provisional Chief, ``HomeLaunchComposer``): same view, its data only.
-    init(services: AppServices, conversation: String, owner: HomeStore? = nil) {
+    init(services: AppServices, conversation: String, owner: HomeStore? = nil) {  // owner: another store (a bare launch's provisional Chief): same view, its data
         let service = services.home, id = ConversationID(conversation), store = owner ?? service.homeStore
         transcript = HomeNativeTranscriptView(store: store, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
                                               openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") }) // window_usable: the next key goes in (piece 8)
