@@ -123,6 +123,7 @@ struct LaunchWindowCaptureTests {
     @Test func recordCarriesTheWindowsV2Fields() throws {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 60, width: 301, height: 203), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // a window made in code would be released twice by close() under ARC
         defer { window.close() }
         let (width, height) = LaunchWindowCapture.imagePixelSize(window.frame.size, scale: window.backingScaleFactor)
         let snapshot = LaunchWindowCapture.recordWindow(
