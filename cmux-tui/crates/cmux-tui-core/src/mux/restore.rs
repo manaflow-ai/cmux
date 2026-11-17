@@ -353,6 +353,7 @@ pub(super) fn restore_resource_state(
             ),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
+            tab_places: Default::default(),
         },
         next_id,
         contents,
