@@ -457,10 +457,7 @@ fn native_owner_identify_lists_the_layout_sizes_batch() {
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
     let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
     let capabilities = identity["capabilities"].as_array().unwrap();
-    assert!(
-        capabilities.contains(&json!(crate::server::LAYOUT_SIZES_BATCH_CAPABILITY)),
-        "{identity}"
-    );
+    assert!(capabilities.contains(&json!(LAYOUT_SIZES_BATCH_CAPABILITY)), "{identity}");
 }
 
 /// The app's commands that the Native owner carrier does not take: each one is a decision, not an
