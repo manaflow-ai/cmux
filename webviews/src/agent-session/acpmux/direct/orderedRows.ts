@@ -11,6 +11,7 @@ import {
 import { markOneRowChange } from "../rowChanges";
 import { noteKeptPrefix } from "../conversation/prefixFlatMap";
 import { RowUpdates } from "../rowUpdates";
+import { seqsFrom } from "./heldRecords";
 
 /// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
 const MANY_SLOTS = Symbol("many");
@@ -354,7 +355,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) {
       this.latest = Math.max(this.latest, this.current);
       if (row.kind === "assistant") this.lastWrite.set(id, this.current);
-      if (!unchanged && this.current > (this.order.get(id) ?? Infinity)) this.noteChange(id, this.current);
+      if (!unchanged && this.current > (this.order.get(id) ?? Infinity)) {
+        this.noteChange(id, this.current);
+        if (row.kind === "activity" || row.kind === "assistant") this.noteWrite(id, this.current);
+      }
     }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
@@ -509,6 +513,32 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Where each changed row sorts (its maker's seq), kept here so a row a later record deleted
   /// still spans the records between.
   private changeOrders: number[] = [];
+  /// The records after its maker that wrote each activity and reply row, by seq, oldest first: what a shed that keeps
+  /// such a row across its cut holds aside to draw it again (direct.ts `planSplits`). Pruned with the change log.
+  private writes = new Map<string, number[]>();
+
+  private noteWrite(id: string, seq: number): void {
+    const seqs = this.writes.get(id);
+    if (!seqs) this.writes.set(id, [seq]);
+    else if (seq > seqs.at(-1)!) seqs.push(seq);
+    // An older record's write (an older page into a held row) goes in its place.
+    else if (!seqs.includes(seq)) seqs.splice(seqsFrom(seqs, seq), 0, seq);
+  }
+
+  /// The records after its maker that wrote row `id` (`writes`), oldest first.
+  writesOf(id: string): readonly number[] {
+    return this.writes.get(id) ?? [];
+  }
+
+  /// Each row's writes from `seq` on are written again (a refold past a cut), or left with their records.
+  private forgetWrites(from: number, before = Infinity): void {
+    for (const [id, seqs] of this.writes) {
+      const low = seqsFrom(seqs, from);
+      const high = before === Infinity ? seqs.length : seqsFrom(seqs, before);
+      if (low < high) seqs.splice(low, high - low);
+      if (seqs.length === 0) this.writes.delete(id);
+    }
+  }
 
   private noteChange(id: string, seq: number, order = this.order.get(id) ?? Infinity): void {
     const last = this.changeSeqs.length - 1;
@@ -548,6 +578,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.changeSeqs.length = at;
     this.changeIds.length = at;
     this.changeOrders.length = at;
+    this.forgetWrites(seq);
   }
 
   /// The oldest place of a row made before record `seq` that a record from `seq` on changed:
@@ -578,6 +609,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.changeSeqs = [];
     this.changeIds = [];
     this.changeOrders = [];
+    this.writes.clear();
   }
 
   /// Row `from`, made by record `made`, was merged into the older row `into` (an older page's fold
@@ -590,6 +622,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.changeIds[index] = into;
         this.changeOrders[index] = order;
       }
+    const writes = this.writes.get(from);
+    if (writes) {
+      this.writes.delete(from);
+      for (const seq of writes) this.noteWrite(into, seq);
+    }
     if (!Number.isFinite(made)) return;
     const at = this.changesFrom(made + 1);
     this.changeSeqs.splice(at, 0, made);
@@ -618,6 +655,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.order.delete(id);
     this.local.delete(id);
     this.lastWrite.delete(id);
+    this.writes.delete(id);
     return super.delete(id);
   }
 
@@ -782,6 +820,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.changeIds.splice(low, high - low);
       this.changeOrders.splice(low, high - low);
     }
+    // A row kept across the run (direct.ts `splits`) keeps what its records wrote only in the records held aside.
+    this.forgetWrites(from, before);
     // The background turns that began and ended in the run, and their replies.
     this.backgroundSpans = this.backgroundSpans.filter((span) => {
       const inside = span.from >= from && span.to !== undefined && span.to < before;

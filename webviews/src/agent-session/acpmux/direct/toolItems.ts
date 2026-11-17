@@ -176,6 +176,8 @@ export function mergeToolItem(
         ? undefined
         : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result, input?.canonical) ?? placed);
   }
+  // An update that carries the call's whole output, replacing what it showed.
+  const whole = output || formattedOutput(update.rawOutput);
   return {
     kind: "tool",
     text: String(title ?? previous?.text ?? callId),
@@ -186,10 +188,7 @@ export function mergeToolItem(
       status,
       inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
-        output ||
-        formattedOutput(update.rawOutput) ||
-        terminalOutput(update, before?.output) ||
-        (update.content === undefined ? before?.output : undefined),
+        whole || terminalOutput(update, before?.output) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
       description: callDescription(update.rawInput) ?? before?.description,
       exitCode: exitCode(update) ?? before?.exitCode,
@@ -199,8 +198,9 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
-      // A call whose oldest output went with its records stays marked as later output comes in.
-      ...(before?.earlierOutput ? { earlierOutput: true as const } : {}),
+      // A call whose oldest output went with its records stays marked as later lines add to it; an update that
+      // carries its whole output again ends the mark.
+      ...(before?.earlierOutput && !whole ? { earlierOutput: true as const } : {}),
       // What a background task's end left on it (`attachReaction`) stays as later updates come in.
       ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,

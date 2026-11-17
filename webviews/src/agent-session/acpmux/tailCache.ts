@@ -12,6 +12,7 @@
 import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
 import type { EventRecord } from "./eventRecord";
+import type { HeldSplit } from "./direct/heldRecords";
 import type { QueuedPrompt } from "./model";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
@@ -22,6 +23,9 @@ export type KeptTail = {
   events: EventRecord[];
   summary: Record<string, any> | undefined;
   turnOpener: EventRecord | undefined;
+  /// The rows a shed kept across its cut and the records held aside that draw them (direct.ts `splits`), as
+  /// `turnOpener` is kept beside the events: only a whole tail carries them.
+  splits?: HeldSplit[];
   historyExhausted: boolean;
   queue: QueuedPrompt[];
   configSeq: number;

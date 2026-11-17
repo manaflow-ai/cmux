@@ -54,11 +54,42 @@ const line = (seq: number) => `[${String(seq).padStart(6, "0")}] compiling modul
 /// One chunk of the reply, streamed by record `seq`.
 const word = (seq: number) => `w${seq} `;
 
-/// The turn's opening records: its prompt, its start, the one call that runs the whole turn.
-function opening(sessionId: string, seq: number): EventRecord | undefined {
+/// A record the turn sends before its long call, at `seq`.
+type Lead = (sessionId: string, seq: number) => EventRecord;
+
+const THOUGHT = "thinking about it ";
+const LS = "ls-1";
+/// A turn that thinks a while and lists a folder before the build: the reducer draws all three in one activity row.
+const thinkThenList: readonly Lead[] = [
+  ...Array.from(
+    { length: 5 },
+    (): Lead => (sessionId, seq) =>
+      inbound(sessionId, seq, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: THOUGHT } }),
+  ),
+  (sessionId, seq) =>
+    inbound(sessionId, seq, {
+      sessionUpdate: "tool_call",
+      toolCallId: LS,
+      kind: "execute",
+      title: "Run ls",
+      status: "in_progress",
+      rawInput: { command: "ls" },
+    }),
+  (sessionId, seq) =>
+    inbound(sessionId, seq, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: LS,
+      status: "completed",
+      content: [{ type: "content", content: { type: "text", text: "a\nb\n" } }],
+    }),
+];
+
+/// The turn's opening records: its prompt, its start, what it sends first (`lead`), the one call that runs the turn.
+function opening(sessionId: string, seq: number, lead: readonly Lead[] = []): EventRecord | undefined {
   if (seq === 1) return mux(sessionId, seq, "user_message", { text: "build it", promptId: "p-build" });
   if (seq === 2) return mux(sessionId, seq, "turn_started", { promptId: "p-build", turnId: TURN_ID });
-  if (seq === 3)
+  if (seq < 3 + lead.length) return lead[seq - 3]!(sessionId, seq);
+  if (seq === 3 + lead.length)
     return inbound(sessionId, seq, {
       sessionUpdate: "tool_call",
       toolCallId: CALL,
@@ -72,8 +103,8 @@ function opening(sessionId: string, seq: number): EventRecord | undefined {
 
 /// The typing bench's heavy load (composer-typing.bench.ts `--stream 60 --tool-lines 2000`): a line per record
 /// (`_meta.terminal_output.data`, the append form pi sends), with a reply chunk every fourth record.
-function appendStream(sessionId: string, seq: number): EventRecord {
-  const open = opening(sessionId, seq);
+function appendStream(sessionId: string, seq: number, lead: readonly Lead[] = []): EventRecord {
+  const open = opening(sessionId, seq, lead);
   if (open) return open;
   if (seq % 4 === 0)
     return inbound(sessionId, seq, {
@@ -111,7 +142,11 @@ function replaceStream() {
   };
 }
 
-type Item = { tool?: { id: string; output?: string; earlierOutput?: true } };
+type Item = {
+  kind?: string;
+  text?: string;
+  tool?: { id: string; title?: string; command?: string; output?: string; earlierOutput?: true };
+};
 type Row = { id: string; kind: string; text?: string; items?: Item[] };
 type Pane = {
   events: EventRecord[];
@@ -364,19 +399,40 @@ async function shedTurn(chat: Awaited<ReturnType<typeof openChat>>) {
   for (let seq = 1; seq <= 3; seq += 1) chat.deliver();
   const { sheds } = await streamTurn(chat, 12_000);
   expect(sheds).toBeGreaterThan(1);
-  const total = chat.state.total;
-  let full = "";
-  let text = "";
-  for (let seq = 4; seq <= total; seq += 1)
-    if (seq % 4 === 0) text += word(seq);
-    else full += line(seq);
+  const { full, text } = streamed(chat.state.total);
   expect(chat.tool()?.earlierOutput).toBe(true);
   chat.client.setFollowing(false);
   return { full, text, first: chat.pane.events[0]!.seq };
 }
 
+/// What an append-stream turn streamed from record `from` (the first after its call opened) through `total`: the
+/// call's output lines and the reply's text.
+function streamed(total: number, from = 4) {
+  let full = "";
+  let text = "";
+  for (let seq = from; seq <= total; seq += 1)
+    if (seq % 4 === 0) text += word(seq);
+    else full += line(seq);
+  return { full, text };
+}
+
 const callRows = (chat: Awaited<ReturnType<typeof openChat>>) =>
   [...chat.pane.rows.values()].filter((row) => row.items?.some((item) => item.tool?.id === CALL));
+
+/// Every item of every row drawn.
+const allItems = (chat: Awaited<ReturnType<typeof openChat>>) =>
+  [...chat.pane.rows.values()].flatMap((row) => row.items ?? []);
+
+/// The reader scrolls up, a short page at a time (the one a chat at rest reads), until the chat's first record is held.
+async function scrollToStart(chat: Awaited<ReturnType<typeof openChat>>) {
+  chat.client.setFollowing(false);
+  for (let pages = 0; (chat.pane.firstSeq ?? 1) > 1 && pages < 100; pages += 1) {
+    const from = chat.pane.firstSeq;
+    await chat.client.loadOlder(undefined, false, false);
+    chat.flush();
+    if (chat.pane.firstSeq === from) break;
+  }
+}
 
 test("an older page holding the prompt, then the call's opening record and lines, puts the lines back on its one row", async () => {
   const chat = await openChat(appendStream);
@@ -413,6 +469,116 @@ test("a page that reaches below the call's opening record without holding it kee
     chat.flush();
     expect(callRows(chat)).toHaveLength(1);
     expect(chat.tool()?.output).toBe(full);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+/// The thought items of `items`, as the text each shows.
+const thoughts = (items: Item[]) => items.filter((item) => item.kind === "thought").map((item) => item.text?.trim());
+
+test("a turn whose long call follows a thought in the same row keeps its held records bounded, and scrolling up brings everything back", async () => {
+  const chat = await openChat((sessionId, seq) => appendStream(sessionId, seq, thinkThenList));
+  const opened = 3 + thinkThenList.length;
+  const thought = THOUGHT.repeat(5).trim();
+  try {
+    for (let seq = 1; seq <= opened; seq += 1) chat.deliver();
+    const { sheds, heldMax } = await streamTurn(chat, 20_000);
+    const total = chat.state.total;
+    const { full, text } = streamed(total, opened + 1);
+    console.log(
+      `one-call(after-thought) streamed=${total} sheds=${sheds} held_max=${heldMax} ` +
+        `held_final=${chat.pane.events.length} rebuilds=${chat.rebuilds()}`,
+    );
+    expect(sheds).toBeGreaterThan(3);
+    expect(heldMax).toBeLessThanOrEqual(chat.HELD_RECORDS + 1);
+    expect(chat.rebuilds()).toBe(0);
+    expect(chat.pane.turnOpen).toBe(true);
+    // The activity row keeps what came before the call: the thought once, the listing with its output.
+    const items = chat.toolRow()?.items ?? [];
+    expect(thoughts(items)).toEqual([thought]);
+    expect(items.filter((item) => item.tool?.id === LS).map((item) => item.tool?.output)).toEqual(["a\nb\n"]);
+    // The call stays on it, marked as cut, its output the newest lines in order.
+    expect(chat.tool()?.earlierOutput).toBe(true);
+    expect(full.endsWith(chat.tool()!.output!)).toBe(true);
+    // Scrolled to the start: one row for the call with every line, the thought, the listing and the reply once each.
+    await scrollToStart(chat);
+    expect(chat.pane.firstSeq).toBe(1);
+    expect(callRows(chat)).toHaveLength(1);
+    expect(chat.tool()?.output).toBe(full);
+    expect(chat.tool()?.earlierOutput).toBeUndefined();
+    expect(thoughts(allItems(chat))).toEqual([thought]);
+    expect(allItems(chat).filter((item) => item.tool?.id === LS)).toHaveLength(1);
+    expect(chat.replies().map((row) => row.text)).toEqual([text]);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("a long call that completes with its whole output after a shed shows that output once, unmarked, and scrolling up does not repeat it", async () => {
+  // The call's last update, at `seq`, sends its whole output (`output`) as it completes.
+  const finish = { seq: 0, output: "" };
+  const chat = await openChat((sessionId, seq) =>
+    seq === finish.seq
+      ? inbound(sessionId, seq, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: CALL,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: finish.output } }],
+        })
+      : appendStream(sessionId, seq),
+  );
+  try {
+    for (let seq = 1; seq <= 3; seq += 1) chat.deliver();
+    const { sheds } = await streamTurn(chat, 12_000);
+    expect(sheds).toBeGreaterThan(1);
+    const { full, text } = streamed(chat.state.total);
+    expect(chat.tool()?.earlierOutput).toBe(true);
+    finish.seq = chat.state.total + 1;
+    finish.output = full;
+    chat.deliver();
+    await tick();
+    chat.flush();
+    // The completion carries every line: the row shows it whole, no longer marked as cut.
+    expect(chat.tool()?.output).toBe(full);
+    expect(chat.tool()?.earlierOutput).toBeUndefined();
+    // Scrolling up puts no line back on top of it: the output stays the whole output, on one row.
+    await scrollToStart(chat);
+    expect(chat.pane.firstSeq).toBe(1);
+    expect(callRows(chat)).toHaveLength(1);
+    expect(chat.tool()?.output).toBe(full);
+    expect(chat.tool()?.earlierOutput).toBeUndefined();
+    expect(chat.replies().map((row) => row.text)).toEqual([text]);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("a chat picked again after a shed draws the long call's row and the reply whole", async () => {
+  const chat = await openChat(appendStream);
+  try {
+    for (let seq = 1; seq <= 3; seq += 1) chat.deliver();
+    const { sheds } = await streamTurn(chat, 12_000);
+    expect(sheds).toBeGreaterThan(1);
+    const total = chat.state.total;
+    const { full, text } = streamed(total);
+    await tick();
+    chat.flush();
+    expect(chat.tool()?.earlierOutput).toBe(true);
+    // The reader picks the chat on screen again: before its attach answers, the pane redraws from what it holds
+    // (`select`, `fullRefreshTail`, `drawKeptTail`).
+    void chat.client.select(chat.state.target).catch(() => undefined);
+    chat.flush();
+    // The call's row is drawn once, its title and command intact, still marked as cut, its output the newest lines.
+    expect(callRows(chat)).toHaveLength(1);
+    const tool = chat.tool();
+    expect(tool?.title).toBe("Run bun run build");
+    expect(tool?.command).toBe("bun run build");
+    expect(tool?.earlierOutput).toBe(true);
+    expect(full.endsWith(tool!.output!)).toBe(true);
+    expect(tool!.output!.endsWith(line(total % 4 === 0 ? total - 1 : total))).toBe(true);
+    // The reply keeps all of its text.
+    expect(chat.replies().map((row) => row.text)).toEqual([text]);
   } finally {
     chat.close();
   }

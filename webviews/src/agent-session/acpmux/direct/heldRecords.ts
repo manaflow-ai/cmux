@@ -21,11 +21,33 @@ export const HELD_RECORDS = 2 * HELD_KEPT;
 /// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
 export const HELD_RETRY = HELD_KEPT / 4;
 
-/// A row a shed kept across its cut (direct.ts `splits`): a tool call's row (`callId`, `earlier` once its oldest
-/// output lines went), or a streaming reply's. `aside`: the records older than the held ones that draw it again.
-export type HeldSplit =
-  | { kind: "tool"; callId: string; aside: EventRecord[]; earlier: boolean }
-  | { kind: "reply"; aside: EventRecord[] };
+/// A row a shed kept across its cut (direct.ts `splits`): an activity row (its thoughts and calls, one of which runs
+/// on), or the reply streaming beside it. `aside`: the records older than the held ones that draw it again, oldest
+/// first, a run of chunks joined into one. `earlier`: the row's calls whose oldest output lines went with their
+/// records. `thoughts`: the seqs each joined run of thought chunks spans, which an older page folds out of the way.
+export type HeldSplit = {
+  id: string;
+  kind: "activity" | "reply";
+  aside: EventRecord[];
+  earlier: string[];
+  thoughts: [number, number][];
+};
+
+/// The most records a shed holds aside for one row it keeps across its cut (`planSplits`): a row that needs more (a
+/// call that sends hundreds of updates that are not output) moves the cut back as before.
+export const SPLIT_ASIDE = HELD_KEPT / 8;
+
+/// The index of the first of `seqs` (ascending) at or after `seq`.
+export function seqsFrom(seqs: readonly number[], seq: number): number {
+  let low = 0;
+  let high = seqs.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (seqs[middle]! < seq) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
 /// The client's fields a fold of records writes about the turn they are in (`foldOlder` keeps them as the live
 /// chat's): a window whose newest records are left folds a page read forward with its own (`landNewer`).
 export const FOLD_TURN_KEYS = [
