@@ -9,6 +9,78 @@ cmux_pi_wrapper_shim="${CMUX_PI_WRAPPER_SHIM:-}"
 cmux_pi_wrapper_root="${CMUX_PI_WRAPPER_SHIM_ROOT:-}"
 self_path="$0"
 
+# mise keeps a shim for every tool one of its runtimes installed. Where no
+# version of the tool is selected, the shim runs the next `pi` on PATH outside
+# its own directory, and in a cmux terminal that is cmux's shim, which starts
+# this wrapper again. Every step of that chain is an exec and mise leaves the
+# launch as it found it, so the process, its parent, PATH and the arguments stay
+# the same. A wrapper that starts with a record matching all of them knows the
+# shims it tried came back, and takes the target after them. Nothing else
+# matches: a child process has its own id, and a tool mise did start runs with
+# the PATH mise gave it, so one that replaces itself by name is prepared again
+# like any new launch.
+cmux_pi_wrapper_launch_id() {
+    printf '%s:' "$#"
+    printf '%s\0' "${PATH:-}" "$@" | /usr/bin/cksum
+}
+
+cmux_pi_wrapper_launch_returned=0
+if [[ -n "${cmux_pi_wrapper_handoff_targets:-}" &&
+      "${cmux_pi_wrapper_handoff_process:-}" == "$$:$PPID" &&
+      "${cmux_pi_wrapper_handoff_launch:-}" == "$(cmux_pi_wrapper_launch_id "$@")" ]]; then
+    cmux_pi_wrapper_launch_returned=1
+else
+    unset cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+fi
+
+# mise's shims (rtx before the rename) are symlinks to its own binary.
+cmux_pi_wrapper_is_fallback_shim() {
+    local path="$1" link hops=0
+    while [[ -L "$path" && $hops -lt 40 ]]; do
+        link="$(readlink "$path")" || break
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="${path%/*}/$link" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    case "${path##*/}" in
+        mise|rtx) return 0 ;;
+    esac
+    return 1
+}
+
+cmux_pi_wrapper_target_returned() {
+    (( cmux_pi_wrapper_launch_returned == 1 )) || return 1
+    local candidate="$1" tried
+    while IFS= read -r tried; do
+        [[ -n "$tried" ]] || continue
+        [[ "$candidate" == "$tried" ]] && return 0
+        [[ -e "$candidate" && -e "$tried" && "$candidate" -ef "$tried" ]] && return 0
+    done <<< "${cmux_pi_wrapper_handoff_targets:-}"
+    return 1
+}
+
+# Replaces this process with the target. A shim that can hand the launch back
+# is recorded first; any other target starts the tool and takes no record.
+cmux_pi_wrapper_exec_target() {
+    local target="$1"
+    shift
+    if cmux_pi_wrapper_is_fallback_shim "$target"; then
+        if (( cmux_pi_wrapper_launch_returned == 1 )); then
+            cmux_pi_wrapper_handoff_targets+=$'\n'"$target"
+        else
+            cmux_pi_wrapper_handoff_targets="$target"
+        fi
+        cmux_pi_wrapper_handoff_process="$$:$PPID"
+        cmux_pi_wrapper_handoff_launch="$(cmux_pi_wrapper_launch_id "$@")"
+        export cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+    else
+        unset cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+    fi
+    exec "$target" "$@"
+}
+
 resolve_pi() {
     # PATH entries are literal directories, even when they contain glob characters.
     set -f
@@ -25,7 +97,8 @@ resolve_pi() {
         esac
         candidate="$entry/pi"
         if [ -x "$candidate" ] && [ "$candidate" != "$self_path" ] &&
-           { [ -z "$cmux_pi_wrapper_shim" ] || [ "$candidate" != "$cmux_pi_wrapper_shim" ]; }; then
+           { [ -z "$cmux_pi_wrapper_shim" ] || [ "$candidate" != "$cmux_pi_wrapper_shim" ]; } &&
+           ! cmux_pi_wrapper_target_returned "$candidate"; then
             printf '%s' "$candidate"
             IFS="$old_ifs"
             return 0
@@ -35,14 +108,29 @@ resolve_pi() {
     return 1
 }
 
-cmux_pi="$(resolve_pi 2>/dev/null || true)"
+cmux_pi=""
+if (( cmux_pi_wrapper_launch_returned == 1 )); then
+    # With nothing after the shims, start over: the shim then reports the
+    # missing version itself, and a tool that only replaced itself runs again.
+    cmux_pi="$(resolve_pi 2>/dev/null || true)"
+    [ -n "$cmux_pi" ] || cmux_pi_wrapper_launch_returned=0
+fi
+if (( cmux_pi_wrapper_launch_returned == 0 )); then
+    cmux_pi="$(resolve_pi 2>/dev/null || true)"
+fi
 if [ -z "$cmux_pi" ]; then
     echo "Configured agent is unavailable. Install it or check the command configuration." >&2
     exit 127
 fi
 
+# The pass that launched from this process already decided whether to add the
+# extension, and argv carries its result. Only the target changes.
+if (( cmux_pi_wrapper_launch_returned == 1 )); then
+    cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
+fi
+
 if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then
-    exec "$cmux_pi" "$@"
+    cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
 fi
 
 # Pi dispatches these commands before parsing options. These commands must
@@ -51,7 +139,7 @@ fi
 # Pi's dispatcher when new subcommands are added.
 case "${1:-}" in
     install|remove|uninstall|update|list|config|auth|mcp|--help|-h|--version|-v)
-        exec "$cmux_pi" "$@"
+        cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
         ;;
 esac
 
@@ -61,7 +149,7 @@ esac
 for cmux_pi_arg in "$@"; do
     [ "$cmux_pi_arg" = "--" ] && break
     if [ "$cmux_pi_arg" = "--no-extensions" ]; then
-        exec "$cmux_pi" "$@"
+        cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
     fi
 done
 
@@ -74,7 +162,7 @@ cmux_pi_managed_extension() {
 cmux_pi_agent_dir="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}"
 if cmux_pi_managed_extension "$cmux_pi_agent_dir/extensions/cmux-session.ts" ||
    cmux_pi_managed_extension "$PWD/.pi/extensions/cmux-session.ts"; then
-    exec "$cmux_pi" "$@"
+    cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
 fi
 
 cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"
@@ -82,7 +170,7 @@ if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
     cmux_cli="$(command -v cmux 2>/dev/null || true)"
 fi
 if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
-    exec "$cmux_pi" "$@"
+    cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
 fi
 
 cmux_surface_tag="${CMUX_SURFACE_ID:-default}"
@@ -112,8 +200,8 @@ if [ ! -s "$cmux_extension" ] || ! cmux_pi_managed_extension "$cmux_extension"; 
         chmod 600 "$cmux_extension" 2>/dev/null || true
     else
         rm -f "$cmux_extension_tmp"
-        exec "$cmux_pi" "$@"
+        cmux_pi_wrapper_exec_target "$cmux_pi" "$@"
     fi
 fi
 
-exec "$cmux_pi" -e "$cmux_extension" "$@"
+cmux_pi_wrapper_exec_target "$cmux_pi" -e "$cmux_extension" "$@"

@@ -38,6 +38,83 @@ cmux_claude_wrapper_is_self_or_shim() {
     return 1
 }
 
+# mise keeps a shim for every tool one of its runtimes installed. Where no
+# version of the tool is selected, the shim runs the next `claude` on PATH
+# outside its own directory, and in a cmux terminal that is cmux's shim, which
+# starts this wrapper again. Every step of that chain is an exec and mise leaves
+# the launch as it found it, so the process, its parent, PATH and the arguments
+# stay the same. A wrapper that starts with a record matching all of them knows
+# the shims it tried came back, and takes the target after them. Nothing else
+# matches: a child process has its own id, and a tool mise did start runs with
+# the PATH mise gave it, so one that replaces itself by name is prepared again
+# like any new launch. The names are lowercase so the passthrough's CMUX_*
+# cleanup leaves them in place.
+cmux_claude_wrapper_launch_id() {
+    printf '%s:' "$#"
+    printf '%s\0' "${PATH:-}" "$@" | /usr/bin/cksum
+}
+
+cmux_claude_wrapper_clear_handoff() {
+    unset cmux_claude_wrapper_handoff_process cmux_claude_wrapper_handoff_launch
+    unset cmux_claude_wrapper_handoff_targets
+    unset cmux_claude_wrapper_handoff_reexec_hops cmux_claude_wrapper_handoff_reexec_targets
+}
+
+cmux_claude_wrapper_launch_returned=0
+if [[ -n "${cmux_claude_wrapper_handoff_targets:-}" &&
+      "${cmux_claude_wrapper_handoff_process:-}" == "$$:$PPID" &&
+      "${cmux_claude_wrapper_handoff_launch:-}" == "$(cmux_claude_wrapper_launch_id "$@")" ]]; then
+    cmux_claude_wrapper_launch_returned=1
+else
+    cmux_claude_wrapper_clear_handoff
+fi
+
+# mise's shims (rtx before the rename) are symlinks to its own binary.
+cmux_claude_wrapper_is_fallback_shim() {
+    case "$(basename "$(cmux_claude_wrapper_resolve_symlinks "$1")")" in
+        mise|rtx) return 0 ;;
+    esac
+    return 1
+}
+
+cmux_claude_wrapper_target_returned() {
+    (( cmux_claude_wrapper_launch_returned == 1 )) || return 1
+    local candidate="$1" tried
+    while IFS= read -r tried; do
+        [[ -n "$tried" ]] || continue
+        [[ "$candidate" == "$tried" ]] && return 0
+        [[ -e "$candidate" && -e "$tried" && "$candidate" -ef "$tried" ]] && return 0
+    done <<< "${cmux_claude_wrapper_handoff_targets:-}"
+    return 1
+}
+
+# Called with the target and arguments this process is about to become. A shim
+# that can hand the launch back is recorded; any other target starts the tool
+# and takes no record.
+cmux_claude_wrapper_record_handoff() {
+    local target="$1"
+    shift
+    if cmux_claude_wrapper_is_fallback_shim "$target"; then
+        if (( cmux_claude_wrapper_launch_returned == 1 )); then
+            cmux_claude_wrapper_handoff_targets+=$'\n'"$target"
+        else
+            cmux_claude_wrapper_handoff_targets="$target"
+        fi
+        cmux_claude_wrapper_handoff_process="$$:$PPID"
+        cmux_claude_wrapper_handoff_launch="$(cmux_claude_wrapper_launch_id "$@")"
+        # The caller clears the re-entry guard for the tool this target may
+        # start. A launch that comes back is still inside the same shim chain,
+        # so the count and history travel with the record.
+        cmux_claude_wrapper_handoff_reexec_hops="${cmux_claude_wrapper_reexec_hops:-0}"
+        cmux_claude_wrapper_handoff_reexec_targets="${cmux_claude_wrapper_reexec_target_history:-}"
+        export cmux_claude_wrapper_handoff_process cmux_claude_wrapper_handoff_launch
+        export cmux_claude_wrapper_handoff_targets
+        export cmux_claude_wrapper_handoff_reexec_hops cmux_claude_wrapper_handoff_reexec_targets
+    else
+        cmux_claude_wrapper_clear_handoff
+    fi
+}
+
 cmux_claude_wrapper_reexec_guard_limit=16
 cmux_claude_wrapper_reexec_hops=0
 # Newline-delimited, not PATH/colon-delimited: custom executable paths can
@@ -362,6 +439,7 @@ cmux_claude_wrapper_exec_real_after_managed_reentry() {
     unset CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH
     unset cmux_claude_wrapper_reexec_guard
     unset cmux_claude_wrapper_reexec_targets
+    cmux_claude_wrapper_record_handoff "$fallback" "$@"
     exec "$fallback" "$@"
 }
 
@@ -384,6 +462,10 @@ cmux_claude_wrapper_exec_resolved_claude() {
         # downstream `which`/execvp/command -v lookup would otherwise route back
         # into this wrapper after the guard was cleared.
         cmux_claude_wrapper_prepare_custom_path_environment "$target"
+        # mise's native shim is classified as this boundary too. When it hands
+        # the launch back, the record sends the next pass on to the target
+        # after it.
+        cmux_claude_wrapper_record_handoff "$target" "$@"
         exec "$target" "$@"
     fi
     if cmux_claude_wrapper_reexec_target_seen "$target"; then
@@ -418,10 +500,19 @@ cmux_claude_wrapper_exec_resolved_claude() {
         export CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH=1
     fi
     cmux_claude_wrapper_prepare_custom_path_environment "$target"
+    # The guard exported above owns the chain from here. A record left in place
+    # would put its older count and history back on the next pass.
+    cmux_claude_wrapper_clear_handoff
     exec "$target" "$@"
 }
 
 cmux_claude_wrapper_init_reexec_guard
+if (( cmux_claude_wrapper_launch_returned == 1 )); then
+    if cmux_claude_wrapper_is_nonnegative_integer "${cmux_claude_wrapper_handoff_reexec_hops:-}"; then
+        cmux_claude_wrapper_reexec_hops="$cmux_claude_wrapper_handoff_reexec_hops"
+    fi
+    cmux_claude_wrapper_reexec_target_history="${cmux_claude_wrapper_handoff_reexec_targets:-}"
+fi
 
 # `cmux claude-teams` resolves the real provider itself, then deliberately
 # enters this app-owned wrapper so hooks can bind the lead session. Preserve its
@@ -438,7 +529,8 @@ if [[ "${CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH:-}" == "1" &&
 fi
 unset CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH
 
-# Find the real claude binary, skipping cmux's wrapper and temp shell shims.
+# Find the real claude binary, skipping cmux's wrapper, its shell shims and any
+# shim this launch already came back from.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
     # Guard against self-reference (user pointing back to this wrapper).
@@ -447,7 +539,8 @@ find_real_claude() {
     custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
     if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
         # Use -ef to detect same underlying file even through symlinks.
-        if ! cmux_claude_wrapper_is_self_or_shim "$custom"; then
+        if ! cmux_claude_wrapper_is_self_or_shim "$custom" &&
+           ! cmux_claude_wrapper_target_returned "$custom"; then
             printf '%s' "$custom"
             return 0
         fi
@@ -459,6 +552,7 @@ find_real_claude() {
         [[ "$d" == "$self_dir" ]] && continue
         local candidate="$d/claude"
         cmux_claude_wrapper_is_self_or_shim "$candidate" && continue
+        cmux_claude_wrapper_target_returned "$candidate" && continue
         [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
     done
     return 1
@@ -972,7 +1066,15 @@ exec_real_claude_passthrough() {
 }
 
 # Find real claude.
-REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+REAL_CLAUDE=""
+if (( cmux_claude_wrapper_launch_returned == 1 )); then
+    # With nothing after the shims, start over: the shim then reports the
+    # missing version itself, and a tool that only replaced itself runs again.
+    REAL_CLAUDE="$(find_real_claude)" || cmux_claude_wrapper_launch_returned=0
+fi
+if (( cmux_claude_wrapper_launch_returned == 0 )); then
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+fi
 
 ensure_node_options_restore_module() {
     # The restore preload must outlive the Claude session: every Node child
@@ -1732,6 +1834,20 @@ should_inject_claude_hooks() {
 
     return 0
 }
+
+# The pass that launched from this process already made every decision below:
+# argv and the environment carry its result. Only the target changes, and with
+# it whether the Node preload that pass may have added still applies. A
+# passthrough had cleared cmux's variables, and the shim put its own two back.
+if (( cmux_claude_wrapper_launch_returned == 1 )); then
+    if [[ -z "${CMUX_SURFACE_ID:-}" ]]; then
+        unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+    fi
+    if [[ "${NODE_OPTIONS:-}" == *"/cmux-claude-node-options/restore-node-options.cjs"* ]]; then
+        install_cmux_node_options "$REAL_CLAUDE"
+    fi
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
 
 # CMUX_CLAUDE_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
 # stays fully inert — no cmux calls, no computer-use attach, no argv changes

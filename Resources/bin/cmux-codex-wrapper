@@ -56,6 +56,79 @@ cmux_codex_wrapper_is_self_or_shim() {
     return 1
 }
 
+# mise keeps a shim for every tool one of its runtimes installed. Where no
+# version of the tool is selected, the shim runs the next `codex` on PATH
+# outside its own directory, and in a cmux terminal that is cmux's shim, which
+# starts this wrapper again. Every step of that chain is an exec and mise leaves
+# the launch as it found it, so the process, its parent, PATH and the arguments
+# stay the same. A wrapper that starts with a record matching all of them knows
+# the shims it tried came back, and takes the target after them. Nothing else
+# matches: a child process has its own id, and a tool mise did start runs with
+# the PATH mise gave it, so one that replaces itself by name is prepared again
+# like any new launch. The names are lowercase so the passthrough's CMUX_*
+# cleanup leaves them in place.
+cmux_codex_wrapper_launch_id() {
+    printf '%s:' "$#"
+    printf '%s\0' "${PATH:-}" "$@" | /usr/bin/cksum
+}
+
+cmux_codex_wrapper_launch_returned=0
+if [[ -n "${cmux_codex_wrapper_handoff_targets:-}" &&
+      "${cmux_codex_wrapper_handoff_process:-}" == "$$:$PPID" &&
+      "${cmux_codex_wrapper_handoff_launch:-}" == "$(cmux_codex_wrapper_launch_id "$@")" ]]; then
+    cmux_codex_wrapper_launch_returned=1
+else
+    unset cmux_codex_wrapper_handoff_process cmux_codex_wrapper_handoff_launch cmux_codex_wrapper_handoff_targets
+fi
+
+# mise's shims (rtx before the rename) are symlinks to its own binary.
+cmux_codex_wrapper_is_fallback_shim() {
+    local path="$1" link hops=0
+    while [[ -L "$path" && $hops -lt 40 ]]; do
+        link="$(readlink "$path")" || break
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="${path%/*}/$link" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    case "${path##*/}" in
+        mise|rtx) return 0 ;;
+    esac
+    return 1
+}
+
+cmux_codex_wrapper_target_returned() {
+    (( cmux_codex_wrapper_launch_returned == 1 )) || return 1
+    local candidate="$1" tried
+    while IFS= read -r tried; do
+        [[ -n "$tried" ]] || continue
+        [[ "$candidate" == "$tried" ]] && return 0
+        [[ -e "$candidate" && -e "$tried" && "$candidate" -ef "$tried" ]] && return 0
+    done <<< "${cmux_codex_wrapper_handoff_targets:-}"
+    return 1
+}
+
+# Replaces this process with the target. A shim that can hand the launch back
+# is recorded first; any other target starts the tool and takes no record.
+cmux_codex_wrapper_exec_target() {
+    local target="$1"
+    shift
+    if cmux_codex_wrapper_is_fallback_shim "$target"; then
+        if (( cmux_codex_wrapper_launch_returned == 1 )); then
+            cmux_codex_wrapper_handoff_targets+=$'\n'"$target"
+        else
+            cmux_codex_wrapper_handoff_targets="$target"
+        fi
+        cmux_codex_wrapper_handoff_process="$$:$PPID"
+        cmux_codex_wrapper_handoff_launch="$(cmux_codex_wrapper_launch_id "$@")"
+        export cmux_codex_wrapper_handoff_process cmux_codex_wrapper_handoff_launch cmux_codex_wrapper_handoff_targets
+    else
+        unset cmux_codex_wrapper_handoff_process cmux_codex_wrapper_handoff_launch cmux_codex_wrapper_handoff_targets
+    fi
+    exec "$target" "$@"
+}
+
 codex_launch_has_subrouter_provider() {
     local argument assignment compact provider=""
     local expects_config_value=0
@@ -92,13 +165,15 @@ codex_launch_has_subrouter_provider() {
     [[ "$provider" == "subrouter" ]]
 }
 
-# Find the real codex binary, skipping this wrapper and cmux's shell shims.
+# Find the real codex binary, skipping this wrapper, cmux's shell shims and any
+# shim this launch already came back from.
 find_real_codex() {
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
     custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
     custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
     if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
-        if ! cmux_codex_wrapper_is_self_or_shim "$custom"; then
+        if ! cmux_codex_wrapper_is_self_or_shim "$custom" &&
+           ! cmux_codex_wrapper_target_returned "$custom"; then
             printf '%s' "$custom"
             return 0
         fi
@@ -110,6 +185,7 @@ find_real_codex() {
         [[ "$d" == "$self_dir" ]] && continue
         local candidate="$d/codex"
         cmux_codex_wrapper_is_self_or_shim "$candidate" && continue
+        cmux_codex_wrapper_target_returned "$candidate" && continue
         [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
     done
     return 1
@@ -666,7 +742,25 @@ unset CMUX_AGENT_RESUME_LAUNCH
 
 # Resolve real codex up front; if it cannot be found we error like a missing
 # binary would (same as the claude wrapper) rather than silently succeeding.
-REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+REAL_CODEX=""
+if (( cmux_codex_wrapper_launch_returned == 1 )); then
+    # With nothing after the shims, start over: the shim then reports the
+    # missing version itself, and a tool that only replaced itself runs again.
+    REAL_CODEX="$(find_real_codex)" || cmux_codex_wrapper_launch_returned=0
+fi
+if (( cmux_codex_wrapper_launch_returned == 0 )); then
+    REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+fi
+
+# The pass that launched from this process already made every decision below:
+# argv and the environment carry its result. Only the target changes. A
+# passthrough had cleared cmux's variables, and the shim put its own two back.
+if (( cmux_codex_wrapper_launch_returned == 1 )); then
+    if [[ -z "${CMUX_SURFACE_ID:-}" ]]; then
+        unset CMUX_CODEX_WRAPPER_SHIM CMUX_CODEX_WRAPPER_SHIM_ROOT
+    fi
+    cmux_codex_wrapper_exec_target "$REAL_CODEX" "$@"
+fi
 
 exec_real_codex_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -676,7 +770,7 @@ exec_real_codex_passthrough() {
         done
         unset TERMINFO
     fi
-    exec "$REAL_CODEX" "$@"
+    cmux_codex_wrapper_exec_target "$REAL_CODEX" "$@"
 }
 
 cmux_codex_computer_use_args=()
@@ -875,7 +969,7 @@ fi
 cmux_codex_hoist_session_global_args "$@"
 
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" \
+    cmux_codex_wrapper_exec_target "$REAL_CODEX" \
         "${cmux_codex_native_computer_use_args[@]}" \
         "${cmux_codex_computer_use_args[@]}" \
         "${cmux_codex_injected_args[@]}" "${cmux_codex_session_args[@]}"
@@ -885,6 +979,6 @@ fi
 # failure also returns nothing. In both cases preserve the cmux surface context
 # and Computer Use attachment so persistent, native, or future hooks can still
 # bind this session.
-exec "$REAL_CODEX" \
+cmux_codex_wrapper_exec_target "$REAL_CODEX" \
     "${cmux_codex_native_computer_use_args[@]}" \
     "${cmux_codex_computer_use_args[@]}" "${cmux_codex_session_args[@]}"
