@@ -143,11 +143,12 @@ enum OmnibarStyle {
         let scale: CGFloat = field.window?.backingScaleFactor ?? 2
         let target = ((barHeight / 2 + font.capHeight / 2) * scale).rounded() / scale
         // Where the text draws now: the field centered in the bar on whole pixels (an odd gap rounds up a pixel), its
-        // baseline the font's ascender under its top (the text engine's, a fraction off `firstBaselineOffsetFromTop`).
+        // baseline `firstBaselineOffsetFromTop` under its top. Measured from the drawn pixels at 2x at every density
+        // (OmnibarCapitalsCenterTests): the font's unrounded ascender put the estimate 0.29 pt low at Compact, and the
+        // capitals drew a pixel above the search glyph (Lucas 2026-11-17).
         let height = field.intrinsicContentSize.height
         let top = (((barHeight - height) / 2) * scale).rounded(.down) / scale
-        let inset = field.firstBaselineOffsetFromTop - font.ascender.rounded()
-        let current = top + inset + font.ascender
+        let current = top + field.firstBaselineOffsetFromTop
         return ((target - current) * scale).rounded() / scale
     }
     /// Whether the density keeps Chrome's omnibox column (Spacious) rather than Helium's.
