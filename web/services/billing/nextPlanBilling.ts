@@ -78,15 +78,18 @@ export function nextPlanMirrorMetadata(
   return before === after ? null : metadata;
 }
 
-/** Writes the NEXT plan mirror under the caller's account-mutation lease. */
+/**
+ * Writes the NEXT plan mirror under the caller's account-mutation lease.
+ * Returns the metadata written, or null when nothing changed.
+ */
 export async function syncNextPlanMetadata(
   user: ProMetadataCustomer,
   activePlan: NextPlanId | null,
   lease: AccountDeletionUserMutationLease,
-): Promise<boolean> {
+): Promise<Record<string, unknown> | null> {
   const metadata = nextPlanMirrorMetadata(user.clientReadOnlyMetadata, activePlan);
-  if (!metadata) return false;
+  if (!metadata) return null;
   await lease.refresh();
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
-  return true;
+  return metadata;
 }

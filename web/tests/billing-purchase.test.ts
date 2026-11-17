@@ -3565,11 +3565,24 @@ describe("cmux NEXT Cloud subscriptions", () => {
       },
     );
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    // A NEXT subscription ending never revokes classic access.
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false, retainsAccess: true });
     expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values.plan).toBe("next_max");
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
     expect(removeTester).not.toHaveBeenCalled();
   });
+
+  /** fakeDb whose active-NEXT-plan read answers `planRows`; every other read uses the shared queue. */
+  function dbWithNextRows(planRows: { plan: string }[]) {
+    const base = fakeDb();
+    return {
+      ...base,
+      select: (fields?: Record<string, unknown>) =>
+        fields && Object.keys(fields).join() === "plan"
+          ? { from: () => ({ where: () => ({ limit: async () => planRows }) }) }
+          : base.select(),
+    };
+  }
 
   test("a completed NEXT checkout records the row and writes cmuxPlan next_max", async () => {
     const update = mock(async () => undefined);
@@ -3594,13 +3607,79 @@ describe("cmux NEXT Cloud subscriptions", () => {
         },
       } as never,
       {
-        db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
+        db: dbWithNextRows([{ plan: "next_max" }]) as never,
       },
     );
 
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", subscriptionId: "sub_123" });
     expect(inserts.find((entry) => entry.table === stripeSubscriptions)?.values.plan).toBe("next_max");
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxNextPlan: "next_max", cmuxPlan: "next_max" } });
+  });
+
+  test("a checkout replayed after the NEXT subscription was cancelled does not grant the plan again", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      isAnonymous: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+    const input = checkoutInput();
+    await recordCheckoutCompletion(
+      {
+        ...input,
+        session: { ...input.session, metadata: { app: "cmux", plan: "next_pro", stackUserId: "user_123" } },
+        subscription: {
+          ...input.subscription,
+          status: "canceled",
+          metadata: { app: "cmux", plan: "next_pro", stackUserId: "user_123" },
+          items: { data: [{ current_period_end: 1_800_000_000, price: { id: "price_np", lookup_key: "cmux-next-pro-monthly-50" } }] },
+        },
+      } as never,
+      { stackApp: { getUser: async () => user } as never, db: dbWithNextRows([]) as never },
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("a subscription switched from a NEXT Price to a classic one clears cmuxNextPlan", async () => {
+    const writes: unknown[] = [];
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "next_pro", cmuxNextPlan: "next_pro" },
+      update: mock(async (options: { clientReadOnlyMetadata: unknown }) => {
+        writes.push(options.clientReadOnlyMetadata);
+        user.clientReadOnlyMetadata = options.clientReadOnlyMetadata as never;
+      }),
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_next" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      { db: dbWithNextRows([]) as never, stackApp: { getUser: async () => user } as never },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    expect(writes).toEqual([{}, { cmuxPlan: "pro" }]);
+  });
+
+  test("a classic lapse keeps access while a paid operator grant remains, and revokes without one", async () => {
+    const granted = { id: "user_123", primaryEmail: "buyer@example.com", clientReadOnlyMetadata: { cmuxPlan: "pro", cmuxVmPlan: "max" }, update: mock(async () => undefined) };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+    expect(await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      { db: dbWithNextRows([]) as never, stackApp: { getUser: async () => granted } as never },
+    )).toEqual({ scope: "user", stackUserId: "user_123", isActive: false, retainsAccess: true });
+
+    const plain = { id: "user_123", primaryEmail: "buyer@example.com", clientReadOnlyMetadata: { cmuxPlan: "pro", cmuxVmPlan: "next_max" }, update: mock(async () => undefined) };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+    expect(await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      { db: dbWithNextRows([{ plan: "next_max" }]) as never, stackApp: { getUser: async () => plain } as never },
+    )).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
   });
 });

@@ -1,6 +1,7 @@
 import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
-import { higherNextPlanId, isNextPlanId, nextPlanIdForSubscription, type NextPlanId } from "./nextPlans";
+import { isNextPlanId, nextPlanIdForSubscription, type NextPlanId } from "./nextPlans";
+import { billingPlanIdFromMetadata } from "./teamResolution";
 import { activeNextPlanForUser, syncNextPlanMetadata } from "./nextPlanBilling";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
@@ -37,6 +38,7 @@ import {
   type PersonalPlanId,
   type ProMetadataJson,
   TEAM_PLAN_ID,
+  isPaidPlanId,
   isPersonalPlanId,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
@@ -1814,9 +1816,9 @@ async function syncUserCheckoutAfterCommit(
         return;
       }
       if (isNextPlanId(input.plan)) {
-        // The checkout just bought this plan; any other active NEXT row may be higher.
-        const activePlan = higherNextPlanId(input.plan, await activeNextPlanForUser(db, input.stackUserId));
-        await syncNextPlanMetadata(user, activePlan, mutationLease);
+        // Only the committed rows decide: a checkout replayed after the
+        // subscription was cancelled must not grant the plan again.
+        await syncNextPlanMetadata(user, await activeNextPlanForUser(db, input.stackUserId), mutationLease);
       } else {
         await syncProPlanMetadata(user, true, mutationLease, input.plan);
       }
@@ -2023,37 +2025,80 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
+  const retainsAccess = await syncUserSubscriptionMetadata(
+    db,
+    subscription,
+    lockedResult.stackUserId,
+    isActive,
+    dependencies,
+  );
+  return userSubscriptionUpdateResult(lockedResult.stackUserId, isActive, !isActive && retainsAccess);
+}
+
+/**
+ * A user-scoped result. `retainsAccess` is set only on a lapse that leaves
+ * the person entitled (a cmux NEXT subscription ended, or a classic
+ * entitlement remains), so route tokens and API keys must not be revoked.
+ * It rides on the declared result type, which callers read with `in`.
+ */
+function userSubscriptionUpdateResult(stackUserId: string, isActive: boolean, retainsAccess: boolean) {
+  return { scope: "user" as const, stackUserId, isActive, ...(retainsAccess ? { retainsAccess: true } : {}) };
+}
+
+/**
+ * Mirrors a user-scoped subscription into Stack metadata and reports whether
+ * the person keeps access after a lapse (a cmux NEXT subscription ended, or
+ * a classic entitlement remains).
+ */
+async function syncUserSubscriptionMetadata(
+  db: BillingDb,
+  subscription: Stripe.Subscription,
+  stackUserId: string,
+  isActive: boolean,
+  dependencies: BillingPurchaseDependencies,
+): Promise<boolean> {
+  let retainsAccess = false;
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
-    stackUserId: lockedResult.stackUserId,
+    stackUserId,
     stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
-      // A cmux NEXT subscription mirrors the user's best active NEXT row; it
-      // never touches the classic plan or TestFlight.
+      // Every user-scoped update re-mirrors the best active NEXT row, so a
+      // subscription switched from a NEXT Price to a classic one clears it.
+      const nextMetadata = await syncNextPlanMetadata(
+        freshUser,
+        await activeNextPlanForUser(db, stackUserId),
+        mutationLease,
+      );
+      // A cmux NEXT subscription never touches the classic plan, TestFlight,
+      // or classic access.
       if (nextPlanIdForSubscription(subscription)) {
-        await syncNextPlanMetadata(freshUser, await activeNextPlanForUser(db, lockedResult.stackUserId), mutationLease);
+        retainsAccess = true;
         return;
       }
+      const user = nextMetadata ? withClientMetadata(freshUser, nextMetadata) : freshUser;
       // Label the mirror with the plan this subscription's Price sells, so a
       // Billing Portal switch between Pro and Max lands as `cmuxPlan` change.
       const currentMetadata = await syncProPlanMetadata(
-        freshUser,
+        user,
         isActive,
         mutationLease,
         requirePersonalPlanIdForSubscription(subscription),
       );
-      if (!isActive) {
-        await removeUserFromTestflightOnLapse(
-          freshUser,
-          lockedResult.stackUserId,
-          currentMetadata,
-          dependencies,
-          mutationLease,
-        );
-      }
+      if (isActive) return;
+      // Another active classic subscription, an App Store plan or a paid
+      // operator grant still entitles the person: their access stays.
+      retainsAccess = await hasActiveUserProSubscription(db, stackUserId) ||
+        isPaidPlanId(billingPlanIdFromMetadata(currentMetadata));
+      await removeUserFromTestflightOnLapse(user, stackUserId, currentMetadata, dependencies, mutationLease);
     },
   });
-  return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
+  return retainsAccess;
+}
+
+/** `user` as seen after a metadata write this sync already made. */
+function withClientMetadata<User extends StackBillingUser>(user: User, metadata: Record<string, unknown>): User {
+  return Object.create(user, { clientReadOnlyMetadata: { value: metadata, writable: true } }) as User;
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {
