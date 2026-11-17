@@ -549,8 +549,16 @@ async fn restart_phases() {
             json!({"run": run, "hosted": hosted, "idle": idle, "ready_line_ms": ready_line_ms,
                    "status_ms": status_ms, "hosted_attach": hosted_attach,
                    "idle_attach": idle_attach, "adopted_ms": adopted_ms,
-                   "startup_ms": startup_ms, "phases": phases})
+                   "startup_ms": startup_ms})
         );
+        // The daemon's own start phases, one line apart so a log that cuts long lines keeps both.
+        let ends: Vec<String> = phases
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| format!("{}={}", p["name"].as_str().unwrap_or("?"), p["atMs"]))
+            .collect();
+        println!("acpmux-restart-gauges: run={run} hosted={hosted} idle={idle} {}", ends.join(";"));
         drop(rpc);
         daemon.sigterm();
     }
