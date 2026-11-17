@@ -350,7 +350,10 @@ impl Probe {
             .first()
             .and_then(|p| p.lines().find_map(|l| l.strip_prefix(WINDOW)))
             .map(str::to_owned);
-        let app_held = parts[0].lines().find_map(|l| l.strip_prefix(APP_HELD)).map(str::to_owned);
+        let app_held = parts
+            .first()
+            .and_then(|p| p.lines().find_map(|l| l.strip_prefix(APP_HELD)))
+            .map(str::to_owned);
         Some(Probe { uname, cloud_vm, app_managed, app_held, build, busy, refused, window })
     }
 }
