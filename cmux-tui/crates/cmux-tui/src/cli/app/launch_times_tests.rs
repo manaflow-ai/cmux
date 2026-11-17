@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::super::{AppCommand, parse};
 use super::{Command, FILE_NAME, MAX_BYTES, default_path, read, table};
@@ -90,6 +90,30 @@ fn launch_times_shows_the_bare_launch_fields() {
     }
     let old: Vec<&str> = lines[1].split_whitespace().collect();
     assert_eq!(old.iter().filter(|cell| **cell == "-").count(), 3, "{text}");
+}
+
+/// A relaunch into a chat (CMUX-119) prints the prior chat's columns; a launch with another tab in
+/// front shows `-` there.
+#[test]
+fn launch_times_table_prints_the_prior_chat_columns() {
+    let chat: Value = serde_json::from_str(&LINE.replace(
+        r#""prewarmed""#,
+        r#""prior_chat_painted_ms":1234.5,"prior_chat_live_ms":1490.2,"prewarmed""#,
+    ))
+    .unwrap();
+    let other: Value = serde_json::from_str(LINE).unwrap();
+    let text = table(&[chat, other]);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "{text}");
+    let header: Vec<&str> = lines[0].split_whitespace().collect();
+    let column = |name: &str| header.iter().position(|key| *key == name).expect(name);
+    let cells = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    // "1.0.0 (200)" is one cell of two words: the row has one more word than the header.
+    let (painted, live) = (column("prior_chat_painted_ms") + 1, column("prior_chat_live_ms") + 1);
+    assert_eq!(cells(lines[1])[painted], "1234.5", "{text}");
+    assert_eq!(cells(lines[1])[live], "1490.2", "{text}");
+    assert_eq!(cells(lines[2])[painted], "-", "{text}");
+    assert_eq!(cells(lines[2])[live], "-", "{text}");
 }
 
 #[test]

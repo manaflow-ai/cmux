@@ -76,9 +76,10 @@ pub(super) fn read(path: &Path, limit: Option<usize>) -> std::io::Result<Vec<Val
     Ok(records)
 }
 
-/// One row per launch under the record's own key names.
+/// One row per launch under the record's own key names. The prior chat's columns (CMUX-119) are `-`
+/// for a launch whose restored front tab was not an agent chat.
 pub(super) fn table(records: &[Value]) -> String {
-    const HEADER: [&str; 13] = [
+    const HEADER: [&str; 15] = [
         "started_at",
         "build",
         "commit",
@@ -90,6 +91,8 @@ pub(super) fn table(records: &[Value]) -> String {
         "window_usable_ms",
         "first_shell_live_ms",
         "no_snapshot",
+        "prior_chat_painted_ms",
+        "prior_chat_live_ms",
         "prewarmed",
         "first_launch_of_build",
     ];
