@@ -64,10 +64,21 @@ public final class MessagesLabHomeView: NSView {
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
     private var motionObservers: [any NSObjectProtocol] = []
     /// An open came before the message field existed: the field takes the keyboard when it is
-    /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
+    /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then), nowhere, or
+    /// on this view outside a text input.
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// An open came before this view was in a window (a launch builds Home's page first): it is
+    /// made again once the view is in one.
+    private var opensInWindow = false
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard opensInWindow, window != nil else { return }
+        opensInWindow = false
+        takeKeyboardOnOpen()
+    }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -529,9 +540,11 @@ public final class MessagesLabHomeView: NSView {
     /// a switch key): the message field takes the keyboard, as in Messages. While the first page
     /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
     /// the keyboard moved somewhere else in between (a click in another field, a text selection).
+    /// Before this view is in a window (a launch builds Home's page first), the open waits for one.
     /// Never brings the window forward.
     public func takeKeyboardOnOpen() {
-        guard !ChatController.noFocus, let window else { return }
+        guard !ChatController.noFocus else { return }
+        guard let window else { opensInWindow = true; return }
         if let field = controller.demo?.compose.textView.view {
             openKeyboardWaits = false
             if window.firstResponder !== field { window.makeFirstResponder(field) }
@@ -550,7 +563,10 @@ public final class MessagesLabHomeView: NSView {
         openKeyboardWaits = false
         guard let window, let field = controller.demo?.compose.textView.view else { return }
         let now = window.firstResponder
-        guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) else { return }
+        // Home itself holding the keyboard (a pane focus lands on this view before the field exists) is
+        // still the open's keyboard; a text input or a selection elsewhere in Home is the person's.
+        let inHome = (now as? NSView).map { ($0 === self || $0.isDescendant(of: self)) && primaryInputShouldTakeKeyboard(from: now) } ?? false
+        guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) || inHome else { return }
         window.makeFirstResponder(field)
     }
 
