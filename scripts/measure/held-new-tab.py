@@ -24,7 +24,7 @@ forms (--launch-form; `launch_form` and `key_source` in the report say which one
 `key_source` is the form's name):
 
   activate  the app is launched as a person's app (no CMUX_NEXT_NO_ACTIVATE: it takes the keyboard). A row is ONE
-            `debug.key {"sequence"}` in the shell window as the key window: the app builds each key as a real
+            `debug.key {"sequence"}` in the window that has the keys (KEY WINDOW): the app builds each key as a real
             CGEvent with its intended press time and posts it to its own event queue, so it takes `nextEvent`, the
             monitors, `sendEvent`, the key router and the action. A repeat has the repeat flag.
   one-key   the launcher's own launch (the app does not activate and has no key window). Each key-down of a row is
@@ -45,6 +45,18 @@ activate: by=launch|open|none|not asked app_active=... key_window=... front=... 
 report has that line as `launch.activate`. An app that is still not active (`by=none`) ends that launch as a failed
 preflight. A second instance of the app after the open ends the run with exit 1: no other launch form and no row
 (the function `activate` says which process gets a signal, and when).
+
+KEY WINDOW. A sequence of the `activate` form names the window that gets its keys (`key_window`): `shell`, or
+`page` when a Chromium page has the keys. The app shows such a page (the New Tab page, a chat, a browser tab) in a
+child window that has the keys while the pane shows the page, and it refuses `shell` then (`the shell window did not
+become key`); so a take or a preflight key that starts on a page asks for `page`. The word comes from one read of
+`debug.focus` (`key_window_word`); a take makes that read before its frames start. The read and the keys are 2
+calls, and the app moves the keys to a new page in that time (directly after a Cmd-T): when the app refuses the word
+with one of its 2 refusals of a key window, ONE new read and ONE more send, 2 sends at most; the app refuses a word
+before it posts a key of that call, so no key goes 2 times. The record of a take has the word of its send as
+`key_window`, and each refusal before it as `key_window_refusals`; a take with a refusal had one read of
+`debug.focus` inside its frames. The word names the window at the FIRST key of a sequence: the app's own focus moves
+the keys after that, as for a person (a Cmd-T moves them to the new tab's page).
 
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
@@ -240,8 +252,9 @@ APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/Applicat
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
 LAUNCH_FORMS = {"auto": ["activate", "one-key"], "activate": ["activate"], "one-key": ["one-key"]}
 ONE_KEY = "one key for each call, no repeat flag, the script's clock"
-KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own queue, in the shell window as the key window, a repeat "
-                           "with the repeat flag; not the HID tap, not the window server",
+KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own queue, in the window that has the keys (the shell "
+                           "window, or the window of a Chromium page that the pane shows), a repeat with the repeat flag; not the "
+                           "HID tap, not the window server",
                "one-key": ONE_KEY + ": each key-down is one debug.key call with its intended time, sent to the window directly; "
                           "not the app's event queue, no key-up, so the key router's repeat path is not in the rows"}
 PREFLIGHT_S = 120
@@ -251,6 +264,7 @@ SENT_BY = {"activate": "the app plays the sequence: one call, and the app posts 
 KEY_TIME = {"activate": "the app's own clock: each key's intended press time in the sequence",
             "one-key": "the key's planned time by this script's clock (the event's time that the app got), not the start of its "
                        "call: a number from a key's time has the wait of a late call in it"}
+KEY_REFUSALS = ("window did not become key", "no Chromium page window")  # the app's 2 refusals of a `key_window` word
 LATE_CALL_MS = 1.0  # a call that started this long after its planned time is `late` (a count for a reader, no gate)
 IN_TURN = "each_call_ended_with_its_reply_before_the_next_began"  # the field of `key_calls` (the docstring, INPUT ORDER)
 INPUT_ORDER_BY = ("the app's own records: the start of each key's action (`action.perform`, which names its key by the key's "
@@ -295,9 +309,36 @@ def uptime():
     return time.clock_gettime(time.CLOCK_UPTIME_RAW)
 
 
-def post_keys(source, rpc, steps, pane, form):
+def key_window_word(rpc):
+    """The `key_window` word of a sequence of the `activate` form (KEY WINDOW), by one read of `debug.focus`: `page`
+    when a Chromium page has the keys, else `shell`. The read: `appkit.child_window_page` of the cmux window that is
+    key, or of each window when none is (a page's window is key then). `shell` for a read that failed: the app's own
+    refusal then says what is wrong."""
+    focus = rpc("debug.focus")
+    windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
+    return "page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"
+
+
+def post_sequence(rpc, steps, pane, word=None):
+    """One sequence of the `activate` form in the window that has the keys (KEY WINDOW): `debug.key`'s reply, with
+    the word of the send as `key_window` and each refusal before it as `key_window_refusals` (`<word>: <the app's
+    words>`). `word`: the word of a read that the caller made; None for a read here. 2 sends at most, and a second
+    one only after a refusal of a key window, which the app makes before it posts a key."""
+    refusals = []
+    for again in (False, True):
+        word = word if word and not again else key_window_word(rpc)
+        sent = rpc("debug.key", {"sequence": steps, "key_window": word, "pane": pane}) or {}
+        sent = sent if isinstance(sent, dict) else {"error": f"debug.key: {str(sent)[:200]}"}
+        if again or not any(text in str(sent.get("error") or "") for text in KEY_REFUSALS):
+            break
+        refusals.append(f"{word}: {str(sent['error'])[:120]}")
+    return {**sent, "key_window": word, "key_window_refusals": refusals}
+
+
+def post_keys(source, rpc, steps, pane, form, word=None):
     """The ONE key source of a take, in the launch's key form: {base_s, duration_ms} or {error}. `activate`:
-    `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
+    `debug.key`'s reply to the sequence, which the app plays by its own clock in the window that has the keys
+    (`post_sequence`; `word` is its word from a read of the caller).
     `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call with its planned time as the event's time
     (`base_s` and the event times are on the clock of an event's time). ONE thread sends the calls in key order
     (`calls` has it): it waits for a key's planned time, and a call ends before the next one starts. With a reply of
@@ -309,7 +350,7 @@ def post_keys(source, rpc, steps, pane, form):
     if source != "app-queue":
         return {"error": f"the key source {source} is not in this script"}
     if form == "activate":
-        return rpc("debug.key", {"sequence": steps, "key_window": "shell", "pane": pane}) or {}
+        return post_sequence(rpc, steps, pane, word)
     letters, downs, at = {BENCH.KEY[name]: name for name in "tw"}, [], 0.0
     for step in steps:
         at += step.get("after_ms") or 0
@@ -830,6 +871,8 @@ def take(opts):
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
     time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
+    # The window that has the keys now (KEY WINDOW): read before the frames, as each other `debug.focus` read.
+    word = key_window_word(rpc) if opts.launch_form == "activate" else None
     first, start = bluetoothd(), time.time()
     rpc("debug.frames", {"action": "start"})
     armed = rpc("debug.burst", {"action": "start"}) or {}
@@ -849,7 +892,11 @@ def take(opts):
         steps, offsets = BENCH.sequence(letters, 0, (delay, interval))
     if opts.film:
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
-    sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form)
+    sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form, word)
+    if opts.launch_form == "activate":
+        record["key_window"] = sent.get("key_window") or word
+        if sent.get("key_window_refusals"):
+            record["key_window_refusals"] = sent["key_window_refusals"]
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
@@ -1196,7 +1243,9 @@ def preflight(app, st, out, film, form, display):
             fail(why)
         if not wait(lambda: tabs() == before + change, 10, 0.05):
             fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}")
-        ok(f"tabs {before} -> {tabs()}")
+        refusals = sent.get("key_window_refusals")
+        window = f", key_window = {sent.get('key_window')}" + (f" (the app refused {'; '.join(refusals)})" if refusals else "")
+        ok(f"tabs {before} -> {tabs()}" + (window if form == "activate" else ""))
     st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
     st.made.clear()
     wait(lambda: not st.workspace(workspace), 10, 0.1)  # the session's count starts without it; a late close is no fault

@@ -1157,6 +1157,19 @@ class KeyWindow(Case):
         self.assertEqual((world.asked, [tab["kind"] for tab in world.tabs]), (["shell", "shell", "page"], ["terminal"]))
         self.assertIn("PREFLIGHT close-tab ok: tabs 2 -> 1, key_window = page (the app refused shell: the shell window did not become key)", lines)
 
+    def test_the_word_follows_the_window_that_is_key(self):
+        """The app's `debug.focus` has one entry for each cmux window. While a page's window has the keys, no cmux window
+        is key, and the window of the page names it (`appkit.child_window_page`)."""
+        window = lambda key, page: {"is_key": key, "appkit": {"child_window_page": page}}
+        cases = (("page", {"windows": [window(False, "page1")]}),  # the page's own window is key
+                 ("shell", {"windows": [window(True, None)]}),
+                 # 2 cmux windows: the one that is key shows a terminal, the other one keeps the word of its page.
+                 ("shell", {"windows": [window(True, None), window(False, "page1")]}),
+                 ("page", {"windows": [window(False, None), window(False, "page1")]}),
+                 ("shell", {"windows": []}), ("shell", {"error": "unknown method"}), ("shell", None))
+        for want, reply in cases:
+            self.assertEqual(M.key_window_word(lambda method, params=None, timeout=60: reply), want, reply)
+
     def test_a_refusal_that_a_new_read_does_not_mend_fails_the_preflight_after_2_sends(self):
         """The focus says a page and the app finds no page window for it at each send: no third send."""
         world = World(chromium_pages=True)
