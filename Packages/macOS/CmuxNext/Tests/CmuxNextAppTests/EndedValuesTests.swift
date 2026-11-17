@@ -57,6 +57,18 @@ struct EndedValuesTests {
         #expect(Self.widths(model) == [0.55, 0.45, 0.5])
     }
 
+    /// A change of more than one value goes to the app as one intent, so the app can send it as one daemon command
+    /// (`set-layout-sizes`: one commit, every value or none). One intent for each value is one daemon commit for each: a
+    /// value the daemon refuses after it applied another leaves that other one applied.
+    @Test func aChangeOfTwoValuesGoesToTheAppAsOneIntent() {
+        let model = Self.model()
+        var intents: [LayoutIntent] = []
+        model.intentHandler = { intents.append($0) }
+        #expect(EndedValues([.width("c0", 0.55), .width("c1", 0.45)]).send(in: model))
+        #expect(intents.count == 1, "a change of two values went to the app as \(intents.count) intents")
+        #expect(Self.widths(model) == [0.55, 0.45, 0.5])
+    }
+
     /// Codex review 4: the daemon numbers remembered the newest transaction only, so a change sent between two values of
     /// another gave the other's second value a new number: two undo steps for one press.
     @Test func aTransactionKeepsItsNumberWhenAnotherGoesOutBetweenItsValues() throws {
