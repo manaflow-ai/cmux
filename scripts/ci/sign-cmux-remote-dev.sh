@@ -69,11 +69,26 @@ if [[ -s "$frameworks_marker" ]]; then
   exit 1
 fi
 
+# Contents/MacOS holds the worker and, from feat-cmux-next's attached-capture build on, the
+# cmux.rd/1 host the Screen Sharing worker runs for the attached app (docs/cmux-remote.md).
+# Nothing else may ride in it: each nested executable is signed by name below.
+rd_host="$app/Contents/MacOS/cmux-screen-sharing"
+for executable in "$app/Contents/MacOS"/*; do
+  case "${executable##*/}" in
+    cmux-remote) ;;
+    cmux-screen-sharing)
+      [[ -f "$executable" && -x "$executable" ]] ||
+        { echo "error: cmux-screen-sharing is not a regular executable" >&2; exit 1; } ;;
+    *) echo "error: unexpected Remote executable ${executable##*/}" >&2; exit 1 ;;
+  esac
+done
+
 sign() {
   codesign --force --options runtime --timestamp --keychain "$keychain" --sign "$identity" "$@"
 }
 sign "$framework_dir/libcua_driver_sdk.dylib"
 sign "$framework_dir/libWebRTC.dylib"
+[[ ! -e "$rd_host" ]] || sign "$rd_host"
 sign "$app"
 codesign --verify --strict --deep --verbose=2 "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
