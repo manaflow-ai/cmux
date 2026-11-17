@@ -1,6 +1,6 @@
 process.env.TZ = "America/Los_Angeles"
 import { describe, expect, test } from "bun:test"
-import { agenda, barOf, readKey, READ, startOfNextDay, timeRange, startTime, tintOf, uses12Hour, weekdayHeading, dayNumber, type CalendarEvent } from "../src/calendar.ts"
+import { agenda, barOf, READ, startOfNextDay, timeRange, startTime, tintOf, uses12Hour, weekdayHeading, dayNumber, fixedOffset, gridColumn, hourLabel, startOfDay, type CalendarEvent } from "../src/calendar.ts"
 
 const NOW = new Date(2026, 10, 17, 13, 12).getTime() // Tuesday 1:12 PM
 const local = (d: number, h: number, m = 0) => new Date(2026, 10, 17 + d, h, m).getTime()
@@ -61,8 +61,56 @@ describe("calendar logic", () => {
     expect(barOf(undefined)).toBe("#1badf8")
   })
 
-  test("reads again every 5 minutes, not every minute", () => {
-    expect(readKey(local(0, 13, 12))).toBe(readKey(local(0, 13, 14)))
-    expect(readKey(local(0, 13, 14))).not.toBe(readKey(local(0, 13, 15)))
+})
+
+describe("the person's zone, not the process's", () => {
+  const LA = fixedOffset(-480)
+  const TOKYO = fixedOffset(540)
+  // 1:12 PM in Los Angeles is 6:12 AM Wednesday in Tokyo.
+  const AT = Date.UTC(2026, 10, 17, 21, 12)
+
+  test("the day, its midnight and the clock follow the given zone", () => {
+    expect(weekdayHeading(AT, LA)).toBe("TUESDAY")
+    expect(weekdayHeading(AT, TOKYO)).toBe("WEDNESDAY")
+    expect(dayNumber(AT, TOKYO)).toBe("18")
+    expect(startOfDay(AT, TOKYO)).toBe(Date.UTC(2026, 10, 17, 15))
+    expect(startTime({ start: AT }, true, TOKYO)).toBe("6:12 AM")
+    expect(startTime({ start: AT }, false, LA)).toBe("13:12")
+  })
+
+  test("a DST change: midnight is found from the offset at that midnight", () => {
+    // Los Angeles, Sunday November 1 2026: PDT (-420) until 2 AM, PST (-480) after.
+    const la = (at: number) => (at < Date.UTC(2026, 10, 1, 9) ? -420 : -480)
+    const sunday = Date.UTC(2026, 10, 1, 17) // 9 AM PST
+    expect(startOfDay(sunday, la)).toBe(Date.UTC(2026, 10, 1, 7))
+    expect(startOfNextDay(sunday, la)).toBe(Date.UTC(2026, 10, 2, 8))
+  })
+})
+
+describe("the large hour grid", () => {
+  const LA = fixedOffset(-480)
+  const day0 = Date.UTC(2026, 10, 17, 8) // midnight Tuesday in LA
+  const day1 = Date.UTC(2026, 10, 18, 8)
+  const at = (day: number, h: number, m = 0) => day + (h * 60 + m) * 60_000
+  const e = (id: string, start: number, minutes: number): CalendarEvent => ({ id, title: id, start, end: start + minutes * 60_000, allDay: false, calendar: "Home" })
+
+  test("today starts at the current hour with the now line in it, as Apple's 1 with the line at 1:12", () => {
+    const col = gridColumn([e("yoga", at(day0, 16), 60)], day0, 6, LA, at(day0, 13, 12))
+    expect([col.startHour, col.endHour]).toEqual([13, 19])
+    expect(col.now).toBeCloseTo(13.2)
+    expect(col.blocks.map((b) => [b.e.id, b.from, b.to])).toEqual([["yoga", 16, 17]])
+  })
+
+  test("tomorrow starts an hour before its first event; overlaps share the width; late events stay in the day", () => {
+    const col = gridColumn([e("coffee", at(day1, 8, 30), 30), e("a", at(day1, 10), 60), e("b", at(day1, 10, 30), 60)], day1, 7, LA)
+    expect([col.startHour, col.endHour]).toEqual([7, 14])
+    expect(col.now).toBeUndefined()
+    expect(col.blocks.map((b) => [b.e.id, b.lane, b.lanes])).toEqual([["coffee", 0, 1], ["a", 0, 2], ["b", 1, 2]])
+    expect(gridColumn([e("late", at(day1, 22), 60)], day1, 7, LA).startHour).toBe(17)
+  })
+
+  test("hour labels as Apple writes them", () => {
+    expect([12, 13, 0, 23].map((h) => hourLabel(h, true))).toEqual(["12", "1", "12", "11"])
+    expect([12, 13, 0].map((h) => hourLabel(h, false))).toEqual(["12", "13", "0"])
   })
 })

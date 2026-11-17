@@ -1,13 +1,13 @@
 // The events the Add Widget gallery shows (ctx.preview): a plausible day around `now`, never the
 // person's own calendar. The tests and the gallery fixtures use the same day.
 
-import { startOfDay, type CalendarEvent } from "./calendar.ts"
+import { localOffset, startOfDay, startOfNextDay, type CalendarEvent, type Offset } from "./calendar.ts"
 
 const HOUR = 60 * 60 * 1000
 
-function at(day: number, hour: number, minute = 0): number {
-  const d = new Date(day)
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute).getTime()
+/** `hour:minute` on the day `day` falls in, in the zone. */
+function at(day: number, hour: number, minute: number, off: Offset): number {
+  return startOfDay(day, off) + hour * HOUR + minute * 60_000
 }
 
 /** Calendar's own default colors: Work blue, Home green, Family purple. */
@@ -33,28 +33,27 @@ export function event(
   }
 }
 
-export function allDay(id: string, title: string, day: number, calendar: keyof typeof COLORS): CalendarEvent {
-  const start = startOfDay(day)
-  const d = new Date(start)
+export function allDay(id: string, title: string, day: number, calendar: keyof typeof COLORS, off: Offset = localOffset): CalendarEvent {
+  const start = startOfDay(day, off)
   return {
     id,
     title,
     start,
-    end: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() - 1000,
+    end: startOfNextDay(start, off) - 1000,
     allDay: true,
     calendar: calendar[0]!.toUpperCase() + calendar.slice(1),
     color: COLORS[calendar]
   }
 }
 
-/** A Monday-ish day: two events left today, two tomorrow. */
-export function SAMPLE_EVENTS(now: number): CalendarEvent[] {
-  const today = startOfDay(now)
-  const tomorrow = today + 26 * HOUR
+/** A Tuesday-ish day: two events left today, two tomorrow. */
+export function SAMPLE_EVENTS(now: number, off: Offset = localOffset): CalendarEvent[] {
+  const today = startOfDay(now, off)
+  const tomorrow = startOfNextDay(today, off)
   return [
-    event("yoga", "Yoga Class", at(today, 16), 60, "family", "Golden Gate Park"),
-    event("dinner", "Dinner with Ravi", at(today, 18), 90, "home", "Nopa"),
-    event("coffee", "Pick up coffee", at(tomorrow, 8, 30), 30, "home", "Coffee Shop"),
-    event("standup", "Team standup", at(tomorrow, 10), 15, "work", "Zoom")
+    event("yoga", "Yoga Class", at(today, 16, 0, off), 60, "family", "Golden Gate Park"),
+    event("dinner", "Dinner with Ravi", at(today, 18, 0, off), 90, "home", "Nopa"),
+    event("coffee", "Pick up coffee", at(tomorrow, 8, 30, off), 30, "home", "Coffee Shop"),
+    event("standup", "Team standup", at(tomorrow, 10, 0, off), 15, "work", "Zoom")
   ]
 }

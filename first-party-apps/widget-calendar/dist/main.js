@@ -16,7 +16,8 @@
   };
   var exports_main = {};
   __export(exports_main, {
-    renderCalendar: () => renderCalendar
+    renderCalendar: () => renderCalendar,
+    zoneOffset: () => zoneOffset
   });
   var events_default = {
     $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again (a stream fed from outside this machine, github.changed, may say {\"live\": bool} about its push channel). The daemon delivers a stream only to an app that may call its `reads` op with its optional `readsParams` (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope; a `reads` op whose catalog scope has a <placeholder> (integration.request) names the narrowed scope in `scope`. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
@@ -33,6 +34,10 @@
       "pane.changed": {
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
+      },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
       },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
@@ -2369,29 +2374,42 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line
   } = g;
   var EVENT_STREAMS = Object.keys(events_default.events);
+  var localOffset = (at) => -new Date(at).getTimezoneOffset();
   var DAY = 24 * 60 * 60 * 1000;
+  var HOUR = 60 * 60 * 1000;
   var WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  function startOfDay(at) {
-    const d = new Date(at);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  function wall(at, off = localOffset) {
+    return new Date(at + off(at) * 60000);
   }
-  function startOfNextDay(at) {
-    const d = new Date(at);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+  function fromWall(wallMs, off, near) {
+    const guess = wallMs - off(near) * 60000;
+    return wallMs - off(guess) * 60000;
+  }
+  function startOfDay(at, off = localOffset) {
+    const w = wall(at, off);
+    return fromWall(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate()), off, at);
+  }
+  function startOfNextDay(at, off = localOffset) {
+    const w = wall(at, off);
+    return fromWall(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate() + 1), off, at + DAY);
+  }
+  function hourOfDay(at, dayStart, off = localOffset) {
+    return (at + off(at) * 60000 - (dayStart + off(dayStart) * 60000)) / HOUR;
   }
   var READ = { days: 2, limit: 50 };
-  function weekdayHeading(now) {
-    return WEEKDAYS[new Date(now).getDay()].toUpperCase();
+  function weekdayHeading(now, off = localOffset) {
+    return WEEKDAYS[wall(now, off).getUTCDay()].toUpperCase();
   }
-  function dayNumber(now) {
-    return String(new Date(now).getDate());
+  function dayNumber(now, off = localOffset) {
+    return String(wall(now, off).getUTCDate());
   }
-  function agenda(events, now) {
-    const tomorrowStart = startOfNextDay(now);
-    const tomorrowEnd = startOfNextDay(tomorrowStart);
+  function agenda(events, now, off = localOffset) {
+    const tomorrowStart = startOfNextDay(now, off);
+    const tomorrowEnd = startOfNextDay(tomorrowStart, off);
     const out = { allDayToday: [], today: [], allDayTomorrow: [], tomorrow: [] };
     const sorted = [...events].sort((a, b) => a.start - b.start || a.end - b.end || a.title.localeCompare(b.title));
     for (const e of sorted) {
@@ -2420,40 +2438,92 @@
       return ["US", "CA", "AU", "NZ", "IN", "PH", "PK", "EG", "SA", "MX", "CO"].includes(region);
     return language === "en";
   }
-  function clock(at, twelve) {
-    const d = new Date(at);
-    const h = d.getHours();
-    const m = String(d.getMinutes()).padStart(2, "0");
+  function clock(at, twelve, off = localOffset) {
+    const d = wall(at, off);
+    const h = d.getUTCHours();
+    const m = String(d.getUTCMinutes()).padStart(2, "0");
     if (!twelve)
       return { time: `${String(h).padStart(2, "0")}:${m}`, period: "" };
     return { time: `${h % 12 === 0 ? 12 : h % 12}:${m}`, period: h < 12 ? "AM" : "PM" };
   }
-  function timeRange(e, twelve) {
-    const a = clock(e.start, twelve);
-    const b = clock(e.end, twelve);
+  function timeRange(e, twelve, off = localOffset) {
+    const a = clock(e.start, twelve, off);
+    const b = clock(e.end, twelve, off);
     if (!twelve)
       return `${a.time}–${b.time}`;
-    if (a.period === b.period && startOfDay(e.start) === startOfDay(e.end))
+    if (a.period === b.period && startOfDay(e.start, off) === startOfDay(e.end, off))
       return `${a.time}–${b.time} ${b.period}`;
     return `${a.time} ${a.period}–${b.time} ${b.period}`;
   }
-  function startTime(e, twelve) {
-    const a = clock(e.start, twelve);
+  function startTime(e, twelve, off = localOffset) {
+    const a = clock(e.start, twelve, off);
     return twelve ? `${a.time} ${a.period}` : a.time;
   }
+  function hourLabel(hour, twelve) {
+    const h = (hour % 24 + 24) % 24;
+    return twelve ? String(h % 12 === 0 ? 12 : h % 12) : String(h);
+  }
+  var HEX = /^#[0-9a-fA-F]{6}$/;
   function tintOf(color) {
-    return color && /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}2e` : "#1badf82e";
+    return color && HEX.test(color) ? `${color}2e` : "#1badf82e";
   }
   function barOf(color) {
-    return color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#1badf8";
+    return color && HEX.test(color) ? color : "#1badf8";
   }
-  function readKey(now) {
-    return `${startOfDay(now)}:${Math.floor(now / (5 * 60 * 1000))}`;
+  var CALENDAR_RED = "#ff3b30";
+  function gridColumn(events, dayStart, hours, off = localOffset, now) {
+    const at = (e) => hourOfDay(e, dayStart, off);
+    let first;
+    if (now !== undefined)
+      first = Math.floor(at(now));
+    else {
+      const earliest = events.length > 0 ? Math.min(...events.map((e) => at(e.start))) : 8;
+      first = Math.floor(Math.max(0, earliest)) - 1;
+    }
+    const startHour = Math.max(0, Math.min(24 - hours, first));
+    const endHour = startHour + hours;
+    const shown = events.map((e) => ({ e, from: Math.max(startHour, at(e.start)), to: Math.min(endHour, at(e.end)) })).filter((b) => b.to > b.from).sort((a, b) => a.from - b.from || b.to - a.to);
+    const blocks = lanes(shown);
+    const column = { startHour, endHour, blocks };
+    if (now !== undefined) {
+      const h = at(now);
+      if (h >= startHour && h <= endHour)
+        column.now = h;
+    }
+    return column;
   }
-  var HOUR = 60 * 60 * 1000;
-  function at(day, hour, minute = 0) {
-    const d = new Date(day);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute).getTime();
+  function lanes(sorted) {
+    const out = [];
+    let run = [];
+    let runEnd = -Infinity;
+    let ends = [];
+    const close = () => {
+      for (const b of run)
+        b.lanes = Math.max(1, ends.length);
+      run = [];
+      ends = [];
+    };
+    for (const s of sorted) {
+      if (s.from >= runEnd) {
+        close();
+        runEnd = -Infinity;
+      }
+      let lane = ends.findIndex((end) => end <= s.from);
+      if (lane < 0)
+        lane = ends.push(s.to) - 1;
+      else
+        ends[lane] = s.to;
+      const block = { ...s, lane, lanes: 1 };
+      run.push(block);
+      out.push(block);
+      runEnd = Math.max(runEnd, s.to);
+    }
+    close();
+    return out;
+  }
+  var HOUR2 = 60 * 60 * 1000;
+  function at(day, hour, minute, off) {
+    return startOfDay(day, off) + hour * HOUR2 + minute * 60000;
   }
   var COLORS = { work: "#1badf8", home: "#63da38", family: "#cc73e1", birthdays: "#ff9500" };
   function event(id, title, start, minutes, calendar, location) {
@@ -2468,64 +2538,155 @@
       ...location ? { location } : {}
     };
   }
-  function SAMPLE_EVENTS(now) {
-    const today = startOfDay(now);
-    const tomorrow = today + 26 * HOUR;
+  function SAMPLE_EVENTS(now, off = localOffset) {
+    const today = startOfDay(now, off);
+    const tomorrow = startOfNextDay(today, off);
     return [
-      event("yoga", "Yoga Class", at(today, 16), 60, "family", "Golden Gate Park"),
-      event("dinner", "Dinner with Ravi", at(today, 18), 90, "home", "Nopa"),
-      event("coffee", "Pick up coffee", at(tomorrow, 8, 30), 30, "home", "Coffee Shop"),
-      event("standup", "Team standup", at(tomorrow, 10), 15, "work", "Zoom")
+      event("yoga", "Yoga Class", at(today, 16, 0, off), 60, "family", "Golden Gate Park"),
+      event("dinner", "Dinner with Ravi", at(today, 18, 0, off), 90, "home", "Nopa"),
+      event("coffee", "Pick up coffee", at(tomorrow, 8, 30, off), 30, "home", "Coffee Shop"),
+      event("standup", "Team standup", at(tomorrow, 10, 0, off), 15, "work", "Zoom")
     ];
   }
-  var TYPE = { heading: 11, day: 34, title: 13, detail: 12, label: 11 };
+  var TYPE = { heading: 11, day: 32, title: 13, detail: 12, label: 11, hour: 11 };
+  var GRID = { hour: 36, gutter: 20, label: 16, hours: 7 };
   var BLOCKS = {
     small: { left: 2, right: 0 },
     medium: { left: 1, right: 2 },
     large: { left: 5, right: 6 }
   };
   var t = (key, fallback, params) => cmux.t(key, fallback, params);
+  function zoneOffset(zone) {
+    if (!zone)
+      return localOffset;
+    const cache = new Map;
+    return (at) => {
+      const key = Math.floor(at / 900000);
+      let minutes = cache.get(key);
+      if (minutes === undefined) {
+        try {
+          minutes = cmux.time.zone(zone, at).offsetMinutes;
+        } catch {
+          minutes = localOffset(at);
+        }
+        if (cache.size > 256)
+          cache.clear();
+        cache.set(key, minutes);
+      }
+      return minutes;
+    };
+  }
   function renderCalendar(ctx) {
     const size = ctx.size ?? "small";
     const settings = ctx.settings ?? {};
-    const twelve = uses12Hour(cmux.app.locale || "en-US", settings.hourCycle);
+    const twelve = uses12Hour(ctx.locale || cmux.app.locale || "en-US", settings.hourCycle);
+    const off = zoneOffset(ctx.timeZone);
+    const grid = size === "large" && settings.largeLayout !== "list";
     const now = () => ctx.now();
-    const [load, setLoad] = signal(ctx.preview ? { state: "ready", access: "granted", events: SAMPLE_EVENTS(ctx.now()) } : { state: "loading" });
-    let readFor = "";
-    const read = () => {
-      cmux.system_calendar.events({ ...READ }).then((answer) => setLoad({ state: "ready", access: answer.access, events: answer.events }), (error) => setLoad({ state: "error", code: error?.code ?? "operation.failed" }));
+    const live = ctx.preview ? null : cmux.watch("system_calendar.events", { ...READ });
+    const sample = { state: "ready", access: "granted", events: SAMPLE_EVENTS(ctx.now(), off) };
+    const load = () => {
+      if (!live)
+        return sample;
+      const answer = live.value();
+      const error = live.error();
+      if (!answer && error)
+        return { state: "error", code: error.code ?? "operation.failed" };
+      if (!answer)
+        return { state: "loading" };
+      return { state: "ready", access: answer.access, events: answer.events ?? [] };
     };
-    if (!ctx.preview) {
-      effect(() => {
-        const key = readKey(now());
-        if (key === readFor)
-          return;
-        readFor = key;
-        read();
-      });
-    }
     const allow = () => {
-      cmux.system_calendar.request_access({}).then(read, read);
+      const again = () => live?.refresh();
+      cmux.system_calendar.request_access({}).then(again, again);
     };
     const inset = ctx.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab;
     const body = () => {
       const current = load();
       const at = now();
-      const header = dateHeader(at);
+      const header = dateHeader(at, off, grid);
       if (current.state !== "ready" || current.access !== "granted") {
         const notice = current.state === "loading" ? null : accessNotice(current, allow);
         return VStack({ spacing: 8, alignment: "leading" }, [header, notice, Spacer()]);
       }
-      const day = agenda(current.events, at);
-      return layout(size, header, day, twelve);
+      if (grid)
+        return hourGrid(header, current.events, at, off, twelve);
+      return layout(size, header, agenda(current.events, at, off), twelve, off);
     };
     return VStack({ alignment: "leading", spacing: 0 }, [body]).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity", alignment: "topLeading" });
   }
-  function dateHeader(at) {
-    return VStack({ spacing: 0, alignment: "leading" }, [
-      Text(weekdayHeading(at)).font(TYPE.heading).weight("semibold").color("danger").lineLimit(1),
-      Text(dayNumber(at)).font(TYPE.day).weight("regular").lineLimit(1)
+  function dateHeader(at, off, grid = false) {
+    const view = VStack({ spacing: 0, alignment: "leading" }, [
+      Text(weekdayHeading(at, off)).font(TYPE.heading).weight("semibold").color(CALENDAR_RED).lineLimit(1),
+      Text(dayNumber(at, off)).font(TYPE.day).weight("regular").lineLimit(1)
     ]);
+    return grid ? view.frame({ height: GRID.label + GRID.hour, alignment: "topLeading" }) : view;
+  }
+  function hourGrid(header, events, at, off, twelve) {
+    const day = agenda(events, at, off);
+    const todayStart = startOfDay(at, off);
+    const tomorrowStart = startOfNextDay(at, off);
+    const allDay = day.allDayToday.length > 0 || day.allDayTomorrow.length > 0;
+    const hours = GRID.hours - (allDay ? 1 : 0);
+    const allDayRow = (list) => allDay ? VStack({ spacing: 2, alignment: "leading" }, [
+      ...list.slice(0, 1).map((e) => allDayBlock(e)),
+      list.length > 1 ? Text(t("more", "{count} more", { count: list.length - 1 })).font(TYPE.label).color("secondary") : null
+    ]).frame({ maxWidth: "infinity", height: GRID.hour, alignment: "topLeading" }) : null;
+    const today = gridColumn(day.today, todayStart, hours - 1, off, at);
+    const tomorrow = gridColumn(day.tomorrow, tomorrowStart, hours, off);
+    return HStack({ spacing: 14, alignment: "top" }, [
+      VStack({ spacing: 0, alignment: "leading" }, [header, allDayRow(day.allDayToday), gridView(today, twelve, off, day.today.length === 0 ? t("noMoreToday", "No more events today") : null)]).frame({
+        maxWidth: "infinity",
+        alignment: "topLeading"
+      }),
+      VStack({ spacing: 0, alignment: "leading" }, [
+        dayLabel(t("tomorrow", "TOMORROW")).frame({ height: GRID.label, alignment: "topLeading" }),
+        allDayRow(day.allDayTomorrow),
+        gridView(tomorrow, twelve, off, day.tomorrow.length === 0 ? t("noEventsTomorrow", "No events") : null)
+      ]).frame({ maxWidth: "infinity", alignment: "topLeading" })
+    ]).frame({ maxWidth: "infinity", alignment: "topLeading" });
+  }
+  function gridView(column, twelve, off, empty = null) {
+    const height = (column.endHour - column.startHour) * GRID.hour + 1;
+    const y = (hour) => (hour - column.startHour) * GRID.hour;
+    const rows = [];
+    for (let hour = column.startHour;hour <= column.endHour; hour++) {
+      rows.push(HStack({ spacing: 0, alignment: "top" }, [
+        Text(hourLabel(hour, twelve)).font(TYPE.hour).weight("semibold").color("secondary").lineLimit(1).frame({ width: GRID.gutter, alignment: "leading" }).offset({ y: -7 }),
+        Line({ stroke: "separator" }).frame({ maxWidth: "infinity" })
+      ]).frame({ maxWidth: "infinity", height: hour === column.endHour ? 1 : GRID.hour, alignment: "topLeading" }));
+    }
+    const children = [VStack({ spacing: 0, alignment: "leading" }, rows).frame({ maxWidth: "infinity" })];
+    if (empty)
+      children.push(HStack({ spacing: 0 }, [VStack([]).frame({ width: GRID.gutter }), Text(empty).font(TYPE.title).color("secondary").lineLimit(2), Spacer()]).frame({ maxWidth: "infinity" }));
+    for (const b of column.blocks) {
+      const h = Math.max(16, (b.to - b.from) * GRID.hour - 2);
+      const lanes = [];
+      for (let lane = 0;lane < b.lanes; lane++)
+        lanes.push(lane === b.lane ? gridBlock(b.e, h, twelve, off) : VStack([]).frame({ maxWidth: "infinity", height: h }));
+      children.push(HStack({ spacing: 2, alignment: "top" }, [VStack([]).frame({ width: GRID.gutter - 2 }), ...lanes]).frame({ maxWidth: "infinity", height: h }).offset({ y: y(b.from) + 1 + h / 2 - height / 2 }));
+    }
+    if (column.now !== undefined) {
+      children.push(HStack({ spacing: 0, alignment: "center" }, [
+        VStack([]).frame({ width: GRID.gutter - 3 }),
+        Circle({ fill: CALENDAR_RED, size: 6 }),
+        Line({ stroke: CALENDAR_RED, strokeWidth: 1.5 }).frame({ maxWidth: "infinity" })
+      ]).frame({ maxWidth: "infinity", height: 6 }).offset({ y: y(column.now) - height / 2 }));
+    }
+    return ZStack(children).frame({ maxWidth: "infinity", height });
+  }
+  function gridBlock(e, height, twelve, off) {
+    const color = barOf(e.color);
+    const lines = [Text(e.title || t("untitled", "New Event")).font(TYPE.title).weight("medium").lineLimit(1)];
+    if (height >= 34)
+      lines.push(Text(startTime(e, twelve, off)).font(TYPE.detail).color(color).lineLimit(1));
+    if (height >= 50 && e.location)
+      lines.push(Text(e.location).font(TYPE.detail).color(color).lineLimit(1));
+    return HStack({ spacing: 5, alignment: "top" }, [
+      VStack([]).frame({ width: 3, maxHeight: "infinity" }).background(color).cornerRadius(1.5),
+      VStack({ spacing: 0, alignment: "leading" }, lines),
+      Spacer()
+    ]).padding({ top: 3, bottom: 3, leading: 4, trailing: 4 }).background(tintOf(e.color)).cornerRadius(5).frame({ maxWidth: "infinity", height, alignment: "topLeading" });
   }
   function accessNotice(load, allow) {
     const note = (text) => Text(text).font(TYPE.detail).color("secondary").lineLimit(4);
@@ -2548,7 +2709,7 @@
         ]);
     }
   }
-  function layout(size, header, day, twelve) {
+  function layout(size, header, day, twelve, off) {
     const blocks = BLOCKS[size];
     const todayItems = [
       ...day.allDayToday.map((e) => ({ kind: "allDay", e })),
@@ -2566,7 +2727,7 @@
       return VStack({ spacing: 6, alignment: "leading" }, [
         header,
         nothingToday ? noMore : null,
-        ...shown.map((item) => itemView(item, twelve, rich)),
+        ...shown.map((item) => itemView(item, twelve, rich, off)),
         Spacer()
       ]);
     }
@@ -2576,18 +2737,18 @@
       const right = [];
       let room = blocks.right;
       for (const item of rest.slice(0, room))
-        right.push(itemView(item, twelve, true));
+        right.push(itemView(item, twelve, true, off));
       room -= Math.min(rest.length, room);
       if (room > 0 && tomorrowItems.length > 0) {
         right.push(dayLabel(t("tomorrow", "TOMORROW")));
         for (const item of tomorrowItems.slice(0, room))
-          right.push(itemView(item, twelve, true));
+          right.push(itemView(item, twelve, true, off));
       } else if (nothingToday && tomorrowItems.length === 0) {
         right.push(dayLabel(t("tomorrow", "TOMORROW")));
         right.push(Text(t("noEventsTomorrow", "No events")).font(TYPE.detail).color("secondary"));
       }
       return HStack({ spacing: 12, alignment: "top" }, [
-        column([header, nothingToday ? noMore : null, ...left.map((item) => itemView(item, twelve, true))]),
+        column([header, nothingToday ? noMore : null, ...left.map((item) => itemView(item, twelve, true, off))]),
         column(right)
       ]).frame({ maxWidth: "infinity", alignment: "topLeading" });
     }
@@ -2596,13 +2757,13 @@
     if (tomorrowItems.length === 0)
       tomorrowColumn.push(Text(t("noEventsTomorrow", "No events")).font(TYPE.detail).color("secondary"));
     for (const item of tomorrowItems.slice(0, blocks.right))
-      tomorrowColumn.push(itemView(item, twelve, true));
+      tomorrowColumn.push(itemView(item, twelve, true, off));
     tomorrowColumn.push(more(tomorrowItems.length - blocks.right));
     return HStack({ spacing: 12, alignment: "top" }, [
       column([
         header,
         nothingToday ? noMore : null,
-        ...todayItems.slice(0, blocks.left).map((item) => itemView(item, twelve, true)),
+        ...todayItems.slice(0, blocks.left).map((item) => itemView(item, twelve, true, off)),
         more(todayItems.length - blocks.left)
       ]),
       column(tomorrowColumn)
@@ -2614,15 +2775,15 @@
   function dayLabel(text) {
     return Text(text).font(TYPE.label).weight("semibold").color("secondary").lineLimit(1);
   }
-  function itemView(item, twelve, rich) {
-    return item.kind === "allDay" ? allDayBlock(item.e) : eventBlock(item.e, twelve, rich);
+  function itemView(item, twelve, rich, off) {
+    return item.kind === "allDay" ? allDayBlock(item.e) : eventBlock(item.e, twelve, rich, off);
   }
-  function eventBlock(e, twelve, rich) {
+  function eventBlock(e, twelve, rich, off) {
     const color = barOf(e.color);
     const lines = [Text(e.title || t("untitled", "New Event")).font(TYPE.title).weight("medium").lineLimit(1)];
     if (rich && e.location)
       lines.push(Text(e.location).font(TYPE.detail).color(color).lineLimit(1));
-    lines.push(Text(rich ? timeRange(e, twelve) : startTime(e, twelve)).font(TYPE.detail).color(color).lineLimit(1));
+    lines.push(Text(rich ? timeRange(e, twelve, off) : startTime(e, twelve, off)).font(TYPE.detail).color(color).lineLimit(1));
     return block(color, e.color, VStack({ spacing: 0, alignment: "leading" }, lines));
   }
   function allDayBlock(e) {
