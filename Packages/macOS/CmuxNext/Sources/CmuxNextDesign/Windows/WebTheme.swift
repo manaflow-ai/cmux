@@ -50,6 +50,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
+    /// the glass reads the `--wl-*` variables this theme carries.
+    public let wallpaperLight: Bool
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -197,6 +200,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // Wallpaper lighting (glass.css WALLPAPER LIGHTING): the key window's light, empty while off.
+            .merging(BackdropImageStore.shared.light.cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -209,6 +214,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = (glass ?? .current).rawValue
         decorations = ThemeDecorations.current.payload
         fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
+        wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -231,6 +237,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if wallpaperLight { object["wallpaperLight"] = true }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -379,6 +386,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          root.toggleAttribute('data-wallpaper-light', !!payload.wallpaperLight);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};

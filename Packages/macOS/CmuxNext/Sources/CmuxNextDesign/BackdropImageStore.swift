@@ -27,12 +27,16 @@ public final class BackdropImageStore {
     /// The desktop picture: the Desktop Wallpaper art reloads when it changes, and its color leans
     /// the glass tint (``WallpaperTint``). Inert until started.
     public let desktop: DesktopWallpaperWatch
+    /// The wallpaper light (`appearance.wallpaperLighting`): fed by ``desktop`` and by each decoded picture's field.
+    public let light = WallpaperLight()
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 
     /// Fetches the full image of art that does not ship in the app.
     private let downloads: BackdropArtDownloads
     private var images: [Key: NSImage] = [:]
+    /// The light field of each decoded image, read in its decode.
+    private var lightFields: [Key: WallpaperLightField] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
     /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
@@ -53,6 +57,8 @@ public final class BackdropImageStore {
         let image: CGImage
         /// Whether a texture pass ran (not read back from a snapshot).
         let rendered: Bool
+        /// Its light field (``WallpaperLightField``), read once here off the main actor.
+        let light: WallpaperLightField?
     }
 
     /// The longest side of a snapshot preview: enough under the window's tint for the frames
@@ -78,6 +84,7 @@ public final class BackdropImageStore {
         self.snapshots = snapshots
         self.downloads = downloads
         self.desktop = desktop ?? .live(defaults: nil)
+        self.desktop.light = light
     }
 
     /// The longest side of the largest screen, in pixels.
@@ -90,6 +97,11 @@ public final class BackdropImageStore {
     /// appearance), or nil until it has loaded.
     func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
         images[Key(id: selection.variantID(dark: dark), texture: texture)]
+    }
+
+    /// The light field of `image`, one this store decoded (nil for a preview, which has none).
+    func lightField(of image: NSImage) -> WallpaperLightField? {
+        images.first { $0.value === image }.flatMap { lightFields[$0.key] }
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
@@ -114,6 +126,7 @@ public final class BackdropImageStore {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
         images = images.filter { $0.key.id != BackdropSelection.desktopID }
+        lightFields = lightFields.filter { $0.key.id != BackdropSelection.desktopID }
         let retired = loads.filter { $0.key.id == BackdropSelection.desktopID }.map(\.value)
         loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
         guard !retired.isEmpty else { return }
@@ -184,6 +197,7 @@ public final class BackdropImageStore {
         if decoded.rendered { renderCount += 1 }
         let image = NSImage(cgImage: decoded.image, size: NSSize(width: decoded.image.width, height: decoded.image.height))
         images[key] = image
+        lightFields[key] = decoded.light
         return image
     }
 
@@ -202,14 +216,14 @@ public final class BackdropImageStore {
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
                                          texture: BackdropTexture, dark: Bool, frame: Int? = nil) -> Decoded? {
         if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
-            return Decoded(image: image, rendered: false)
+            return Decoded(image: image, rendered: false, light: WallpaperLightField.read(image))
         }
         guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark, frame: frame) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
         if let snapshot { write(result, to: snapshot) }
-        return Decoded(image: result, rendered: textured != nil)
+        return Decoded(image: result, rendered: textured != nil, light: WallpaperLightField.read(result))
     }
 
     /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;

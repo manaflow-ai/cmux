@@ -250,6 +250,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.wallpaperLighting",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",

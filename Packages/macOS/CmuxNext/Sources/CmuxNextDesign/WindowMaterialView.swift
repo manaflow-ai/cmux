@@ -69,7 +69,18 @@ public final class WindowMaterialView: NSView {
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
     public let videoView: BackdropVideoView
-    private(set) var artImage: NSImage?
+    private(set) var artImage: NSImage? {
+        didSet {
+            guard artImage !== oldValue else { return }
+            artLight = artImage.flatMap(images.lightField(of:))
+            images.light.artDidChange()
+        }
+    }
+    /// The shown art's light field, read in its decode (nil for a preview or a video's poster).
+    private(set) var artLight: WallpaperLightField?
+    /// What the backdrop shows after the last `apply` (its Light or Dark side resolved); nil for none.
+    /// Wallpaper lighting reads the desktop field under ``BackdropSelection/desktop``, the art's otherwise.
+    private(set) var shownSelection: BackdropSelection?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
@@ -258,6 +269,7 @@ public final class WindowMaterialView: NSView {
         let flipped = chosen?.followsAppearance == true && loadedDark != dark
         // Light and Dark draws its side for this view's appearance.
         let shown = chosen?.resolved(dark: dark)
+        shownSelection = shown
         // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
         let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {

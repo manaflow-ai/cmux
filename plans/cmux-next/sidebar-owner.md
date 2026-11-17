@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-17 (wallpaper-lighting): Sidebar-Look: Leo, 2026-11-17: "what if you almost treat the background wallpaper like a light source? lighting inside cmux!?". Under `appearance.wallpaperLighting` (off by default) the sidebar's edge line catches the wallpaper's key light: a `WallpaperRimLayer` along the line, brightest where it faces the light, hidden while the setting is off. Nothing else in the sidebar moves or changes color. Regression: `WallpaperLightTests`.
+
 - 2026-11-16 (ask-035c65b611): Sidebar-Look: no workspace row draws a screen button, on any machine kind. Leo, on the
   Share icon every row drew: "WHY CANT IT JUST BE REVERTED". This reverts the row screen slot #43516 added (b16877b72ce
   had dropped only This Mac's rows); Share and View screen stay on machine headers and in the palette. The 2026-11-13

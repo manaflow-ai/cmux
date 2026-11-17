@@ -1094,6 +1094,28 @@
             "space",
             "background"
           ]
+        },
+        {
+          "key": "appearance.wallpaperLighting",
+          "title": {
+            "key": "settings.appearance.wallpaperLighting",
+            "text": "Wallpaper Lighting"
+          },
+          "help": {
+            "key": "settings.appearance.wallpaperLighting.help",
+            "text": "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue."
+          },
+          "kind": "toggle",
+          "swift_owner": "WallpaperLightingSetting",
+          "default": false,
+          "keywords": [
+            "light",
+            "lighting",
+            "glow",
+            "rim",
+            "wallpaper",
+            "glass"
+          ]
         }
       ]
     },
