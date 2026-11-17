@@ -125,8 +125,15 @@ import Testing
         let art = root.backdropView.artView
         root.layer.map { top in
             paint(top, at: point, over: &color, picture: art.isHidden ? nil : art.layer) { layer, fill in
-                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? layer.name ?? String(describing: type(of: layer))
-                lines.append("\(owner) \(ChromeLayerHex.hex(fill.withAlpha(1))) at \(Int((fill.alpha * 100).rounded())) %")
+                var chain: [String] = []
+                var walk: CALayer? = layer
+                while let current = walk, current !== top, chain.count < 6 {
+                    if let owner = current.delegate.map({ String(describing: type(of: $0)) }) ?? current.name { chain.append(owner) }
+                    walk = current.superlayer
+                }
+                let frame = layer.convert(layer.bounds, to: top).integral
+                lines.append("\(chain.isEmpty ? String(describing: type(of: layer)) : chain.joined(separator: "<")) \(ChromeLayerHex.hex(fill.withAlpha(1))) "
+                             + "at \(Int((fill.alpha * 100).rounded())) % in \(frame)")
             }
         }
         return lines
@@ -200,7 +207,8 @@ import Testing
                 let row = sample()
                 if let recorded = try? Self.fileRows()[item.name], recorded != row {
                     for region in Self.regions where recorded[region] != row[region] {
-                        print("ChromeLayerColorTests \(item.name) \(region): \(recorded[region] ?? "none") -> \(row[region] ?? "none"), painted by: "
+                        print("ChromeLayerColorTests \(item.name) \(region) at \(spots[region]!) (sidebar \(root.sidebar.frame), window \(root.window?.frame ?? .zero), "
+                              + "screen \(root.window?.screen?.frame ?? .zero)): \(recorded[region] ?? "none") -> \(row[region] ?? "none"), painted by: "
                               + Self.painters(at: spots[region]!, in: root).joined(separator: " | "))
                     }
                 }
