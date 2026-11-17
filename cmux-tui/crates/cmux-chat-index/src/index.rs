@@ -374,9 +374,17 @@ impl ChatIndex {
     }
 }
 
+/// Scans `slot`'s root again. A database scan reads no session file, so it keeps the read state
+/// of the files the last file scan read: a store whose database query fails for a moment (a
+/// locked Codex state DB, a WAL without its shared-memory file) falls back to its session files,
+/// and that fallback then reads only what each file gained. Dropping the states made every such
+/// fallback read every rollout from byte 0, hundreds of MB per store change in each daemon.
 fn rescan(slot: &mut Slot) {
     let prior = slot.scan.files.iter().cloned().collect();
-    if let Ok(scan) = scan_root(&slot.root.config(), &prior) {
+    if let Ok(mut scan) = scan_root(&slot.root.config(), &prior) {
+        if scan.database {
+            scan.files = std::mem::take(&mut slot.scan.files);
+        }
         slot.scan = scan;
     }
 }

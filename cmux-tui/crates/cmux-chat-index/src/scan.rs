@@ -43,7 +43,8 @@ pub struct FileRead {
 #[serde(rename_all = "camelCase")]
 pub struct RootScan {
     pub entries: Vec<ChatEntry>,
-    /// Read state per session file (empty for database stores).
+    /// Read state per session file. A database scan reads none; the index keeps the states of its
+    /// last file scan there, for a fallback to resume from.
     pub files: Vec<(PathBuf, FileState)>,
     /// Files that failed to read; they are left out, never fatal.
     pub skipped: usize,
