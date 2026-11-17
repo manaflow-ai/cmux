@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use super::super::super::sync_cli::size_cap;
-use super::run;
+use super::{needed_size, run};
 
 fn write(top: &Path, relative: &str, bytes: usize) {
     let path = top.join(relative);
@@ -29,6 +29,8 @@ fn a_small_plain_folder_goes_on_whole() {
     assert_eq!(answer["estimate"]["files"], 1, "{answer}");
     assert_eq!(answer["estimate"]["bytes"], 10, "{answer}");
     assert_eq!(answer["estimate"]["seconds"], 1, "{answer}");
+    assert_eq!(answer["estimate_bytes"], 10, "{answer}");
+    assert_eq!(answer["needed_size"], "sm", "{answer}");
 }
 
 /// Leo's `~/Projects`, refused before with the repositories inside it: it goes on now, as a
@@ -45,6 +47,10 @@ fn a_parent_of_repositories_past_the_limit_goes_on_from_a_first_pass() {
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(answer["estimate"]["mode"], "first_pass", "{answer}");
     assert!(answer["estimate"]["left_files"].as_u64().unwrap() >= 1, "{answer}");
+    // Past the limits only a first pass goes, at most its own bytes.
+    let sent = answer["estimate_bytes"].as_u64().unwrap();
+    assert!(sent <= size_cap::FIRST_BYTES, "{answer}");
+    assert_eq!(answer["needed_size"], "sm", "{answer}");
 }
 
 #[test]
@@ -57,6 +63,7 @@ fn a_big_plain_folder_with_no_repositories_goes_on() {
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(answer["estimate"]["mode"], "first_pass", "{answer}");
     assert_eq!(answer["estimate"]["why"], "files", "{answer}");
+    assert_eq!(answer["needed_size"], "sm", "{answer}");
 }
 
 #[test]
@@ -69,4 +76,164 @@ fn a_folder_that_cannot_be_read_still_goes_on() {
 #[test]
 fn a_relative_folder_is_a_usage_error() {
     assert_eq!(run("Projects")["error_code"], "usage.invalid");
+}
+
+/// A folder sent whole counts its repository history too: the machine holds it.
+#[test]
+fn a_whole_copy_counts_its_git_history() {
+    let (_root, top) = canonical();
+    std::fs::create_dir_all(top.join(".git")).unwrap();
+    let init = std::process::Command::new("git").arg("init").arg("-q").arg(&top).status().unwrap();
+    assert!(init.success());
+    write(&top, "src/main.rs", 100);
+    let answer = run(top.to_str().unwrap());
+    assert!(answer["estimate_bytes"].as_u64().unwrap() > 100, "{answer}");
+}
+
+#[test]
+fn the_needed_size_is_the_smallest_disk_with_room_for_the_copy_and_the_reserve() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    assert_eq!(needed_size(0), Some("sm"));
+    assert_eq!(needed_size(4 * GIB), Some("sm"));
+    assert_eq!(needed_size(4 * GIB + 1), Some("md"));
+    assert_eq!(needed_size(20 * GIB), Some("md"));
+    assert_eq!(needed_size(52 * GIB), Some("lg"));
+    assert_eq!(needed_size(116 * GIB), Some("xl"));
+    assert_eq!(needed_size(116 * GIB + 1), None);
+    assert_eq!(needed_size(u64::MAX), None);
+}
+
+/// A start whose folder needs a larger size than the machine the platform answered (a workspace that already had an
+/// `sm` machine): refused in the plan, so nothing is cloned or copied there, with the seed refusal the App reads as
+/// "This folder is X, more than Y has room for". A disk at least the size's, a shape the platform did not name, and a
+/// chat-size ask all go on as before.
+mod machine_room {
+    use std::cell::Cell;
+
+    use serde_json::{Value, json};
+
+    use super::super::super::plan_with_calls;
+    use super::super::{GIB, MACHINE_TOO_SMALL, SEED_REFUSED};
+
+    const FOLDER_BYTES: u64 = 10 * GIB;
+
+    fn plan(size: Option<&str>, shape: Option<Value>, created: bool) -> (Value, usize) {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("cloud-start-chat").join("destinations.json");
+        let folder = dir.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
+        let mut request = json!({"key": "0000000A-0000-4000-8000-0000000000F1", "account": "user-leo/",
+            "loaded": false, "local": folder.to_str().unwrap(), "credential_on_stdin": true,
+            "bytes": FOLDER_BYTES});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        let ensures = Cell::new(0);
+        let mut machine =
+            json!({"provider": "cloud", "id": "vm_own", "name": "own-box", "state": "running"});
+        if let Some(shape) = shape {
+            machine["shape"] = shape;
+        }
+        let answer = plan_with_calls(
+            &ledger,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &|_, _| {
+                ensures.set(ensures.get() + 1);
+                Ok(json!({"workspace": "own", "machine": machine.clone(), "created": created}))
+            },
+            &|_, _| panic!("no spare"),
+        );
+        (answer, ensures.get())
+    }
+
+    #[test]
+    fn a_smaller_disk_than_the_size_asked_is_refused_before_any_copy_or_clone() {
+        let (answer, ensures) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 16})), false);
+        assert_eq!(ensures, 1);
+        assert_eq!(answer["ok"], false, "the App copies or clones only after an ok plan: {answer}");
+        assert_eq!(answer["error_code"], SEED_REFUSED, "{answer}");
+        assert_eq!(answer["fallback_code"], MACHINE_TOO_SMALL, "{answer}");
+        assert_eq!(answer["copy_bytes"], FOLDER_BYTES, "{answer}");
+        assert_eq!(answer["room_bytes"], 4 * GIB, "{answer}");
+        assert_eq!(answer["needed"], "md", "{answer}");
+        assert_eq!(answer["machine_id"], "vm_own", "{answer}");
+        assert_eq!(answer["machine_title"], "own-box", "{answer}");
+        assert!(
+            answer.get("size_locked").is_none(),
+            "no plan upgrade helps a fixed machine: {answer}"
+        );
+        // Even one the platform says it made for this start, when it is smaller than asked.
+        let (made, _) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 20})), true);
+        assert_eq!(made["error_code"], SEED_REFUSED, "{made}");
+    }
+
+    /// A machine grown to a disk between two sizes is judged by the folder, not by the size's own disk: 10 GiB and the
+    /// 12 GiB reserve fit 24 GiB, though `md` is 32.
+    #[test]
+    fn a_disk_between_sizes_with_room_for_the_folder_goes_on() {
+        let (answer, _) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 24})), false);
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["machine"], "vm_own", "{answer}");
+    }
+
+    #[test]
+    fn an_equal_or_larger_disk_goes_on() {
+        for disk in [32, 64] {
+            let (answer, _) =
+                plan(Some("md"), Some(json!({"vcpu": 4, "memGiB": 8, "diskGiB": disk})), false);
+            assert_eq!(answer["ok"], true, "{answer}");
+            assert_eq!(answer["machine"], "vm_own", "{answer}");
+        }
+        let (made, _) =
+            plan(Some("md"), Some(json!({"vcpu": 4, "memGiB": 8, "diskGiB": 32})), true);
+        assert_eq!(made["machine"], "vm_own", "{made}");
+    }
+
+    #[test]
+    fn an_answer_with_no_shape_goes_on_as_before() {
+        let (answer, _) = plan(Some("md"), None, false);
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["machine"], "vm_own", "{answer}");
+    }
+
+    #[test]
+    fn a_chat_size_ask_is_not_checked() {
+        for size in [Some("sm"), None] {
+            let (answer, _) =
+                plan(size, Some(json!({"vcpu": 1, "memGiB": 2, "diskGiB": 8})), false);
+            assert_eq!(answer["ok"], true, "{answer}");
+            assert_eq!(answer["machine"], "vm_own", "{answer}");
+        }
+    }
+
+    /// A send pinned to a machine (a retry) whose disk the App's list names smaller than the size asked is refused
+    /// the same way; a listed disk at the size's, or none named, goes on.
+    #[test]
+    fn a_pinned_machine_smaller_than_the_size_asked_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("cloud-start-chat").join("destinations.json");
+        let key = "0000000A-0000-4000-8000-0000000000F2";
+        assert_eq!(
+            super::super::super::pin(&ledger, key, "user-leo/team-a", "vm_pinned", None)["ok"],
+            true
+        );
+        let retry = |disk_mb: Option<u64>| {
+            let mut machine = json!({"id": "vm_pinned", "title": "cloud-chats"});
+            if let Some(disk_mb) = disk_mb {
+                machine["disk_mb"] = json!(disk_mb);
+            }
+            let request = json!({"key": key, "account": "user-leo/team-a", "loaded": true,
+                "machines": [machine], "size": "md", "bytes": FOLDER_BYTES});
+            super::super::super::plan(&ledger, &request.to_string())
+        };
+        let small = retry(Some(16_384));
+        assert_eq!(small["error_code"], SEED_REFUSED, "{small}");
+        assert_eq!(small["machine_title"], "cloud-chats", "{small}");
+        assert_eq!(retry(Some(32_768))["machine"], "vm_pinned");
+        assert_eq!(retry(None)["machine"], "vm_pinned");
+    }
 }
