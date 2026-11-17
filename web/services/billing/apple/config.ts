@@ -127,12 +127,28 @@ export function appleSandboxAccountEmails(env: Env = process.env): readonly stri
 }
 
 /**
+ * Vercel project of cmux-staging.vercel.app. Staging is its own project deployed
+ * to that project's production environment, so it also runs with
+ * `VERCEL_ENV=production`; keep in step with scripts/cloud-vm/projects.mjs.
+ */
+const STAGING_VERCEL_PROJECT_ID = "prj_804LTAUdOwulMvEfcmfnU8bvGo3T";
+
+/**
+ * Whether this is the production cmux deployment, whose Sandbox grants are
+ * limited. Staging is excluded by its project ID; a production deployment of
+ * an unknown project counts as production, the stricter side.
+ */
+function isProductionSandboxPolicy(env: Env): boolean {
+  return env.VERCEL_ENV === "production" && env.VERCEL_PROJECT_ID !== STAGING_VERCEL_PROJECT_ID;
+}
+
+/**
  * Whether the Sandbox decision depends on the cmux account's email. True only
  * in a production deployment without an `APPLE_IAP_SANDBOX_ENTITLEMENTS`
  * override, so other callers never need to read the email.
  */
 export function appleSandboxGrantNeedsAccountEmail(env: Env = process.env): boolean {
-  return env.VERCEL_ENV === "production" && trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS) === null;
+  return isProductionSandboxPolicy(env) && trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS) === null;
 }
 
 /**
@@ -140,7 +156,8 @@ export function appleSandboxGrantNeedsAccountEmail(env: Env = process.env): bool
  * purchases are free, so production grants them only for the App Store
  * bundle and only to cmux accounts in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`
  * (App Review's demo account and the team's own testers). Any other TestFlight
- * tester stays unentitled. Other deployments grant every Sandbox purchase.
+ * tester stays unentitled. Other deployments, staging included, grant every
+ * Sandbox purchase.
  * `APPLE_IAP_SANDBOX_ENTITLEMENTS` overrides both with `all`, `none`, or a
  * comma-separated bundle list, and then the email list is not consulted.
  */
@@ -154,7 +171,7 @@ export function appleEnvironmentGrantsEntitlement(
   if (override === "all") return true;
   if (override === "none") return false;
   if (override) return list(override)?.includes(input.bundleId) ?? false;
-  if (env.VERCEL_ENV !== "production") return true;
+  if (!isProductionSandboxPolicy(env)) return true;
   if (input.bundleId !== APP_STORE_BUNDLE_ID) return false;
   const email = input.accountEmail?.trim().toLowerCase();
   return email ? appleSandboxAccountEmails(env).includes(email) : false;
