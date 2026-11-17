@@ -292,6 +292,9 @@ pub struct AgentTools {
     /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
     /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
     pub project_servers: Map<String, Value>,
+    /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
+    /// by name: the harness reaches them there instead of starting their stdio launch.
+    pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -566,18 +569,28 @@ pub(crate) fn gh_env(
 }
 
 /// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`].
+/// from [`lists_all_tools`]. An agent that takes HTTP servers ([`takes_http`]) gets the `cmux`
+/// server through the daemon's gateway.
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
+    http: bool,
+    cwd: &Path,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
-        json!([])
-    } else {
-        current().scoped(env).for_session(session_id).listing(all_tools).folded().acp_servers()
+        return json!([]);
     }
+    let tools = current().scoped(env).for_session(session_id).listing(all_tools).folded();
+    let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
+    tools.acp_servers()
+}
+
+/// Whether an ACP agent's `agentCapabilities` say it takes HTTP MCP servers.
+pub fn takes_http(capabilities: Option<&Value>) -> bool {
+    capabilities.and_then(|c| c.pointer("/mcpCapabilities/http")).and_then(Value::as_bool)
+        == Some(true)
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -609,6 +622,7 @@ pub fn claude_args_for(
             .without_off(env)
             .fit_skills()
             .folded()
+            .via_gateway(session_id, cwd)
     };
     AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id))
@@ -644,6 +658,7 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
     let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
     let _ = crate::home_fs::remove_file(path);
+    crate::mcp_gateway::forget(home, session_id);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -875,6 +890,7 @@ fn resolve_with_cua_helper(
         user_plugin_dir,
         displays: inputs.displays.clone(),
         project_servers: Map::new(),
+        http: BTreeMap::new(),
     }
 }
 
@@ -1100,6 +1116,10 @@ impl AgentTools {
             self.servers
                 .iter()
                 .map(|s| {
+                    if let Some(at) = self.http.get(&s.name) {
+                        let headers = [json!({"name": "Authorization", "value": at.authorization})];
+                        return json!({"type": "http", "name": s.name, "url": at.url, "headers": headers});
+                    }
                     let env: Vec<Value> =
                         s.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect();
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env})
@@ -1168,6 +1188,26 @@ impl AgentTools {
         self
     }
 
+    /// The `cmux` server (after [`AgentTools::folded`]) reached through the daemon's gateway
+    /// (`mcp_gateway.rs`) for session `session_id` in `cwd`: the daemon starts it on the chat's
+    /// first request and stops it when the chat is idle, so no tool server runs under the harness.
+    /// Unchanged without a gateway (not the daemon, or [`crate::mcp_gateway::OFF_ENV`] is `0`).
+    pub fn via_gateway(mut self, session_id: &str, cwd: &Path) -> Self {
+        let Some(cmux) = self.servers.iter().find(|s| s.name == "cmux") else {
+            return self;
+        };
+        let launch = crate::mcp_gateway::Launch {
+            command: cmux.command.clone(),
+            args: cmux.args.clone(),
+            env: cmux.env.clone(),
+            cwd: Some(cwd.to_owned()),
+        };
+        if let Some(endpoint) = crate::mcp_gateway::register(session_id, launch) {
+            self.http.insert("cmux".to_owned(), endpoint);
+        }
+        self
+    }
+
     /// The servers as one Claude Code MCP config, or `None` without servers.
     pub fn mcp_config(&self) -> Option<Value> {
         if self.servers.is_empty() && self.project_servers.is_empty() {
@@ -1175,6 +1215,14 @@ impl AgentTools {
         }
         let mut servers = Map::new();
         for s in &self.servers {
+            if let Some(at) = self.http.get(&s.name) {
+                let headers = json!({"Authorization": at.authorization});
+                servers.insert(
+                    s.name.clone(),
+                    json!({"type": "http", "url": at.url, "headers": headers}),
+                );
+                continue;
+            }
             let env: Map<String, Value> =
                 s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
             servers.insert(

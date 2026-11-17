@@ -480,6 +480,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
+    // Before any session starts: its harness then gets the `cmux` server over HTTP. Without it,
+    // each harness keeps its stdio server, as before.
+    if let Err(e) = crate::mcp_gateway::start(&home()).await {
+        tracing::warn!("mcp gateway not started; chats keep their own cmux MCP server: {e:#}");
+    }
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
