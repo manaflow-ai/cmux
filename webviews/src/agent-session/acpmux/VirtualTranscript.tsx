@@ -52,7 +52,7 @@ import {
   SINCE_DIVIDER,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
-import { ThreadMinimapRail, useMinimapSource } from "./threadMinimap/ThreadMinimap";
+import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
@@ -748,6 +748,28 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
     if (row.id !== LIVE_THINKING && row.kind !== "assistant") return true;
   }
   return false;
+}
+
+/// Whether each rows list a render drew holds only a streamed token over the list the render before it
+/// drew (`arrivedAtTail`): TranscriptView `tokenRows`. Kept per list, answered once when a render
+/// first draws it, so a render React discards leaves no other list's answer behind. It keeps the list
+/// drawn before itself, so the render reads no ref for it.
+class TokenRows {
+  private readonly answers = new WeakMap<readonly AcpmuxRow[], boolean>();
+  private before: readonly AcpmuxRow[];
+  constructor(rows: readonly AcpmuxRow[]) {
+    this.before = rows;
+  }
+  /// Takes a render's rows.
+  draw(rows: readonly AcpmuxRow[]): void {
+    const before = this.before;
+    this.before = rows;
+    if (!this.answers.has(rows))
+      this.answers.set(rows, before !== rows && before[0]?.id === rows[0]?.id && !arrivedAtTail(before, rows));
+  }
+  get(rows: readonly AcpmuxRow[]): boolean | undefined {
+    return this.answers.get(rows);
+  }
 }
 
 /// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
@@ -2638,11 +2660,9 @@ function TranscriptView({
   /// end) reads its rows in the commit, so the pass that places them sees their heights: left to
   /// the observer's pass after it, the turn's end moved the rows by them at once (send-stream-motion
   /// tools and steer, 29 px). O(1): the tail window and the first row.
-  /// Kept per rows list, set once when a render first draws it, so a render React discards leaves
-  /// no other list's answer behind; `queueDrawn` reads the latest list's (`rowsRef`).
-  const [tokenRows] = useState(() => new WeakMap<readonly AcpmuxRow[], boolean>());
-  if (!tokenRows.has(rows))
-    tokenRows.set(rows, rowsBefore !== rows && rowsBefore[0]?.id === rows[0]?.id && !arrivedAtTail(rowsBefore, rows));
+  /// Kept per rows list (`TokenRows`); `queueDrawn` reads the latest list's (`rowsRef`).
+  const [tokenRows] = useState(() => new TokenRows(rows));
+  tokenRows.draw(rows);
   /// Whether the render before this one drew any row: a send into a chat with none yet (a new
   /// chat's first prompt) has no latest row to become, and fades in place (conversation/sendMorph.ts).
   const drewRowsBefore = useRef(false);
@@ -2735,8 +2755,6 @@ function TranscriptView({
   const rowsChange = useRef<RowsChange | undefined>(undefined);
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<((top?: number) => void) | undefined>(undefined);
-  /// The minimap's handle on the rows, layout and offset: it renders only when what it draws changes.
-  const minimapSource = useMinimapSource();
   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
   const [rowFrameCache] = useState(() => new RowFrameCache());
@@ -7142,15 +7160,14 @@ function TranscriptView({
           }
         >
           {showMinimap && (
-            <ThreadMinimapRail
-              source={minimapSource}
-              version={minimapSource.update({
-                rows,
-                layout,
-                scrollTop: renderScroll.top - origin,
-                scrolls: layout.totalHeight - height > 0.5,
-                change: rowsChange.current,
-              })}
+            // Its own MinimapSource takes these values each render; the rail draws only when what it
+            // draws changes (ThreadMinimapRail).
+            <ThreadMinimap
+              rows={rows}
+              layout={layout}
+              scrollTop={renderScroll.top - origin}
+              scrolls={layout.totalHeight - height > 0.5}
+              change={rowsChange.current}
               earlier={earlier}
               promptCount={promptCount}
               loadThrough={loadThrough}
