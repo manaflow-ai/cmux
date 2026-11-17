@@ -9302,7 +9302,12 @@ class StallAPI:
         self.began = {attempt: started}
         self.calls: list[str] = []
         self.cancelled_at: float | None = None
+        self.workflow_text: str | None = None  # cmux-next.yml at the head (GitHub.workflow_file())
         rescue.SETTLED_HERE.clear()
+
+    def workflow_file(self, path, ref):
+        self.calls.append(f"workflow:{path}@{ref}")
+        return self.workflow_text
 
     def record(self):
         done = self.cancelled_at is not None and self.clock.seconds - self.cancelled_at >= self.settles_after
@@ -9810,6 +9815,63 @@ class StallMove(unittest.TestCase):
                                            moved=set(), moves=[], start=lambda *args: None,
                                            destination=(six,)), 1)
 
+    def test_pr_rescue_moves_a_same_tree_dispatch_whose_head_sends_the_bot_s_rerun_off_the_minis(self):
+        # cmuxterm-hq#12109, 2026-11-16: cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016,
+        # `cmux-next · <head>`, queued on the saturated glaeda-side-std-xcode-26.6 from 13:50Z; under `pr-rescue` the
+        # scan left every dispatch. A head whose cmux-next.yml sends a bot's re-run of such a dispatch to Blacksmith
+        # (PULL_DISPATCH_RESCUE_CLAUSE) is moved; an older head's re-run would rejoin the side lane, so it is left.
+        six = rescue.STALL_DESTINATION
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux app scheme compile (Debug)", job_id=attempt * 10 + 1)]
+
+        def dispatch_api(text, title=f"cmux-next · {HEAD}"):
+            api = StallAPI(clock, jobs, attempt=1, actor="teamleaderleo")
+            record = api.record
+            api.record = lambda: {**record(), "event": "workflow_dispatch", "display_title": title}
+            api.workflow_text = text
+            return api
+
+        def scan(api, logs):
+            starts = []
+            count = rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                      moves=[], start=lambda *args: starts.append(args), destination=(six,),
+                                      pull_only=True)
+            return count, starts
+
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        fallback = (f"{rescue.PULL_DISPATCH_RESCUE_CLAUSE} && vars.CI_BLACKSMITH_MACOS != 'on' && "
+                    "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26")
+        logs = []
+        api = dispatch_api(f"runs-on: ${{{{ {fallback} }}}}\n")
+        count, starts = scan(api, logs)
+        self.assertEqual(count, 1, logs)
+        self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD}", api.calls)
+        self.assertEqual(starts[0][0].event, "workflow_dispatch")
+        # The head before the clause: its bot re-run still takes CI_SIDE_LANE_RUNNER.
+        old = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || "
+               "github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER")
+        for text in (old, None):
+            with self.subTest(text=text):
+                logs = []
+                count, starts = scan(dispatch_api(text), logs)
+                self.assertEqual((count, starts), (0, []))
+                self.assertTrue(any("leaves it" in line for line in logs), logs)
+        # A dispatch with a name of its own (base tier, tip suite, DEV daily) is never read nor moved.
+        api = dispatch_api(fallback, title=f"cmux-next base tier · {HEAD}")
+        self.assertEqual(scan(api, [])[0], 0)
+        self.assertFalse([call for call in api.calls if call.startswith("workflow:")])
+        # A failed read leaves it to the next scan.
+        api = dispatch_api(fallback)
+
+        def refused(path, ref):
+            raise urllib.error.URLError("refused")
+        api.workflow_file = refused
+        logs = []
+        self.assertEqual(scan(api, logs)[0], 0)
+        self.assertTrue(any("next scan" in line for line in logs), logs)
+
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
 
@@ -10111,6 +10173,108 @@ class OwnedStallMove(unittest.TestCase):
         self.assertIn("STALL_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}", workflow)
         self.assertIn("STALL_FLEET_CONTROLLER: ${{ vars.CI_FLEET_CONTROLLER }}", workflow)
         self.assertIn("tailscale/github-action@", workflow)
+
+
+# Leo, 2026-11-16: "no required check waits past a bound on any owned label; past it, it moves to Blacksmith."
+WAIT_BOUND = 45 * 60
+
+
+def bound_snapshot(seconds):
+    """glaeda-side-std-xcode-26.6 starving (hq#12087) and Blacksmith full, stalled and deeper than it: every soft hold
+    the stall move had answers "wait"."""
+    return {"generated_at": stamp(seconds), "pools": {
+        rescue.STALL_DESTINATION: {"queued": 27, "running": 10, "oldest_queued_minutes": 30},
+        SIDE: {"queued": 5, "running": 0, "oldest_queued_minutes": 20}}}
+
+
+class OwnedWaitBound(unittest.TestCase):
+    """No job of a run that gates a pull request's required checks waits past one bound on an owned label: past it,
+    it moves to Blacksmith whatever the soft holds say (no free slot, a stalled or deeper Blacksmith queue). On
+    2026-11-16 glaeda-side-std-xcode-26.6 had 5-8 of 53 runners online and its oldest job queued 2.5 h (hq#12087)."""
+
+    def test_a_person_s_re_run_queued_past_the_bound_moves_to_blacksmith_however_full(self):
+        # A person's full re-run of a pull request run (attempt 2, teamleaderleo) places it again, so its daemon
+        # tests rejoin the starving side label; the bot's attempt 3 takes Blacksmith under pr-rescue.
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 2:
+                return [stall_job("cmux-next daemon tests", job_id=21)]
+            return [stall_job("cmux-next daemon tests", job_id=31, label=BLACKSMITH, created=seconds)]
+        api = StallAPI(clock, jobs, attempt=2, actor="teamleaderleo", snapshot=bound_snapshot)
+        # Before the bound the soft holds still keep it.
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 60)
+        self.assertEqual(started, 0, text)
+        self.assertFalse(any(call.startswith("cancel") for call in api.calls))
+        # Past it, it moves.
+        started, results, text = move(api, clock, scan_at=WAIT_BOUND + 60)
+        self.assertEqual(started, 1, text)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3"])
+        self.assertIn("past the owned wait bound", text)
+
+    def test_the_bound_is_the_longest_planned_owned_queue(self):
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS, WAIT_BOUND)
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS,
+                         rescue.MAX_QUEUE_ROUNDS * rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS,
+                         rescue.STALL_QUEUE_SECONDS + rescue.STALL_SCAN_TICKS * rescue.SWEEP_TICK_SECONDS)
+
+    def test_a_sweeper_past_its_move_cap_still_moves_a_job_past_the_bound(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 2:
+                return [stall_job("cmux-next daemon tests", job_id=21)]
+            return [stall_job("cmux-next daemon tests", job_id=31, label=BLACKSMITH, created=seconds)]
+        full = [(START - dt.timedelta(hours=1), 1)] * rescue.STALL_MOVES_PER_SWEEP
+        for scan_at, moved in ((rescue.STALL_QUEUE_SECONDS + 60, 0), (WAIT_BOUND + 60, 1)):
+            with self.subTest(scan_at=scan_at):
+                api, logs = StallAPI(clock, jobs, attempt=2), []
+                clock.advance(scan_at - clock.seconds)
+                self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append,
+                                                   moved=set(), moves=list(full), start=lambda *args: None), moved)
+                if not moved:
+                    self.assertIn("made its", "\n".join(logs))
+
+    def test_a_running_sibling_still_keeps_a_run_past_the_bound(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux-next daemon tests", job_id=21),
+                    stall_job("cmux-next swift test", job_id=22, status="in_progress", runner="mini-2",
+                              started=seconds - 5, steps=[("Run tests", seconds - 5, None)])]
+        api = StallAPI(clock, jobs, attempt=2, snapshot=bound_snapshot)
+        started, _, text = move(api, clock, scan_at=WAIT_BOUND * 2)
+        self.assertEqual(started, 0, text)
+        self.assertIn("cmux-next swift test still running", text)
+        self.assertFalse(any(call.startswith("cancel") for call in api.calls))
+
+    def test_a_watched_dispatch_held_off_a_stalled_retry_label_moves_at_the_bound(self):
+        # test-ios ios-simulator-build on [glaeda-std-xcode-26.6, glaeda-ios-sim] (PR #44053, 2026-11-16): the watch
+        # held it "because the re-run would take ... which is stalled" for the rest of its watch.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=(ROOT / rescue.IOS_TEST_WORKFLOW_PATH).read_text(),
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=300))
+        code, summary = run_main(api, clock, payload=e2e_event(path=rescue.IOS_TEST_WORKFLOW_PATH))
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun-failed", api.calls, summary)
+        self.assertGreaterEqual(api.first_cancel, WAIT_BOUND)
+        self.assertLess(api.first_cancel, WAIT_BOUND + 2 * rescue.STALL_RECHECK_SECONDS)
+
+    def test_a_delivery_run_keeps_its_hold_past_the_bound(self):
+        # A DEV daily is no pull request's check: it stays held off a stalled label (NIGHTLY/DEV rules decide).
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        run_main(api, clock, payload=dev_event())
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
 
 
 if __name__ == "__main__":

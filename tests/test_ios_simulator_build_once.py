@@ -70,7 +70,9 @@ class IOSSimulatorWorkflowTests(unittest.TestCase):
         producer = job_block("ios-simulator-build")
         consumer = job_block("ios-simulator")
 
-        self.assertIn('[[ "${TEST_FILTER:-}" == cmuxUITests/* ]]', producer)
+        self.assertIn(
+            '[[ "${TEST_FILTER:-}" == cmuxUITests || "${TEST_FILTER:-}" == cmuxUITests/* ]]', producer
+        )
         self.assertIn("-testPlan cmux-ui", producer)
         self.assertIn('-only-testing:"$TEST_FILTER"', consumer)
         self.assertIn("-skip-testing:cmuxUITests", consumer)
