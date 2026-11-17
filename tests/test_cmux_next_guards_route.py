@@ -51,8 +51,12 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
-        args = shlex.split(call.rstrip(" \\").replace('"$(getconf _NPROCESSORS_ONLN)"', "4"))
+        args = shlex.split(call.split(" || ", 1)[0].replace('"$(getconf _NPROCESSORS_ONLN)"', "4"))
         args = args[args.index("scripts/ci/guards-local.sh") + 1:]
+        # The run stops itself inside the job's 15 minutes. Not GNU `timeout`: a placed mini has none (exit 127,
+        # run 44175871401).
+        self.assertLess(float(args[args.index("--deadline") + 1]), 15 * 60 - 60)
+        self.assertNotRegex(script, r"(?m)^\s*timeout\b")
         # A worker per core (4 on the 4 vCPU pool), the whole group and nothing else, every step past a red one.
         self.assertIn('--jobs "$(getconf _NPROCESSORS_ONLN)"', call)
         self.assertEqual(args[args.index("--group") + 1], "release-notary")

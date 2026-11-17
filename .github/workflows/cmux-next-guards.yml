@@ -140,11 +140,9 @@ jobs:
 
       - name: Run the release-notary guards
         run: |
-          # The job ends at 15 minutes; the group gets 13 of them, so a stuck step ends in a verdict (its step
-          # unfinished) instead of a cancelled job.
-          timeout --kill-after=10 780 \
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --results "$RUNNER_TEMP/release-notary.json" \
-            || echo "release-notary guards exited $?"
+          # The job ends at 15 minutes; the group gets 13 of them (--deadline: a mini has no GNU timeout), so a stuck
+          # step ends in a "timed out" verdict instead of a cancelled job.
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --deadline 780 --results "$RUNNER_TEMP/release-notary.json" || true
           python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"
 
   # Signing jobs (nightly.yml, cmux-tui-artifacts.yml) take their runner from these variables, so they must

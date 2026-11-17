@@ -657,6 +657,37 @@ class ATimedOutRunStopsItsSteps(unittest.TestCase):
                 os.kill(child, 0)
 
 
+class TheDeadlineStopsTheRun(unittest.TestCase):
+    def test_a_step_past_the_deadline_is_stopped_and_has_no_result(self) -> None:
+        import json  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-deadline-") as temp:
+            pid_file, results = Path(temp) / "pid", Path(temp) / "results.json"
+            driver = Path(temp) / "driver.py"
+            driver.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(ROOT / 'scripts/ci')!r})\n"
+                "import run_ci_guards as r\n"
+                "steps = [r.Step('quick', 'true', {}, None),\n"
+                f"         r.Step('sleeps', 'sleep 300 & echo $! > {pid_file}; wait', {{}}, None)]\n"
+                "r.plan = lambda w, b, h: [r.Unit('workflow-guard-tests', 'g', steps)]\n"
+                "sys.exit(r.main(['--group', 'g', '--jobs', '2', '--no-stamp', '--deadline', '3',\n"
+                f"                '--results', {str(results)!r}]))\n",
+                encoding="utf-8")
+            started = time.monotonic()
+            run = subprocess.run([sys.executable, str(driver)], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            self.assertLess(time.monotonic() - started, 60)
+            self.assertEqual(run.returncode, 124, run.stdout + run.stderr)
+            self.assertIn("timed out after 3s", run.stdout)
+            self.assertNotIn("FAIL", run.stdout)
+            found = json.loads(results.read_text(encoding="utf-8"))
+            self.assertEqual(found, {"_cmux_complete": False, "quick": True})
+            time.sleep(0.5)
+            with self.assertRaises(ProcessLookupError, msg="the stopped step's child outlived the run"):
+                os.kill(int(pid_file.read_text()), 0)
+
+
 class ACutShortTipRunIsNoVerdict(unittest.TestCase):
     def test_an_incomplete_results_file_fails_and_says_it_timed_out(self) -> None:
         import json  # noqa: PLC0415
