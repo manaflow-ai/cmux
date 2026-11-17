@@ -2031,6 +2031,7 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
     let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
     std::fs::write(&path, holds).unwrap();
     // Private state whatever the umask (a umask of 0002 makes it group-writable, which is refused).
+    #[cfg(unix)]
     std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
     let opts = UpdateOptions {
         binary_dir: None,
