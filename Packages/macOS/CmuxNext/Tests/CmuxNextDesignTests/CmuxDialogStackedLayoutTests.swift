@@ -49,7 +49,8 @@ struct CmuxDialogStackedLayoutTests {
         // Window coordinates are y-up: each next button is lower.
         for (upper, lower) in zip(frames, frames.dropFirst()) {
             #expect(lower.maxY <= upper.minY, "\(lower) is not under \(upper)")
-            #expect(abs(upper.minY - lower.maxY - Metrics.space2) < 0.5)
+            // Backing-pixel rounding may move a frame half a point.
+            #expect(abs(upper.minY - lower.maxY - Metrics.space2) <= 0.5)
         }
     }
 
@@ -84,20 +85,20 @@ struct CmuxDialogStackedLayoutTests {
         let (view, window) = Self.laidOut()
         defer { window.close() }
         let all = Self.views(under: view)
-        let code = try #require(all.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "cmux.dialog.code" })
+        let code = try #require(all.compactMap { $0 as? ChromeLabel }.first { $0.identifier?.rawValue == "cmux.dialog.code" })
         #expect(code.stringValue == "78BE 18E0 C08C 9C4D\n7443 D95E 2DB6 8074")
         #expect(code.font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true)
         #expect(code.isSelectable, "the code can be copied to compare it")
         let well = try #require(all.first { $0 is CmuxDialogCodeWell })
         #expect(well.layer?.cornerRadius == CmuxDialogMetrics.buttonCornerRadius)
         #expect(code.isDescendant(of: well))
-        #expect(all.compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Device key fingerprint" })
+        #expect(all.compactMap { $0 as? ChromeLabel }.contains { $0.stringValue == "Device key fingerprint" })
     }
 
     @Test func aFailedAnswerShowsAboveTheButtons() throws {
         let (view, window) = Self.laidOut()
         defer { window.close() }
-        let error = try #require(Self.views(under: view).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "cmux.dialog.error" })
+        let error = try #require(Self.views(under: view).compactMap { $0 as? ChromeLabel }.first { $0.identifier?.rawValue == "cmux.dialog.error" })
         #expect(error.stringValue == Self.spec.error)
         let once = try #require(view.buttonView("once"))
         #expect(error.convert(error.bounds, to: nil).minY > once.convert(once.bounds, to: nil).maxY)

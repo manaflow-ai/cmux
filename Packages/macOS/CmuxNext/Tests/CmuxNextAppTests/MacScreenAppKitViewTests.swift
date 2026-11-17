@@ -25,7 +25,7 @@ private func findView(_ id: String, under root: NSView) -> NSView? {
 /// The text of every label under `root`.
 @MainActor
 private func texts(under root: NSView) -> [String] {
-    views(under: root).compactMap { ($0 as? NSTextField)?.stringValue }
+    views(under: root).compactMap { ($0 as? NSTextField)?.stringValue ?? ($0 as? ChromeLabel)?.stringValue }
 }
 
 /// Lets the views' Observation updates (main-actor tasks) run until `condition` holds.
@@ -68,8 +68,15 @@ struct MacScreenAppKitViewTests {
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
         let approval = CmuxDialogView(dialog: .standalone(MacScreenApprovalPrompt.spec(
             SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view), error: nil)) { _ in })
+        // The system's Liquid Glass view (macOS 26) hosts its own private views: not a cmux surface.
+        func ownViews(under root: NSView) -> [NSView] {
+            root.subviews.flatMap { view -> [NSView] in
+                if #available(macOS 26.0, *), view is NSGlassEffectView { return [view] }
+                return [view] + ownViews(under: view)
+            }
+        }
         for root in [home, pane.view, approval] as [NSView] {
-            for view in views(under: root) {
+            for view in ownViews(under: root) {
                 #expect(!String(describing: type(of: view)).contains("Hosting"), "\(type(of: view)) under \(type(of: root))")
             }
         }
