@@ -79,6 +79,8 @@ HOST_IP, VIEW_IP, PORT ="10.78.0.1", "10.78.0.2", 4103
 # name -> netem arguments for each direction's egress (after `netem`).
 PROFILES = {
     "clean": "delay 0ms",
+    # clean with 1 % independent loss each direction: NACK repair alone, no holds.
+    "clean-loss1": "delay 0ms loss random 1%",
     "jitter-5": "delay 5ms 5ms",
     # Gilbert-Elliott: p=0.25 % into the bad state, r=25 % out (mean burst 4 packets), every
     # packet lost in the bad state and none in the good one: p/(p+r) = 0.99 % lost on average.
@@ -121,6 +123,7 @@ LIB_ARGS: list[str] = []
 SOURCE_BUILT = "source-built, about 3x slower"
 PROFILE_LABELS = {
     "clean": "clean",
+    "clean-loss1": "clean, 1% loss",
     "jitter-5": "5±5 ms",
     "jitter-15-burst": "15±15 ms, 1% burst loss",
     "jitter-30-loss2": "30±30 ms, 2% loss",
