@@ -152,6 +152,7 @@ final class QuitCoordinator {
         let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
+                services.windows.launchCapture.captureForQuit() // beside the saves; nothing waits for it
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },

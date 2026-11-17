@@ -56,6 +56,8 @@ final class TabContentCache {
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
     var pageThumbnailVersions: [String: Int] = [:]
+    /// When each was asked for: a window's launch image paints it only while recent (`LaunchWindowCapture`).
+    var pageThumbnailTakenAt: [String: ContinuousClock.Instant] = [:]
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
@@ -511,6 +513,7 @@ final class TabContentCache {
         previews.remove(key); if displacing { lastFrames.remove(key) } // a closed tab's last frame goes with it (#32315)
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
+        pageThumbnailTakenAt[key] = nil
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }

@@ -118,7 +118,7 @@ final class ThemeCoordinator {
     }
 
     private func applyChromeTheme() {
-        defer { services.windows.recordSaver.launchRecord.schedule() }
+        defer { services.windows.recordSaver.launchRecord.schedule(); services.windows.launchCapture.themeChanged() }
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
         // The theme file's colors, never the config's own color lines (the terminals keep those).
@@ -259,7 +259,7 @@ final class ThemeCoordinator {
     /// every live surface's config at once: the config event pays for it, never a later workspace
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
-        defer { services.windows.recordSaver.launchRecord.schedule() }
+        defer { services.windows.recordSaver.launchRecord.schedule(); services.windows.launchCapture.themeChanged() }
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
         if forceSurfaces { for entry in Array(services.cache.terminals.values) + services.cache.guestTerminals.values.map(\.entry) { entry.themeBinding.syncSurface(force: true) } }
@@ -273,6 +273,7 @@ final class ThemeCoordinator {
         if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
         services.windows.recordSaver.launchRecord.schedule()
+        services.windows.launchCapture.themeChanged()
     }
 
     // MARK: Commit and preview

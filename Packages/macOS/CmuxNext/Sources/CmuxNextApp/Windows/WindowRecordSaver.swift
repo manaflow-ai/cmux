@@ -66,6 +66,7 @@ final class WindowRecordSaver {
     func stateDidChange(_ state: WindowState) {
         guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
+        manager.launchCapture.changed(state.id)
         requestSave()
     }
 
@@ -73,6 +74,7 @@ final class WindowRecordSaver {
     func geometryDidChange(_ state: WindowState) {
         guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
+        manager.launchCapture.changed(state.id)
         geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
     }
 

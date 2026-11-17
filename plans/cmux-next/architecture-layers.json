@@ -116,6 +116,7 @@
     "CmuxNextGitHubViewer": {"layer": "ui"},
     "CmuxNextChiefPetWiring": {"layer": "ui"},
     "CmuxNextAccounts": {"layer": "ui"},
+    "CmuxNextLaunchCapture": {"layer": "ui"},
     "CmuxNextScreenshots": {"layer": "ui"},
     "CmuxNextFileGrid": {"layer": "ui"},
     "CmuxNextImportCards": {"layer": "ui"},

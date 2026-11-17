@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextLaunchCapture
 import CmuxNextTerminal
 import CoreGraphics
 
@@ -53,6 +54,14 @@ extension TabContentCache {
         }
     }
 
+    /// `pane`'s shown Chromium browser page with its picture, for its window's launch image (`LaunchWindowCapture`).
+    func launchCapturePage(_ pane: PaneController) -> LaunchCaptureBrowserPage? {
+        guard case .browser(let entry)? = pane.currentContent, let tab = entry.tab as? CEFTab else { return nil }
+        let key = pane.currentTabKey.flatMap { browsers[$0] === entry ? $0 : nil }
+        return LaunchCaptureBrowserPage(tab: tab, picture: key.flatMap(pageThumbnails.image(for:)), takenAt: key.flatMap { pageThumbnailTakenAt[$0] },
+                                        version: key.flatMap { pageThumbnailVersions[$0] })
+    }
+
     /// The page's picture is of its version now (`BrowserTabState.pictureVersion`) and still cached.
     func pagePictureIsCurrent(_ entry: BrowserEntry, key: String) -> Bool {
         pageThumbnails.image(for: key) != nil && pageThumbnailVersions[key] == entry.tab.state.pictureVersion
@@ -75,6 +84,7 @@ extension TabContentCache {
     private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
         let version = capture.version, budget = pageCaptureDeadline
+        let taken = ContinuousClock.now
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
             try await capture.request.image()
         }) else { return nil }
@@ -85,6 +95,7 @@ extension TabContentCache {
         // no hidden page); decoded 640 px pictures in the 16 MB budget kept only about 14 pages' (fleet e2fb152d, 05f0ba3c).
         pageThumbnails.insertCompressingLater(fitted, for: key)  // nobody who waits for this picture waits for its encode
         pageThumbnailVersions[key] = blank ? nil : version
+        pageThumbnailTakenAt[key] = taken
         return image
     }
 

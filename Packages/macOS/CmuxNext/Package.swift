@@ -104,6 +104,9 @@ import PackageDescription
 //   CmuxNextScreenshots -> Compat, FileGrid, Files (the Screenshots pane: source detection for macOS and the
 //     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
 //     and the pane view; no daemon; the App supplies the workspace)
+//   CmuxNextLaunchCapture -> CCmuxAppFFI, Browser, Control, Design, DesignTokens, Pages, Screenshots, Wakeups (each
+//     window's last frame for the next launch's stage 0: its capture schedule, the window server's composite
+//     with page regions by cmux-launch-image's age rule, the publish; the App supplies the windows)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, cx-v9k2f, the sidebar's Priority view and its Chief item with its App Store card)
 //   CmuxNextApps -> Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -361,6 +364,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
                 "CmuxNextKeys",
+                "CmuxNextLaunchCapture",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -1470,6 +1474,30 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFileGrid",
             resources: [
                 .process("Resources/Localizable.xcstrings"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Each window's last frame for the next launch's first frame (stage 0, cmux-launch-image).
+        .target(
+            name: "CmuxNextLaunchCapture",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextBrowser",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextDesignTokens",
+                "CmuxNextPages",
+                "CmuxNextScreenshots",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLaunchCaptureTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextControl",
+                "CmuxNextLaunchCapture",
+                "CmuxNextScreenshots",
             ],
             swiftSettings: uiSwiftSettings
         ),

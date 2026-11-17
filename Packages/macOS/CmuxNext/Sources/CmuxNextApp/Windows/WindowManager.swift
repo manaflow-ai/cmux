@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextLaunchCapture
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
@@ -41,6 +42,8 @@ final class WindowManager {
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
     lazy var recordSaver = WindowRecordSaver(manager: self)
+    /// Each window's last frame for the next launch's first frame.
+    lazy var launchCapture = LaunchWindowCapture(host: services, work: services.work, bundleID: services.environment.launch.bundleID)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -507,6 +510,7 @@ final class WindowManager {
             states[id] = nil
             return
         }
+        launchCapture.windowClosed(id)
         userClosed(id)
     }
 
