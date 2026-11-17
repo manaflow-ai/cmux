@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The launch spare's hold on the restored chats on screen (AgentPaneShownChatsWait): it ends once, when the last
 /// page drew or at the deadline, and a page that drew already holds nothing.
-@MainActor @Suite struct AgentPaneShownChatsWaitTests {
+@MainActor @Suite(.closesItsWindows) struct AgentPaneShownChatsWaitTests {
     /// `count` stand-in pages; `paint(i)` is page i drawing. `ended` counts the wait's `then`.
     private final class Pages {
         var waiters: [() -> Void] = []
@@ -76,11 +77,12 @@ import Testing
 
 /// Only a window the person can see counts (review of #39700, F1): a page in a window that is ordered out or has
 /// none holds no spare.
-@MainActor @Suite struct AgentPaneShownChatsWindowTests {
+@MainActor @Suite(.closesItsWindows) struct AgentPaneShownChatsWindowTests {
     @Test func aWindowOrderedOutOrMissingIsNotShown() {
         #expect(!AgentPaneShownChatsWait.shown(nil))
         let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         #expect(!AgentPaneShownChatsWait.shown(window), "a window never ordered in counted as shown")
     }
 }

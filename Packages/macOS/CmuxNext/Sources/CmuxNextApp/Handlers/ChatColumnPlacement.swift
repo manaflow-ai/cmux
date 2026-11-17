@@ -75,7 +75,7 @@ extension ChatColumnPlacement {
                                     kind: RightColumnPlacement.Kind? = nil,
                                     _ make: @escaping LinkOpener.Make) -> Bool {
         guard case .tab = resolve(from: controller, services: services) else { return false }
-        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, make)
+        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, opening: .tool, make)
         return true
     }
 

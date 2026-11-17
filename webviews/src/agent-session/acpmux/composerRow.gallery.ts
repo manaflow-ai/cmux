@@ -151,11 +151,27 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
   covers: [
+    "agent-session/acpmux/composerLocation.css",
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
   ],
   variants: {
+    "wrap-one-line": {
+      composerLook: "claude",
+      note: "A short prompt keeps the leading and trailing controls on its first line.",
+      ready: { draft: "Check composer wrapping" },
+      snapshot: row(),
+    },
+    "wrap-two-lines": {
+      composerLook: "claude",
+      note: "A soft wrap keeps the first line at its fixed top inset and the controls in place.",
+      ready: {
+        draft:
+          "Check composer wrapping and keep the first line, caret and controls in place as the prompt grows downward.",
+      },
+      snapshot: row(),
+    },
     "claude-auto": {
       composerLook: "claude",
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",

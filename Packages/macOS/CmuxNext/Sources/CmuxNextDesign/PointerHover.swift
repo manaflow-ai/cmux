@@ -169,7 +169,10 @@ public final class PointerHover: NSObject {
     /// `window` or one of `passThrough` (no other window or panel covers the
     /// point). A window server round trip: ask only when a view is under the
     /// pointer.
+    /// An overlay of the window that takes the mouse under the pointer (a toast) covers it: the window is not on top
+    /// there (``WindowOverlayHost/overlayTakesMouse(in:atWindowPoint:)``).
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
+        if let pointer = pointer(in: window), WindowOverlayHost.overlayTakesMouse(in: window, atWindowPoint: pointer) { return false }
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
