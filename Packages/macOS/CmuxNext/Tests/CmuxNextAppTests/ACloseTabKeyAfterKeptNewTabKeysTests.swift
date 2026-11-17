@@ -78,6 +78,9 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         private(set) var replayNotes = 0
         /// How the hold ended that gave out the first kept key that ran again (the hold's log, read before that key runs).
         private(set) var firstReplayEnd: CreationHoldEnd?
+        /// A step of a row, run one time right before the first kept key runs again: the hold that kept the key ended
+        /// in this turn of the main actor, and no kept key ran yet.
+        var beforeFirstReplay: (@MainActor () -> Void)?
         /// The keys of the test in the order of the presses (kept here, so each event stays one object).
         private var pressed: [NSEvent] = []
 
@@ -96,7 +99,10 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         var replay: HeldKeyReplay {
             { [self] event, window, router in
                 let before = router.interceptions
-                if replays == 0 { firstReplayEnd = router.creationInputCoordinator.lastHoldEnd(in: window) }
+                if replays == 0 {
+                    firstReplayEnd = router.creationInputCoordinator.lastHoldEnd(in: window)
+                    beforeFirstReplay?()
+                }
                 let taken = router.interceptKeyDown(event, in: window)
                 if !taken { window.sendEvent(event) }
                 let ran = router.interceptions > before ? router.lastInterception?.action.rawValue : nil
@@ -313,6 +319,14 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         #expect(counted == [1, 0], "the debug read counts \(counted) (want 1 cancelled pair, then 0 lost Close Tab keys); \(keys.said)")
     }
 
+    /// A row whose hold keeps two New Tab keys that make terminals and then one Close Tab key. In each order of the
+    /// row's answers the Close Tab key goes with the newest kept New Tab key: 1 kept key ran again (the other New Tab
+    /// key), and `debug.focus` counts 1 pair and no lost key.
+    static func checkOnePairAndOneKeyThatRanAgain(_ keys: Keys) {
+        #expect(keys.keptKeysRunAgain == 1 && keys.tabKeyCounts == [1, 0],
+                "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want 1 key, then 1 cancelled pair and 0 lost Close Tab keys: the Close Tab key goes with the newest kept New Tab key, and the other kept New Tab key runs again); \(keys.said)")
+    }
+
     /// The tab that the split key made in its own call (the tab of the split's pane) is open at the end: the Close Tab
     /// key did not take it in place of the newest New Tab key's tab.
     static func checkTheSplitsTab(_ splitTabs: [String], _ keys: Keys) {
@@ -370,12 +384,16 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     /// Tab page here. At the end: the split's pane with its tab, and one of the two new tabs. The hold keeps the Close
     /// Tab key.
     ///
-    /// No pair goes in this row. The split's own view takes the keyboard before the hold's end, and it takes its 3
-    /// kept keys then (`CreationInputCoordinator.flush`: the lane of a creation whose early view has the keyboard).
-    /// That path does not reduce the kept keys (`CreationInputBuffer.reduceTabKeys` says which ends do). The keys run
-    /// again in the order of the presses: New Tab, New Tab, Close Tab. The Close Tab key then closes the page of the
-    /// newest New Tab key, which is the result that the pair gives. So 3 kept keys ran again, and `debug.focus`
-    /// counts 0 pairs and 0 lost keys.
+    /// The row has two orders of its answers, and the tabs at the end are the same in each:
+    /// - The split's own view takes the keyboard before the daemon's answer, and it takes its 3 kept keys then
+    ///   (`CreationInputCoordinator.flush`: the lane of a creation whose early view has the keyboard). That path does
+    ///   not reduce the kept keys (`CreationInputBuffer.reduceTabKeys` says which ends do). The keys run again in the
+    ///   order of the presses: New Tab, New Tab, Close Tab. The Close Tab key then closes the page of the newest New
+    ///   Tab key, which is the result that the pair gives. So 3 kept keys ran again, and `debug.focus` counts 0 pairs
+    ///   and 0 lost keys.
+    /// - The daemon's answer comes first: the hold ends, the Close Tab key goes with the newest New Tab key, and the
+    ///   other New Tab key runs again. So 1 kept key ran again, and `debug.focus` counts 1 pair and 0 lost keys.
+    /// The row does not make one of the two orders sure: it takes each by its name and prints which came.
     @Test func aCloseTabKeyAfterNewTabKeysBehindASplitClosesTheNewestNewTab() async throws {
         try await Self.withTerminalPane { services, window, log in
             let held = HeldCreations()
@@ -397,8 +415,11 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
             Self.check(keys, "a split key, 2 New Tab keys that make pages, a Close Tab key", lateAnswers: 1)
             Self.checkTheSplitsTab(splitTabs, keys)
             #expect(close == .kept, "the Close Tab key that came after a kept New Tab key was not kept by a hold (its own call: \(close.map { "\($0)" } ?? "no call")); \(keys.said)")
-            #expect(keys.keptKeysRunAgain == 3 && keys.tabKeyCounts == [0, 0],
-                    "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want 3 keys, then 0 cancelled pairs and 0 lost Close Tab keys: the split's own view takes its keys in the order of the presses); \(keys.said)")
+            let ownViewFirst = keys.keptKeysRunAgain == 3 && keys.tabKeyCounts == [0, 0]
+            let answerFirst = keys.keptKeysRunAgain == 1 && keys.tabKeyCounts == [1, 0]
+            print("KEYS-IN-ORDER the split key with pages, the order of its answers: \(ownViewFirst ? "the split's own view took its keys first" : answerFirst ? "the daemon's answer came first" : "not one of the two orders")")
+            #expect(ownViewFirst || answerFirst,
+                    "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want one of two results: 3 keys, then 0 cancelled pairs and 0 lost Close Tab keys, when the split's own view takes its keys in the order of the presses; or 1 key, then 1 cancelled pair and 0 lost Close Tab keys, when the daemon's answer comes first); \(keys.said)")
             // Each creation of a New Tab page ends before the window closes.
             held.release()
             if let failure { throw failure }
@@ -427,6 +448,10 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
             } catch { failure = error }
             Self.check(keys, "a split key, 2 New Tab keys that make terminals, a Close Tab key", lateAnswers: 1)
             Self.checkTheSplitsTab(splitTabs, keys)
+            // By a read of the hold: the split's own view can take its keys before the daemon's answer here too. The
+            // first New Tab key then runs again and opens a creation of its own, the hold keeps the two other keys
+            // for it, and its end takes their pair: the counts are the same in each order.
+            Self.checkOnePairAndOneKeyThatRanAgain(keys)
             if let failure { throw failure }
         }
     }
@@ -449,6 +474,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
                 try await Self.settle(keys, in: window, services: services)
             } catch { failure = error }
             Self.check(keys, "a held New Tab key that makes terminals, a Close Tab key", lateAnswers: 1)
+            Self.checkOnePairAndOneKeyThatRanAgain(keys)
             if let failure { throw failure }
         }
     }
@@ -546,6 +572,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
                 try await Self.settle(keys, in: window, services: services)
             } catch { failure = error }
             Self.check(keys, "a Close Tab key on a terminal whose close reads, 2 New Tab keys, a Close Tab key", lateAnswers: 1)
+            Self.checkOnePairAndOneKeyThatRanAgain(keys)
             let gone = keys.oldTabsGone
             #expect(gone == [terminal.id], "at the end the closed old tabs are \(gone) (want the terminal of the first Close Tab key only: \(terminal.id)); \(keys.said)")
             if let failure { throw failure }

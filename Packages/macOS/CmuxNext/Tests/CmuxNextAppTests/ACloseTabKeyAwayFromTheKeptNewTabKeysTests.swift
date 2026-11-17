@@ -16,6 +16,11 @@ import Testing
 /// panel's key. So such a key is not kept behind the New Tab keys and makes no pair with one of them: the hold ends,
 /// each kept New Tab key makes its tab, and the Close Tab key acts where the person pressed it.
 ///
+/// Decision of 2026-11-17: a pane that changes with no focus move of the person is not another place. The window shows
+/// the person's new workspace while a hold keeps New Tab keys: the pane of the keys' press is the old workspace's, and
+/// the Close Tab key after them comes in the new workspace's pane. The person made no move between those keys, so the
+/// Close Tab key waits behind the kept New Tab key and goes with it (the last row).
+///
 /// The app on a fresh same-tree daemon, with the keys and the helpers of `ACloseTabKeyAfterKeptNewTabKeysTests`. A New
 /// Tab key makes a terminal here (the pane's daemon holds no agent tabs).
 ///
@@ -26,6 +31,10 @@ import Testing
 ///   row has a mouse event: a click on a pane is not run here.
 /// - The panel is a child window that the test makes (an `NSPanel` with no view). The test gives the key router the
 ///   key for that window, and reads if the router takes it. What AppKit then does with the key in a panel is not run.
+/// - In the row of the new workspace, the creation of the first New Tab key waits at the app's own order of a
+///   workspace's creations (`WorkspaceContentController.pendingCreate`) behind a task of the test, not at a slow
+///   daemon. The other case of the same rule is not run: a split that the daemon makes with no stand-in pane (the
+///   same-tree daemon makes each split with a stand-in).
 /// - A failure of a line that starts with `setup:` is no result.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
@@ -139,6 +148,86 @@ struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
             #expect(new.count == 2, "at the end \(new.count) new tabs (want 2, the tabs of the two New Tab keys): \(new); \(keys.said)")
             #expect(counted == [0, 0], "the debug read counts \(counted) (want 0 cancelled pairs, then 0 lost Close Tab keys: the panel's key makes no pair); \(keys.said)")
             holds.resolve(ticket, landed: false, in: window)
+            if let failure { throw failure }
+        }
+    }
+
+    /// What the row of the new workspace reads in the turn where the hold of the new workspace ends: the new tabs that
+    /// the store lists then. They are the tabs of the new workspace itself: no kept key ran again yet.
+    @MainActor private final class AtTheEndOfTheWorkspacesHold {
+        var newTabs: [String]?
+    }
+
+    /// The person's new workspace. Cmd-N (the workspace gets a terminal, so a hold of the window's keys opens and waits
+    /// until the window shows the workspace), Cmd-T, Cmd-T, in one turn: the hold keeps the two New Tab keys, and the
+    /// pane that has the focus at their press is the pane of the old workspace. Then the window shows the new
+    /// workspace: the hold ends, the first New Tab key runs again in the new workspace's pane and opens a hold of its
+    /// own, and that hold keeps the second New Tab key. Then Cmd-W while that hold is open (the row keeps the creation
+    /// of the first New Tab key from the daemon until the Close Tab key was pressed): the focus is on the pane of the
+    /// new workspace then.
+    ///
+    /// The person made no focus move between the three keys, so they are keys of one place: the hold keeps the Close
+    /// Tab key behind the second New Tab key, and the two go together. At the end: 1 new tab of the New Tab keys, the
+    /// tabs of the new workspace itself are open, no tab of the start is closed, and the hold's end counts 1 pair and
+    /// no lost key.
+    @Test func aCloseTabKeyAfterNewTabKeysKeptWhileThePersonsNewWorkspaceOpensGoesWithTheNewestNewTabKey() async throws {
+        try await Rows.withTerminalPane { services, window, log in
+            services.agentTabs.holdsTabs = { _ in false }
+            let holds = services.keyRouter.creationInputCoordinator
+            let controller = try #require(services.windows.active, "setup: the app has no window")
+            let oldPane = try #require(controller.focus.state.pane, "setup: no pane has the focus")
+            let oldWorkspace = try #require(controller.workspaceContent?.workspace.id, "setup: the window shows no workspace")
+            let keys = Rows.Keys(services: services, window: window, log: log)
+            try #require(Counts.counts(services) == [0, 0], "setup: the counts are \(Counts.counts(services)) before the keys (want 0 and 0)")
+            // The creation of the first New Tab key waits behind this task, from the turn where the key runs again
+            // until the row lets it go.
+            let (gate, letGo) = AsyncStream<Void>.makeStream()
+            defer { letGo.finish() }
+            let seen = AtTheEndOfTheWorkspacesHold()
+            log.beforeFirstReplay = {
+                seen.newTabs = keys.newTabs
+                services.windows.active?.workspaceContent?.pendingCreate = Task { () -> ActionWorkFailure? in
+                    for await _ in gate {}
+                    return nil
+                }
+            }
+            var failure: (any Error)?, close: Rows.Keys.Outcome?
+            do {
+                // One turn of the main actor: the daemon's answer to the new workspace cannot come between the keys.
+                let workspace = try keys.press("Cmd-N", "n", code: 45, repeats: false).outcome
+                try #require(workspace == .ran && holds.isHolding(in: window),
+                             "setup: the New Workspace key did not run, or it opened no hold of the window's keys; \(keys.said)")
+                try #require(controller.focus.state.pane == oldPane,
+                             "setup: the focus left the old workspace's pane in the turn of the New Workspace key: \(controller.focus.state.resolved); \(keys.said)")
+                let first = try keys.newTab(), second = try keys.newTab()
+                try #require(first == .kept && second == .kept, "setup: the hold of the new workspace did not keep the two New Tab keys; \(keys.said)")
+                // The window shows the new workspace, its hold ends, and the first New Tab key runs again.
+                try await PasswordManagerRouteTests.until({ log.replays >= 1 },
+                                                          report: { "setup: no kept New Tab key ran again on the key path after the New Workspace key; \(keys.said)" })
+                let workspaceTabs = try #require(seen.newTabs, "setup: the row did not read the tabs of the new workspace")
+                let shown = controller.workspaceContent?.workspace.id
+                try #require(shown != nil && shown != oldWorkspace, "setup: the window does not show the new workspace; \(keys.said)")
+                let newPane = controller.focus.state.pane
+                try #require(newPane != nil && newPane != oldPane,
+                             "setup: the focus is not on a pane of the new workspace: \(controller.focus.state.resolved); \(keys.said)")
+                let pendingTabs = keys.newTabs.filter { !workspaceTabs.contains($0) }
+                try #require(log.replays == 1 && holds.isHolding(in: window) && pendingTabs.count == 1,
+                             "setup: before the Close Tab key \(log.replays) kept keys ran again (want 1), a hold of the window's keys is \(holds.isHolding(in: window) ? "open" : "not open") (want open: the hold of the first New Tab key, which keeps the second), and the New Tab keys made \(pendingTabs.count) tabs (want 1); \(keys.said)")
+                close = try keys.closeTab()
+                letGo.finish()
+                try await Rows.settle(keys, in: window, services: services)
+            } catch { failure = error }
+            let workspaceTabs = seen.newTabs ?? []
+            let tabsNow = keys.tabs
+            let made = keys.newTabs.filter { !workspaceTabs.contains($0) }, gone = keys.oldTabsGone
+            let workspaceTabsGone = workspaceTabs.filter { !tabsNow.contains($0) }
+            let counted = Counts.counts(services)
+            print("KEYS-IN-ORDER a new workspace, Cmd-N Cmd-T Cmd-T, then Cmd-W when the window shows the workspace: \(keys.count) keys, \(keys.keptNewTabKeys) New Tab keys kept by a hold, \(log.replays) kept keys that ran again, \(made.count) new tabs of the New Tab keys at the end, closed old tabs \(gone), counts \(counted)")
+            #expect(close == .kept, "in its own call the Close Tab key was not kept by a hold (\(close.map { "\($0)" } ?? "no call")): it did not wait behind the kept New Tab key of its place; \(keys.said)")
+            #expect(made.count == 1, "at the end \(made.count) new tabs of the New Tab keys (want 1: two New Tab keys and one Close Tab key): \(made); \(keys.said)")
+            #expect(gone.isEmpty && keys.oldTabsClosedAfterANewTabKey.isEmpty && workspaceTabsGone.isEmpty,
+                    "the keys closed a tab that they did not make: tabs of the start \(gone), tabs of the new workspace itself \(workspaceTabsGone); \(keys.said)")
+            #expect(counted == [1, 0], "the debug read counts \(counted) (want 1 cancelled pair, then 0 lost Close Tab keys); \(keys.said)")
             if let failure { throw failure }
         }
     }
