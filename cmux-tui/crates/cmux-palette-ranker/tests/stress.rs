@@ -368,7 +368,7 @@ fn special_rows() -> Vec<Value> {
 fn random_request(rng: &mut Rng, query: &str) -> RankRequest {
     let mut value = request(1, query);
     let Some(object) = value.as_object_mut() else { panic!("request object") };
-    if rng.next() % 8 == 0 {
+    if rng.next().is_multiple_of(8) {
         object.insert("ranksPrefixFirst".into(), json!(true));
     }
     match rng.next() % 6 {
@@ -380,14 +380,14 @@ fn random_request(rng: &mut Rng, query: &str) -> RankRequest {
         }
         _ => {}
     }
-    if rng.next() % 3 == 0 {
+    if rng.next().is_multiple_of(3) {
         object.insert(
             "aliases".into(),
             json!({"window.open0": ["op", "sw"], "settings.open": ["o"]}),
         );
         object.insert("pins".into(), json!(["window.open0"]));
     }
-    if rng.next() % 3 == 0 {
+    if rng.next().is_multiple_of(3) {
         object.insert(
             "frecency".into(),
             json!({
@@ -400,7 +400,7 @@ fn random_request(rng: &mut Rng, query: &str) -> RankRequest {
             }),
         );
     }
-    if rng.next() % 4 == 0 {
+    if rng.next().is_multiple_of(4) {
         object.insert("keepsSectionOrder".into(), json!(true));
         object.insert("sectionOrders".into(), json!([3, 1, 2, 0, 4, 5, 6, 7, 8, 9]));
     }
@@ -414,7 +414,7 @@ fn random_edit(rng: &mut Rng, query: &mut Vec<char>, phrase: &mut Vec<char>) {
         0..=54 => {
             if phrase.is_empty() {
                 *phrase = rng.pick(PHRASES).chars().rev().collect();
-                if !query.is_empty() && rng.next() % 2 == 0 {
+                if !query.is_empty() && rng.next().is_multiple_of(2) {
                     query.push(' ');
                 }
             }
@@ -427,7 +427,7 @@ fn random_edit(rng: &mut Rng, query: &mut Vec<char>, phrase: &mut Vec<char>) {
             }
         }
         80..=87 => {
-            if rng.next() % 2 == 0 {
+            if rng.next().is_multiple_of(2) {
                 query.push(' ');
             }
             query.extend(rng.pick(PHRASES).chars());
