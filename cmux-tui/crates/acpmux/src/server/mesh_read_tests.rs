@@ -792,3 +792,49 @@ async fn a_web_device_enrolls_through_the_join_path() {
         .await;
     assert!(bad.is_err(), "{bad:?}");
 }
+
+/// A prompt's `mesh:` delivery id goes back to the browser, and the browser may ask its status.
+/// That status read goes with the device's credential alone: never with this daemon's identity,
+/// neither after the hub revoked the device nor for a web connection that has no device.
+#[tokio::test]
+async fn a_web_devices_send_status_uses_its_own_credential_and_ends_with_the_revoke() {
+    let info = json!({"sessionId": LISTED});
+    let (url, seen) = http_hub(Box::new(move |index, s| {
+        // The prompt and one status read go through; then the hub revokes the device.
+        if index < 2 {
+            mesh_answer(s, &info)
+        } else {
+            (401, json!({"code": "machine.revoked", "message": "revoked"}))
+        }
+    }))
+    .await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    web.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
+    let sent = web.prompt().await.unwrap();
+    let id = sent["deliveryId"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("mesh:"), "{sent}");
+    let status = json!({"deliveryId": id});
+
+    web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap();
+    assert_eq!(own.used(), 0, "a web device's status read used the daemon's identity");
+    assert!(
+        seen.lock().unwrap().iter().all(|s| s.bearer == format!("Bearer {DEVICE}")),
+        "{:?}",
+        seen.lock().unwrap()
+    );
+
+    let revoked = web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap_err();
+    assert_eq!(reason(&revoked), "device.revoked", "{revoked}");
+    let reached = seen.lock().unwrap().len();
+    let again = web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap_err();
+    assert_eq!(reason(&again), "device.revoked", "{again}");
+    assert_eq!(seen.lock().unwrap().len(), reached, "a revoked device reached the hub again");
+    assert_eq!(own.used(), 0, "the daemon's identity answered a revoked device's status read");
+
+    // A web connection with no device asks the same id: nothing goes with the daemon's identity.
+    let mut stranger = Client::connect(&a, Origin::Web);
+    assert!(stranger.request(method::MUX_SEND_STATUS, status).await.is_err());
+    assert_eq!(own.used(), 0, "a web connection with no device used the daemon's identity");
+}
