@@ -98,6 +98,7 @@ mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod community;
+#[cfg(unix)]
 mod customize;
 #[cfg(unix)]
 mod dev;
