@@ -31,6 +31,12 @@ PATHs (only release control methods and the OS, so a NIGHTLY runs it):
              app while it is gone, as Sparkle's installer does, then the new app opened: a version handoff
   kill       SIGKILL of the app (a crash)
   term       SIGTERM (origin .signal)
+Startup paths (startup_paths.py; Leo, 2026-11-17: "i mean across all startups we shoudl be fast ofc"):
+  fresh-install  a new user's first launch: a quarantined copy of the DMG, the app copied out and `open`ed with a new
+                 HOME, the first-launch prompt answered; --fresh-rounds rows (state first-run), before the gamut boots
+  cold-cache     the scripted quit, the disk cache purged (`sudo -n purge`, else a fresh bundle copy), the reopen:
+                 a reboot's cold start, approximated (a fleet step cannot reboot)
+  loaded         the scripted quit, then the reopen under a fixed synthetic CPU and IO load (the row's `load`)
 STATEs:
   stream     a chat whose reply streams a word 8 times a second through the quit and after it, in front
   idle       a chat with one answered turn, in front
@@ -66,8 +72,10 @@ sys.path.insert(0, str(HERE))
 import fresh_home_launch_smoke as smoke  # noqa: E402
 import relaunch_restore_check as l5  # noqa: E402
 import stable_next_ui_journey as ui  # noqa: E402
+import startup_paths as startup  # noqa: E402
 
-PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term")
+PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term", "fresh-install", "cold-cache", "loaded")
+REOPEN_PATHS = ("cold-cache", "loaded")  # a scripted quit, then a reopen changed by the path
 STATES = ("stream", "idle", "midturn", "queued", "tool", "long", "many")
 IN_FLIGHT = ("stream", "midturn", "queued", "tool", "many")
 GATED = ("midturn", "queued", "tool", "many")
@@ -132,6 +140,7 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
     """(why it could not be asked, ms from asking to the process gone)."""
     process = app.process
     asked = time.monotonic()
+    path = "scripted" if path in REOPEN_PATHS else path
     if path == "dock":
         # NSRunningApplication.terminate sends the quit Apple event the Dock sends; it needs no Automation consent.
         # (JXA calls an ObjC method with no arguments on property access, as in `$.NSString.alloc`; the round
@@ -296,6 +305,7 @@ class Gamut:
         self.many_made = False
         self.rounds: list[dict] = []
         self.serial = 0
+        self.pristine: Path | None = None  # cold-cache's unread copy of the bundle
 
     def boot(self, bundle: Path, env: dict) -> None:
         self.app = App(bundle, env, self.root)
@@ -506,6 +516,12 @@ class Gamut:
         row["processes_ended_with_app"] = len(processes_before - set(gone) - {self.app.process.pid})
         if path == "update" and update_bundle is not None:
             swap_bundle(self.app.bundle, update_bundle)
+        load = None
+        if path == "cold-cache":
+            row["cold"] = startup.make_cold(self.app.bundle, self.pristine, swap_bundle)
+        elif path == "loaded":
+            load = startup.SyntheticLoad(self.root)
+            row["load"] = load.start()
         started = self.app.start()
         row["timeline"] = []
         settled_at = front_ms = None
@@ -524,6 +540,8 @@ class Gamut:
                 settled_at = max(needed)
                 break
             time.sleep(0.05)
+        if load is not None:
+            row["load"].update(load.stop())  # the load lasts until the reopen settled (or REOPEN_S)
         marks = self.app.drain()
         if chat_front:
             # The chat back and live: in front, its page drawn and its stream transport open (agent_pane marks).
@@ -615,6 +633,13 @@ def table(rows: list[dict]) -> str:
         notes = "; ".join(r.get("failures") or [])
         if r.get("state") in IN_FLIGHT and not r.get("failures"):
             notes = f"agent pid {r.get('agent_pid_before')} kept"
+        if r.get("path") == "fresh-install":
+            gate = r.get("gate") or {}
+            notes = (f"from open: spawn {r.get('open_to_spawn_ms')}, first window {r.get('open_to_first_window_ms')}, "
+                     f"settled {r.get('open_to_settled_ms')}; prompt wait {r.get('prompt_wait_ms')}; syspolicyd "
+                     f"{gate.get('syspolicyd_span_ms')}, XProtect {gate.get('xprotect_span_ms')} ms; {notes}")
+        elif r.get("cold") or r.get("load"):
+            notes = f"{json.dumps(r.get('cold') or r.get('load'))}; {notes}"
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
                      f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
     return "\n".join(lines) + "\n"
@@ -630,6 +655,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--long-turns", type=int, default=150)
     parser.add_argument("--video", default="")
     parser.add_argument("--fake-agent", default=str(l5.DEFAULT_FAKE_AGENT))
+    parser.add_argument("--fresh-rounds", type=int, default=3, help="fresh-install: installs and first launches")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     args.paths = [p for p in args.paths.split(",") if p]
@@ -649,6 +675,13 @@ def main(argv: list[str] | None = None) -> int:
         problem = smoke.gui_session_problem()
         if problem:
             raise smoke.CannotRun(problem)
+        if "fresh-install" in args.paths:
+            # Before the gamut's own home exists: each round is its own install, home and defaults set-aside.
+            for index in range(1, args.fresh_rounds + 1):
+                row = startup.fresh_install_round(smoke, Path(args.dmg), index, prepare_env=ui.login_keychain)
+                gamut.rounds.append(row)
+                print("GAMUT-ROUND " + json.dumps(row, default=str), flush=True)
+            args.paths = [p for p in args.paths if p != "fresh-install"]
         bundle = smoke.copy_app_from_dmg(Path(args.dmg), root)
         newer = previous = None
         if args.update_dmg:
@@ -657,32 +690,39 @@ def main(argv: list[str] | None = None) -> int:
             previous = smoke.copy_app_from_dmg(Path(args.update_dmg), side)
             newer = root / "newer.app"
             subprocess.run(["ditto", str(bundle), str(newer)], check=True, timeout=600)
-        bundle_id, _ = smoke.bundle_info(bundle)
-        with smoke.DefaultsAside(bundle_id, root):
-            env = smoke.fresh_env(root, root / "s.sock", -1)
-            env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
-            ui.login_keychain(env)
-            folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
-            folder.mkdir(parents=True, exist_ok=True)
-            (folder / f"{HARNESS}.toml").write_text(
-                f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
-            gamut.boot(bundle, env)
-            gamut.app.cli("setup", "trust", str(gamut.work))
-            gamut.run(bundle, env, newer, previous)
-            if gamut.app.process and gamut.app.process.poll() is None:
-                l5.call(gamut.app.sock, "action.run", {"action": "quitEndEverything"}, timeout=10)
-                try:
-                    gamut.app.process.wait(timeout=20)
-                except subprocess.TimeoutExpired:
-                    pass
-            smoke.stop_child(gamut.app.process)
-            smoke.stop(smoke.own_pids(root))
+        if "cold-cache" in args.paths:
+            # Without passwordless sudo, cold-cache swaps in a copy no process has read (startup.make_cold).
+            (root / "pristine").mkdir()
+            gamut.pristine = root / "pristine" / bundle.name
+            subprocess.run(["ditto", str(bundle), str(gamut.pristine)], check=True, timeout=600)
+        if args.paths:
+            bundle_id, _ = smoke.bundle_info(bundle)
+            with smoke.DefaultsAside(bundle_id, root):
+                env = smoke.fresh_env(root, root / "s.sock", -1)
+                env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
+                ui.login_keychain(env)
+                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"{HARNESS}.toml").write_text(
+                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
+                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                gamut.boot(bundle, env)
+                gamut.app.cli("setup", "trust", str(gamut.work))
+                gamut.run(bundle, env, newer, previous)
+                if gamut.app.process and gamut.app.process.poll() is None:
+                    l5.call(gamut.app.sock, "action.run", {"action": "quitEndEverything"}, timeout=10)
+                    try:
+                        gamut.app.process.wait(timeout=20)
+                    except subprocess.TimeoutExpired:
+                        pass
+                smoke.stop_child(gamut.app.process)
+                smoke.stop(smoke.own_pids(root))
         counted = [r for r in gamut.rounds if not r.get("not_run")]
         status = 0 if counted and all(not r.get("failures") for r in counted) else 1
     except (smoke.CannotRun, OSError, subprocess.SubprocessError) as error:
         log(f"CANNOT RUN: {error}")
     finally:
+        startup.SyntheticLoad.stop_all()  # a `loaded` round that raised mid-reopen
         if gamut.app and gamut.app.process and gamut.app.process.poll() is None:
             smoke.stop_child(gamut.app.process)
         smoke.stop(smoke.own_pids(root))

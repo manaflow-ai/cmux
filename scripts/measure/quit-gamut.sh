@@ -9,7 +9,8 @@
 #     [--arg=build=N] [--arg=video=midturn,tool] --artifact .build/quit-gamut/report.tgz --timeout 3600
 #   build=N      the nightly build to measure (default: the newest the NIGHTLY feed offers); the update rounds
 #                start on the feed's build before it
-#   paths=, states=, many=, long_turns=, video=   passed to the check (--paths, --states, --many, --long-turns, --video)
+#   paths=, states=, many=, long_turns=, video=, fresh_rounds=   passed to the check (--paths, --states, --many,
+#                --long-turns, --video, --fresh-rounds); the startup paths: paths=fresh-install,cold-cache,loaded
 # Prints GAMUT-ROUND lines, one GAMUT {json} and the table; keeps gamut.json, gamut.md, app.log and videos in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
@@ -24,6 +25,7 @@ for arg in "$@"; do
     many=*) extra+=(--many "${arg#many=}") ;;
     long_turns=*) extra+=(--long-turns "${arg#long_turns=}") ;;
     video=*) extra+=(--video "${arg#video=}") ;;
+    fresh_rounds=*) extra+=(--fresh-rounds "${arg#fresh_rounds=}") ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
