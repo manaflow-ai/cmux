@@ -16,49 +16,49 @@
 
 use crate::peer_paths::{Carrier, Via};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 /// Round trips kept per path for its percentiles.
 pub const RTT_SAMPLES: usize = 64;
 
-/// A fixed ring of the last [`RTT_SAMPLES`] round trips, in microseconds.
+/// The last [`RTT_SAMPLES`] round trips, in microseconds, oldest first: a bounded queue whose
+/// capacity is reserved once, so a long-lived link never grows it.
 #[derive(Debug, Clone)]
 struct RttRing {
-    samples: [u32; RTT_SAMPLES],
-    len: usize,
-    next: usize,
+    samples: VecDeque<u32>,
 }
 
 impl Default for RttRing {
     fn default() -> Self {
-        Self { samples: [0; RTT_SAMPLES], len: 0, next: 0 }
+        Self { samples: VecDeque::with_capacity(RTT_SAMPLES) }
     }
 }
 
 impl RttRing {
     fn push(&mut self, rtt_us: u64) {
-        self.samples[self.next] = u32::try_from(rtt_us).unwrap_or(u32::MAX);
-        self.next = (self.next + 1) % RTT_SAMPLES;
-        self.len = (self.len + 1).min(RTT_SAMPLES);
+        if self.samples.len() >= RTT_SAMPLES {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(u32::try_from(rtt_us).unwrap_or(u32::MAX));
+    }
+
+    fn len(&self) -> usize {
+        self.samples.len()
     }
 
     /// The `p`th percentile (nearest rank) in milliseconds, once a sample came.
     fn percentile_ms(&self, p: usize) -> Option<f64> {
-        if self.len == 0 {
-            return None;
-        }
-        let mut sorted = self.samples;
-        let sorted = &mut sorted[..self.len];
+        let mut sorted: Vec<u32> = self.samples.iter().copied().collect();
         sorted.sort_unstable();
-        let rank = (p * self.len).div_ceil(100).clamp(1, self.len);
-        Some(f64::from(sorted[rank - 1]) / 1000.0)
+        let rank = p.saturating_mul(sorted.len()).div_ceil(100).max(1);
+        sorted.get(rank.saturating_sub(1)).map(|us| f64::from(*us) / 1000.0)
     }
 }
 
 /// The counters of one peer link.
 #[derive(Debug, Clone, Default)]
 pub struct LinkStats {
-    /// When counting began (the paths were made), ms.
+    /// When counting began (the first cold connect started), ms.
     since: u64,
     /// Cold connects that opened a path.
     opens: u64,
@@ -86,13 +86,11 @@ impl LinkStats {
         Self { since, ..Self::default() }
     }
 
-    /// Count from `now` (the paths were made then).
-    pub fn count_from(&mut self, now: u64) {
-        self.since = now;
-    }
-
     /// A cold connect that started at `started` dialed `order` and opened on `winner` at `now`.
     pub fn opened(&mut self, order: &[Via], winner: Via, started: u64, now: u64) {
+        if self.opens == 0 && self.since == 0 {
+            self.since = started;
+        }
         self.opens = self.opens.saturating_add(1);
         self.first_byte_ms = Some(now.saturating_sub(started));
         self.winner = Some(winner);
@@ -167,7 +165,7 @@ impl LinkStats {
                 let row = json!({
                     "p50Ms": ring.percentile_ms(50),
                     "p95Ms": ring.percentile_ms(95),
-                    "samples": ring.len,
+                    "samples": ring.len(),
                 });
                 (via.as_str().to_owned(), row)
             })

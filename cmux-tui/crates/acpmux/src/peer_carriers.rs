@@ -313,7 +313,6 @@ impl Peer {
         let mut paths = self.paths.lock_or_recover();
         let paths = paths.get_or_insert_with(|| {
             let mut paths = Paths::new(&self.path_vias());
-            paths.count_from(crate::store::now_ms());
             let remembered = self.last_good.get().and_then(|book| book.get(&self.name));
             paths.remember(remembered.and_then(|entry| entry.via));
             paths
@@ -330,17 +329,6 @@ impl Peer {
         *self.serving.lock_or_recover() = via;
         self.switch_wanted.store(false, Ordering::SeqCst);
         self.with_paths(|paths| paths.serving(via, crate::store::now_ms()));
-    }
-
-    /// `paths` of `_acpmux/peers`: every path's health and round trip (the live link's
-    /// carrier is `carrier`, from `peer_carrier.rs`).
-    pub(crate) fn paths_view(&self) -> serde_json::Value {
-        self.with_paths(|paths| paths.view(crate::store::now_ms()))
-    }
-
-    /// `linkStats` of `_acpmux/peers`: this link's path counters (`peer_path_stats.rs`).
-    pub(crate) fn link_stats_view(&self) -> serde_json::Value {
-        self.with_paths(|paths| paths.stats_view(crate::store::now_ms()))
     }
 
     /// A pong on `via`.
@@ -397,20 +385,6 @@ impl Peer {
     /// without the session noticing (no outage is counted).
     pub(super) fn another_path_alive(&self, failed: Via) -> bool {
         self.with_paths(|paths| paths.active().is_some_and(|via| via != failed))
-    }
-
-    /// Remember the path the link is ready on, for the next run.
-    pub(super) fn note_ready_path(&self) {
-        let (Some(via), Some(book)) = (self.serving(), self.last_good.get()) else { return };
-        let endpoints = crate::peer_last_good::Endpoints {
-            url: Some(super::lift_query_token(&self.url).0),
-            link: self.link_host.get().cloned(),
-            wireguard: self.wireguard.get().map(|(_, address)| address.to_string()),
-        };
-        let entry = self.with_paths(|paths| {
-            crate::peer_last_good::Entry::of(paths, via, endpoints, crate::store::now_ms())
-        });
-        book.record(&self.name, entry);
     }
 
     /// The order a cold connect dials this peer's paths in (`Paths::dial_order`).
@@ -1001,6 +975,9 @@ impl Drop for AnsweringGuard {
         self.set.lock_or_recover().until.remove(&self.id);
     }
 }
+
+#[path = "peer_path_book.rs"]
+mod book;
 
 #[cfg(test)]
 #[path = "peer_carriers_tests.rs"]

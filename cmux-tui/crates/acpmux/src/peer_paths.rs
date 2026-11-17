@@ -317,11 +317,6 @@ impl Paths {
         &self.stats
     }
 
-    /// Count from `now`: the paths were made then.
-    pub fn count_from(&mut self, now: u64) {
-        self.stats.count_from(now);
-    }
-
     /// A cold connect that started at `started` dialed `order` and opened on `winner` at `now`.
     pub fn opened(&mut self, order: &[Via], winner: Via, started: u64, now: u64) {
         self.stats.opened(order, winner, started, now);

@@ -153,7 +153,6 @@ fn a_suspect_path_is_in_doubt_and_still_held() {
 #[test]
 fn the_paths_count_the_connect_the_upgrade_and_the_time_on_each_path() {
     let mut paths = Paths::new(&[Via::Wireguard, Via::Ssh]);
-    paths.count_from(1_000);
     paths.failed(Via::Wireguard, 1_250);
     paths.opened(&[Via::Wireguard, Via::Ssh], Via::Ssh, 1_000, 1_600);
     paths.serving(Some(Via::Ssh), 1_600);
