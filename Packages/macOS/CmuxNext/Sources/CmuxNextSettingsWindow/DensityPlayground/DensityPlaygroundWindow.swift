@@ -55,6 +55,8 @@ import SwiftUI
         let content = NSHostingView(rootView: DensityPlaygroundView(model: model))
         panel.install(kind: .debugSettings, content: content, scope: scope, activeLook: activeLook)
         panel.initialFirstResponder = content
+        // A group switch swaps the value fields: Tab follows the fields on screen, not the ones that left.
+        panel.autorecalculatesKeyViewLoop = true
         if !panel.setFrameUsingName("cmux.densityPlayground") {
             // Beside the app's window, so the chrome being tuned stays in view: right of it, else left, else over
             // its trailing edge (the content, not the sidebar or the tab strip's leading tabs).

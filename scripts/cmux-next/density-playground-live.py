@@ -84,6 +84,9 @@ def keys(*strokes, gap=30):
     # The GUI host is shared: another run's app may have taken activation, and a panel takes keys only in the
     # active app. Activate again, then make the panel key (`key_window`: its identifier).
     subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)
+    # Active once one of its windows is key (a read-only check).
+    if not wait(lambda: any(w.get("key") for w in windows()), 5):
+        print("the app did not become active", flush=True)
     reply = rpc("debug.key", {"sequence": steps, "key_window": "cmux.densityPlayground"})
     time.sleep(len(steps) * gap / 1000 + 0.6)  # capture harness: the sequence plays, then the change draws
     return reply
