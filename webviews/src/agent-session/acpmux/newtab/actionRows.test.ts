@@ -99,3 +99,42 @@ test("pick history orders open tabs and workspaces inside their kind", () => {
   expect(ids()).toEqual(["a", "b", "w1", "w2"]);
   expect(ids({ "tab:b": 3, "workspace:w2": 1 })).toEqual(["b", "a", "w2", "w1"]);
 });
+
+test("creation commands need a matching search and do not duplicate native actions", () => {
+  const context = {
+    omnibar: {
+      ...EMPTY_OMNIBAR,
+      actions: [
+        { id: "newSurface", title: "New Terminal Tab", keywords: [] },
+        { id: "openBrowser", title: "New Browser Tab", keywords: [] },
+        { id: "palette.newAgentChat", title: "New Chat", keywords: [] },
+      ],
+    },
+    create: ["terminal", "browser", "chat"] as const,
+  };
+  for (const query of ["", "   ", "unrelated question", "!echo hi"])
+    expect(screenRows(query, context).filter((row) => row.type === "create")).toEqual([]);
+  expect(screenRows("new terminal tab", context).some((row) => row.type === "create" && row.kind === "terminal")).toBe(
+    true,
+  );
+  for (const kind of context.create) {
+    const rows = screenRows(kind, context);
+    expect(rows.filter((row) => row.type === "create")).toEqual([
+      {
+        type: "create",
+        kind,
+        title: context.omnibar.actions[context.create.indexOf(kind)]!.title,
+      },
+    ]);
+    expect(rows.some((row) => row.type === "action")).toBe(false);
+  }
+  expect(screenRows("terminal", { ...context, create: ["chat"] }).some((row) => row.type === "create")).toBe(false);
+});
+
+test("New terminal tab is searchable before the native action catalog arrives", () => {
+  expect(
+    screenRows("new terminal tab", { omnibar: EMPTY_OMNIBAR, create: ["terminal"] }).some(
+      (row) => row.type === "create" && row.kind === "terminal",
+    ),
+  ).toBe(true);
+});

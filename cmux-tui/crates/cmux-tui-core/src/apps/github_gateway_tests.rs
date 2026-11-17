@@ -96,6 +96,81 @@ fn the_read_paths_are_admitted_and_nothing_else() {
 }
 
 #[test]
+fn the_docs_reader_paths_are_admitted_and_their_traversals_refused() {
+    for path in [
+        "/repos/acme/secret/contents/docs",
+        "/repos/acme/secret/contents/docs/rfd/0002-x.md",
+        "/repos/acme/secret/contents/docs/rfd/0002-x.md?ref=main",
+        "/repos/acme/secret/contents/.github/CODEOWNERS?ref=feat%2Fx",
+        "/repos/acme/secret/git/trees/main",
+        "/repos/acme/secret/git/trees/feat%2Fx?recursive=1",
+        "/repos/acme/secret/git/trees/0123456789abcdef0123456789abcdef01234567?recursive=1",
+        "/repos/acme/secret/git/blobs/0123456789abcdef0123456789ABCDEF01234567",
+        "/repos/acme/secret/commits",
+        "/repos/acme/secret/commits?path=docs/rfd/0002-x.md&per_page=1&sha=main",
+        "/repos/acme/secret/pulls/12/comments",
+        "/repos/acme/secret/pulls/12/comments?per_page=100&page=2",
+        "/repos/acme/secret/pulls/12/files?per_page=100",
+        "/repos/acme/secret/issues/12/comments",
+        "/repos/acme/secret/issues/12/comments?per_page=100",
+    ] {
+        assert_eq!(admit_path(path).unwrap(), &path[1..], "{path}");
+    }
+    for path in [
+        "/repos/acme/secret/contents",
+        "/repos/acme/secret/contents/",
+        "/repos/acme/secret/contents/../x",
+        "/repos/acme/secret/contents/docs/../../x",
+        "/repos/acme/secret/contents/a/%2e%2e",
+        "/repos/acme/secret/contents/a%2Fb",
+        "/repos/acme/secret/contents/./x",
+        "/repos/acme/secret/contents/docs//x",
+        "/repos/acme/secret/contents/docs/",
+        "/repos/acme/secret/contents/a b",
+        "/repos/acme/secret/contents/{path}",
+        "/repos/acme/secret/git/trees",
+        "/repos/acme/secret/git/trees/..",
+        "/repos/acme/secret/git/trees/a/b",
+        "/repos/acme/secret/git/trees/%2e%2e",
+        "/repos/acme/secret/git/blobs/main",
+        "/repos/acme/secret/git/blobs/0123456789abcdef0123456789abcdef0123456",
+        "/repos/acme/secret/git/blobs/0123456789abcdef0123456789abcdef012345678",
+        "/repos/acme/secret/git/blobs/g123456789abcdef0123456789abcdef01234567",
+        "/repos/acme/secret/git/refs",
+        "/repos/acme/secret/git/commits/0123456789abcdef0123456789abcdef01234567",
+        "/repos/acme/secret/pulls/x/comments",
+        "/repos/acme/secret/pulls/12/comments/5",
+        "/repos/acme/secret/pulls/12/files/x",
+        "/repos/acme/secret/issues/x/comments",
+        "/repos/acme/secret/issues/12",
+        "/repos/acme/secret/issues/comments",
+        "/repos/acme/secret/commits?path={path}",
+    ] {
+        let refused = admit_path(path).unwrap_err();
+        assert_eq!(refused["code"], "validation.invalid", "{path}");
+        assert_eq!(refused["details"]["path"], path);
+    }
+}
+
+#[test]
+fn a_write_to_a_docs_reader_path_never_runs_gh() {
+    let (gh, gw) = gateway();
+    for method in ["POST", "PUT", "PATCH", "DELETE"] {
+        for path in [
+            "/repos/acme/secret/issues/12/comments",
+            "/repos/acme/secret/pulls/12/comments",
+            "/repos/acme/secret/contents/docs/rfd/0002-x.md",
+        ] {
+            let refused = gw
+                .request(&json!({ "provider": "github", "method": method, "path": path }))
+                .unwrap_err();
+            assert_eq!(refused["code"], "operation.unsupported", "{method} {path}");
+        }
+    }
+    assert!(gh.calls().is_empty());
+}
+
+#[test]
 fn a_private_repo_read_runs_gh_and_answers_its_json_with_the_metadata() {
     let (gh, gw) = gateway();
     gh.answer("200 OK", Some("W/\"p1\""), r#"[{"number":7,"title":"secret work"}]"#);
