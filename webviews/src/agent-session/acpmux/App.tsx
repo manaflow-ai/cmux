@@ -657,6 +657,7 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostLineOverCopy } from "./HostLineOverCopy";
 import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
@@ -813,7 +814,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { showsChatSnapshot, subscribeChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -7051,12 +7052,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
   const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
+  // The last launch's copy of the chat is on screen (chatSnapshot/live.ts), heard as it comes and
+  // goes: a press on it or its hold running out takes it off without any state of this page changing.
+  const copyUp = useSyncExternalStore(subscribeChatSnapshot, showsChatSnapshot, () => false);
   const showsWhatItIs =
     (!handshaken &&
       restoredTailSession !== undefined &&
       clientSnapshot.sessionId === restoredTailSession &&
       clientSnapshot.rows.length > 0 &&
-      !showsChatSnapshot()) ||
+      !copyUp) ||
     pageShowsWhatItIs({
       handshaken,
       chatDrawn,
@@ -7064,7 +7068,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       hostErrorSaid,
       newTab: newTab !== undefined,
       // The copy from the last launch stays until the chat itself is drawn (firstPaint.ts).
-      keepsLastFrame: showsChatSnapshot(),
+      keepsLastFrame: copyUp,
       chatRead:
         clientSnapshot.chatRead === true &&
         clientSnapshot.sessionId !== undefined &&
@@ -13075,6 +13079,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       otherwise={hostWaitOrError}
     />
   );
+  // A failure said while the last launch's copy still shows stands over the copy, which stays until
+  // the chat's rows draw (firstPaint.ts); in the dock under it, the line would show nothing (the
+  // live page is hidden) and then push the transcript once the copy went.
+  const hostLineShown = copyUp && hostErrorSaid ? <HostLineOverCopy>{hostLine}</HostLineOverCopy> : hostLine;
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).
   const forkPendingLine = snapshot.forkPending && (
@@ -13156,7 +13164,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             asks={
               <>
                 {asks}
-                {hostLine}
+                {hostLineShown}
                 {forkPendingLine}
               </>
             }
@@ -14044,7 +14052,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     />
                   </div>
                 )}
-                {hostLine}
+                {hostLineShown}
                 {forkPendingLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}

@@ -38,14 +38,19 @@ export type FirstPaintState = {
 /// the past thing, and then it regresses into the skeletons and placeholders, and then it gets back
 /// to the true thing"): a quiet retry (`connecting:`, acpmux still restoring after an update) or the
 /// draw hold running out (App.tsx CHAT_DRAW_HOLD_MS) drew an empty transcript, a pill reading
-/// "Model" and an empty ring in the copy's place. With a copy up, only the chat's own rows, a said
-/// failure, a refused open or acpmux's answer that the chat is unavailable replace it; past live.ts SNAPSHOT_HOLD_MS the copy goes anyway.
+/// "Model" and an empty ring in the copy's place. With a copy up, only the chat's own rows, a refused
+/// open or acpmux's answer that the chat is unavailable replace it; past live.ts SNAPSHOT_HOLD_MS the
+/// copy goes anyway. A said failure of the handshake does not: it took the copy off for an empty
+/// transcript under the failure's line, and the rows came back when the retry connected (Leo,
+/// 2026-11-16: "it said something went wrong with a retry button ... and then it layout shifted").
+/// The line shows over the copy instead (App.tsx `HostLineOverCopy`), and the copy goes only when
+/// the live rows draw.
 /// restore-monotonic-trace.test.tsx records every surface through a relaunch and fails on a step down.
 export function pageShowsWhatItIs(state: FirstPaintState): boolean {
-  if (state.hostErrorSaid || state.newTab) return true;
+  if (state.newTab) return true;
   if (state.keepsLastFrame)
     return (
       state.handshaken && (state.chatRead === true || state.openRefused === true || state.chatUnavailable === true)
     );
-  return state.handshaken && state.chatDrawn;
+  return state.hostErrorSaid || (state.handshaken && state.chatDrawn);
 }

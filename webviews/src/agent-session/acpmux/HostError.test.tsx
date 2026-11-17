@@ -6,6 +6,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostLineOverCopy } from "./HostLineOverCopy";
+import { OVER_COPY_ATTRIBUTE, reportChatSnapshot, showsChatSnapshot, subscribeChatSnapshot } from "./chatSnapshot/live";
+import { SNAPSHOT_HOST_TAG, SNAPSHOT_SHOWN_GLOBAL } from "./chatSnapshot/shared";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
@@ -298,4 +301,57 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
   });
   expect(container.textContent).toContain("Waiting for the agent service (0:40)");
   expect(buttons(container)).toEqual([]);
+});
+
+// Leo, 2026-11-16: "i restarted and the chat appeared in 3 seconds and then it said something went
+// wrong with a retry button ... and then it layout shifted". A failure said while the last launch's
+// copy of the chat shows keeps the copy (firstPaint.ts) and stands over it: outside the live root,
+// which is hidden under the copy, and its Retry takes its own press while a press anywhere else
+// still ends the copy (chatSnapshot/live.ts).
+test("a failure said over the last launch's copy stands above it, and its Retry takes the press", async () => {
+  const container = installDom();
+  const doc = dom!.window.document;
+  const composer = doc.createElement("div");
+  composer.className = "acpmux-composer";
+  container.append(composer);
+  // The boot script's copy (chatSnapshot/paint.ts), drawn over the live page.
+  (dom!.window as unknown as Record<string, unknown>)[SNAPSHOT_SHOWN_GLOBAL] = { at: 1 };
+  doc.body.append(doc.createElement(SNAPSHOT_HOST_TAG));
+  expect(showsChatSnapshot()).toBe(true);
+  const heard: boolean[] = [];
+  const stop = subscribeChatSnapshot(() => heard.push(showsChatSnapshot()));
+  reportChatSnapshot(async () => undefined);
+  const pressed: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostLineOverCopy doc={doc}>
+        <HostUnavailableLine
+          message="cmux couldn't find its agent service. Reinstall cmux to fix this."
+          onRetry={() => pressed.push("retry")}
+          selfRetrying={false}
+        />
+      </HostLineOverCopy>,
+    );
+  });
+  const over = doc.querySelector(`[${OVER_COPY_ATTRIBUTE}]`) as HTMLElement;
+  expect(over).not.toBeNull();
+  expect(container.contains(over)).toBe(false);
+  expect(over.parentElement).toBe(doc.body);
+  expect(over.style.bottom).toMatch(/px$/);
+  const retry = over.querySelector("button")!;
+  expect(retry.textContent).toBe("Retry");
+  const press = (target: Element) => {
+    target.dispatchEvent(new dom!.window.Event("pointerdown", { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  };
+  await act(async () => press(retry));
+  expect(pressed).toEqual(["retry"]);
+  expect(showsChatSnapshot()).toBe(true);
+  // A press on the copy itself still ends it, and the page hears it go.
+  await act(async () => press(doc.body));
+  expect(showsChatSnapshot()).toBe(false);
+  expect(heard.at(-1)).toBe(false);
+  expect(pressed).toEqual(["retry"]);
+  stop();
 });

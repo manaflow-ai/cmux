@@ -423,6 +423,10 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The same line said while the last launch's copy shows (HostLineOverCopy.tsx): above the copy's
+   layer (chatSnapshot/paint.ts), standing on the composer's top edge over the copy's last rows on
+   the page's own background, out of every flow, so nothing in the copy or the live page moves. */
+.acpmux-host-line-over-copy{position:fixed;left:0;right:0;z-index:calc(var(--layer-debug,2147483000) + 1);padding-top:8px;background:var(--agent-page-bg)}
 /* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its
    spinner first and its time after the words, in the same muted tone; Cancel is its quiet button. */
 .acpmux-fork-pending .acpmux-fork-pending-time{margin-left:var(--ds-space-1);font-variant-numeric:tabular-nums}

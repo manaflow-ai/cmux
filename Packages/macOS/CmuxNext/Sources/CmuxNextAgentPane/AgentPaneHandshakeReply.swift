@@ -120,7 +120,14 @@ enum AgentPaneHandshakeReply {
             var details: [String: Any] = [:]
             // The web pane shows nothing while a daemon starts or restarts and its retries can
             // outlast it (``AgentPaneHostError/isTransient``); a refusal they cannot is said at once.
-            if (error as? AgentPaneHostError)?.isTransient == true { details["reconnecting"] = true }
+            // A failure nothing classified (neither a host error nor a host's own refusal: a
+            // cancelled wait, a socket or file error during a relaunch) is no refusal either: it
+            // recovers quietly like a timeout, whose words it already gets, and is said only past
+            // the page's deadline (Leo, 2026-11-16: "i restarted and the chat appeared in 3 seconds
+            // and then it said something went wrong with a retry button").
+            let hostError = error as? AgentPaneHostError
+            let unclassified = hostError == nil && !(error is any AgentPaneHostRefusal)
+            if hostError?.isTransient == true || unclassified { details["reconnecting"] = true }
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: the page offers Restart acpmux
