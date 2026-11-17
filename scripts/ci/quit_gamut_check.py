@@ -597,6 +597,12 @@ class Gamut:
         if load is not None:
             row["load"].update(load.stop())  # the load lasts until the reopen settled (or REOPEN_S)
         marks = self.app.drain()
+        # The chat draws from the launch snapshot before its stream connects (first fleet runs: painted at 1664 ms,
+        # no transport_open_start yet), so live waits on past settled, for the transport mark.
+        while (chat_front and "agent_pane.transport_open" not in marks and time.monotonic() - started < REOPEN_S
+               and self.app.process.poll() is None):
+            time.sleep(0.05)
+            marks = self.app.drain()
         if chat_front:
             # The chat back and live: in front, its page drawn and its stream transport open (agent_pane marks).
             parts = [front_ms, marks.get("agent_pane.painted"), marks.get("agent_pane.transport_open")]
