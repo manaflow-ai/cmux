@@ -203,10 +203,10 @@ impl Folders {
     }
 }
 
-/// Looks ([`Folders::kind`]) made on this thread: the stress tests count
-/// work with it (`files_stress_tests`).
 #[cfg(test)]
 thread_local! {
+    /// Looks ([`Folders::kind`]) made on this thread: the stress tests count
+    /// work with it (`files_stress_tests`).
     pub(super) static LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
