@@ -457,7 +457,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             let layoutChanged = isNew || old?.layout != screen.layout || old?.floating != screen.floating || old?.zoomed != screen.zoomed || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
-                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) || $0.floating.map(\.pane) != screen.floating.map(\.pane) } ?? true
+                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) || $0.floatingPanes != screen.floatingPanes } ?? true
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow

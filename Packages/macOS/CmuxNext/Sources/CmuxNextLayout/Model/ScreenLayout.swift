@@ -219,6 +219,9 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     /// Whether `pane` floats on the screen.
     public func floats(_ pane: PaneID) -> Bool { floating.contains { $0.pane == pane } }
 
+    /// The set of the screen's floating panes: a pane that comes or goes changes it, a new order of the same panes does not.
+    var floatingPanes: Set<PaneID> { Set(floating.map(\.pane)) }
+
     /// Every screen is a column strip: a screen stored as one split tree is
     /// one implicit column holding that tree, with this id.
     public var implicitColumnID: ColumnID { ColumnID("implicit:\(id.rawValue)") }

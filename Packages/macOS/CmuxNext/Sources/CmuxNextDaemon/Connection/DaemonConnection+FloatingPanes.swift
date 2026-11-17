@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Floating panes (`floating-panes-v1`).
 extension DaemonConnection {

@@ -279,18 +279,21 @@ import Testing
         let line = screen.convert(handle.cursorRectInBounds, from: handle)
         try #require(line.minX < card.minX - 40 && line.maxX > card.maxX + 40 && line.midY > card.minY + 40 && line.midY < card.maxY - 40,
                      "the divider runs on under the floating pane and shows on its 2 sides: \(line), card \(card)")
-        var pointer = CGPoint(x: card.maxX + 30, y: line.midY)
-        fixture.root.context.hoverPointer = { _ in screen.convert(pointer, to: nil) }
+        // The pointer's place, in a box: the closure reads the place that the test gives it after the closure was made.
+        @MainActor final class Pointer { var place = CGPoint.zero }
+        let pointer = Pointer()
+        pointer.place = CGPoint(x: card.maxX + 30, y: line.midY)
+        fixture.root.context.hoverPointer = { _ in screen.convert(pointer.place, to: nil) }
         fixture.root.context.hoverReachesWindow = { _ in true }
 
         screen.refreshDividerHover()
         #expect(handle.isHovered, "beside the floating pane the divider hovers")
 
-        pointer = CGPoint(x: card.midX, y: line.midY)
+        pointer.place = CGPoint(x: card.midX, y: line.midY)
         screen.refreshDividerHover()
         #expect(!handle.isHovered, "the pointer over the floating pane hovers no divider under it")
 
-        pointer = CGPoint(x: card.maxX + 4, y: line.midY)
+        pointer.place = CGPoint(x: card.maxX + 4, y: line.midY)
         screen.refreshDividerHover()
         #expect(!handle.isHovered, "the pointer over the floating pane's band hovers no divider under it")
     }

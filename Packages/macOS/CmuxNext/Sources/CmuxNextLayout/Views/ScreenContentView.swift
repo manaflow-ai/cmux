@@ -206,10 +206,11 @@ final class ScreenContentView: NSView {
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
-        // A floating pane that comes, goes, moves or changes its place in the order shows at once.
         let floatChange = floatState.takeChange()
-        let animated = updateCanvas(canvas, animated: animated) && animated && floatChange == .none
+        let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout) || floatChange == .panes
+        // Only a floating pane moved or changed its place in the order: it shows at once and stops no spring of a tiled pane.
+        let floatsOnly = floatChange == .frames && self.layout == layout && self.zoomed == zoomed
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
         #if DEBUG
@@ -229,7 +230,7 @@ final class ScreenContentView: NSView {
         scrollSyncIsStructural = structural
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        let moving = reconcile(animated: animated, structural: structural, zooming: zooming, presents: false,
+        let moving = reconcile(animated: animated, structural: structural, zooming: zooming, floatsOnly: floatsOnly, presents: false,
                                snapWaitsForFrame: snapWaitsForFrame)
         // A structural change took the screen over from a key resize's spring: its pane views post again.
         if structural { releasePaneFrameNoticesIfSettled() }
@@ -246,8 +247,10 @@ final class ScreenContentView: NSView {
     /// `rebasing`: the change is the viewport's, not the layout's (the sidebar's slide resizing the screen under a
     /// running split): a frame on a spring moves with its target (`AnimatedFrame.rebase`) instead of chasing it, so
     /// the panes ride the moving edge in its frame (Leo 2026-11-05: "the main pane waits for the right pane").
+    /// `floatsOnly`: the pass is for the floating panes only (the model's list or a pointer's drag): a tiled pane or a
+    /// divider that keeps its target keeps its spring.
     func reconcile(animated: Bool, rebasing: Bool = false, structural: Bool = false, zooming: Bool = false,
-                   presents: Bool = true, snapWaitsForFrame: Bool = false) -> Bool {
+                   floatsOnly: Bool = false, presents: Bool = true, snapWaitsForFrame: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
@@ -281,17 +284,19 @@ final class ScreenContentView: NSView {
         // keyboard resize press that snaps (Reduce Motion, pane animations off), its terminals drawn ahead with their grids
         // (RESIZE P0 13, KEY SNAP GRID).
         let keySnap = holdsContentForKeyResize && !structural
-        let holdsSnap = snapWaitsForFrame && (structural || keySnap) && !animateFrames
+        let holdsSnap = snapWaitsForFrame && (structural || keySnap) && !animateFrames && !floatsOnly
 
         // Panes.
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
-                if carried {
+                // A floating pane has no spring, and no shown place of it is carried.
+                let tiled = baseGeometry.floatingCards[pane] == nil
+                if carried, tiled {
                     carriedShown[pane] = existing.x.value + shift(before, pane)
                     existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
                 }
                 if rebasing, !structural, existing.rect != existing.targetRect { existing.rebase(onto: target) }
-                place(&existing, at: target, animated: animateFrames)
+                place(&existing, at: target, animated: tiled && (animateFrames || floatsOnly && existing.targetRect == target))
                 paneFrames[pane] = existing
             } else {
                 // A pane the layout gets: a new one, a close taken back before its host went, or one a zoom covered. One
@@ -365,7 +370,7 @@ final class ScreenContentView: NSView {
                     frame.x.value += drift
                 }
                 if rebasing, !structural, frame.rect != frame.targetRect { frame.rebase(onto: target.rect) }
-                place(&frame, at: target.rect, animated: animateFrames)
+                place(&frame, at: target.rect, animated: animateFrames || floatsOnly && frame.targetRect == target.rect)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,
                       let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
@@ -404,14 +409,15 @@ final class ScreenContentView: NSView {
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
-        if structural { forcesPresentation = true }
+        // So does a new order of the floating panes: each pane is clipped by the panes in front of it.
+        if structural || before.floating != baseGeometry.floating { forcesPresentation = true }
         // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
         // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
         // the change took out goes in the pass that places the panes, never a turn before it.
         if holdsSnap { _ = holdsSnapForContent(keyPress: keySnap) }
         if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
-        let moving = animate && hasMotion
+        let moving = (animate || floatsOnly) && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
     }

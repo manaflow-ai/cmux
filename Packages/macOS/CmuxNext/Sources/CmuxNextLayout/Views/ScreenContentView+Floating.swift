@@ -44,13 +44,13 @@ extension ScreenContentView {
             guard frame != drag.frame else { return }
             drag.frame = frame
             floatState.drag = drag
-            reconcile(animated: false)
+            reconcile(animated: false, floatsOnly: true)
         case .ended:
             guard let drag = floatState.drag, drag.pane == pane else { return }
             floatState.drag = nil
             let moved = floatState.list.first { $0.pane == pane }.map { $0.frame != drag.frame } ?? false
             // Not moved, or the pane does not float any more: the view shows the model's list again.
-            if !moved || !context.model.setFloatingFrame(pane, frame: drag.frame) { reconcile(animated: false) }
+            if !moved || !context.model.setFloatingFrame(pane, frame: drag.frame) { reconcile(animated: false, floatsOnly: true) }
         }
     }
 }

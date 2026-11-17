@@ -18,10 +18,10 @@ struct FloatingPanesState {
     var look = FloatingPaneLook()
     let lookWatch = FloatingPaneLookWatch()
 
-    /// What changed in the list since the last update: its panes or their order, only a frame, or nothing.
+    /// What changed in the list since the last update: its set of panes, only a frame or the order, or nothing.
     mutating func takeChange() -> Change {
         defer { taken = list }
-        if taken.map(\.pane) != list.map(\.pane) { return .panes }
+        if Set(taken.map(\.pane)) != Set(list.map(\.pane)) { return .panes }
         return taken == list ? .none : .frames
     }
 
