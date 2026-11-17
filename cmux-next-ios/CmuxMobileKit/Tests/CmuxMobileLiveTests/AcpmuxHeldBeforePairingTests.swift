@@ -1,4 +1,5 @@
 import CmuxMobileAgentChat
+import Compression
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -49,6 +50,65 @@ import Testing
         #expect(await early.value == 3)
         #expect(!channel.closed)
     }
+
+    /// A small compressed frame counts at the length it inflates to: one that would inflate past
+    /// the budget is refused before it is inflated, and the channel closes.
+    @Test func aSmallCompressedFrameThatInflatesPastTheBudgetIsCutOff() async throws {
+        let text = Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"text":"\#(String(repeating: "a", count: 20 << 20))"}}"#.utf8)
+        let envelope = try #require(Self.deflated(text))
+        #expect(envelope.count < 256 << 10, "the envelope is \(envelope.count) bytes")
+        let channel = FramesChannel([envelope])
+        let connection = AcpmuxConnection(channel: channel, held: true)
+        await connection.start()
+        let end = ContinuousClock.now + .seconds(10)
+        while !channel.closed, ContinuousClock.now < end {
+            try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
+        }
+        #expect(channel.closed, "a \(envelope.count)-byte frame of \(text.count) bytes inflated was kept before pairing")
+    }
+
+    /// The mobile host's envelope (`DeflatedMessage`): 0x00, text length, deflate length, raw deflate.
+    static func deflated(_ text: Data) -> Data? {
+        var body = Data(count: text.count / 100 + 4096)
+        let written = body.withUnsafeMutableBytes { out -> Int in
+            text.withUnsafeBytes { input -> Int in
+                guard let dst = out.bindMemory(to: UInt8.self).baseAddress,
+                      let src = input.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                return compression_encode_buffer(dst, out.count, src, text.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        guard written > 0 else { return nil }
+        body.count = written
+        func u32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(truncatingIfNeeded: value >> (24 - 8 * $0)) } }
+        return Data([DeflatedMessage.marker] + u32(text.count) + u32(written)) + body
+    }
+}
+
+/// A Mac that sends `frames`, then goes quiet.
+private final class FramesChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private var frames: [Data]
+    private var ended = false
+
+    init(_ frames: [Data]) { self.frames = frames }
+
+    var closed: Bool { lock.withLock { ended } }
+
+    func send(_ data: Data) async throws {}
+
+    func receive() async throws -> Data? {
+        while true {
+            let next: Data?? = lock.withLock {
+                if ended { return .some(nil) }
+                return frames.isEmpty ? nil : .some(frames.removeFirst())
+            }
+            if let next { return next }
+            try await Task.sleep(for: .milliseconds(5)) // test: a Mac that went quiet
+        }
+    }
+
+    func close(code: String, reason: String) async { lock.withLock { ended = true } }
 }
 
 /// A Mac that sends `_acpmux/event` notifications as fast as they are read, up to `limit`.
