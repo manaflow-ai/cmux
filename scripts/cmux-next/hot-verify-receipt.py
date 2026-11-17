@@ -7,7 +7,7 @@ reading, cmuxterm-hq `metric hot_verify_share`).
 
 Each read is one `gh api` call and never waits or retries: the step runs with the workflow's token, and a step that
 sleeps in a loop on it spends the budget every workflow shares (tests/test_ci_no_github_token_polling.py). A read that
-fails exits 1, and the plan then looks at nothing.
+fails exits 1, and the plan then looks anyway (an unknown answer is not a receipt).
 """
 
 from __future__ import annotations
