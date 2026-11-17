@@ -165,6 +165,28 @@ test("a running turn of calls holds a bounded number of records and rows", async
     try {
       const held = chat.events();
       sizes[count] = { events: held.length, rows: chat.snapshot().rows.length, most: chat.most };
+      // What the rows reach (objects and array slots, each counted once): a row that holds what left grows here.
+      const seen = new Set<object>();
+      let slots = 0;
+      const walk = (value: unknown) => {
+        if (value === null || typeof value !== "object" || seen.has(value)) return;
+        seen.add(value);
+        const entries = Array.isArray(value) ? value : Object.values(value);
+        slots += entries.length;
+        for (const entry of entries) walk(entry);
+      };
+      const byKey: string[] = [];
+      for (const [key, value] of Object.entries(chat.snapshot() as object)) {
+        const from = seen.size;
+        walk(value);
+        if (seen.size - from > 1000) byKey.push(`${key}:${seen.size - from}`);
+      }
+      const big = [...seen]
+        .filter((value) => Array.isArray(value) && value.length > 500)
+        .map((value) => (value as unknown[]).length);
+      console.log(
+        `running-calls streamed=${count} snapshot objects=${seen.size} slots=${slots} big arrays=${big} by field ${byKey.join(" ")}`,
+      );
       console.log(
         `running-calls streamed=${count} retained_events=${held.length} max_events=${chat.most} ` +
           `rows=${chat.snapshot().rows.length}`,
