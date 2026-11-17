@@ -75,28 +75,27 @@ const RESIZE = process.env.RESIZE !== "0";
 // idle_open_cpu_pct; none is in ratio_max.
 const PAINT = process.env.PAINT !== "0";
 const RESIZE_WIDTHS = [700, 620, 540, 460];
-// CPU settle, so the idle windows read steady state: once a launch's chats are loaded or grown, its renderers' CPU and
-// the shown page's V8 heap in use (the pages share one renderer and isolate) are sampled every second. The settle ends
-// at the start of the first quiet window: SETTLE_QUIET_S (20) seconds once the settle has seen a collection (a heap
-// drop of more than max(2 %, 2 MB) between samples), else SETTLE_NOGC_S (40), in which (a) no sample is a spike, above
-// max(SETTLE_SPIKE_PCT (10) % of a core, 3x the window's median); (b) the mean CPU is at most max(SETTLE_PCT (2) %,
-// SETTLE_K (1.5)x the matched empty launch's steady idle) (an empty launch, run first, has no match and skips this);
-// and (c) the heap never drops. Why: after a load or growth V8 runs full collections on a timer (its memory reducer:
-// about 9 s apart, the first 7-34 s after the load, later in a small heap), each a 1 s sample at up to 220 % of a core;
-// the old rule (two quiet seconds under 2 %) could end before them, so they fell into the idle windows by chance (the
-// same commit back to back read long_x20 idle 5.79x and 1.21x, settle 6 s and 54 s), and 2 % sits under 20 empty
-// chats' own idle (3-6 %), so empty settled by luck. 20 s after a collection covers the next one's spacing; 40 s with
-// none seen covers a small heap's late first one. SETTLE_MAX_S (120) caps it: a launch that hits the cap reports settle
-// = the cap and cpu_settle_capped 1, and its idle windows still run. The cost stays in rows of its own, out of
-// ratio_max: cpu_settle_s (the time) and settle_spike_cpu_s (the CPU-seconds of the spikes after the load's burst, over
-// the settled level). Each idle window's heap is read too, and one with a drop is logged and counted
+// CPU settle, so the idle windows read steady state: once a launch's chats are loaded or grown and its hidden pages
+// hidden, its renderers' CPU and the shown page's V8 heap in use (the pages share one renderer and isolate) are sampled
+// every second. The settle ends at the start of the first SETTLE_QUIET_S (45) seconds in which (a) no sample is a
+// spike, above max(SETTLE_SPIKE_PCT (10) % of a core, 3x the window's median); (b) the mean CPU is at most
+// max(SETTLE_PCT (2) %, SETTLE_K (1.5)x the matched empty launch's steady idle) (an empty launch, run first, has no
+// match and skips this); and (c) the heap never drops more than max(2 %, 2 MB) between samples. Why: after a load,
+// growth or hide V8 runs full collections on a timer, about 9 s apart, the first 7-34 s in (later in a small heap),
+// each a 1 s sample at up to 220 % of a core, and a smaller one-off spike follows 36-39 s after the second; the old rule
+// (two quiet seconds under 2 %) ended before them, so they fell into the idle windows by chance (the same commit back
+// to back read long_x20 idle 5.79x and 1.21x, settle 6 s and 54 s), and 2 % sits under 20 empty chats' own idle
+// (3-6 %), so empty settled by luck. A 20 s window still let the late spike into the middle idle window of every
+// long_x20 launch (5.0-10.5 % against 2-4 %); 45 s covers it. SETTLE_MAX_S (180) caps it: a launch that hits the cap
+// reports settle = the cap and cpu_settle_capped 1, and its idle windows still run. The cost stays in rows of its own,
+// out of ratio_max: cpu_settle_s (the time) and settle_spike_cpu_s (the CPU-seconds of the spikes after the load's
+// burst, over the settled level). Each idle window's heap is read too, and one with a drop is logged and counted
 // (idle_gc_windows), so a collection the settle missed shows.
 const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_K = Number(process.env.SETTLE_K ?? 1.5);
 const SETTLE_SPIKE_PCT = Number(process.env.SETTLE_SPIKE_PCT ?? 10);
-const SETTLE_QUIET_S = Number(process.env.SETTLE_QUIET_S ?? 20);
-const SETTLE_NOGC_S = Number(process.env.SETTLE_NOGC_S ?? 40);
-const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 120);
+const SETTLE_QUIET_S = Number(process.env.SETTLE_QUIET_S ?? 45);
+const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 180);
 // A heap drop that counts as a collection: more than 2 % of the heap and more than 2 MB (a small heap's jitter).
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
@@ -658,15 +657,10 @@ try {
         const pct = await window(1);
         const s = (performance.now() - from) / 1000;
         settleSamples.push({ from, s, pct, heap: await heapMB() });
-        // The quiet window: the samples from the latest one that started at least SETTLE_QUIET_S seconds ago, or
-        // SETTLE_NOGC_S while no collection (a heap drop) has been seen in the settle.
-        const collected = settleSamples.some(
-          (sample, index) => index > 0 && heapDropped(settleSamples[index - 1]!.heap, sample.heap),
-        );
-        const quietS = collected ? SETTLE_QUIET_S : SETTLE_NOGC_S;
+        // The quiet window: the samples from the latest one that started at least SETTLE_QUIET_S seconds ago.
         const now = performance.now();
         let first = settleSamples.length - 1;
-        while (first >= 0 && (now - settleSamples[first]!.from) / 1000 < quietS) first--;
+        while (first >= 0 && (now - settleSamples[first]!.from) / 1000 < SETTLE_QUIET_S) first--;
         if (first < 0) continue;
         const quiet = settleSamples.slice(first);
         const pcts = quiet.map((sample) => sample.pct);
