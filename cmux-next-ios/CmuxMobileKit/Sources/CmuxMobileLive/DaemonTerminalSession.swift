@@ -245,6 +245,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var draining = false
     /// The request `drain()` has on its way (while `draining`) is a size.
     private var drainingSize = false
+    /// Bumped on every show/hide (``setClaimsSize(_:)``): a size `drain()` took
+    /// under an older one is stale and never sent (a hide and show between
+    /// queuing and sending queued the current size again).
+    private var claimGeneration = 0
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
@@ -427,6 +431,7 @@ public final class DaemonTerminalSession: TerminalSession {
     public func setClaimsSize(_ claims: Bool) {
         guard claims != claimsSize else { return }
         claimsSize = claims
+        claimGeneration &+= 1
         outbox.removeAll { if case .size = $0 { true } else { false } }
         if claims {
             macKeepsGrid = false
@@ -1133,6 +1138,7 @@ public final class DaemonTerminalSession: TerminalSession {
         draining = true
         let next = outbox.removeFirst()
         if case .size = next { drainingSize = true } else { drainingSize = false }
+        let generation = claimGeneration
         let surface = surface
         Task { [weak self] in
             guard let self else { return }
@@ -1143,8 +1149,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 case .size(let columns, let rows):
                     // Hidden since it was queued (shown and hidden again in
                     // one turn): never sent, or it would claim a size no
-                    // release follows.
-                    guard claimsSize else {
+                    // release follows. Hidden and shown again: the show
+                    // queued the current size, so this one is stale (it
+                    // would resize the Mac twice).
+                    guard claimsSize, generation == claimGeneration else {
                         draining = false
                         drain()
                         return
