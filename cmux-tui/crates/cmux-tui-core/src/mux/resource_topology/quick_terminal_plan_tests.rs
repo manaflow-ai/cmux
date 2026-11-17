@@ -106,9 +106,12 @@ fn a_bring_of_a_quick_terminal_that_closed_is_a_lost_plan() {
     assert_eq!(panes(&mux), count, "a bring of a closed pane made a pane");
 }
 
-/// The quick terminal closed after the plan of a show: the show fails, it makes no pane and it marks none.
+/// The quick terminal closed after the plan of a show: the plan is lost, as the plan of a bring is, and
+/// the show makes nothing. The request then plans one more time: it finds no quick terminal in the
+/// workspace and makes one, which shows and has the focus. The plan is a value inside the request, so the
+/// test does the 2 steps of the request: the act of the first plan, then the request with `show`.
 #[test]
-fn a_show_of_a_quick_terminal_that_closed_fails_and_makes_nothing() {
+fn a_show_of_a_quick_terminal_that_closed_is_a_lost_plan_and_the_next_plan_makes_one() {
     let (mux, screen, quick) = with_quick_terminal("quick-plan-show-closed");
     assert!(mux.close_pane(quick).unwrap(), "the fixture: the quick terminal closed");
     let count = panes(&mux);
@@ -121,8 +124,26 @@ fn a_show_of_a_quick_terminal_that_closed_fails_and_makes_nothing() {
         TerminalSpawnOptions::default(),
         None,
     );
-    assert!(result.is_err(), "a show of a closed pane gave an answer: {result:?}");
+    assert!(lost(&result), "a show of a closed quick terminal is no lost plan: {result:?}");
     assert_eq!(panes(&mux), count, "a show of a closed pane made a pane");
-    let marked = mux.with_state(|state| state.workspaces[0].screens[0].quick_terminal().is_some());
-    assert!(!marked, "a show of a closed pane marked a pane");
+
+    let made = mux
+        .quick_terminal_as(
+            &Actor::Daemon,
+            screen,
+            QuickMode::Show,
+            None,
+            TerminalSpawnOptions::default(),
+            None,
+        )
+        .unwrap();
+    let surface = made.expect("the next plan makes a quick terminal");
+    let new = mux.with_state(|state| state.pane_of(surface));
+    assert_eq!(panes(&mux), count + 1, "the next plan makes one pane");
+    let (mark, active) = mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        (screen.quick_terminal().map(|(pane, mark)| (pane, mark.hidden)), screen.active_pane)
+    });
+    assert_eq!(mark, new.map(|pane| (pane, false)), "the new quick terminal shows");
+    assert_eq!(Some(active), new, "the new quick terminal has the focus");
 }
