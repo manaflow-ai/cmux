@@ -90,6 +90,19 @@ describe("cmux VM image model route", () => {
     }
   });
 
+  test("the route pass runs once per machine, when it binds, and nothing repeats it", () => {
+    const units = bake.agentModelRouteUnitFiles();
+    expect(units.map((u) => path.basename(u.path)).sort()).toEqual([`${bake.AGENT_MODEL_ROUTE_UNIT}.path`, `${bake.AGENT_MODEL_ROUTE_UNIT}.service`]);
+    const pathUnit = units.find((u) => u.path.endsWith(".path"))!.text;
+    const service = units.find((u) => u.path.endsWith(".service"))!.text;
+    expect(pathUnit).toContain(`PathExists=${bake.AGENT_MODEL_ROUTE_TRIGGER}`);
+    expect(bake.PER_MACHINE_FILES as readonly string[]).toContain(bake.AGENT_MODEL_ROUTE_TRIGGER);
+    // Without RemainAfterExit, PathExists starts the oneshot again every time it exits.
+    expect(service).toContain("RemainAfterExit=yes");
+    expect(service).toContain(`ExecStart=${bake.AGENT_MODEL_ROUTE_SYNC_PATH}`);
+    for (const u of units) expect(u.text).not.toMatch(/\[Timer\]|OnUnitActiveSec|Restart=/);
+  });
+
   // cmux-platform#1442: one snapshot boots in the dev pool, staging and production, and only the dev pool's
   // machines get the coderouter edge rule. The route baked in place sent every staging and production Claude chat
   // to a name that does not resolve (ENOTFOUND after about 180 s).

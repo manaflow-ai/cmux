@@ -351,10 +351,13 @@ export const AGENT_MODEL_ROUTE_DIR = "/etc/cmux/agent-model-route";
 export const AGENT_MODEL_ROUTE_SYNC_PATH = "/usr/local/sbin/cmux-agent-model-route";
 export const AGENT_MODEL_ROUTE_UNIT = "cmux-agent-model-route";
 
+/** The file cmux-host writes when a clone binds (PER_MACHINE_FILES); its edge rule was made with it at create. */
+export const AGENT_MODEL_ROUTE_TRIGGER = "/var/lib/cmux/bound.json";
+
 /**
- * Every pass (the timer's, about every 15 s): when the edge alias resolves, each staged route file is copied
- * to its agent's managed path; when it does not, a managed file with the staged bytes is removed, and any other
- * file there is left alone. Always exits 0. `CMUX_AGENT_MODEL_ROUTE_ROOT` prefixes every path (tests).
+ * One pass, once per machine (agentModelRouteUnitFiles): when the edge alias resolves, each staged route file is
+ * copied to its agent's managed path; when it does not, a managed file with the staged bytes is removed, and any
+ * other file there is left alone. Always exits 0. `CMUX_AGENT_MODEL_ROUTE_ROOT` prefixes every path (tests).
  */
 export function agentModelRouteSyncScript(alias: string = vmEdgeAliasDomain()): string {
   const pairs = agentModelRouteFiles(alias).map((f) => `${f.path} ${f.target}`).join("\n");
@@ -380,16 +383,21 @@ export function agentModelRouteSyncScript(alias: string = vmEdgeAliasDomain()): 
   ].join("\n");
 }
 
+/**
+ * A path unit (inotify, no wakeups) starts the pass when the clone binds, and the service stays active after it
+ * (RemainAfterExit), so the path unit does not start it again: one pass per machine, then nothing runs. A clone
+ * resumes the bake's running system with no boot, so the path unit is started at bake, before any bind.
+ */
 export function agentModelRouteUnitFiles(): Array<{ path: string; text: string; mode: number }> {
   return [
     {
       path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service`,
-      text: `[Unit]\nDescription=cmux: the agents' managed model route where the coderouter edge resolves\n\n[Service]\nType=oneshot\nExecStart=${AGENT_MODEL_ROUTE_SYNC_PATH}\n`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route where the coderouter edge resolves\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=30\nExecStart=${AGENT_MODEL_ROUTE_SYNC_PATH}\n`,
       mode: 0o644,
     },
     {
-      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.timer`,
-      text: `[Unit]\nDescription=cmux: sync the agents' managed model route\n\n[Timer]\nOnActiveSec=1\nOnUnitActiveSec=15\nAccuracySec=1\n\n[Install]\nWantedBy=timers.target\n`,
+      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route, once the machine binds\n\n[Path]\nPathExists=${AGENT_MODEL_ROUTE_TRIGGER}\n\n[Install]\nWantedBy=paths.target\n`,
       mode: 0o644,
     },
   ];
@@ -1001,8 +1009,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
   for (const file of agentModelRouteUnitFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "agent-model-route", agentModelRouteCheckCommand());
-  // Enabled and started, so a clone resumes with it running and its first pass comes within about 15 s.
-  await L.step(vm, "agent-model-route-timer", `systemd-analyze verify /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.timer && systemctl daemon-reload && systemctl enable --now --quiet ${AGENT_MODEL_ROUTE_UNIT}.timer && systemctl is-active ${AGENT_MODEL_ROUTE_UNIT}.timer`);
+  // --now: a clone resumes this running system (no boot); the builder never binds, so no pass runs here.
+  await L.step(vm, "agent-model-route-path", `test ! -e ${AGENT_MODEL_ROUTE_TRIGGER} && systemd-analyze verify /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path && systemctl daemon-reload && systemctl enable --now --quiet ${AGENT_MODEL_ROUTE_UNIT}.path && systemctl is-active ${AGENT_MODEL_ROUTE_UNIT}.path`);
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
