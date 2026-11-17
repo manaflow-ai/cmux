@@ -68,6 +68,55 @@ prepare_build() {
   export PATH
 }
 
+# The app a key=value run measures (launch-capture-probe.sh sources this file for it): build=nightly downloads DMG,
+# or the NIGHTLY feed's newest, into TMP; build=head or a 40-hex commit builds the app there (in TMP/src for another
+# commit, which the caller's EXIT trap removes) with CONFIG (release, or bench: Release with the debug.* commands) and
+# reload tag TAG. Sets APP_ARGS (--dmg FILE or --app PATH) and APP_LABEL, prints PREFIX lines, returns 3 when it cannot.
+app_under_test() {
+  local build="$1" config="$2" dmg="$3" tmp="$4" root="$5" tag="$6" prefix="${7:-TSW}"
+  APP_ARGS=() APP_LABEL=""
+  if [[ "$build" == nightly ]]; then
+    if [[ -z "$dmg" ]]; then
+      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors --connect-timeout 20 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+        | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+    fi
+    [[ "$dmg" == https://* ]] || { echo "$prefix no nightly DMG in the feed"; return 3; }
+    echo "$prefix dmg $dmg"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-tab-switch/1 -o "$tmp/in.dmg" "$dmg" || { echo "$prefix download failed"; return 3; }
+    APP_LABEL="nightly $(basename "$dmg" .dmg)"
+    APP_ARGS=(--dmg "$tmp/in.dmg")
+    source scripts/ci/lib/signing-runtime-guard.sh
+    cmux_signing_runtime_guard || return 3
+  else
+    local src="$root"
+    if [[ "$build" != head && "$build" != "$(git rev-parse HEAD)" ]]; then
+      # The warm checkout has no origin: the commit comes from the explicit URL. Never into submodules: a warm
+      # checkout whose ghostty an earlier build populated made git fetch ghostty's new pointer too, which GitHub
+      # refuses ("upload-pack: not our ref"), so every step on two display Macs exited 3 (2026-11-16).
+      git cat-file -e "$build^{commit}" 2>/dev/null \
+        || git -c submodule.recurse=false fetch --quiet --no-recurse-submodules https://github.com/manaflow-ai/cmux.git "$build" \
+        || { echo "$prefix cannot fetch $build" >&2; return 3; }
+      src="$tmp/src"
+      git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || return 3
+    fi
+    APP_LABEL="$(git -C "$src" rev-parse HEAD)" || return 3
+    local configuration=(--release)
+    [[ "$config" == bench ]] && configuration=(--config bench)
+    (cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
+      --no-global-cli-links "${configuration[@]}") >"$tmp/build.log" 2>&1 || true
+    local app
+    app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tmp/build.log" | tail -n 1)"
+    if [[ -z "$app" || ! -d "$app" ]]; then
+      echo "$prefix build failed: no app path"
+      grep -E "error:|BUILD FAILED" "$tmp/build.log" | head -n 60 || true
+      tail -n 30 "$tmp/build.log"
+      return 3
+    fi
+    echo "$prefix built $APP_LABEL $app"
+    APP_ARGS=(--app "$app")
+  fi
+}
+
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
   local record="" rows=""
@@ -96,52 +145,26 @@ frames_main() {
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
+  # Every exit (a failed build, a missing tool, a TERM) removes this folder and the worktree in it: the build
+  # holds 13 to 18 GB, and leaked ones filled a bench Mac's disk. By its own path, never by name or glob.
+  TSW_ROOT="$root" TSW_TMP="$tmp"
+  trap 'git -C "$TSW_ROOT" worktree remove --force "$TSW_TMP/src" >/dev/null 2>&1 || true; rm -rf -- "$TSW_TMP"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the tools and the DMG here
   echo "TSW host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load=\"$(sysctl -n vm.loadavg)\""
   # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
   # that grant); the marker and the decoder below need none.
   [ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ] || { echo "TSW no CuaDriver on this Mac: cannot record"; exit 3; }
+  # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
+  # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
+  # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
+  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
+    preflight || exit 3
   swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
-  local app_args=() label=""
-  if [[ "$build" == nightly ]]; then
-    if [[ -z "$dmg" ]]; then
-      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors --connect-timeout 20 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-        | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
-    fi
-    [[ "$dmg" == https://* ]] || { echo "TSW no nightly DMG in the feed"; exit 3; }
-    echo "TSW dmg $dmg"
-    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-tab-switch/1 -o "$tmp/in.dmg" "$dmg" || { echo "TSW download failed"; exit 3; }
-    label="nightly $(basename "$dmg" .dmg)"
-    app_args=(--dmg "$tmp/in.dmg")
-    source scripts/ci/lib/signing-runtime-guard.sh
-    cmux_signing_runtime_guard || exit 3
-  else
-    local src="$root"
-    if [[ "$build" != head && "$build" != "$(git rev-parse HEAD)" ]]; then
-      # The warm checkout has no origin: the commit comes from the explicit URL.
-      git cat-file -e "$build^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$build" \
-        || { echo "TSW cannot fetch $build" >&2; exit 3; }
-      src="$tmp/src"
-      git worktree add --quiet --detach "$src" "$build" || exit 3
-    fi
-    label="$(git -C "$src" rev-parse HEAD)"
-    local configuration=(--release)
-    [[ "$config" == bench ]] && configuration=(--config bench)
-    (cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag tabswitch \
-      --no-global-cli-links "${configuration[@]}") >"$tmp/build.log" 2>&1 || true
-    local app
-    app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tmp/build.log" | tail -n 1)"
-    if [[ -z "$app" || ! -d "$app" ]]; then
-      echo "TSW build failed: no app path"
-      grep -E "error:|BUILD FAILED" "$tmp/build.log" | head -n 60 || true
-      tail -n 30 "$tmp/build.log"
-      exit 3
-    fi
-    echo "TSW built $label $app"
-    app_args=(--app "$app")
-  fi
+  app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch TSW || exit 3
+  local app_args=("${APP_ARGS[@]}") label="$APP_LABEL"
   local gate_args=()
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()
@@ -163,12 +186,21 @@ frames_main() {
   exit "$rc"
 }
 
+# Sourced (launch-capture-probe.sh): the functions only.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
 if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config|record|rows)= ]]; then
   frames_main "$@"
 fi
 
 tag="tabswitch"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 prepare_build "$out"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
@@ -187,4 +219,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-exec python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"
+python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"

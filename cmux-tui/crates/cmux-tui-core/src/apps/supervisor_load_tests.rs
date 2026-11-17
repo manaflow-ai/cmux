@@ -87,14 +87,14 @@ impl Drop for Load {
 
 /// Milliseconds, as sampled.
 #[derive(Default)]
-struct Samples(Vec<f64>);
+pub(super) struct Samples(pub(super) Vec<f64>);
 
 impl Samples {
-    fn push(&mut self, since: Instant) {
+    pub(super) fn push(&mut self, since: Instant) {
         self.0.push(since.elapsed().as_secs_f64() * 1000.0);
     }
 
-    fn summary(&self) -> Value {
+    pub(super) fn summary(&self) -> Value {
         let mut v = self.0.clone();
         v.sort_by(f64::total_cmp);
         let at = |q: f64| {
@@ -104,19 +104,19 @@ impl Samples {
             let i = ((v.len() - 1) as f64 * q).round() as usize;
             (v[i] * 10.0).round() / 10.0
         };
-        json!({ "n": v.len(), "p50": at(0.5), "p90": at(0.9), "max": at(1.0) })
+        json!({ "n": v.len(), "p50": at(0.5), "p90": at(0.9), "p95": at(0.95), "max": at(1.0) })
     }
 }
 
 /// Calls `apps-list` every 2 ms on its own thread until stopped. Its
 /// latency is how long it waited for the supervisor lock.
-struct ListProbe {
+pub(super) struct ListProbe {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<Samples>>,
 }
 
 impl ListProbe {
-    fn start(supervisor: &Arc<Supervisor>) -> Self {
+    pub(super) fn start(supervisor: &Arc<Supervisor>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let supervisor = supervisor.clone();
         let flag = stop.clone();
@@ -133,7 +133,7 @@ impl ListProbe {
         Self { stop, thread: Some(thread) }
     }
 
-    fn finish(mut self) -> Samples {
+    pub(super) fn finish(mut self) -> Samples {
         self.stop.store(true, Ordering::Relaxed);
         self.thread.take().expect("probe").join().expect("probe thread")
     }

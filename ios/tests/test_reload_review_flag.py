@@ -83,24 +83,24 @@ class ConnectedPhonesTests(unittest.TestCase):
             return result, files
 
     def test_every_connected_phone_is_a_target_and_new_ones_register(self):
-        devices = [device('00008140-001E3C840E8B001C', 'iPhone', 'iPhone17,4'),
-                   device('00008150-0005154E0E84401C', 'Aziz', 'iPhone18,2', boot='unavailable'),
+        devices = [device('00008140-0000FA4E0000D0E0', 'iPhone', 'iPhone17,4'),
+                   device('00008150-0000FA4E0000D0E1', 'Aziz', 'iPhone18,2', boot='unavailable'),
                    device('AAAA', 'Sim', 'iPhone18,3', reality='simulated'),
                    device('00008110-000000000000001E', 'Spare', 'iPhone14,2')]
-        result, files = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=00008150-0005154E0E84401C; DEVICE_ID=$DEFAULT_DEVICE_ID; REQUESTED_DEVICE_ID=""\n'
+        result, files = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=00008150-0000FA4E0000D0E1; DEVICE_ID=$DEFAULT_DEVICE_ID; REQUESTED_DEVICE_ID=""\n'
                                          'review_resolve_phones; printf "%s\\n" "${REVIEW_TARGETS[@]}"; '
                                          'echo "FAILED=$REVIEW_FAILED"; echo "$REVIEW_PHONE_STATUS"',
-                                         known='00008140-001E3C840E8B001C\tiPhone\tiPhone17,4\n')
+                                         known='00008140-0000FA4E0000D0E0\tiPhone\tiPhone17,4\n')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('00008140-001E3C840E8B001C\tiPhone (iPhone17,4', result.stdout)
+        self.assertIn('00008140-0000FA4E0000D0E0\tiPhone (iPhone17,4', result.stdout)
         self.assertIn('00008110-000000000000001E\tSpare (iPhone14,2', result.stdout)
         self.assertNotIn('AAAA', result.stdout)
         self.assertIn('new iPhone registered: Spare', result.stdout)
         self.assertNotIn('new iPhone registered: iPhone ', result.stdout)
         self.assertIn('FAILED=0', result.stdout)
-        self.assertIn('00008150-0005154E0E84401C (default): not connected', result.stdout)
+        self.assertIn('00008150-0000FA4E0000D0E1 (default): not connected', result.stdout)
         self.assertIn('00008110-000000000000001E', files['iphone-device-ids'])
-        self.assertEqual(files['iphone-device-id'].strip(), '00008140-001E3C840E8B001C')
+        self.assertEqual(files['iphone-device-id'].strip(), '00008140-0000FA4E0000D0E0')
 
     def test_no_connected_phone_is_a_blocker(self):
         result, _ = self.run_helpers([], 'DEVICE_ID=""; DEFAULT_DEVICE_ID=""\nreview_resolve_phones')
@@ -108,8 +108,8 @@ class ConnectedPhonesTests(unittest.TestCase):
         self.assertIn('found no connected iPhone', result.stderr)
 
     def test_requested_phone_not_connected_fails(self):
-        devices = [device('00008140-001E3C840E8B001C', 'iPhone', 'iPhone17,4')]
-        result, _ = self.run_helpers(devices, 'DEVICE_ID=00008150-0005154E0E84401C; REQUESTED_DEVICE_ID=$DEVICE_ID; DEFAULT_DEVICE_ID=""\n'
+        devices = [device('00008140-0000FA4E0000D0E0', 'iPhone', 'iPhone17,4')]
+        result, _ = self.run_helpers(devices, 'DEVICE_ID=00008150-0000FA4E0000D0E1; REQUESTED_DEVICE_ID=$DEVICE_ID; DEFAULT_DEVICE_ID=""\n'
                                      'review_resolve_phones; echo "FAILED=$REVIEW_FAILED"')
         self.assertIn('FAILED=1', result.stdout)
 
@@ -151,8 +151,8 @@ class FleetSimulatorTests(unittest.TestCase):
 
     def test_review_never_boots_a_local_simulator(self):
         text = RELOAD.read_text()
-        review = text[text.index('if [[ "$REVIEW" -eq 1 ]]; then\n  review_resolve_phones'):]
-        self.assertIn('--device-only)', review.split('\n\n')[0] + review[:4000])
+        handoff = re.search(r'\nreview_fleet_handoff\(\) \{\n.*?\n\}\n', text, re.S).group(0)
+        self.assertIn('--device-only', handoff)
         self.assertNotIn('simctl boot', text[text.index('# --- --review'):text.index('# Keep the linked xcframework')])
         self.assertIn('RELOAD_SIMULATOR=0', text)
 
