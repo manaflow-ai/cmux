@@ -280,6 +280,16 @@ def test_vendored_stack_auth_records_origin_patch_and_license_status() -> None:
         assert f"`{changed}`" in text
 
 
+
+def test_namespace_autofix_clones_one_commit_each() -> None:
+    # Its 10-minute job reads base files, diffs two trees and commits on the PR head; the full clone it
+    # took outgrew the limit and was cancelled in checkout on every Swift pull request (2026-11-16).
+    job = workflow("namespace-autofix.yml")["jobs"]["autofix"]
+    checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout"))
+    assert checkout["with"]["fetch-depth"] == "1", "the trusted base checkout clones one commit"
+    assert "git fetch --no-tags --depth=1 origin" in run_text(job), "the PR head fetch takes one commit"
+
+
 if __name__ == "__main__":
     test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_runners()
     test_pull_request_target_jobs_never_receive_oidc()
@@ -288,4 +298,5 @@ if __name__ == "__main__":
     test_environment_secret_rollout_keeps_untrusted_jobs_secretless()
     test_ci_and_deployment_container_images_are_digest_pinned()
     test_vendored_stack_auth_records_origin_patch_and_license_status()
+    test_namespace_autofix_clones_one_commit_each()
     print("supply-chain security checks passed")

@@ -9,8 +9,8 @@
 //! 4. `POST <stack>/auth/sessions/current/refresh` → the access token `enable` sends to the
 //!    hub once. Neither token is stored: the hub anchors the device for 30 days after that.
 
-use super::net::{self, Url};
 use crate::Res;
+use cmux_hub_host::net::{self, Url};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
@@ -47,7 +47,7 @@ fn access_token_or(token_file: Option<&str>, sign_in: impl FnOnce() -> Res<Strin
         std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
         text
     } else {
-        let bytes = super::identity::read_private(std::path::Path::new(path))?
+        let bytes = cmux_hub_host::identity::read_private(std::path::Path::new(path))?
             .ok_or_else(|| format!("{path} does not exist"))?;
         String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?
     };
@@ -113,7 +113,7 @@ fn access_from_refresh(config: &AuthConfig, refresh_token: &str) -> Res<String> 
 pub fn announce(url: &str) {
     println!(
         "Sign in to share this desktop. Open this link in a browser (on this machine or any other):\n  {}\nWaiting for the sign-in (up to {} minutes)...",
-        super::printable(url),
+        cmux_hub_host::printable(url),
         LOGIN_WITHIN.as_secs() / 60
     );
     let has_display = ["DISPLAY", "WAYLAND_DISPLAY"]
@@ -194,7 +194,7 @@ fn wait_for_confirmation(
             other => {
                 return Err(format!(
                     "the sign-in service answered an unknown status {}",
-                    super::printable(&format!("{other:?}"))
+                    cmux_hub_host::printable(&format!("{other:?}"))
                 )
                 .into())
             }
@@ -264,7 +264,7 @@ fn detail(value: &Value) -> String {
         .iter()
         .find_map(|k| value.get(k).and_then(Value::as_str))
         .unwrap_or("no detail");
-    super::printable(&text.chars().take(200).collect::<String>())
+    cmux_hub_host::printable(&text.chars().take(200).collect::<String>())
 }
 
 /// RFC 3986 query escaping (unreserved characters stay).
@@ -549,7 +549,7 @@ mod tests {
         let dir = std::env::temp_dir()
             .join(format!("cmux-screen-host-token-file-{}", std::process::id()));
         let path = dir.join("token");
-        super::super::identity::write_private(&path, b" tok-1\n").unwrap();
+        cmux_hub_host::identity::write_private(&path, b" tok-1\n").unwrap();
         let token = access_token_or(Some(path.to_str().unwrap()), || {
             panic!("signed in despite a token file")
         })
