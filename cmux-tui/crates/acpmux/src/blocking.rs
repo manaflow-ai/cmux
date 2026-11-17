@@ -154,19 +154,18 @@ mod tests {
                 found.insert(relative, count);
             }
         }
+        let mut mismatches = Vec::new();
         for (path, count) in &found {
-            assert!(
-                allowlisted.get(path).is_some_and(|expected| count <= expected),
-                "a new bare site needs a decision: {path} = {count}"
-            );
+            if !allowlisted.get(path).is_some_and(|expected| count <= expected) {
+                mismatches.push(format!("a new bare site needs a decision: {path} = {count}"));
+            }
         }
         for (path, count) in &allowlisted {
-            assert!(
-                found.get(path).is_some_and(|actual| actual >= count),
-                "lower the number: {path} = {count}"
-            );
+            if !found.get(path).is_some_and(|actual| actual >= count) {
+                mismatches.push(format!("lower the number: {path} = {count}"));
+            }
         }
-        assert_eq!(found, allowlisted);
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
     }
 
     #[test]
