@@ -168,7 +168,10 @@ struct FirstRunPageAppShortcutsTests {
             "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
             "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
         ]
-        let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
+        // The floating pane rows can be in the catalog before the App code that runs them (`FloatingPanePlaceholders`):
+        // such a row opens nothing yet, so it is not in this set. The change that binds their handlers puts each of
+        // them that opens content into `openers` and takes the subtraction out.
+        let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id)).subtracting(FloatingPanePlaceholders.ids)
         #expect(flagged == openers, "missing: \(openers.subtracting(flagged)), extra: \(flagged.subtracting(openers))")
     }
 }

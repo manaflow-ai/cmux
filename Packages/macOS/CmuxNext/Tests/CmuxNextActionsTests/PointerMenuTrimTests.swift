@@ -63,7 +63,10 @@ struct PointerMenuTrimTests {
 
     @Test func thePaneMenuKeepsCommonAndConditionalActionsAndExemptsTheLongTail() throws {
         let catalog = ContextMenuCatalog.shared
-        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane)))
+        // The floating pane rows can be in the catalog before the App code that runs them (`FloatingPanePlaceholders`):
+        // no menu shows such a row, so it is not in this set. The change that binds their handlers puts each of them
+        // that the pane menu shows into `retained` and takes the subtraction out.
+        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane))).subtracting(FloatingPanePlaceholders.ids)
         let retained: Set<ActionID> = [
             "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane", "newColumnLeft",
             "newColumn", "newRow", "splitBrowserRight", "splitBrowserDown", "pane.moveToNewWorkspace", "pane.moveToNewWindow",
