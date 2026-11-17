@@ -93,25 +93,20 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
     setSeen(current);
   }
 
-  // The leaving set's timers: a set that changes (one more leaves, or one comes back) replaces
-  // them, so a child that comes back never has a timer, and leaving again starts a fresh one.
+  // One timer for the leaving set: every leave lasts the same quick step, so the set leaves together.
+  // A set that changes (one more leaves, or one comes back) replaces the timer, so a child that comes
+  // back is never dropped, and leaving again starts a fresh leave.
   const leavingNow = current.leaving;
   useEffect(() => {
     if (!leavingNow.size) return undefined;
-    const timers = [...leavingNow.keys()].map((id) =>
-      setTimeout(() => {
-        store.forgetDeparted(id);
-        setSeen((previous) => {
-          if (!previous.leaving.has(id)) return previous;
-          const leaving = new Map(previous.leaving);
-          leaving.delete(id);
-          return { ...previous, leaving: leaving.size ? leaving : NONE_LEAVING };
-        });
-      }, leaveMs()),
-    );
-    return () => {
-      for (const timer of timers) clearTimeout(timer);
-    };
+    const timer = setTimeout(() => {
+      for (const id of leavingNow.keys()) store.forgetDeparted(id);
+      setSeen((previous) => {
+        const leaving = new Map([...previous.leaving].filter(([id]) => !leavingNow.has(id)));
+        return { ...previous, leaving: leaving.size ? leaving : NONE_LEAVING };
+      });
+    }, leaveMs());
+    return () => clearTimeout(timer);
   }, [leavingNow, store]);
 
   const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));

@@ -155,9 +155,11 @@ fn layout_edits_are_the_persons_saved_and_broadcast() {
     assert_eq!(list["layout"]["newtab"].as_array().unwrap().len(), 1);
 
     // A new daemon on the same state directory reads the same layout.
-    let state = f.state.clone();
-    let again =
-        fixture_with(&[], Duration::from_secs(60), TempDir(state.parent().unwrap().to_path_buf()));
+    let again = fixture_with(
+        &[],
+        Duration::from_secs(60),
+        TempDir(f.state.parent().unwrap().to_path_buf()),
+    );
     let layout =
         call(&again, "apps.widgets.list", json!({}), Origin::Script).unwrap()["layout"].clone();
     assert_eq!(layout["revision"], 4);
@@ -263,7 +265,7 @@ fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
         )
         .unwrap();
     let not_failed = |e: &Value| {
-        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}")
+        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}");
     };
     let first = f.wait("the first stale", |e| {
         not_failed(e);
