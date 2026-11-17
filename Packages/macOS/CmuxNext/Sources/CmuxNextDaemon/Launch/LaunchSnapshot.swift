@@ -1,3 +1,4 @@
+internal import CCmuxLayoutReducerFFI
 public import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
@@ -24,6 +25,10 @@ public struct LaunchSnapshot: Sendable {
     public var sidebarDoc: Data?
     public var session: String
     public var writtenAtMs: UInt64?
+    /// The registry id (session) this home's app last saw live, from its last handshake
+    /// (``LaunchSnapshotLocation/knownRegistry(session:)``), read with the file: before the daemon answers, a tree
+    /// with another id is another session's snapshot and is never drawn (cmuxterm-hq#12660). Nil before one was recorded.
+    public var knownRegistryID: String?
 
     /// A snapshot larger than this is not read (the daemon caps it at 8 MiB).
     public static let maximumBytes = 8 * 1024 * 1024
@@ -85,10 +90,40 @@ public struct LaunchSnapshot: Sendable {
     public static func saved(session: String, stateDirectory: URL?,
                              location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> LaunchSnapshot? {
         guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return nil }
-        do { return try load(path: path, session: session) } catch {
+        do {
+            var snapshot = try load(path: path, session: session)
+            snapshot.knownRegistryID = location.knownRegistry(session: session)
+            if let verdict = snapshot.verdictBeforeConnect(), verdict != "current" {
+                throw Skip.otherSession("registry \(snapshot.tree.registryID ?? "none") (\(verdict)), this home's is \(snapshot.knownRegistryID ?? "none")")
+            }
+            return snapshot
+        } catch {
             logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// The snapshot's standing before the daemon answers (cmux-window-rules `launch::verdict`, served as
+    /// `window_launch_snapshot_verdict`, cmuxterm-hq#12660): its tree's registry id against the one this home's last
+    /// handshake recorded (``knownRegistryID``), no workspaces. `otherSession` for another session's snapshot, so
+    /// the launch never draws its windows, not even until the live tree comes; `current` for this home's own, drawn
+    /// as before. Nil when the FFI does not answer (the snapshot is drawn, as before). Workspaces the daemon lost
+    /// are known only from its answer: `WindowManager.restore` asks again then.
+    func verdictBeforeConnect() -> String? {
+        struct Facts: Encodable { var snapshotSession: String?, liveSession: String?, listed: [String] = [], live: [String] = [] }
+        struct Reply: Decodable { var verdict: String }
+        guard let data = try? JSONEncoder().encode(Facts(snapshotSession: tree.registryID, liveSession: knownRegistryID)) else { return nil }
+        var output = [UInt8](repeating: 0, count: 256), length = 0
+        let code: Int32 = data.withUnsafeBytes { request in
+            "window_launch_snapshot_verdict".withCString { operation in
+                output.withUnsafeMutableBytes { buffer in
+                    cmux_layout_reducer_json(request.bindMemory(to: UInt8.self).baseAddress, data.count, operation,
+                                             buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count, &length)
+                }
+            }
+        }
+        guard code == CMUX_LAYOUT_REDUCER_OK, length <= output.count else { return nil }
+        return (try? JSONDecoder().decode(Reply.self, from: Data(output.prefix(length))))?.verdict
     }
 
     /// ``saved(session:stateDirectory:location:)`` for the app daemon's session of `build`
@@ -166,11 +201,40 @@ public struct LaunchSnapshot: Sendable {
 /// the last handshake (`identify.launch_snapshot_path`), so the next launch
 /// can read it before connecting. Stored per session name in the app's
 /// defaults; only a path, never the contents.
+///
+/// The defaults are the account's whatever the home: two copies of a build with one bundle id and a home each (an
+/// A/B's two sides) share them, so the path can name the other home's snapshot. The registry id the last handshake
+/// reported is kept in this home's own folder (``knownRegistry(session:)``), so the launch tells that snapshot from
+/// its own before the daemon answers.
 public struct LaunchSnapshotLocation: Sendable {
     let defaults: @Sendable () -> UserDefaults
+    /// This home's NEXT folder (`NextSupport.folder`), where the known registry id is kept.
+    let folder: @Sendable () -> URL
 
-    public init(defaults: @escaping @Sendable () -> UserDefaults = { .standard }) {
+    public init(defaults: @escaping @Sendable () -> UserDefaults = { .standard },
+                folder: @escaping @Sendable () -> URL = { NextSupport().folder }) {
         self.defaults = defaults
+        self.folder = folder
+    }
+
+    /// The file holding the registry id the last handshake of `session` reported, in this home's folder.
+    func registryFile(session: String) -> URL {
+        folder().appendingPathComponent("launch-snapshot-registry." + session, isDirectory: false)
+    }
+
+    /// The registry id this home's app last saw live for `session`; nil before one was recorded. A blocking read
+    /// of a few bytes, on the launch read's files lane (``LaunchSnapshot/saved(session:stateDirectory:location:)``).
+    public func knownRegistry(session: String) -> String? {
+        guard let data = try? Data(blockingContentsOf: registryFile(session: session)), data.count <= 256 else { return nil }
+        let id = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
+    /// Records the registry id a handshake of `session` reported. A blocking write: off the main thread.
+    public func recordRegistry(_ id: String, session: String) {
+        guard !id.isEmpty, id.utf8.count <= 256 else { return }
+        try? FileManager.checked.createDirectory(at: folder(), withIntermediateDirectories: true)
+        try? Data(id.utf8).blockingWrite(to: registryFile(session: session), options: .atomic)
     }
 
     static func key(session: String) -> String { "cmuxNext.launchSnapshotPath." + session }
