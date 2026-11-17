@@ -72,6 +72,7 @@ blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
+blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/phosphor.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
