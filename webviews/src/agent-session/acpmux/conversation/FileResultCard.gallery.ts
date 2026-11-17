@@ -104,7 +104,7 @@ export default agentPaneEntry({
       snapshot: turn([read(), grep(), glob()]),
     },
     cards: {
-      note: "Selected: opened. The Read is the edit card's frame (file name, Lines 1–17, copy) over its highlighted lines numbered from where it read, scrolling in an eight-line box whose bottom fades. The Grep counts its matches and files, then each file and its lines, number first; the Glob lists its files. A name or a line opens the file in cmux.",
+      note: "Selected: opened. The Read stays its one plain row (a read does not open since 2026-11-17, readPath.ts). The Grep counts its matches and files, then each file and its lines, number first; the Glob lists its files. A name or a line opens the file in cmux.",
       snapshot: turn([read(), grep(), glob()]),
       play: openAll,
     },
@@ -113,13 +113,6 @@ export default agentPaneEntry({
       snapshot: turn([grep(), glob()]),
       play: restyled(
         ".cv-filematches { padding: 8px 12px; border-radius: 12px; background: var(--cv-codeblock-bg); box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring); }",
-      ),
-    },
-    "read-no-gutter": {
-      note: "Alternative: the Read without line numbers. Quieter, but a read from line 120 no longer says where its lines are.",
-      snapshot: turn([read()]),
-      play: restyled(
-        ".cv-filepeek__gutter { display: none; } .cv-filepeek__lines .cv-code-plain { padding-left: 12px; }",
       ),
     },
   },
