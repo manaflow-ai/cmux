@@ -18,7 +18,7 @@ nonisolated enum ModelsSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.models.spreadUsage", "Spread Usage Across My Subscriptions"),
-                help: SettingsText.keyed("settings.models.spreadUsage.help", "When one subscription runs out, a thread moves to another of your connections that serves the same model."),
+                help: SettingsText.keyed("settings.models.spreadUsage.help", "When one subscription runs out, a chat moves to another with the same model."),
                 kind: .toggle,
                 default: .bool(ModelsSettings.spreadUsageDefault),
                 keywords: ["models", "subscription", "spread", "usage", "limit", "connection", "cloud"]
