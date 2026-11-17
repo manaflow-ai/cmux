@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold and prerendered (bench `omnibar`).
+"""Omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold, warm and prerendered (bench `omnibar`).
 
   scripts/measure/omnibar-preload.py --app "PATH/cmux DEV TAG.app" --tag TAG [--out DIR]
       [--urls "https://example.com/ https://en.wikipedia.org/wiki/Web_browser"] [--rounds 5] [--settle 2.5]
@@ -12,8 +12,11 @@ no activation and an empty config, opens one browser tab, and for every URL:
               AutocompleteActionPredictor needs 3 hits before it prerenders (confidence 1.0).
   prerendered types the same text, waits for the popup rows and --settle s for the predictor's prerender,
               then presses Return in the field (debug.key).
-  cold        in a second launch with a new profile, types the URL with a fresh query (?cmuxcold=N):
-              no hit, connection or cache entry for it, so nothing is prerendered.
+  warm        in a second launch, loads each URL once, then types it with a fresh query (?cmuxfresh=N): a new
+              document with a warm connection, DNS and subresource cache, never prerendered (the fair
+              comparison for prerendered, whose learning warmed the same things).
+  cold        a new launch with an empty profile for each sample, the URL with a fresh query: nothing
+              cached, connected or prerendered (a first visit).
 
 Each arm starts with the tag's data cleared (a tagged Debug app only): its own Application Support folder (browser
 profile, predictor database) and its daemon's state (`cmux-next/tags/TAG`, which holds the omnibox history: a URL
@@ -28,7 +31,9 @@ reports activationStart > 0. The page is read through `debug.omnibar` (page_timi
 an agent's call marks the tab agent-driven, and an agent-driven tab never preloads.
 
 Prints one `OMNIBAR {json}` line and writes DIR/omnibar-preload.json:
-  {"build": {...}, "samples": [{"url", "arm", "round", "enter_to_fcp_ms", "activated"}], "summary": {...}}
+  {"build": {...}, "samples": [{"url", "arm", "round", "enter_to_fcp_ms", "enter_to_nav_ms", "activated"}],
+   "summary": {...}}
+enter_to_nav_ms is Return to the navigation the person waits for (a prerender's activation, else the page's start).
 """
 from __future__ import annotations
 
@@ -103,13 +108,14 @@ def timing():
         return None
 
 
-def painted(want):
-    """The timing of a painted page whose URL has `want`, with its wall-clock paint (as the person sees it)."""
+def painted(want, enter):
+    """The timing of a page whose URL has `want`, painted after Return (`enter`), with its wall-clock paint (as the
+    person sees it); an earlier page of the same host is not it."""
     t = timing()
     if not t or want not in (t.get("url") or "") or t.get("fcp") is None:
         return None
     t["paint_wall"] = t["origin"] + max(t["fcp"], t["activation"] or 0)
-    return t
+    return t if t["paint_wall"] >= enter else None
 
 
 def omnibar():
@@ -145,11 +151,15 @@ def sample(text, want, arm, round_):
     """Type `text` (+ Return); the time from Return to the page's paint, read from the page."""
     blank()
     enter = type_then_enter(text, opts.settle if arm == "prerendered" else 0.0)
-    seen = wait(lambda: painted(want), 30, 0.1)
+    seen = wait(lambda: painted(want, enter), 30, 0.1)
     if not seen:
         return {"url": want, "arm": arm, "round": round_, "enter_to_fcp_ms": None, "activated": False}
+    # Where the time goes: Return to the navigation the person waits for (a prerender's activation, else the
+    # page's own start), then that to the paint.
+    nav = seen["origin"] + (seen["activation"] or 0)
     return {"url": want, "arm": arm, "round": round_, "activated": seen["activation"] > 0,
-            "enter_to_fcp_ms": round(seen["paint_wall"] - enter, 1), "field": LAST_FIELD, "loaded": seen["url"], "preload": LAST_PRELOAD}
+            "enter_to_fcp_ms": round(seen["paint_wall"] - enter, 1), "enter_to_nav_ms": round(nav - enter, 1),
+            "field": LAST_FIELD, "loaded": seen["url"], "preload": LAST_PRELOAD}
 
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
@@ -204,6 +214,10 @@ def quit_app(app):
         app.wait()
 
 
+def fresh(url, tag):
+    return f"{url}{'&' if '?' in url else '?'}cmuxfresh={tag}"
+
+
 samples = []
 # prerendered: learn each URL (3 hits), then type the same text; the default row must be the learned URL.
 app = launch("prerendered")
@@ -220,23 +234,38 @@ try:
             print(json.dumps(samples[-1]), flush=True)
 finally:
     quit_app(app)
-# cold: a new profile; each sample a URL never loaded (a fresh query), so no prerender, connection or cache.
-app = launch("cold")
+# warm: one launch; each URL loaded once first (not a sample), then each sample a new document of it (a fresh query):
+# no prerender, but its connection, DNS and subresources are warm, as for the prerendered arm.
+app = launch("warm")
 try:
     for url in URLS:
         host = urlsplit(url).netloc
+        sample(fresh(url, "warmup"), host, "warm", -1)
         for r in range(opts.rounds):
-            samples.append(sample(f"{url}{'&' if '?' in url else '?'}cmuxcold={r}", host, "cold", r))
+            samples.append(sample(fresh(url, r), host, "warm", r))
             print(json.dumps(samples[-1]), flush=True)
 finally:
     quit_app(app)
+# cold: a new launch with an empty profile per sample, so nothing is cached, connected or prerendered.
+for url in URLS:
+    host = urlsplit(url).netloc
+    for r in range(opts.rounds):
+        app = launch("cold")
+        try:
+            samples.append(sample(fresh(url, r), host, "cold", r))
+            print(json.dumps(samples[-1]), flush=True)
+        finally:
+            quit_app(app)
 fresh_state()
 
 summary = {}
-for arm in ("cold", "prerendered"):
+for arm in ("cold", "warm", "prerendered"):
     vals = [s["enter_to_fcp_ms"] for s in samples if s["arm"] == arm and s["enter_to_fcp_ms"] is not None
-            and (arm == "cold" or s["activated"])]
+            and (arm != "prerendered" or s["activated"])]
     summary[arm] = {"n": len(vals), "median_ms": statistics.median(vals) if vals else None}
+    navs = [s["enter_to_nav_ms"] for s in samples if s["arm"] == arm and s.get("enter_to_nav_ms") is not None
+            and (arm != "prerendered" or s["activated"])]
+    summary[arm]["nav_median_ms"] = statistics.median(navs) if navs else None
 summary["prerender_activated"] = sum(s["activated"] for s in samples if s["arm"] == "prerendered")
 summary["prerender_tried"] = sum(s["arm"] == "prerendered" for s in samples)
 doc = {"build": {"tag": opts.tag, "version": info.get("CFBundleShortVersionString"),

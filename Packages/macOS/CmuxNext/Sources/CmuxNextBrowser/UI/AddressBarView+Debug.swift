@@ -108,9 +108,12 @@ extension AddressBarView {
         var report = debugSnapshot.preloadReport
         guard pageTiming, let tab = controller.preloader as? any BrowserTab else { return report }
         report["page_timing"] = controller.debugPageTiming
+        guard !controller.debugPageTimingReading else { return report }
+        controller.debugPageTimingReading = true
         Task { [weak controller] in  // inherits the view's main actor
             let value = try? await tab.evaluate(Self.pageTimingScript, world: .isolated, gesture: .cmux)
             if case .string(let json)? = value { controller?.debugPageTiming = json }
+            controller?.debugPageTimingReading = false
         }
         return report
     }
