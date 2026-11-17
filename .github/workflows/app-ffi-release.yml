@@ -134,8 +134,9 @@ jobs:
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
     environment: ci-routing-agent
+    # actions: write only for ffi_build_supersede.py's cancel of an older run whose build waits for a runner.
     permissions:
-      actions: read
+      actions: write
       contents: read
     outputs:
       promote_runner: ${{ steps.place.outputs.promote_runner }}
@@ -184,6 +185,17 @@ jobs:
           FRESH_JOBS: app-ffi-build
         run: python3 scripts/ci/side_lane_placement.py
 
+      # A build queued for a runner holds the build group as a running one does: run 43978720557's build
+      # queued for hours on side-std while every newer FFI run went pending behind it and was replaced
+      # (2026-11-16). Cancel an older run whose build has not started on a runner, so the group keeps the
+      # newest run; a running build is never cancelled. About 1 to 3 calls; a failure changes nothing.
+      - name: Replace an older build still waiting for a runner
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/ffi_build_supersede.py
+
   build:
     name: build xcframework
     needs: placement
@@ -203,7 +215,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
-    # cancels it; a still newer one replaces it while it waits.
+    # cancels it; a still newer one replaces it while it waits. A build that has
+    # not started on a runner is cancelled by a newer run's placement instead
+    # (scripts/ci/ffi_build_supersede.py), so it never holds the group.
     concurrency:
       group: app-ffi-release-build-${{ github.ref }}
       cancel-in-progress: false
