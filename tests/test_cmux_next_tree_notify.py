@@ -883,8 +883,15 @@ def pending_zip(key: str = KEY, state: str = "ready") -> bytes:
 class PendingApi(FakeApi):
     """FakeApi plus the cmux-next-tree-notify-pending records (NOTIFY_NEVER_LOST) and a listing that may refuse."""
 
-    def __init__(self, markers, pending: list[tuple[int, bytes, dict | None]], refuse_listing: int = 0, **kw):
+    def __init__(self, markers, pending: list[tuple[int, bytes, dict | None]], refuse_listing: int = 0,
+                 swept: list[tuple[int, bytes, dict | None]] = (), **kw):
         super().__init__(markers, **kw)
+        self.swept = [{"id": artifact_id, "name": notify.PENDING_SWEEP_ARTIFACT, "expired": False,
+                       "archive_download_url": f"pending/{artifact_id}",
+                       "workflow_run": dict({"id": 78, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                             "head_branch": "feat-cmux-next"}, **(run or {}))}
+                      for artifact_id, _, run in swept]
+        self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in swept})
         self.pending = [{"id": artifact_id, "name": notify.PENDING_ARTIFACT, "expired": False,
                          "archive_download_url": f"pending/{artifact_id}",
                          "workflow_run": dict({"id": 77, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
@@ -892,7 +899,7 @@ class PendingApi(FakeApi):
                         for artifact_id, _, run in pending]
         self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in pending})
         self.refuse_listing = refuse_listing
-        self.pending_ids = {artifact_id for artifact_id, _, _ in pending}
+        self.pending_ids = {artifact_id for artifact_id, _, _ in list(pending) + list(swept)}
 
     def delete(self, path: str) -> int:
         artifact_id = int(path.rsplit("/", 1)[1])
@@ -901,7 +908,9 @@ class PendingApi(FakeApi):
         return super().delete(path)
 
     def get(self, path: str):
-        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}"):
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_SWEEP_ARTIFACT}&"):
+            return {"artifacts": self.swept}
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}&"):
             return {"artifacts": self.pending}
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}") and self.refuse_listing:
             self.refuse_listing -= 1
@@ -930,6 +939,57 @@ class PendingRecords(unittest.TestCase):
                              make=lambda *a, **kw: made.append(kw["key"]) or 0)
         self.assertEqual(sorted(made), sorted([KEY, other]))
 
+    def test_a_key_whose_records_two_sweeps_split_is_made_by_neither_and_recorded(self):
+        """Review: sweep A won record 500 and sweep B record 501 of one key; neither may notify it alone."""
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(), None)])
+        api.deleted.append(501)  # the other sweep's delete
+        again: list[list[str]] = []
+        made: list[str] = []
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                    make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                    fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((made, left, again[-1]), ([], [KEY], [KEY]))
+
+    def test_claimed_keys_are_recorded_before_the_notify_and_cleared_after_it(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        again: list[list[str]] = []
+        seen: list[list[list[str]]] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                             make=lambda *a, **kw: seen.append(list(again)) or 1,
+                             fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(seen, [[[KEY]]])  # a job that dies inside the notify leaves the record uploaded
+        self.assertEqual(again[-1], [])  # everything went through: nothing to record
+
+    def test_an_error_after_a_claim_still_records_the_claimed_keys(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+
+        def boom(*_a, **_kw):
+            raise KeyError("not a notify error")
+        again: list[list[str]] = []
+        with self.assertRaises(KeyError):
+            notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append, make=boom,
+                                 fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(again[-1], [KEY])
+        # a delete that timed out may have gone through: the key counts as claimed by no one, and is recorded
+        timed_out = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+
+        def slow(_path):
+            raise OSError("timed out")
+        timed_out.delete = slow
+        again = []
+        made: list[str] = []
+        self.assertEqual(notify.sweep_pending(timed_out, "o/r", log=lambda _l: None, record=again.append,
+                                              make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                              fetch_completion=lambda key: completion_json(key)), [KEY])
+        self.assertEqual((made, again[-1]), ([], [KEY]))
+
+    def test_the_sweep_reads_its_own_records_too(self):
+        api = PendingApi([pr_marker()], [], swept=[(600, pending_zip(), None)])
+        made: list[str] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                             fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((made, api.deleted), ([KEY], [600]))
+
     def test_the_sweep_records_again_what_it_claimed_and_could_not_finish(self):
         import os
         import tempfile
@@ -942,6 +1002,12 @@ class PendingRecords(unittest.TestCase):
                 self.assertEqual(notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path]), 0)
             with open(path) as handle:
                 self.assertEqual(json.load(handle)["keys"], [KEY])
+            # an empty hand-off removes the record written before the notify
+            with unittest.mock.patch.object(notify, "sweep_pending",
+                                            lambda api, repo, record: record([KEY]) or record([]) or []), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                self.assertEqual(notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path]), 0)
+            self.assertFalse(os.path.exists(path))
 
 
 class NotifyNeverLost(unittest.TestCase):
@@ -1024,7 +1090,7 @@ class NotifyNeverLost(unittest.TestCase):
         again: list[list[str]] = []
         left = notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
                                     fetch_completion=lambda key: completion_json(key))
-        self.assertEqual((left, api.deleted, api.dispatched, again), ([KEY], [500], [], [[KEY]]))
+        self.assertEqual((left, api.deleted, api.dispatched, again[-1]), ([KEY], [500], [], [KEY]))
         # a record whose delete GitHub refused is not claimed: no notify, the record stays
         refused = PendingApi([pr_marker()], [(500, pending_zip(), None)])
         refused.delete = lambda path: 403
@@ -1062,7 +1128,8 @@ class NotifyNeverLost(unittest.TestCase):
         self.assertNotIn("concurrency:", sweep)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", sweep.split("\n    if: ", 1)[1].split("\n", 1)[0])
         self.assertIn('--sweep-pending --pending-file "$pending"', sweep)
-        self.assertIn("name: cmux-next-tree-notify-pending", sweep)
+        self.assertIn("name: cmux-next-tree-notify-pending-sweep\n", sweep)
+        self.assertNotIn("name: cmux-next-tree-notify-pending\n", sweep)
         rerun = text.split("\n  rerun-deferred-commits:\n", 1)[1].split("\n  verify-cdn-publication:", 1)[0]
         self.assertNotIn("github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') &&", rerun)
 
