@@ -70,6 +70,20 @@ extension MacScreenPages {
                     "verified_absent": .bool(result.verifiedAbsent),
                     "hub_quiescent": .bool(result.hubQuiescent)]
         }
+        #if DEBUG
+        // Captures of the device-control prompt with no device hub: a fixture request, and none again.
+        if action == "preview_approval" {
+            approval.update([SessionRequest(
+                id: "debug-preview", viewerId: "debug-preview", viewerName: params["name"]?.stringValue ?? "iPhone",
+                viewerKeyFingerprint: "78be18e0c08c9c4d7443d95e2db68074a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                scope: params["scope"]?.stringValue.flatMap(SessionScope.init(rawValue:)) ?? .full)])
+            return ["previewing": true]
+        }
+        if action == "preview_approval_clear" {
+            approval.update([])
+            return ["previewing": false]
+        }
+        #endif
         guard let hub else { return ["error": "not signed in to a device hub"] }
         func scope(_ key: String) -> SessionScope? { params[key]?.stringValue.flatMap(SessionScope.init(rawValue:)) }
         func fail(_ error: any Error) -> JSONValue { ["error": .string((error as? DeviceHubError)?.description ?? "\(error)")] }
