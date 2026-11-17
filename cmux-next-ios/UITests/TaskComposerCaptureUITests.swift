@@ -530,6 +530,37 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertTrue(left.isEmpty, "the prompt is cleared, got \(left)")
     }
 
+    /// Prints the composer bar's accessibility tree and taps the title, so the capture's title
+    /// tap can be placed on what the bar really holds (`TITLE-TREE` in the log).
+    @MainActor
+    func testTitleMenuProbe() {
+        let app = launch(Self.list)
+        XCTAssertNil(Self.openComposer(app))
+        XCTAssertNil(Self.type(app, "Fix the flaky upload test"))
+        let bar = Self.composerBar(app)
+        print("TITLE-TREE bars=\(app.navigationBars.count)")
+        print("TITLE-TREE " + bar.debugDescription.replacingOccurrences(of: "\n", with: "\nTITLE-TREE "))
+        for (i, text) in bar.staticTexts.allElementsBoundByIndex.enumerated() {
+            print("TITLE-TREE text \(i) '\(text.label)' \(text.frame)")
+        }
+        for (i, button) in bar.buttons.allElementsBoundByIndex.enumerated() {
+            print("TITLE-TREE button \(i) '\(button.label)' id=\(button.identifier) \(button.frame)")
+        }
+        // The title's own button (iOS draws a title with a menu as a button), else its text.
+        let titled = bar.buttons.matching(NSPredicate(format: "label CONTAINS 'Fix the flaky'")).firstMatch
+        let target = titled.exists ? titled : bar.staticTexts["Fix the flaky upload test"].firstMatch
+        print("TITLE-TREE tapping \(target.exists ? target.label : "nothing") \(target.frame)")
+        target.tap()
+        Self.pause(1.5)
+        for (i, button) in app.buttons.allElementsBoundByIndex.enumerated() where button.frame.minY < 500 {
+            print("TITLE-TREE after \(i) '\(button.label)' id=\(button.identifier)")
+        }
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "title-probe"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     /// Start with two agents: two rows, one per agent, and the list stays on screen.
     @MainActor
     func testStartTwoMakesOneWorkspacePerAgent() {
