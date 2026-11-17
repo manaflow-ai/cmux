@@ -1,5 +1,6 @@
-// DEBUG and Demo builds only: the hybrid benchmark is never compiled into Production.
-#if os(iOS) && DEBUG
+// The bench (AgentCLIHybridBenchRoot, AgentCLIHybridBench) is DEBUG and Demo only; the session and its fake Mac
+// (BenchSession, HybridBenchDaemon) are in every build: the lean terminal self-check replays them (LeanSelfCheck).
+#if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -7,6 +8,7 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
+#if DEBUG
 /// DEBUG only. Launch with `-CmuxMobileHybridBench` to replay a recorded agent CLI session
 /// (Claude Code, Codex, opencode) into the real terminal screen, the way the Mac's daemon sends
 /// it: as PTY bytes (`output` events, today) or as the cells that changed (`agent-cli-frame`,
@@ -256,6 +258,7 @@ final class AgentCLIHybridBench {
         log("summary \(result)")
     }
 }
+#endif
 
 /// Cells of the phone's screen equal to the Mac's (text only; a no-break space equals a space),
 /// over the Mac's grid. The rows are

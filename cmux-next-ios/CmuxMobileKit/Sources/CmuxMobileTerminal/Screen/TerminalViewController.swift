@@ -3646,13 +3646,14 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     }
 }
 
-#if DEBUG
-/// DEBUG only: the pixel matrix's view of the screen (`TerminalBenchProbe.readGeometry`, `pan`).
+/// The pixel matrix's view of the screen (`TerminalBenchProbe.readGeometry`, `pan`, DEBUG) and
+/// the lean terminal self-check's (`TerminalSelfCheckStage`, every build: it runs on a release
+/// phone when the Mac asks, `cmux device self-check`).
 extension TerminalViewController {
     /// The Mac's grid in window points, where it is drawn now: a full-screen app's from the
     /// surface in its host (viewport row 0 is the grid's row 0), the primary screen's from the
     /// scrollback's end (its last row is the grid's last), as `positionHostGridNote` places them.
-    func benchGeometry() -> TerminalBenchProbe.Geometry? {
+    func benchGeometry() -> TerminalGridGeometry? {
         guard cell.width > 0, cell.height > 0, let window = view.window,
               let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return nil }
         let size = CGSize(width: CGFloat(columns) * cell.width, height: CGFloat(rows) * cell.height)
@@ -3669,8 +3670,8 @@ extension TerminalViewController {
             top = view.convert(CGPoint(x: 0, y: bottom), to: nil).y - size.height
         }
         let cursor = surface.visibleCursorCell.map { surface.convert($0, to: nil) }
-        return TerminalBenchProbe.Geometry(grid: CGRect(origin: CGPoint(x: left, y: top), size: size), cursor: cursor, cell: cell,
-                                           fullScreen: fullScreen, window: window.bounds, scale: window.screen.scale)
+        return TerminalGridGeometry(grid: CGRect(origin: CGPoint(x: left, y: top), size: size), cursor: cursor, cell: cell,
+                                    fullScreen: fullScreen, window: window.bounds, scale: window.screen.scale)
     }
 
     /// Pans a grid wider than the phone to its first or last column.
@@ -3683,8 +3684,20 @@ extension TerminalViewController {
             scrollView.contentOffset.x = toEnd ? max(0, contentWidth - view.bounds.width) : 0
         }
     }
+
+    /// Frames Ghostty presented on this screen so far (the self-check waits for them to stop).
+    var presentedFrames: Int { surface.presents }
+
+    /// The pixels Ghostty presented under `rect` (window points), with the part of `rect` they
+    /// cover: the frame's own IOSurface, so neither the chrome over the grid nor the
+    /// compositor is in them (`drawHierarchy` leaves a live Metal surface black).
+    func presentedPixels(in rect: CGRect) -> (image: CGImage, rect: CGRect)? {
+        let visible = rect.intersection(view.convert(view.bounds, to: nil))
+        guard !visible.isNull, !visible.isEmpty else { return nil }
+        guard let shot = surface.presentedImage(clip: surface.convert(visible, from: nil)) else { return nil }
+        return (shot.image, surface.convert(shot.frame, to: nil))
+    }
 }
-#endif
 
 final class TerminalScrollView: UIScrollView {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
