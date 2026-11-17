@@ -38,6 +38,30 @@ harness runs it over ssh with no rig and no marker app:
 `scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
 --host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
 
+### Before and after numbers: the budget table
+
+Every screen-share change quotes its before and after from one command, which runs cmux and
+macOS Screen Sharing on the same motion scene between two Macs and prints the stage budget table
+(Input, Screen, Capture, Encode, Send, Network, Reassembly, Decode, Present, Total, each p50/p95),
+received Mbps and motion quality (a frame score and the text error against the source):
+
+```
+# tools/ built at your head (no compiling on the Macs); repeat at the merge base for "before"
+cmux-ci run --class exclusive --measurement --label measure \
+  --script scripts/measure/screen-stream-eval.sh --ref "$(git rev-parse HEAD)" \
+  --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
+tar -xzf tools.tar.gz
+scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip SHARED_MAC_LAN_IP \
+  --tools ./tools --label after --cua-vnc PATH/cua-vnc \
+  --vnc-user USER --vnc-password-file PATH_ON_VIEWING_MAC --out after.jsonl
+scripts/screen-share-vs.py compare before.jsonl after.jsonl
+```
+
+The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
+and Accessibility. The Apple leg is a headless RFB client: it never opens Screen Sharing.app or
+any window. A row that cannot be measured yet prints null with its reason under the table; the
+script's docstring maps each row to today's timing log and to the per-frame stage ledger.
+
 ## Linux desktop host (shared with cmux on a Mac)
 
 A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
@@ -67,8 +91,32 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
 - Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
   `--xauthority` or `XAUTHORITY`). A Wayland session (`XDG_SESSION_TYPE=wayland`) uses the
-  portal backend (xdg-desktop-portal ScreenCast and PipeWire); until that backend is built in,
-  its sessions end with "portal capture not built in". `--capture x11|portal` overrides.
+  portal backend (xdg-desktop-portal ScreenCast and PipeWire, feature `portal`); a build
+  without it ends those sessions with "portal capture not built in". `--capture x11|portal`
+  overrides.
+- Wayland grant: `enable` asks the portal once, while the person joining is at the screen
+  (its dialog), and saves the restore token in `~/.config/cmux/screen-host/`; every later
+  share restores it with no dialog. Unless `--view-only`, it asks for a RemoteDesktop
+  session (keyboard and pointer too) where the portal can keep that grant (RemoteDesktop
+  version 2 or later), so control works on Wayland; otherwise the desktop is shared view
+  only. A grant the person revoked makes the next share show the dialog once, then it is
+  saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
+- Machine join: `cmux-rd linux-host enable --non-interactive` is the one command the join
+  runs after the acpmux join, often over ssh. It takes no account token and opens no
+  browser: no person's credential is kept on a joined machine. It finds the desktop
+  through logind and sets up capture. A Wayland desktop gets the one grant above (the
+  dialog stays up a minute at most), and "this desktop's screen-share portal can't
+  remember a grant; each share will ask once on this machine" or "view only: this desktop
+  has no remote-input portal" when its portal cannot keep one. With no graphical session
+  it sets up an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
+  one) and says "no graphical session on this machine; shares use a virtual display at :N,
+  started when one is needed". The host starts it for a share or `linux-host display`
+  (an app launch), and stops it after 10 minutes with no share and no app window on it.
+  A desktop still enabled (anchored), or a machine joined to cmux, gets the host unit
+  installed, enabled and started, with lingering for a virtual display. A joined machine
+  signs itself in with its machine credential (`$ACPMUX_HOME/machine-credential.json`, the home of the acpmux that runs it,
+  `POST /v1/auth/machine`), registers, and turns sharing on, so nobody does anything on it.
+  Any other machine prints one `not_installed:` line. It never fails the join.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
