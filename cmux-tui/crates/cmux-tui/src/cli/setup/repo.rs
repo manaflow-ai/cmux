@@ -527,7 +527,7 @@ pub(super) fn install(
         before: installed.before,
         library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
         actions: read.actions().clone(),
-        prior_actions: installed.prior_actions.clone(),
+        prior_actions: installed.prior_actions,
         extensions: extension_receipts,
         installed_ms: now_ms(),
     };
@@ -657,7 +657,7 @@ fn apply_update(
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),
         repository: reference.repository(),
-        reference: reference.clone(),
+        reference,
         commit: checkout.commit.clone(),
         sha256: read.sha256.clone(),
         version: read.manifest.version.clone(),
@@ -667,7 +667,7 @@ fn apply_update(
         actions: read.actions().clone(),
         // The old layer's remove put your own actions back first, so what
         // the new one replaced is yours.
-        prior_actions: installed.prior_actions.clone(),
+        prior_actions: installed.prior_actions,
         extensions: extension_receipts,
         installed_ms: now_ms(),
     };
