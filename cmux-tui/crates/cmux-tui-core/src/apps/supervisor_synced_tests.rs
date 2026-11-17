@@ -37,8 +37,8 @@ impl AppKvCloud for FakeCloud {
         self.account.lock().unwrap().clone()
     }
 
-    fn send(&self, op: &PendingOp) -> Result<Option<u64>, SendError> {
-        if self.account().is_none() || self.offline.load(Ordering::SeqCst) {
+    fn send(&self, account: &str, op: &PendingOp) -> Result<Option<u64>, SendError> {
+        if self.account().as_deref() != Some(account) || self.offline.load(Ordering::SeqCst) {
             return Err(SendError::Retry("signed out".into()));
         }
         self.sent.lock().unwrap().push(op.clone());
@@ -361,4 +361,29 @@ fn regranting_synced_storage_resyncs_the_replica() {
     let before = cloud.resyncs.load(Ordering::SeqCst);
     grant_synced(&f, true);
     assert!(cloud.resyncs.load(Ordering::SeqCst) > before, "the regrant read no snapshot");
+}
+
+/// Sets the scopes `LOCAL`'s saved manifest asks for.
+fn save_scopes(f: &Fixture, scopes: Value) {
+    let path = f.state.join("apps/local/todo/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["scopes"] = scopes;
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// A save that drops `storage:synced` from the manifest and a later one that
+/// asks for it again: the replica missed the stream between them, so the
+/// second reload reads a snapshot, as a regrant through `apps-set` does.
+#[test]
+fn a_reload_that_asks_for_synced_storage_again_resyncs_the_replica() {
+    let (f, cloud) = granted_local_fixture();
+    let set = f.call("l", "app.storage.set", json!({ "key": "k", "value": 1 }), false);
+    assert_eq!(set["ok"], true, "{set}");
+    save_scopes(&f, json!({}));
+    f.supervisor.reload_local_now(Some(LOCAL)).unwrap();
+    let before = cloud.resyncs.load(Ordering::SeqCst);
+    save_scopes(&f, json!({ "storage:synced": "s" }));
+    f.supervisor.reload_local_now(Some(LOCAL)).unwrap();
+    assert!(cloud.resyncs.load(Ordering::SeqCst) > before, "the reload read no snapshot");
 }

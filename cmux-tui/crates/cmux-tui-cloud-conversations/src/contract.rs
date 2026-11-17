@@ -627,7 +627,17 @@ pub fn appkv_list_page(value: &Value) -> Result<(Vec<AppKvRow>, Option<u64>, u64
             appkv_row(row_key.unwrap_or_default(), entry.get("row").unwrap_or(entry))
         })
         .collect();
-    let next = value.get("next_after_revision").and_then(Value::as_u64);
+    // The last page says so with an explicit null: a page without the field
+    // (cut short, malformed) is never read as the last one.
+    let next = match value.get("next_after_revision") {
+        Some(Value::Null) => None,
+        Some(next) => Some(next.as_u64().ok_or_else(|| {
+            CloudError::Unavailable("appkv.list with a bad next_after_revision".into())
+        })?),
+        None => {
+            return Err(CloudError::Unavailable("appkv.list without next_after_revision".into()));
+        }
+    };
     let revision = value.get("revision").and_then(Value::as_u64).unwrap_or(0);
     Ok((rows, next, revision))
 }
@@ -728,6 +738,11 @@ mod appkv_tests {
         let (rows, next, revision) = appkv_list_page(&page).unwrap();
         assert_eq!((rows[0].row_key.as_str(), next, revision), ("", Some(3), 12));
         assert!(appkv_list_page(&json!({})).is_err());
+        let last = json!({"rows":[],"next_after_revision":null,"revision":12});
+        assert_eq!(appkv_list_page(&last).unwrap().1, None);
+        // A page that does not name its next cursor is not the last one.
+        assert!(appkv_list_page(&json!({"rows":[],"revision":12})).is_err());
+        assert!(appkv_list_page(&json!({"rows":[],"next_after_revision":"3"})).is_err());
     }
 }
 

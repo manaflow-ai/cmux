@@ -308,6 +308,11 @@ impl Supervisor {
             for app in &removed {
                 outs.extend(self.stop_app_locked(&mut inner, app, "removed"));
             }
+            // A save can add or drop `storage:synced`: the stream and a
+            // regranted replica's resync follow, as after an `apps-set`.
+            if !changed.is_empty() || !removed.is_empty() {
+                self.appkv_refresh_locked(&inner);
+            }
             for app in changed.iter().chain(&removed) {
                 outs.push(Out::Broadcast(json!({
                     "event": "apps-changed",

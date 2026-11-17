@@ -56,8 +56,9 @@ pub(crate) enum SendError {
 pub(crate) trait AppKvCloud: Send + Sync {
     /// The signed-in account, `None` signed out.
     fn account(&self) -> Option<String>;
-    /// Sends one op; the cloud's revision for it when the answer names one.
-    fn send(&self, op: &PendingOp) -> Result<Option<u64>, SendError>;
+    /// Sends one op queued for `account`, only on a lease of that account;
+    /// the cloud's revision for it when the answer names one.
+    fn send(&self, account: &str, op: &PendingOp) -> Result<Option<u64>, SendError>;
     /// Subscribes to `appkv:<user>` (idempotent).
     fn subscribe(&self);
     /// Ends that subscription (no app syncs here any more).
@@ -319,7 +320,7 @@ impl Supervisor {
             if !allowed {
                 continue;
             }
-            let sent = cloud.send(&op);
+            let sent = cloud.send(&account, &op);
             let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let changed = {
                 let storage = self.storage();
@@ -449,10 +450,10 @@ impl AppKvCloud for MuxCloud {
         self.with(|service| service.lease_account()).flatten()
     }
 
-    fn send(&self, op: &PendingOp) -> Result<Option<u64>, SendError> {
+    fn send(&self, account: &str, op: &PendingOp) -> Result<Option<u64>, SendError> {
         let sent = self
             .with(|service| {
-                service.appkv_op(&op.app, &op.key, op.value.as_ref(), &op.idempotency_key)
+                service.appkv_op(account, &op.app, &op.key, op.value.as_ref(), &op.idempotency_key)
             })
             .ok_or_else(|| SendError::Retry("no cloud link".into()))?;
         match sent {
