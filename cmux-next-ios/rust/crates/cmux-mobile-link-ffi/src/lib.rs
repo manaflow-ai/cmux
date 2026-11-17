@@ -1209,8 +1209,13 @@ pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
 
 /// How long the signaling socket may take to answer after a network
 /// change before a new one is opened (the old network's socket is usually
-/// dead, and `bye` and new dials need a live one).
-const NETWORK_PROBE: Duration = Duration::from_millis(1000);
+/// dead, and `bye` and new dials need a live one). A roam's new endpoints
+/// reach a Mac behind a NAT that filters by address only through signaling,
+/// so this wait is the phone's recovery time after Wi-Fi to cell: at 1 s it
+/// was two thirds of it in the lab. A live socket answers a ping within a
+/// round trip; one that is merely slow is replaced, which costs one open
+/// and moves every session onto the new socket (`rehome`).
+const NETWORK_PROBE: Duration = Duration::from_millis(300);
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
