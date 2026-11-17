@@ -38,8 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
-    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`; stage 0's window (LaunchShell), planned there.
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, shell: LaunchShell)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, shell: LaunchShell),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.launchCleanup = launchCleanup
@@ -95,10 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
-        // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); launchReads.shell.show(title: Strings.appName) // stage 0's window, one commit
+        // task-owner: cloudBootstrap; awaits stage 0's frame, then the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
-            guard let self else { return }
+            guard let self else { return }; await launchReads.shell.framed()
             let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: the bare launch (piece 8)
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
@@ -227,8 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
-        services.windows.onPresent = { [weak services] controller in
-            services?.crashRecovery.showRestartNotice(on: controller.window)
+        services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
+            services?.crashRecovery.showRestartNotice(on: controller.window); shell.presented(controller.window) // the first takes stage 0's frame, then its place
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         services.windows.onFirstWindow = { [weak services] _ in
