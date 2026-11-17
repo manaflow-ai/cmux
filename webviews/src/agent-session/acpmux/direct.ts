@@ -11289,6 +11289,11 @@ export class AcpmuxDirectClient {
     this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
   }
 
+  /// The agent a sessionless chat's first send starts (the pane's host config), when it names one.
+  get startHarness(): string | undefined {
+    return this.host.harness;
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.

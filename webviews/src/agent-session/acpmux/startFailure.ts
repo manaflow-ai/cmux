@@ -26,6 +26,9 @@ export type StartFailureView = {
   /// The agent is not on the machine: a surface without a terminal (New Tab) still offers Install,
   /// through Agents setup, which installs it and continues the draft.
   notInstalled?: true;
+  /// The sentence is only "<agent> couldn't start.": the reason is all in `detail`. A surface with
+  /// no Details (the pane's notice row) says the reason in its one line instead.
+  unexplained?: true;
 };
 
 /// The spawn words for a binary that is not there: the spawn's own `ENOENT` ("spawn claude-agent-acp:
@@ -142,13 +145,18 @@ export function startFailureNotice(t: Translate, harness: string | undefined, er
   logStartFailure(harness ?? "agent", undefined, cause);
   const code = startFailureCode(error);
   if (code && HOST_AWAY.has(code)) return undefined;
-  return startFailureView(t, {
+  const view = startFailureView(t, {
     harness: harness ?? "",
     name: harness ? agentName(harness) : t("turn.failure.theAgent"),
     error: startErrorMessage(error) || t("switch.unknownError"),
     ...(code ? { code } : {}),
     ...(cause ? { cause } : {}),
-  }).sentence;
+  });
+  // The notice has no Details: an unexplained start says its reason in the line itself.
+  if (!view.unexplained || !view.detail) return view.sentence;
+  return harness
+    ? t("switch.failed", { agent: agentName(harness), reason: view.detail })
+    : t("switch.failedUnnamed", { reason: view.detail });
 }
 
 function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {
@@ -178,11 +186,12 @@ function startFailureSentence(t: Translate, switching: StartFailure): StartFailu
   // again.") is already plain words: it stays the sentence, after the not-installed check above.
   if (writtenForPeople(raw)) return { sentence: t("switch.failed", { agent: switching.name, reason: raw }) };
   // An unknown failure at start is a start that failed, not "had a problem and stopped".
-  const sentence =
-    kind === "other"
-      ? t("turn.failure.spawnFailed", { harness: switching.name })
-      : failureCopy(t, raw, { name: switching.name, harness: switching.harness }, switching.code);
-  return { sentence, detail: raw };
+  if (kind === "other")
+    return { sentence: t("turn.failure.spawnFailed", { harness: switching.name }), detail: raw, unexplained: true };
+  return {
+    sentence: failureCopy(t, raw, { name: switching.name, harness: switching.harness }, switching.code),
+    detail: raw,
+  };
 }
 
 /// A start whose agent is not signed in on the machine (hq#11225): the agent by name, the expired

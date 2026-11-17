@@ -8721,7 +8721,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Any other failed start says why too, and its cause goes to the log (#44964); a trust
               // refusal has its own question, a cancelled start is no failure.
               else if (!isTrustRefusal(error) && !isStartCancelled(error)) {
-                const line = startFailureNotice(translate, client.shownSession()?.harness, error);
+                const line = startFailureNotice(
+                  translate,
+                  client.shownSession()?.harness ?? client.startHarness,
+                  error,
+                );
                 if (line) client.notice(line);
               }
               return refused(error, Boolean(accepted));
