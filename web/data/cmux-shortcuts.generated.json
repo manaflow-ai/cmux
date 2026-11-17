@@ -4542,6 +4542,41 @@
           "aliases": []
         },
         {
+          "id": "macScreen.open",
+          "title": {
+            "en": "Screen Sharing",
+            "ar": "مشاركة الشاشة",
+            "bs": "Dijeljenje ekrana",
+            "da": "Skærmdeling",
+            "de": "Bildschirmfreigabe",
+            "es": "Compartir pantalla",
+            "fr": "Partage d’écran",
+            "it": "Condivisione schermo",
+            "ja": "画面共有",
+            "km": "ការចែករំលែកអេក្រង់",
+            "ko": "화면 공유",
+            "no": "Skjermdeling",
+            "pl": "Udostępnianie ekranu",
+            "pt-BR": "Compartilhamento de Tela",
+            "ru": "Общий экран",
+            "th": "การแชร์หน้าจอ",
+            "tr": "Ekran Paylaşma",
+            "uk": "Спільний екран",
+            "vi": "Chia sẻ màn hình",
+            "zh-CN": "屏幕共享",
+            "zh-TW": "螢幕共享"
+          },
+          "shortcut": {
+            "key": "s",
+            "modifiers": [
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "closeTab",
           "title": {
             "en": "Close Tab",
