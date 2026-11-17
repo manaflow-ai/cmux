@@ -49,38 +49,51 @@ struct LayoutSizeCommandsTests {
         #expect(LayoutSizeCommands([], transaction: 1, batch: false).commands.isEmpty)
     }
 
-    /// A request that only the fixture daemon of the test below knows: the size commands it got.
+    /// A request that only the fixture daemon of the tests below knows: the size commands it got.
     private struct CapturedSizeCalls: DaemonRequest {
         typealias Response = JSONValue
         static let command = "test-size-calls"
     }
 
-    /// The commands on a real connection over a fixture bridge (no daemon of a person starts): one `set-layout-sizes`
-    /// with every value for a daemon that serves the batch, each value's own command for one that does not, all under
-    /// the gesture's transaction.
+    /// The fixture daemon (no daemon of a person starts). Its first argument: it serves `layout-sizes-batch-v1`. Its
+    /// second: it refuses, by its reply, a `set-layout-sizes` and the width of pane 5. It keeps every size command
+    /// it got, a refused one too.
+    private static let fixture = #"""
+    import json, sys
+    serves, refuses = sys.argv[1] == 'yes', sys.argv[2] == 'yes'
+    calls = []
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    for line in sys.stdin:
+        frame = json.loads(line)
+        cmd = frame.get('cmd')
+        result = {}
+        refused = False
+        if cmd == 'identify':
+            result = {'app':'cmux-tui','protocol':12,'generation':'sizes-boot',
+                'capabilities':['layout-sizes-batch-v1'] if serves else []}
+        elif cmd in ('set-layout-sizes', 'set-viewport-pane-width', 'set-split-ratio'):
+            calls.append(frame)
+            refused = refuses and (cmd == 'set-layout-sizes' or frame.get('pane') == 5)
+        elif cmd == 'test-size-calls':
+            result = calls
+        if refused:
+            print(json.dumps({'id':frame.get('id'),'ok':False,'error':'no such pane'}), flush=True)
+        else:
+            print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
+    """#
+
+    /// A connection to the fixture daemon.
+    private static func connection(serves: Bool, refuses: Bool) -> DaemonConnection {
+        let bridge = DaemonBridge.fakePython(["-c", fixture, serves ? "yes" : "no", refuses ? "yes" : "no"])
+        let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-sizes-test-\(UUID().uuidString).sock", bridge: bridge)
+        return DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
+    }
+
+    /// The commands on a real connection over a fixture bridge: one `set-layout-sizes` with every value for a daemon
+    /// that serves the batch, each value's own command for one that does not, all under the gesture's transaction.
     @Test(arguments: [false, true])
     func theCommandsReachTheDaemonUnderTheGesturesTransaction(serves: Bool) async throws {
-        let script = #"""
-        import json, sys
-        serves = sys.argv[1] == 'yes'
-        calls = []
-        print('{"ok":true}', file=sys.stderr, flush=True)
-        for line in sys.stdin:
-            frame = json.loads(line)
-            cmd = frame.get('cmd')
-            result = {}
-            if cmd == 'identify':
-                result = {'app':'cmux-tui','protocol':12,'generation':'sizes-boot',
-                    'capabilities':['layout-sizes-batch-v1'] if serves else []}
-            elif cmd in ('set-layout-sizes', 'set-viewport-pane-width', 'set-split-ratio'):
-                calls.append(frame)
-            elif cmd == 'test-size-calls':
-                result = calls
-            print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
-        """#
-        let bridge = DaemonBridge.fakePython(["-c", script, serves ? "yes" : "no"])
-        let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-sizes-test-\(UUID().uuidString).sock", bridge: bridge)
-        let connection = DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
+        let connection = Self.connection(serves: serves, refuses: false)
         do {
             try await connection.start()
             try await LayoutSizeCommands(Self.values, transaction: 31, batch: serves).send(on: connection)
@@ -98,6 +111,34 @@ struct LayoutSizeCommandsTests {
                 #expect(commands == [JSONValue.string("set-viewport-pane-width"), .string("set-viewport-pane-width"), .string("set-split-ratio")])
                 #expect(calls.compactMap { $0["pane"] } == [JSONValue.number(2), .number(5)])
                 #expect(calls.last?["split"] == .number(4))
+            }
+            await connection.close()
+        } catch {
+            await connection.close()
+            throw error
+        }
+    }
+
+    /// A refusal by the daemon's reply reaches the sender and ends the commands. A daemon that serves the batch refuses
+    /// the one `set-layout-sizes`: no value goes as its own command after it. A daemon without the batch refuses the
+    /// second of three commands: the third never goes, and the first is a commit of its own that stays.
+    @Test(arguments: [false, true])
+    func aRefusalByTheDaemonsReplyReachesTheSenderAndEndsTheCommands(serves: Bool) async throws {
+        let connection = Self.connection(serves: serves, refuses: true)
+        do {
+            try await connection.start()
+            await #expect(throws: (any Error).self) {
+                try await LayoutSizeCommands(Self.values, transaction: 31, batch: serves).send(on: connection)
+            }
+            let captured = try await connection.request(CapturedSizeCalls())
+            let calls = try #require(captured.arrayValue)
+            let commands = calls.compactMap { $0["cmd"] }
+            if serves {
+                #expect(commands == [JSONValue.string("set-layout-sizes")], "a command went after the refused batch: \(calls)")
+            } else {
+                #expect(commands == [JSONValue.string("set-viewport-pane-width"), .string("set-viewport-pane-width")],
+                        "a command went after the refused one: \(calls)")
+                #expect(calls.compactMap { $0["pane"] } == [JSONValue.number(2), .number(5)])
             }
             await connection.close()
         } catch {
