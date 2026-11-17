@@ -515,3 +515,39 @@ fn a_pinned_target_holds_through_heavy_loss() {
     assert!(target(EngineConfig::default().min_bps) < 50_000_000, "unpinned: loss cuts it");
     assert_eq!(target(50_000_000), 50_000_000, "pinned: the target holds");
 }
+
+#[test]
+fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
+        sent.iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: at,
+            })
+            .collect()
+    };
+    // The path works: the first frame is answered in 10 ms.
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 6_000, 0);
+    let arrivals = arrived(&sent, 5_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, arrivals, ..Feedback::default() }),
+        false,
+        10_000,
+    );
+    assert!(out.outage_ended.is_none(), "a prompt first feedback is not an outage");
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let second = e.damage(0, small, 20_000).expect("second");
+    let sent = send(&mut e, &second, false, 6_000, 20_000);
+    let start = e.stats().target_bps;
+    // Then the radio was away for 400 ms; everything arrives at once when it is back.
+    let arrivals = arrived(&sent, 420_000);
+    let out =
+        e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), false, 424_000);
+    let end = out.outage_ended.expect("the host learns the outage ended");
+    assert!(end.silent_us > 100_000, "{end:?}");
+    assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
+    assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
+}

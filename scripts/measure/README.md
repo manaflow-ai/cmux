@@ -37,6 +37,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
+| `launch-capture-probe.sh` | Launch image sources with no Screen Recording grant: TCC rows and prompts, the window composite and Chromium page image against the screen, ms and main-thread stall per source. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `launch-capture-probe.py` | Python driver for launch-capture-probe.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |

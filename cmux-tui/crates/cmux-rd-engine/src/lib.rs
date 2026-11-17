@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
+use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
@@ -164,6 +164,10 @@ pub struct Output {
     pub encode: Option<EncodeRequest>,
     /// The last frame was too large to send: halve the encoder's bitrate.
     pub halve_bitrate: bool,
+    /// The path came back from an outage (D12): the controller held its rate and
+    /// every stream's gate stopped waiting for stale acknowledgements. Datagrams
+    /// still queued in the host's pacer are stale; the host may drop them.
+    pub outage_ended: Option<OutageEnd>,
     /// Complete upstream media frames (stream, frame) from the viewer (rd change C4).
     pub upstream: Vec<(u16, CompleteFrame)>,
 }
@@ -707,6 +711,12 @@ impl MediaEngine {
         }
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
+        if let Some(end) = self.cc.take_outage_end() {
+            for state in self.streams.values_mut() {
+                state.gate.clear_in_flight();
+            }
+            out.outage_ended = Some(end);
+        }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
