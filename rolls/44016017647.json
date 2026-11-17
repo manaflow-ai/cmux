@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44016017647",
+  "recorded_at": "2026-11-17T04:25:46Z",
+  "reason": "cmux-tui cecb7d7fba94 changes the image's cmux-tui (pinned 94f7291340d7)",
+  "dry_run": false,
+  "cmux_tui": "cecb7d7fba9478071089ee66089f3451c27eebae",
+  "fixes": [
+    {
+      "sha": "cecb7d7fba9478071089ee66089f3451c27eebae",
+      "mergedAt": "2026-11-16T19:56:56-08:00",
+      "subject": "Downscale images in linear light: model copies and link preview pictures (checkerboard 188, not 128) (#44971)"
+    },
+    {
+      "sha": "469adc424418688fb6f601471617384208c07a8b",
+      "mergedAt": "2026-11-16T19:55:45-08:00",
+      "subject": "acpmux outbox: a model-based test against an in-order list oracle, and the two bugs it found (#45004)"
+    },
+    {
+      "sha": "06294e97c2dbc3c1a1b6139dc5c44d2fc5c83348",
+      "mergedAt": "2026-11-16T19:53:50-08:00",
+      "subject": "App Store: a Community source from the extension registry, and installed community items for sync (#44898)"
+    },
+    {
+      "sha": "ebc5bd7d8afd4c5b0891dbcf6dcb2bddcafe1d7b",
+      "mergedAt": "2026-11-16T19:52:13-08:00",
+      "subject": "cmux-app-host: fuzz the extension host with hostile extensions; expensive steps and refused calls no longer hold it past the deadline (#45026)"
+    },
+    {
+      "sha": "6cd9ea2eb0b044043cabf656146e9c4050f9ac77",
+      "mergedAt": "2026-11-16T19:50:22-08:00",
+      "subject": "sidebar doc: a scale bench for view, project, drag start and one-item ops (#44988)"
+    },
+    {
+      "sha": "f69befd36c799ab51c4fd2d8ae5a3d4df5049838",
+      "mergedAt": "2026-11-16T19:47:31-08:00",
+      "subject": "test(tab-place): the order of a pane's tabs over a stop and a start of the daemon (#44948)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T04:25:46Z",
+    "snapshot_id": "sh-738b17dd22794878ae931fdf0de142cf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44016017647): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "52110b5408e5b3f147de11f0d76c9a394ba86317",
+    "image": "cloud-native-auto-cecb7d7f-44016017647-1",
+    "revision": "ci-44016017647-1",
+    "at": "2026-11-17T04:25:46Z"
+  },
+  "rolled_back": false
+}
