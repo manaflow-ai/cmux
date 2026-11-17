@@ -43,7 +43,7 @@ host_sh() {
     cp "$patch" "$stage/$name"
     set -- "$@" "ios-live/$name"
   fi
-  out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && bash $remote_root/bin/host.sh $(printf '%q ' "$@"); echo __ios_live_rc=\$?")" || true
+  out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r")" || true
   rm -rf "$stage"
   rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
   grep -v '^__ios_live_rc=' <<<"$out" || true
