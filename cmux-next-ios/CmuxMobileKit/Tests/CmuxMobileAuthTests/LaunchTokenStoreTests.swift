@@ -1,9 +1,11 @@
+#if os(iOS)
 import CmuxAuthRuntime
 @testable import CmuxMobileAuth
 import Testing
 
 /// A DEBUG launch with `CMUX_MOBILE_STACK_REFRESH_TOKEN` (a fleet step's own session, delivered from its
 /// submitter's Mac) starts signed in with no password: the app's token store adopts it while empty.
+/// iOS only, as the model is.
 @Suite struct LaunchTokenStoreTests {
     private static let variable = "CMUX_MOBILE_STACK_REFRESH_TOKEN"
 
@@ -35,3 +37,4 @@ import Testing
         }
     }
 }
+#endif

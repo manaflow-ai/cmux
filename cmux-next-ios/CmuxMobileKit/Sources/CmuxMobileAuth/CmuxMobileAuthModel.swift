@@ -181,7 +181,7 @@ public final class CmuxMobileAuthModel {
     /// only the refresh token and the submitter revokes it when the step ends, so no password reaches
     /// the simulator or the fleet. A sign-out revokes it like any session of this app's. Only the
     /// keychain store is Swift's here; non-DEBUG builds never read the variable.
-    static func launchTokenStore(
+    nonisolated static func launchTokenStore(
         primary: any StackAuthTokenStoreProtocol,
         environment: [String: String]
     ) -> any StackAuthTokenStoreProtocol {
