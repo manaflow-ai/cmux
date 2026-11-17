@@ -124,7 +124,7 @@ main() {
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
       if [[ "$copy" == fresh ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
-      probe "$out" "$side" "run$i" 6"$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
+      probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
