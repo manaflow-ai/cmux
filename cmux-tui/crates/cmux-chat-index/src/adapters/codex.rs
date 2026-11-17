@@ -324,7 +324,8 @@ pub(super) fn apply_session_index(root: &Path, entries: &mut [ChatEntry]) {
 type Names = HashMap<String, Option<String>>;
 
 /// Each session index read, by path, with the stamp it was read at.
-static SESSION_INDEXES: Mutex<Option<HashMap<PathBuf, (FileStamp, Arc<Names>)>>> = Mutex::new(None);
+type ReadIndexes = HashMap<PathBuf, (FileStamp, Arc<Names>)>;
+static SESSION_INDEXES: Mutex<Option<ReadIndexes>> = Mutex::new(None);
 
 /// The names `index` gives (last line per id wins), None when it cannot be read. Read again
 /// only when its stamp moved: a watcher applies each rollout write through
