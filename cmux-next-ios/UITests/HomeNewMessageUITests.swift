@@ -71,11 +71,24 @@ final class HomeNewMessageUITests: XCTestCase {
             plus.tap()
             let photos = app.descendants(matching: .any)["conversation.apps.photo.on.rectangle"]
             XCTAssertTrue(photos.waitForExistence(timeout: 5), "the + opens the apps menu with Photos\n\(app.debugDescription)")
+            let files = app.descendants(matching: .any)["conversation.apps.folder.fill"]
+            XCTAssertTrue(files.exists, "the apps menu lists Files\n\(app.debugDescription)")
+            // Camera shows only on a device with one (the simulator has none), as in a conversation.
             attach(app, look, "plus-01-apps-menu")
-            photos.tap()
-            Self.pause(1.5)
-            attach(app, look, "plus-02-photo-picker")
+            files.tap()
+            Self.pause(2.0)
+            attach(app, look, "plus-03-files-picker")
             app.terminate()
+
+            let again = launch(look: look)
+            _ = openSheet(again, look)
+            again.buttons["conversation.composer.plus"].tap()
+            let photosAgain = again.descendants(matching: .any)["conversation.apps.photo.on.rectangle"]
+            XCTAssertTrue(photosAgain.waitForExistence(timeout: 5), "apps menu again")
+            photosAgain.tap()
+            Self.pause(1.5)
+            attach(again, look, "plus-02-photo-picker")
+            again.terminate()
         }
     }
 

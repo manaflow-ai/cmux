@@ -208,6 +208,7 @@ public final class ChiefComposer {
         // The whole message is the prompt: its text and every image, in order, then a recording
         // as a file (agents take no voice messages; `send` drops a message with none of these).
         var files = attachments(message.images)
+        files += message.files.map { AgentAttachment(kind: .file, name: $0.info.name, data: $0.data) }
         if let audio = message.audio {
             // The recorder writes WAV (`ConversationAudioRecorder`).
             files.append(AgentAttachment(kind: .file, name: "Audio.wav", data: audio.data))

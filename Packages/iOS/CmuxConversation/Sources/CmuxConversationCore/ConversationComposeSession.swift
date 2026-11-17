@@ -199,15 +199,21 @@ public struct ConversationComposeMessage: Sendable, Hashable {
     /// A recording made in New Message's composer: sent after the text and images, alone,
     /// as Messages sends audio (``ConversationStore/sendAudio(data:info:replyToID:)``).
     public var audio: ConversationComposeAudio?
+    /// Documents picked in Files, sent with the text and images.
+    public var files: [ConversationPendingFile]
 
-    public init(text: String, images: [ConversationComposeImage] = [], audio: ConversationComposeAudio? = nil) {
+    public init(text: String, images: [ConversationComposeImage] = [], audio: ConversationComposeAudio? = nil,
+                files: [ConversationPendingFile] = []) {
         self.text = text
         self.images = images
         self.audio = audio
+        self.files = files
     }
 
-    /// Text or images, the part that goes as one message.
-    public var hasTextOrImages: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty }
+    /// Text, images or files, the part that goes as one message.
+    public var hasTextOrImages: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty
+    }
 
     public var isEmpty: Bool { !hasTextOrImages && audio == nil }
 }
@@ -246,7 +252,7 @@ extension ConversationStore {
     private func deliver(_ message: ConversationComposeMessage) {
         if message.hasTextOrImages {
             let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
-            send(text: message.text, images: images)
+            send(text: message.text, images: images, files: message.files)
         }
         if let audio = message.audio { sendAudio(data: audio.data, info: audio.info) }
     }
