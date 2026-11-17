@@ -99,7 +99,10 @@ impl Hub {
         hold.changed.notify_waiters();
         if spawn {
             let (hub, session) = (self.clone(), session.clone());
-            tokio::spawn(async move { hub.rate_hold_timer(&session).await });
+            // One per held chat; it ends with the hold, or with the hub.
+            self.scope.spawn_until_cancelled("rate-hold-timer", async move {
+                hub.rate_hold_timer(&session).await;
+            });
         }
     }
 
