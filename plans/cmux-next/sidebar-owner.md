@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-16 (ask-035c65b611): Sidebar-Look: no workspace row draws a screen button, on any machine kind. Leo, on the
+  Share icon every row drew: "WHY CANT IT JUST BE REVERTED". This reverts the row screen slot #43516 added (b16877b72ce
+  had dropped only This Mac's rows); Share and View screen stay on machine headers and in the palette. The 2026-11-13
+  "flat local workspace rows carry Share" line below no longer holds. Regression:
+  `SidebarScreenActionTests.noWorkspaceRowDrawsAScreenButton`.
+
 - 2026-11-14 (#42277 integration): preserve the landed header Add button at rest beside Share/View and the chevron; retain authenticated Mac actions and window-scoped routing. The shared device-record helper and native Open/Stop bindings use the landed implementation. `SidebarScreenActionTests` checks all three controls stay separate and visible through hover transitions.
 
 - 2026-11-13 (lane/screen-share-ergonomics): visible Share This Mac in the native Projects
