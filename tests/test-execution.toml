@@ -835,6 +835,10 @@ path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_quota_reads_bot_token.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_workflow_permissions.py"
 lane = "linux-guard"
 
