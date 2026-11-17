@@ -252,9 +252,10 @@ export default async function TermsOfServicePage() {
         Content, we use that part only to examine and fix what the feedback
         reports.
         Company keeps usage and billing records as the Privacy Policy
-        describes. Company can make and use statistics about the use of cmux Cloud (such
-        as counts, sizes, durations, models, and costs) that contain none of
-        Your Content and identify no person and no customer. Your use of a
+        describes; those records can contain account and team identifiers.
+        Company can make and use aggregate statistics about the use of cmux
+        Cloud (such as counts, sizes, durations, models, and costs) that
+        contain none of Your Content and identify no person and no customer. Your use of a
         connected tool, such as Slack, Google, GitHub, or Linear,
         is also subject to that tool&rsquo;s own terms.
       </p>
@@ -335,9 +336,10 @@ export default async function TermsOfServicePage() {
         makes a transcript. If the notice or consent that the law requires is
         not in place, remove the notetaker. If a participant objects and the
         law requires that participant&rsquo;s consent, you must remove the
-        notetaker promptly and delete the transcript and notes from the places
-        in cmux Cloud that you control; for the copies that you cannot delete
-        in cmux Cloud (model call records and archive copies), send a deletion
+        notetaker promptly and delete the live lines, questions, answers,
+        requests, transcript, and notes of that meeting from cmux Cloud and from
+        the connected tools that you control, including Slack; for the copies
+        that you cannot delete (model call records and archive copies), send a deletion
         request to founders@cmux.com, and Company deletes them as the Privacy
         Policy and the Data Processing Addendum say. The notetaker records for you: Company records, transcribes,
         and stores a meeting only as your service provider.
@@ -346,7 +348,8 @@ export default async function TermsOfServicePage() {
         You agree to indemnify and hold Company (and its officers, employees,
         and agents) harmless, including costs and attorneys&rsquo; fees, from
         any claim or demand made by any third party arising out of a meeting
-        recording, transcript, or notes made by a notetaker that joined a
+        recording, the live transcript or chat lines, the questions, answers,
+        or requests, or the transcript or notes made by a notetaker that joined a
         meeting for you or your team (because you or your team sent it to a
         meeting link, or because the meeting matched a calendar rule that you
         or your team turned on), including a claim that a notice or consent that the law
@@ -395,9 +398,11 @@ export default async function TermsOfServicePage() {
 
       <h3>Fees, credits, and spend limits</h3>
       <p>
-        The service at cmux.cloud charges for usage, such as AI model use,
-        transcription, and cloud machine time, at the prices shown in cmux
-        Cloud or on its pricing page when the usage occurs. Usage is paid from credits that
+        The service at cmux.cloud charges credits only for the usage that
+        cmux Cloud or its pricing page shows as charged when the usage occurs,
+        such as AI model use and cloud machine time, at the prices shown
+        there. [LEGAL REVIEW: confirm which meeting and transcription costs are
+        charged.] Usage is paid from credits that
         your team buys through our payment processor. Prices do
         not include taxes, and you are responsible for applicable taxes.
         Credits are not refundable, except where the law requires a refund.
@@ -408,8 +413,8 @@ export default async function TermsOfServicePage() {
         Cloud machine plans. If you buy a plan for the cloud machines that you
         create from the Application or the cmux.com dashboard, you pay the plan
         price shown at checkout in advance for each billing period (a month or
-        a year). The plan renews for the same period at the same price until
-        you cancel. If we change the price of your plan, we tell you by email no
+        a year). The plan renews for the same period at the price then in
+        effect until you cancel. If we change the price of your plan, we tell you by email no
         less than 7 days and no more than 30 days before the change takes
         effect, with how to cancel. For a yearly plan, we send a reminder 15 to
         45 days before the plan renews. You can cancel at any time in your
@@ -452,7 +457,8 @@ export default async function TermsOfServicePage() {
         decision on a fixed limit for these records.] Until we delete Your Content from our live systems, you can ask
         for a copy. We delete Your Content from our live systems 30 days after
         the account ends, or sooner if you ask; backups that still hold it
-        expire within 35 days after that deletion, as our{" "}
+        expire within 35 days after that deletion, and copies in provider logs
+        expire as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes. This does not apply to data that the law requires us to
         keep. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]

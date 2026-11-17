@@ -164,8 +164,12 @@ export default function CmuxCloudDpaPage() {
         data from its live systems, Customer can ask for a copy. Company deletes
         Customer Personal Data from its live systems 30 days after the account
         ends, or sooner if Customer asks; backups that still hold it expire
-        within 35 days after that deletion. This does not apply to data that
-        the law requires Company to keep. Company keeps that data confidential
+        within 35 days after that deletion. Copies in the logs, traces, and
+        error reports of Company&rsquo;s log and error monitoring providers and
+        in the logs of AI model providers expire after the periods listed in
+        the Privacy Policy [LEGAL REVIEW: confirm each period]; until then they
+        stay confidential and are not used for another purpose. This does not
+        apply to data that the law requires Company to keep. Company keeps that data confidential
         and does not use it for another purpose. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]
       </p>
 
