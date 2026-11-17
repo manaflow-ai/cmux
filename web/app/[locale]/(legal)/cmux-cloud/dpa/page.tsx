@@ -40,8 +40,11 @@ export default function CmuxCloudDpaPage() {
       <p>
         For personal data in the content that Customer and its users put into
         or create with cmux Cloud, including Slack data, files, meeting
-        recordings and transcripts, calendar data, data from connected tools,
-        agent work, and memory (&ldquo;Customer Personal Data&rdquo;), Customer
+        audio recordings and transcripts, the meeting service&rsquo;s records
+        of participants joining and leaving and of the meeting chat (including
+        messages sent to the notetaker), calendar data, data from connected
+        tools, agent work, model call requests and answers, archive copies of
+        agent conversations, and memory (&ldquo;Customer Personal Data&rdquo;), Customer
         is the controller and Company is the processor. For account, billing,
         security, and usage data that Company needs to run its business,
         Company is the controller, as the{" "}
@@ -211,9 +214,11 @@ export default function CmuxCloudDpaPage() {
           it, and until deletion as Section 8 says.
         </li>
         <li>
-          Nature and purpose: hosting, storage, transcription, AI model
-          processing, running agents and cloud machines, and delivering
-          results, as Customer and its users ask.
+          Nature and purpose: hosting, storage, joining meetings, recording
+          audio, receiving and deleting meeting chat messages and participant
+          records, transcription, writing notes, AI model processing, running
+          agents and cloud machines, delivering results, and keeping or deleting
+          archive copies, as Customer and its users ask.
         </li>
         <li>
           Data subjects: Customer&rsquo;s users; members of Customer&rsquo;s
@@ -224,7 +229,9 @@ export default function CmuxCloudDpaPage() {
         <li>
           Categories of data: names, email addresses, and profile details;
           messages and files; voices, words, and names in meeting audio
-          recordings and transcripts; calendar event details; code and other
+          recordings and transcripts; meeting participant join and leave times
+          and meeting chat messages; model call requests and answers; calendar
+          event details; code and other
           content in connected tools and cloud machines; memory.
         </li>
         <li>

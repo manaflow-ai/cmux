@@ -197,9 +197,12 @@ export default async function TermsOfServicePage() {
         &ldquo;cmux Cloud&rdquo;). For cmux Cloud,
         references in these Terms to the Application include cmux Cloud. If
         this Section 10 and another section of these Terms conflict, this
-        Section 10 controls for cmux Cloud. If you or your organization signed
-        a separate written agreement with Company for cmux Cloud, that
-        agreement controls where it conflicts with these Terms.
+        Section 10 controls for cmux Cloud. For cmux Cloud, a signed order form or
+        other written agreement with Company controls only to the extent that
+        it expressly addresses the subject and conflicts with these Terms. The
+        Data Processing Addendum controls over these Terms and any order form
+        on personal data processing, unless the signed agreement expressly
+        gives stronger protection to Customer Personal Data.
       </p>
 
       <h3>Teams and accounts</h3>
@@ -285,10 +288,18 @@ export default async function TermsOfServicePage() {
         objected and the law requires that participant&rsquo;s consent. You
         must not hide, remove, or change the notices that the notetaker posts,
         and you must tell participants who cannot see them, such as people who
-        join by phone. You must check that the notice appeared. If a participant
-        objects and the law requires that participant&rsquo;s consent, you must
-        remove the notetaker, delete the transcript and notes of that meeting,
-        and ask us at founders@cmux.com to delete our remaining copies. The notetaker records for you: Company records, transcribes,
+        join by phone. On Google Meet, Zoom, and Microsoft Teams, you must check
+        that the chat notice appeared. On Webex the notetaker cannot post a
+        notice, so you must tell every participant before the recording starts
+        that cmux is an AI notetaker from Manaflow that records the audio and
+        makes a transcript. If the notice or consent that the law requires is
+        not in place, remove the notetaker. If a participant objects and the
+        law requires that participant&rsquo;s consent, you must remove the
+        notetaker promptly and delete the transcript and notes from the places
+        in cmux Cloud that you control; for the copies that you cannot delete
+        in cmux Cloud (model call records and archive copies), send a deletion
+        request to founders@cmux.com, and Company deletes them as the Privacy
+        Policy and the Data Processing Addendum say. The notetaker records for you: Company records, transcribes,
         and stores a meeting only as your service provider.
       </p>
       <p>
@@ -429,7 +440,9 @@ export default async function TermsOfServicePage() {
 
       <h2>11. Contact</h2>
       <p>
-        Questions about these Terms should be sent to{" "}
+        Questions and formal notices about these Terms should be sent to
+        Manaflow, Inc., 18428 Vantage Pointe Dr, Rowland Heights, CA
+        91748-5142, United States, or to{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>.
       </p>
 
