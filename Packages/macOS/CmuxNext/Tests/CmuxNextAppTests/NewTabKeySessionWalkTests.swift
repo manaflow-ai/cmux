@@ -15,11 +15,11 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Decision of 2026-11-16: a New Tab key does no step of the session's size in its own call. The call of the key maps
+/// The rule: a New Tab key does no step of the session's size in its own call. The call of the key maps
 /// no workspace and reads no tab of another pane for the page's bar: the page gets the bar's open tabs and workspaces
 /// after it shows.
 ///
-/// Before the decision, each New Tab key mapped every workspace of the session and every tab of each (the bar's
+/// Before the rows were kept, each New Tab key mapped every workspace of the session and every tab of each (the bar's
 /// places, `NewTabPage.places`), made the rows of all of them, and put the whole list in the page that the key opens.
 /// The cost of one key grew with the session.
 ///
@@ -37,7 +37,7 @@ import Testing
 /// event (a probe in the queue of the app's presentation scheduler), not by turns of the main actor: a frame comes
 /// by the display's time, so a count of turns can end before it.
 ///
-/// The prints are a report, not a condition: the time of the walk as it was at the decision's date, the bytes of the
+/// The prints are a report, not a condition: the time of the walk as it was before the kept rows, the bytes of the
 /// two lists as the places event carries them, the whole lists that 10 keys of one turn build, and three counters of
 /// the sidebar for one key. Limit of the walk's time: a browser tab of this fixture has no favicon, so the walk here
 /// makes no PNG; the product's walk makes one for each browser tab with a favicon. Limit of the sidebar's counters:
@@ -217,7 +217,7 @@ struct NewTabKeySessionWalkTests {
         return (ran, start.pane.orderedIDs.map(\.rawValue).filter { !before.contains($0) }.count)
     }
 
-    /// The walk of each New Tab key's call as it was at the decision's date (`NewTabPage.places`), with the app's own
+    /// The walk of each New Tab key's call as it was before the kept rows (`NewTabPage.places`), with the app's own
     /// map of a workspace: it adds nothing to the count.
     static func walkAtTheDecision(_ services: AppServices)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
@@ -275,7 +275,7 @@ struct NewTabKeySessionWalkTests {
     }
 
     /// The report of 10 New Tab keys in one turn of the main actor: how many whole lists the app builds for them. No
-    /// condition on the count at the decision's date (one list for the page that shows is the aim).
+    /// condition on the count (one list for the page that shows is the aim).
     @Test func tenNewTabKeysOfOneTurnReportTheWholeListsThatTheAppBuilds() async throws {
         try await Self.withPane { start in
             var made = 0
@@ -290,14 +290,14 @@ struct NewTabKeySessionWalkTests {
         }
     }
 
-    /// The second cost of the same walk (decision of 2026-11-16): with 3 open New Tab pages and the app's places feed,
+    /// The second cost of the same walk: with 3 open New Tab pages and the app's places feed,
     /// a New Tab key and a title change of one tab map one workspace at most after them (the one that changed).
     ///
-    /// One more map has a name (decision of 2026-11-17): at each store event the store takes the stand-in tab of each
+    /// One more map has a name: at each store event the store takes the stand-in tab of each
     /// waiting creation out of its pane and puts it in again. So the workspace of a pane with a waiting creation is
     /// mapped 1 time, and its kept rows do not change. The title change's condition allows this map and no other.
     ///
-    /// Before the decision, each change of a workspace's rows started one whole walk of the session for each New Tab
+    /// Before the rows were kept, each change of a workspace's rows started one whole walk of the session for each New Tab
     /// page that has a view. The feed is the app's own (`NewTabPlacesFeed.wire`), which the setup starts.
     ///
     /// The sign that the feed ran is a condition of the setup: after the title change, the tab rows of a page are not
@@ -384,7 +384,7 @@ struct NewTabKeySessionWalkTests {
 
     /// A New Tab page that opens before the places feed gave anything (the app's time before its first frame; a
     /// restored New Tab tab) gets its open tabs, its other workspaces and its folders in the key's call. This holds
-    /// before the decision of 2026-11-16 and after it: a page refresh carries the two lists and never the folders, so
+    /// with the walk and with the kept rows: a page refresh carries the two lists and never the folders, so
     /// a page that opened with none would keep none.
     @Test func aPageThatOpensBeforeThePlacesFeedGetsItsListsAndItsFolders() async throws {
         try await Self.withPane(feed: false) { start in
@@ -409,7 +409,7 @@ struct NewTabKeySessionWalkTests {
             #expect(bar.folders == [folder], "a page that opened before the places feed has the folders \(bar.folders), want the one of the session")
 
             // The app starts its feed, and in the same turn, before the feed's first rows, the page's view is made:
-            // that maps no workspace again (decision of 2026-11-17), and the page keeps the lists of its own walk.
+            // that maps no workspace again, and the page keeps the lists of its own walk.
             NewTabPlacesFeed.wire(tabs, services: start.services)
             try #require(start.services.newTabPlaces.rows == nil, "setup: the places feed has rows in the turn of its start")
             _ = start.visits.take()
@@ -426,8 +426,8 @@ struct NewTabKeySessionWalkTests {
             + "\(workspaces.count) workspace rows (first: \(workspaces.first?.name ?? "none"))"
     }
 
-    /// The lists that a New Tab page gets from the kept rows are the first rows of the whole walk's lists (decision
-    /// of 2026-11-16): the same rows in the same order, on the `real` session and on a session made here, where a
+    /// The lists that a New Tab page gets from the kept rows are the first rows of the whole walk's lists:
+    /// the same rows in the same order, on the `real` session and on a session made here, where a
     /// workspace with one place, the page's own tab and the shown workspace are all in the first rows. With no limit
     /// (the native page's lists) they are the walk's whole lists, and the folders are the walk's folders.
     ///
@@ -495,7 +495,7 @@ struct NewTabKeySessionWalkTests {
         }
     }
 
-    /// The cost of the kept rows while no New Tab page is open (decision of 2026-11-16): a title change of one tab
+    /// The cost of the kept rows while no New Tab page is open: a title change of one tab
     /// maps the tab's own workspace and no other, and no page gets a places event (an event goes only to a New Tab
     /// page that has a view, and there is none).
     ///
@@ -533,9 +533,9 @@ struct NewTabKeySessionWalkTests {
         }
     }
 
-    /// The holder of the kept rows, with no app (decision of 2026-11-16): before its first rows a page's lists come
+    /// The holder of the kept rows, with no app: before its first rows a page's lists come
     /// from one walk, and after them from no walk; the text of one icon is made one time for the same icon object.
-    /// A read asks for the icon of each listed browser row and of no other row (decision of 2026-11-17).
+    /// A read asks for the icon of each listed browser row and of no other row.
     ///
     /// This row has no red first: the holder is new with the change.
     @Test func theHolderWalksOnlyBeforeItsFirstRowsAndMakesOneTextForOneIcon() {
@@ -579,11 +579,11 @@ struct NewTabKeySessionWalkTests {
         #expect(texts == ["text 1", "text 1", "text 2", "text 1"], "the texts by icon are \(texts)")
     }
 
-    /// A tab id that 2 machines have gets, in the row of each machine, the icon of that machine's tab (decision of
-    /// 2026-11-17: a kept row carries its machine, and the icon of a listed row is looked up there). With no app:
+    /// A tab id that 2 machines have gets, in the row of each machine, the icon of that machine's tab
+    /// (a kept row carries its machine, and the icon of a listed row is looked up there). With no app:
     /// 2 workspaces of 2 machines, each with a browser tab of the same surface, so of the same id.
     ///
-    /// This row has no red first: the form of the read is new with the decision.
+    /// This row has no red first: the form of the read is new with the kept rows.
     @Test func aTabIdOnTwoMachinesGetsTheIconOfItsOwnMachineInEachRow() throws {
         let places = NewTabPlaces(home: "/Users/you")
         let snapshot = TabSnapshot(surface: SurfaceID(rawValue: 910_003), kind: .browser, title: "Docs", url: "https://example.com/docs")

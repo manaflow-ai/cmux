@@ -34,7 +34,7 @@ struct NewTabPageHandler {
     var listProjects: (String?) async -> [String] = { _ in [] }
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
-    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key (decision of 2026-11-17); nil keeps the page's own.
+    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
     var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
@@ -86,8 +86,8 @@ enum NewTabPage {
         BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
-    /// The bar's places from the rows that the places feed keeps (decision of 2026-11-16: a page's open maps no workspace), with
-    /// each listed row's icon read here, as the strip draws it (decision of 2026-11-17: a kept row has none); before the feed's
+    /// The bar's places from the rows that the places feed keeps (a page's open maps no workspace), with
+    /// each listed row's icon read here, as the strip draws it (a kept row has none); before the feed's
     /// first rows, from one walk of every machine's workspaces. `current` is the workspace the page's window shows (the active
     /// window's when nil). The web page lists the first rows of each list only; the native page ranks every row itself, so it
     /// gets them all.

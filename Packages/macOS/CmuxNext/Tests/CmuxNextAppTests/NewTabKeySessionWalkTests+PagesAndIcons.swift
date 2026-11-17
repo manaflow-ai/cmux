@@ -16,9 +16,9 @@ import Testing
 
 /// The rows of the suite for a page that is open or whose view comes late, and for the icons of the listed rows:
 /// a change outside a page's first rows sends that page no event; the native page setting gets the whole lists; a
-/// page whose view is made after a change lists the changed row (decision of 2026-11-17); a kept row has no icon,
+/// page whose view is made after a change lists the changed row; a kept row has no icon,
 /// so an icon address and an icon that arrives map no workspace, and a listed row gets the icon that the walk
-/// gives it (decision of 2026-11-17).
+/// gives it.
 extension NewTabKeySessionWalkTests {
     /// The scripts that a page view sends to its page. A test gives the view its `append` as the view's own
     /// `evaluateScript` value, so each places event of that page is counted here.
@@ -40,8 +40,8 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// A change of a tab outside the first rows of the bar sends no places event to an open New Tab page (decision
-    /// of 2026-11-16): the page lists the first 40 rows of each list, and they did not change. A change inside
+    /// A change of a tab outside the first rows of the bar sends no places event to an open New Tab page:
+    /// the page lists the first 40 rows of each list, and they did not change. A change inside
     /// them sends one event, which is also the sign that the count counts.
     ///
     /// The count is the page view's own `evaluateScript` value, which this test sets. The sign that the feed ran is
@@ -101,8 +101,8 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// With the native New Tab page setting, a page gets the whole lists of the walk, not the first rows (decision
-    /// of 2026-11-16): the native page ranks every row itself, so its input stays what it was before the decision.
+    /// With the native New Tab page setting, a page gets the whole lists of the walk, not the first rows:
+    /// the native page ranks every row itself, so its input stays what it was before the rows were kept.
     /// For this setting the session's size stays in each page's lists.
     ///
     /// This row is a pin: the lists were the walk's whole lists before the change also.
@@ -126,7 +126,7 @@ extension NewTabKeySessionWalkTests {
         (services.newTabPlaces.rows ?? []).contains(where: { rows in rows.tabs.contains(where: { $0.title == title }) })
     }
 
-    /// A New Tab page whose view is made after a change of a row shows the changed row (decision of 2026-11-17).
+    /// A New Tab page whose view is made after a change of a row shows the changed row.
     ///
     /// A page's lists come from the kept rows, and the kept rows get a change some turns after it. A places event
     /// goes only to a page that has a view. So a page that opens in the turn of a change, and whose view is made
@@ -141,7 +141,7 @@ extension NewTabKeySessionWalkTests {
     /// so). The second key's page is the shown one: its view is made at a frame after the keys, before or after
     /// the kept rows got the change; it must show the changed row in both orders.
     ///
-    /// Before the decision of 2026-11-16 a page's lists came from a walk of the session in the key's call, so the
+    /// Before the rows were kept, a page's lists came from a walk of the session in the key's call, so the
     /// page of a key after a change had the change (by a read; this file does not compile there).
     @Test func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow() async throws {
         try await Self.withPane { start in
@@ -202,8 +202,7 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// A New Tab page whose view is a prewarmed page, taken after a change of a row, shows the changed row (decision of
-    /// 2026-11-17).
+    /// A New Tab page whose view is a prewarmed page, taken after a change of a row, shows the changed row.
     ///
     /// The steps are those of `aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow`, with one more. The keys get no
     /// prewarmed page. After the kept rows got the change, the tab store has one prewarmed page to hand out: the
@@ -269,13 +268,13 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// A listed row has the icon that the walk at the decision's date gave it (decision of 2026-11-17: the icon is
+    /// A listed row has the icon that the walk before the kept rows gave it (the icon is
     /// read when a page lists the row), and the read maps no workspace. 3 browser tabs of the first rows get the
     /// address of an icon that the app's icon loader has from the test; the first read of a page's lists asks the
     /// app's icon store for it. The sign that the icon is there is a condition of the setup: the store gives it at
     /// a read (it gives an icon that the loader has with no load of its own, so the sign is not its own cache).
     ///
-    /// This row has no red first: before this decision the kept rows had the icon.
+    /// This row has no red first: in the first form of the kept rows a kept row had the icon.
     @Test func aListedRowHasTheIconThatTheWalkGivesIt() async throws {
         try await Self.withPane { start in
             let services = start.services
@@ -321,7 +320,7 @@ extension NewTabKeySessionWalkTests {
         return try #require(bitmap.representation(using: .png, properties: [:]), "setup: the bitmap gives no PNG")
     }
 
-    /// The icons of the session's pages are no part of the kept rows (decision of 2026-11-17): the map of a workspace
+    /// The icons of the session's pages are no part of the kept rows: the map of a workspace
     /// reads no icon and no icon address. So an icon address that 20 tabs get maps no workspace, and an icon that
     /// arrives in the app's icon store maps none.
     ///

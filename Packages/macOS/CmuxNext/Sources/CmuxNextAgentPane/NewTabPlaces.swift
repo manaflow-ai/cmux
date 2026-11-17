@@ -88,7 +88,7 @@ public struct NewTabPlaces {
         return (tabs, others, folders)
     }
 
-    /// One workspace's part of the bar's lists, as values (decision of 2026-11-16): made when that workspace
+    /// One workspace's part of the bar's lists, as values: made when that workspace
     /// changes, and read by each New Tab page after it, so a page's open maps no workspace.
     public nonisolated struct Rows: Equatable, Sendable {
         /// The workspace's id.
@@ -101,13 +101,13 @@ public struct NewTabPlaces {
         public var detail: String?
         /// Its tabs' folders that are not the home folder, each once, in order.
         public var folders: [String]
-        /// The machine that holds the workspace (decision of 2026-11-17): the icon of a row is looked up there, so a
+        /// The machine that holds the workspace: the icon of a row is looked up there, so a
         /// tab id that 2 machines have gets the icon of its own tab. Nil where the maker names no machine.
         public var machine: String?
     }
 
     /// `workspace`'s rows: what ``places(_:current:excluding:icon:)`` makes of it before it leaves out the page's
-    /// own tab and the shown workspace, with no icon. A kept row has no icon (decision of 2026-11-17): a map that
+    /// own tab and the shown workspace, with no icon. A kept row has no icon: a map that
     /// reads an icon is mapped again for each icon that arrives, so the icon of a row is read when a page lists it.
     /// - Parameters:
     ///   - workspace: One workspace.

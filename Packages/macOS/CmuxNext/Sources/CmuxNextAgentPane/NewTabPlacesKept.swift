@@ -1,11 +1,11 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 
-/// The bar's rows of every workspace, kept for the app's life (decision of 2026-11-16): a New Tab page reads its
+/// The bar's rows of every workspace, kept for the app's life: a New Tab page reads its
 /// open tabs, other workspaces and folders from here, so its open maps no workspace.
 ///
 /// Each workspace's rows are one item of a feed (``ObservedItemsFeed``): a change maps the workspace that changed
-/// and no other. A kept row has no icon (decision of 2026-11-17): the icon of a row is read when a page lists it,
+/// and no other. A kept row has no icon: the icon of a row is read when a page lists it,
 /// for the listed rows only. The app makes one holder, starts it once, and reads a page's lists from it:
 ///
 /// ```swift
@@ -99,7 +99,7 @@ public final class NewTabPlacesKept {
 
     /// A New Tab page's lists from the kept rows (``NewTabPlaces/listed(_:current:excluding:limit:)``, and the
     /// folders, which have no limit). Before the feed's first rows the lists come from `walk`, which maps every
-    /// workspace, as each page's open did before the decision. The icons are read here, for the listed browser
+    /// workspace, as each page's open did before the rows were kept. The icons are read here, for the listed browser
     /// rows only.
     /// - Parameters:
     ///   - current: The workspace the page's window shows; it is not suggested.

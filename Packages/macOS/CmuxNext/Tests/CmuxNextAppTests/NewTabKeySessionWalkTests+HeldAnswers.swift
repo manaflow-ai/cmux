@@ -6,7 +6,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The row of the suite for a hold of the New Tab key while the daemon's answers wait (decision of 2026-11-17): a
+/// The row of the suite for a hold of the New Tab key while the daemon's answers wait: a
 /// print of what the keys and the answers write in the pane's tab list and map in its strip, for 3 sizes of the hold.
 /// Also the 2 reports of the places feed's work: in a hold with a view for each page, and in its pass over its list.
 extension NewTabKeySessionWalkTests {
@@ -84,8 +84,8 @@ extension NewTabKeySessionWalkTests {
     /// transaction, then the reply). For 10, 30 and 93 keys it prints the writes of the pane's tab list, the maps of
     /// its strip and the call sites of those maps (the pane's own observer is one site).
     ///
-    /// A print with no bound (decision of 2026-11-17): it is the count at the decision's date, not a rule. At that
-    /// date the store takes the stand-in tab of each waiting creation out of its pane and puts it in again at each
+    /// A print with no bound: it is the count of the time when this row was written, not a rule. At that
+    /// time the store takes the stand-in tab of each waiting creation out of its pane and puts it in again at each
     /// store event. The 3 sizes show by a run how the counts grow with the hold. The row has no frame step of its own,
     /// and a display frame can run in a drain: the print gives the New Tab pages that have a view after the keys and
     /// after the answers, so a reader sees how much of a frame's work is in the counts.
@@ -191,13 +191,13 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// The report of a hold of 30 New Tab keys in which each key's page has its view before the next key (decision
-    /// of 2026-11-17): the workspaces that the app maps for the bar, in the keys' calls and after them.
+    /// The report of a hold of 30 New Tab keys in which each key's page has its view before the next key:
+    /// the workspaces that the app maps for the bar, in the keys' calls and after them.
     ///
-    /// A print with no bound: it is the count at the decision's date, not a rule. Each key's creation waits, so one
+    /// A print with no bound: it is a count, not a rule. Each key's creation waits, so one
     /// key is one change of the pane's workspace (its stand-in tab). The frame that shows a key's tab makes its page
-    /// view, so key N comes with N - 1 New Tab pages that have a view. Before the decision of 2026-11-16 each change
-    /// of a workspace started one walk of the session for each New Tab page with a view; from that decision on, a
+    /// view, so key N comes with N - 1 New Tab pages that have a view. Before the rows were kept, each change
+    /// of a workspace started one walk of the session for each New Tab page with a view; with the kept rows, a
     /// change maps the workspace that changed.
     ///
     /// The print has the pages with a view after 4 of the keys: a page that the app let go in the hold has none. The
@@ -242,7 +242,7 @@ extension NewTabKeySessionWalkTests {
         var times: [ContinuousClock.Instant] = []
     }
 
-    /// The cost of the kept rows' feed for one title change while no New Tab page is open (decision of 2026-11-17),
+    /// The cost of the kept rows' feed for one title change while no New Tab page is open,
     /// as one print with no bound: (1) the workspaces that the feed's tasks visit (the app's own work counter); (2)
     /// the time from the change to the feed's next publication of its rows; (3) the time of a copy of the feed's pass.
     ///

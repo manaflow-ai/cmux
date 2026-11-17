@@ -10,7 +10,7 @@ import Foundation
 /// (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``), as seen from its own window. A
 /// refresh lists every place, the tab the page was opened beside included.
 ///
-/// Decision of 2026-11-16: the rows of each workspace are kept for the app's life (``NewTabPlacesKept``), so a change
+/// The rows of each workspace are kept for the app's life (``NewTabPlacesKept``), so a change
 /// maps the workspace that changed and no other, and a page's open and its refresh map none.
 @MainActor
 enum NewTabPlacesFeed {

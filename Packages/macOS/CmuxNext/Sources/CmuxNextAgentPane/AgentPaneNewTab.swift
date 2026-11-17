@@ -126,7 +126,7 @@ extension AgentPaneNewTab {
     }
 
     /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
-    /// whose view is made after its tab opened gets the lists of then (decision of 2026-11-17). The folders stay
+    /// whose view is made after its tab opened gets the lists of then. The folders stay
     /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).
     public func listing(_ lists: NewTabPlaces.Lists?) -> AgentPaneNewTab {
         guard let lists else { return self }
