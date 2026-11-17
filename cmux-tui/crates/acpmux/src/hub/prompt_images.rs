@@ -121,8 +121,9 @@ pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     images.filter_map(|named| named.get("id").and_then(Value::as_str))
 }
 
-/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
-/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?, width?,
+/// height?}`, the id the SHA-256 of the bytes, the size its header names). `None` for any other
+/// block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
@@ -653,6 +654,31 @@ mod tests {
         validated_display_parts,
     };
     use serde_json::{Value, json};
+
+    /// The record names a kept image with its size, read from its header when it is kept
+    /// (`image_header.rs`), so a reopened chat reserves the image's box before its bytes are read
+    /// back and decoded (cmuxterm-hq docs/design/agent-transcript-clean-slate.md, step 2: "image
+    /// decode shifts 0 px"). Bytes whose header names no size are named as before.
+    #[test]
+    fn a_kept_image_is_named_with_its_size() {
+        use base64::Engine;
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend(640u32.to_be_bytes());
+        png.extend(160u32.to_be_bytes());
+        png.extend([8, 6, 0, 0, 0]);
+        let block = |bytes: &[u8]| {
+            json!({"type": "image", "mimeType": "image/png",
+                "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
+        };
+        let size = |named: &Value| (named["width"].as_u64(), named["height"].as_u64());
+        let (_, named) = decode(&block(&png)).expect("an image block");
+        assert_eq!(size(&named), (Some(640), Some(160)));
+        let (_, named) = decode(&block(b"<svg xmlns='http://www.w3.org/2000/svg'/>")).unwrap();
+        assert!(named.get("width").is_none() && named.get("height").is_none(), "{named}");
+        // An inline part of the prompt names it the same way.
+        let parts = inline_parts(&[block(&png)], &[], None);
+        assert_eq!(size(&parts[0]), (Some(640), Some(160)));
+    }
 
     #[test]
     fn a_kept_files_type_comes_from_its_magic_number() {
