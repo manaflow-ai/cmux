@@ -270,13 +270,21 @@ async function run(name: string, engine: BrowserType) {
     let profiledAt = 0;
     const cdp = PROFILE && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
     const splitting = SPLIT && name === "chromium";
-    if (splitting)
-      await browser!.startTracing(page, {
-        categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+    // The trace through CDP, as much as the browser keeps: Playwright's `startTracing` records until its buffer is
+    // full, which a fling at 100k rows filled within its first two pages.
+    const tracer = splitting ? await page.context().newCDPSession(page) : undefined;
+    if (tracer)
+      await tracer.send("Tracing.start", {
+        transferMode: "ReturnAsStream",
+        traceConfig: {
+          recordMode: "recordAsMuchAsPossible",
+          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+        },
       });
     if (cdp) {
       await cdp.send("Profiler.enable");
-      await cdp.send("Profiler.setSamplingInterval", { interval: 250 });
+      // SPLIT=1 samples each 1 ms: at 250 us the profiler's own cost slowed every frame of a 100k-row fling.
+      await cdp.send("Profiler.setSamplingInterval", { interval: SPLIT ? 1000 : 250 });
       await cdp.send("Profiler.start");
       profiledAt = (await page.evaluate(() => performance.now())) as number;
     }
@@ -487,8 +495,27 @@ async function run(name: string, engine: BrowserType) {
       for (const [key, ms] of top(total, 40))
         console.log(`transcript-scroll-up profile total ${Math.round(ms)} ms ${key}`);
     }
-    if (splitting) {
-      const events = JSON.parse((await browser!.stopTracing()).toString()).traceEvents;
+    if (tracer) {
+      const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
+        tracer.once("Tracing.tracingComplete", done),
+      );
+      await tracer.send("Tracing.end");
+      const { stream, dataLossOccurred } = await complete;
+      const chunks: string[] = [];
+      for (;;) {
+        const read = await tracer.send("IO.read", { handle: stream! });
+        chunks.push(read.base64Encoded ? Buffer.from(read.data, "base64").toString() : read.data);
+        if (read.eof) break;
+      }
+      await tracer.send("IO.close", { handle: stream! });
+      const text = chunks.join("");
+      const parsed = JSON.parse(text) as { traceEvents?: unknown[] } | unknown[];
+      const events = (Array.isArray(parsed) ? parsed : parsed.traceEvents ?? []) as Parameters<
+        typeof reportOlderSplit
+      >[0];
+      console.log(
+        `OLDER-SPLIT trace ${events.length} events, ${Math.round(text.length / 1048576)} MiB, data lost: ${dataLossOccurred === true}`,
+      );
       const split = (await page.evaluate(
         () => (window as unknown as { __olderSplit: Record<string, number[]> }).__olderSplit,
       )) as Record<"reply" | "fold" | "published" | "commits", number[]>;
