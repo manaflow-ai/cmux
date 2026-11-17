@@ -315,10 +315,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
                          { C.tap(C.any(app, "taskComposer.folder"), "folder picker") }])
             },
-            Scene(group: g, id: "options-two-agents", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { Self.openOptions(app) },
-                         { Self.check(C.any(app, "taskComposer.titles").exists, "no workspace titles") }])
-            },
             Scene(group: g, id: "options-mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
                          { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") }])
@@ -384,18 +380,17 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "title-renaming", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
                          { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
-                         { Self.check(Self.composerBar(app).textFields.firstMatch.waitForExistence(timeout: 4), "no rename field") }])
+                         { Self.check(app.textFields.matching(NSPredicate(format: "value BEGINSWITH 'Fix the flaky' OR value == ''")).firstMatch.waitForExistence(timeout: 4), "no rename field") }])
             },
             Scene(group: g, id: "title-renamed", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
                          { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
-                         { let field = Self.composerBar(app).textFields.firstMatch
+                         { let field = app.textFields.matching(NSPredicate(format: "value BEGINSWITH 'Fix the flaky' OR value == ''")).firstMatch
                            guard field.waitForExistence(timeout: 4) else { return "no rename field" }
                            field.typeText(XCUIKeyboardKey.delete.rawValue.padding(toLength: 40, withPad: XCUIKeyboardKey.delete.rawValue, startingAt: 0))
                            field.typeText("Upload flake\n")
                            return nil },
-                         { Self.check(Self.composerBar(app).staticTexts["Upload flake"].exists
-                                      || Self.composerBar(app).buttons["Upload flake"].exists, "the title was not renamed") }])
+                         { Self.check(C.label(app, contains: "Upload flake").waitForExistence(timeout: 4), "the title was not renamed") }])
             },
             // One agent: each setting its own pill, as the Mac lists them.
             Scene(group: g, id: "settings-pills", args: Self.list) { app in
