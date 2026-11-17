@@ -1152,3 +1152,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cold_segments_race_tests.rs"]
 mod race_tests;
+
+#[cfg(test)]
+#[path = "cold_segments_index_tests.rs"]
+mod index_tests;
