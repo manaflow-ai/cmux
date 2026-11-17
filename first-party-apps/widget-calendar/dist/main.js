@@ -1713,13 +1713,13 @@
         scope: "stash:write",
         class: "mutation"
       },
-      "system_calendar.access.request": {
+      "system_calendar.events": {
         scope: "system_calendar:read",
         class: "read"
       },
-      "system_calendar.events.list": {
+      "system_calendar.request_access": {
         scope: "system_calendar:read",
-        class: "read"
+        class: "mutation"
       },
       "tab_group.add_tabs": {
         scope: "tab_group:write",
@@ -2372,12 +2372,6 @@
     RoundedRectangle
   } = g;
   var EVENT_STREAMS = Object.keys(events_default.events);
-  function calendarEvents(range) {
-    return cmux.call("system_calendar.events.list", range);
-  }
-  function requestCalendarAccess() {
-    return cmux.call("system_calendar.access.request", {}, { gesture: cmux.gesture() ?? undefined }).then((r) => r.access);
-  }
   var DAY = 24 * 60 * 60 * 1000;
   var WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   function startOfDay(at) {
@@ -2388,9 +2382,7 @@
     const d = new Date(at);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
   }
-  function readWindow(now) {
-    return { from: startOfDay(now), to: startOfNextDay(startOfNextDay(now)) };
-  }
+  var READ = { days: 2, limit: 50 };
   function weekdayHeading(now) {
     return WEEKDAYS[new Date(now).getDay()].toUpperCase();
   }
@@ -2403,7 +2395,7 @@
     const out = { allDayToday: [], today: [], allDayTomorrow: [], tomorrow: [] };
     const sorted = [...events].sort((a, b) => a.start - b.start || a.end - b.end || a.title.localeCompare(b.title));
     for (const e of sorted) {
-      if (e.all_day) {
+      if (e.allDay) {
         if (e.start < tomorrowStart && e.end > now)
           out.allDayToday.push(e);
         if (e.start < tomorrowEnd && e.end > tomorrowStart)
@@ -2450,10 +2442,10 @@
     return twelve ? `${a.time} ${a.period}` : a.time;
   }
   function tintOf(color) {
-    return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}2e` : "#1badf82e";
+    return color && /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}2e` : "#1badf82e";
   }
   function barOf(color) {
-    return /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#1badf8";
+    return color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#1badf8";
   }
   function readKey(now) {
     return `${startOfDay(now)}:${Math.floor(now / (5 * 60 * 1000))}`;
@@ -2470,9 +2462,8 @@
       title,
       start,
       end: start + minutes * 60 * 1000,
-      all_day: false,
-      calendar,
-      calendar_title: calendar[0].toUpperCase() + calendar.slice(1),
+      allDay: false,
+      calendar: calendar[0].toUpperCase() + calendar.slice(1),
       color: COLORS[calendar],
       ...location ? { location } : {}
     };
@@ -2502,7 +2493,7 @@
     const [load, setLoad] = signal(ctx.preview ? { state: "ready", access: "granted", events: SAMPLE_EVENTS(ctx.now()) } : { state: "loading" });
     let readFor = "";
     const read = () => {
-      calendarEvents({ ...readWindow(untrack(now)), limit: 60 }).then((answer) => setLoad({ state: "ready", access: answer.access, events: answer.events }), (error) => setLoad({ state: "error", code: error?.code ?? "operation.failed" }));
+      cmux.system_calendar.events({ ...READ }).then((answer) => setLoad({ state: "ready", access: answer.access, events: answer.events }), (error) => setLoad({ state: "error", code: error?.code ?? "operation.failed" }));
     };
     if (!ctx.preview) {
       effect(() => {
@@ -2514,7 +2505,7 @@
       });
     }
     const allow = () => {
-      requestCalendarAccess().then(read, read);
+      cmux.system_calendar.request_access({}).then(read, read);
     };
     const inset = ctx.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab;
     const body = () => {
@@ -2537,18 +2528,25 @@
     ]);
   }
   function accessNotice(load, allow) {
+    const note = (text) => Text(text).font(TYPE.detail).color("secondary").lineLimit(4);
     if (load.state === "error") {
-      const message = load.code === "provider.unavailable" || load.code === "operation.unsupported" ? t("unavailable", "Your calendar shows here in the cmux app on a Mac.") : t("failed", "Your calendar could not be read just now.");
-      return Text(message).font(TYPE.detail).color("secondary").lineLimit(3);
+      if (load.code === "scope.missing")
+        return note(t("scope", "Turn on calendar access for Calendar in Settings > Apps."));
+      return note(load.code === "provider.unavailable" || load.code === "operation.unsupported" ? t("unavailable", "Your calendar shows here in the cmux app on a Mac.") : t("failed", "Your calendar could not be read just now."));
     }
-    if (load.access === "restricted") {
-      return Text(t("restricted", "Calendar access is restricted on this Mac.")).font(TYPE.detail).color("secondary").lineLimit(3);
+    switch (load.access) {
+      case "unavailable":
+        return note(t("unavailable", "Your calendar shows here in the cmux app on a Mac."));
+      case "restricted":
+        return note(t("restricted", "Calendar access is restricted on this Mac."));
+      case "denied":
+        return note(t("denied", "Calendar access is off. Turn it on for cmux in System Settings > Privacy & Security > Calendars."));
+      default:
+        return VStack({ spacing: 6, alignment: "leading" }, [
+          note(t("ask", "See your next events here.")),
+          Button(t("allow", "Allow Access"), allow)
+        ]);
     }
-    const denied = load.access === "denied";
-    return VStack({ spacing: 6, alignment: "leading" }, [
-      Text(denied ? t("denied", "Calendar access is off for cmux.") : t("ask", "See your next events here.")).font(TYPE.detail).color("secondary").lineLimit(2),
-      Button(denied ? t("openSettings", "Open Settings") : t("allow", "Allow Access"), allow)
-    ]);
   }
   function layout(size, header, day, twelve) {
     const blocks = BLOCKS[size];
