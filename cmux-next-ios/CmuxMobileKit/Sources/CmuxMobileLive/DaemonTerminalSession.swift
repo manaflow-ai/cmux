@@ -627,11 +627,18 @@ public final class DaemonTerminalSession: TerminalSession {
             guard handler != nil else { return }
             self.client = client
             await client.start()
+            // One round trip when this Mac's daemon is known (``fencedAttach()``):
+            // the attach goes out with the client info and `identify`, fenced by
+            // the daemon's boot generation and the terminal id, so no
+            // `resolve-terminal` first and no wait for `identify`.
+            let fenced = fencedAttach()
             // A reattach (or a retry) first asks where the terminal is: a Mac
             // daemon that restarted numbers its surfaces again, and the old
             // number may now name another terminal (defect 2 of
-            // verify/transport-verify-20261019.md).
-            if let terminalID, everAttached || attachRetries > 0 {
+            // verify/transport-verify-20261019.md). A fenced attach needs no
+            // question: the daemon refuses it unless the surface still holds
+            // the terminal in the same boot.
+            if fenced == nil, let terminalID, everAttached || attachRetries > 0 {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
                 switch Self.resolved(reply) {
@@ -694,10 +701,30 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
-            let setup = await client.requests(
-                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            )
-            let identify = try? setup.last?.get()
+            let identify: Data?
+            var fencedReply: Data?
+            if let fenced {
+                // One write: the client info, identify and the attach, so the
+                // replay comes one round trip after the channel opens.
+                sizing.clear()
+                lastActivityNote = nil
+                heldEvents = []
+                let setupID = try await client.submit("set-client-info", params: info)
+                let identifyID = try await client.submit("identify")
+                let attachID = try await client.submit("attach-surface", params: Self.attachParams(fenced, surface: surface))
+                _ = try? await client.reply(to: setupID)
+                identify = try? await client.reply(to: identifyID)
+                let reply = try await client.reply(to: attachID)
+                guard self.client === client else { heldEvents = nil; return }
+                if let error = Self.error(in: reply) { throw FencedAttachRefused(reason: error) }
+                fencedReply = reply
+            } else {
+                let setup = await client.requests(
+                    [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+                )
+                identify = try? setup.last?.get()
+            }
+            if let identify { noteDaemon(identify) }
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
@@ -741,19 +768,27 @@ public final class DaemonTerminalSession: TerminalSession {
                 tailReplay = false
                 return try await send(historyRows: nil)
             }
-            sizing.clear()
-            lastActivityNote = nil
-            // The mirror is not reset yet: a reattach that fails (a Mac host
-            // that just restarted answers "unknown surface" for a moment) keeps
-            // the last frame on screen under the reconnecting badge, instead
-            // of a blank screen with an error line (termqa D3). The replay's
-            // events wait in `heldEvents` until the attach is confirmed.
-            heldEvents = []
+            if fencedReply == nil {
+                sizing.clear()
+                lastActivityNote = nil
+                // The mirror is not reset yet: a reattach that fails (a Mac host
+                // that just restarted answers "unknown surface" for a moment) keeps
+                // the last frame on screen under the reconnecting badge, instead
+                // of a blank screen with an error line (termqa D3). The replay's
+                // events wait in `heldEvents` until the attach is confirmed.
+                heldEvents = []
+            }
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+            if let fencedReply {
+                reply = fencedReply
+                if let size = fenced?.size {
+                    lastSize = size
+                    attachedWithSize = size
+                }
+            } else if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
                overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
                overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
                 // The Mac kept its own size for this request last time, and it
@@ -851,6 +886,24 @@ public final class DaemonTerminalSession: TerminalSession {
             drain()
             drainInput()
             openInputLane(for: client)
+        } catch let refused as FencedAttachRefused {
+            // The daemon restarted (another generation), the surface holds
+            // another terminal, or the lane refused a field: no stream or lease
+            // was made. Forget what was known and attach the long way at once
+            // (resolve, identify, attach), as before the fence.
+            heldEvents = nil
+            log.notice("surface \(self.surface, privacy: .public): fenced attach refused (\(refused.reason, privacy: .public)): resolving first")
+            // A new boot is learned by the next identify; any other refusal
+            // would repeat, so this session stops fencing.
+            if !refused.reason.contains("generation") { fencedAttachOff = true }
+            knownDaemon = nil
+            if let macName { Self.knownDaemons[macName] = nil }
+            if let client = self.client { self.client = nil; Task { await client.close() } }
+            eventTask?.cancel()
+            eventTask = nil
+            inbox?.close()
+            inbox = nil
+            Task { [weak self] in await self?.attach() }
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)
@@ -1457,6 +1510,81 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `replay_history_rows` on `attach-surface`: the replay holds the screen
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
+    /// `expected_generation` and `expected_terminal_id` on `attach-surface`:
+    /// the daemon attaches only when it is still the same boot and the
+    /// surface still holds that terminal, else it refuses before any stream
+    /// or lease (cmux-tui `spec/commands.md`, `attach-surface`).
+    static let attachIdentityCapability = "attach-identity-v1"
+
+    /// A Mac daemon as its last `identify` described it: what a fenced attach
+    /// assumes until the reply to the identify sent with it says otherwise.
+    struct KnownDaemon: Equatable {
+        let capabilities: Set<String>
+        let generation: String
+    }
+    /// This session's daemon (the last identify).
+    private var knownDaemon: KnownDaemon?
+    /// The last daemon each Mac (by name) answered with, so a tab opened on a Mac
+    /// another tab already reached attaches in one round trip too. A wrong
+    /// guess (two Macs of one name, a restarted daemon) costs one refused
+    /// attach and the usual path.
+    static var knownDaemons: [String: KnownDaemon] = [:]
+    /// A fenced attach was refused for a reason other than a new boot: this
+    /// session attaches the long way.
+    private var fencedAttachOff = false
+
+    /// One fenced attach: what it asks for.
+    struct FencedAttach {
+        let size: (columns: Int, rows: Int)?
+        let historyRows: Int?
+        let generation: String
+        let terminalID: String
+    }
+
+    struct FencedAttachRefused: Error {
+        let reason: String
+    }
+
+    /// The attach that can go out with `set-client-info` and `identify`:
+    /// only for a terminal with a public id (`term_…`) on a daemon known to
+    /// fence attaches, and not for the two attaches with their own handshakes
+    /// (an agent CLI stream resuming from a frame, a size the Mac overruled).
+    private func fencedAttach() -> FencedAttach? {
+        guard !fencedAttachOff, let terminalID, terminalID.hasPrefix("term_"),
+              let known = knownDaemon ?? macName.flatMap({ Self.knownDaemons[$0] }),
+              known.capabilities.contains(Self.attachIdentityCapability),
+              !(hybridWanted && hybridResume != nil), overruled == nil else { return nil }
+        // Hidden: attach without a size, so the attach claims none.
+        let size = claimsSize && known.capabilities.contains("attach-initial-size") ? (lastSize ?? pendingSize) : nil
+        let rows = known.capabilities.contains(Self.replayHistoryRowsCapability) ? historyAllowance : nil
+        return FencedAttach(size: size, historyRows: rows, generation: known.generation, terminalID: terminalID)
+    }
+
+    nonisolated static func attachParams(_ fenced: FencedAttach, surface: Int) -> [String: Any] {
+        var params: [String: Any] = ["surface": surface, "expected_generation": fenced.generation,
+                                     "expected_terminal_id": fenced.terminalID]
+        if let size = fenced.size {
+            params["cols"] = size.columns
+            params["rows"] = size.rows
+        }
+        if let rows = fenced.historyRows { params["replay_history_rows"] = rows }
+        return params
+    }
+
+    /// Remembers the daemon an `identify` reply describes.
+    private func noteDaemon(_ identify: Data) {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let capabilities = data["capabilities"] as? [String],
+              let generation = data["generation"] as? String, !generation.isEmpty else {
+            knownDaemon = nil
+            return
+        }
+        let known = KnownDaemon(capabilities: Set(capabilities), generation: generation)
+        knownDaemon = known
+        if let macName { Self.knownDaemons[macName] = known }
+    }
+
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
 
