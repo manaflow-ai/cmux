@@ -32,6 +32,7 @@
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
+// PANE_OUT=dir builds the pane into dir once and reuses it on later runs (bench/chat-open-ab.sh).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -230,18 +231,22 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // PANE_OUT=dir keeps the pane's build there and takes one already in it, so a harness that runs the
+  // bench many times on one checkout (bench/chat-open-ab.sh) builds each side once.
+  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : undefined;
+  const out = keptOut ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
+  if (!keptOut) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: {
-      outDir: out,
-      emptyOutDir: true,
-      ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
-    },
-    logLevel: "error",
-  });
+  if (!keptOut || !fs.existsSync(path.join(out, "index.html")))
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -953,6 +958,9 @@ try {
       console.log(
         `per round: attach_to_latest ms ${rounds.map((r) => (r.latest - r.attach).toFixed(0)).join(" ")}; attach ms ${rounds.map((r) => r.attach.toFixed(0)).join(" ")}; first row ms ${rounds.map((r) => r.firstRow.toFixed(0)).join(" ")}; long tasks ${rounds.map((r) => r.longTasks).join(" ")}; long ms ${rounds.map((r) => r.longMs.toFixed(0)).join(" ")}`,
       );
+      // Every round's value at full precision, for a harness that pools rounds (bench/chat-open-ab.sh).
+      console.log(`per round attach_to_latest ms: ${rounds.map((r) => (r.latest - r.attach).toFixed(1)).join(" ")}`);
+      console.log(`per round dom_content_loaded ms: ${rounds.map((r) => r.dcl.toFixed(1)).join(" ")}`);
       const perRunner = perCalibration(
         rounds.map((r) => r.latest - r.attach),
         calibrations,
