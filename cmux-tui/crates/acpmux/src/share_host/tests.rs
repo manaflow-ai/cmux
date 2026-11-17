@@ -816,7 +816,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
     let dir = tempfile::tempdir().unwrap();
     let rd =
         fake_cmux_rd(dir.path(), "echo 'This desktop is shared as \"box\" (dev1), view only.'");
-    assert!(linux::executable(&rd));
+    assert!(linux::identity_of(&rd).is_some());
     let acpmux_home = dir.path().join("acpmux-home");
     let env = [("XDG_RUNTIME_DIR", std::ffi::OsString::from("/run/user/4242"))];
     let args = linux::enable_args("https://hub.example");
@@ -848,7 +848,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
     );
     // A binary that is not there.
     let missing = dir.path().join("nothing");
-    assert!(!linux::executable(&missing));
+    assert!(linux::identity_of(&missing).is_none());
     assert_eq!(
         linux::run_enable(
             &missing,
@@ -946,8 +946,13 @@ fn only_an_enable_for_the_current_join_keeps_its_host() {
     assert_eq!(linux::after_enable(&failed, false, false), undo);
 }
 
+/// A stand-in cmux-rd identity.
+fn rd_identity(size: u64, mtime: i64) -> super::linux::Identity {
+    super::linux::Identity { size, mtime, mtime_nsec: 0, inode: 7 }
+}
+
 #[test]
-fn the_host_is_set_up_once_per_join() {
+fn the_host_is_set_up_once_per_join_and_cmux_rd_build() {
     use super::linux;
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("share-host");
@@ -957,16 +962,132 @@ fn the_host_is_set_up_once_per_join() {
             "revoked": false, "wgPublicKey": "k", "credential_generation": generation}))
         .unwrap()
     };
-    let mark = linux::mark_of(&record(1, "m1"));
+    let rd = rd_identity(1000, 1_700_000_000);
+    let mark = linux::mark_of(&record(1, "m1"), &rd);
     assert!(!linux::marked(&folder, &mark));
     linux::save_mark(&folder, &mark).unwrap();
     assert!(linux::marked(&folder, &mark));
     // Another join (a new machine, a new credential) is set up again.
-    assert!(!linux::marked(&folder, &linux::mark_of(&record(2, "m1"))));
-    assert!(!linux::marked(&folder, &linux::mark_of(&record(1, "m2"))));
+    assert!(!linux::marked(&folder, &linux::mark_of(&record(2, "m1"), &rd)));
+    assert!(!linux::marked(&folder, &linux::mark_of(&record(1, "m2"), &rd)));
+    // So is another cmux-rd build: another size, modification time (or its nanoseconds) or inode.
+    for other in [
+        rd_identity(1001, 1_700_000_000),
+        rd_identity(1000, 1_700_000_001),
+        linux::Identity { mtime_nsec: 5, ..rd },
+        linux::Identity { inode: 8, ..rd },
+    ] {
+        assert!(!linux::marked(&folder, &linux::mark_of(&record(1, "m1"), &other)), "{other:?}");
+    }
     // The mark never holds the credential.
     let text = std::fs::read_to_string(folder.join(linux::MARK)).unwrap();
     assert!(!text.contains("cmm_"), "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["cmuxRd"],
+        json!({"size": 1000, "mtime": 1_700_000_000, "mtimeNsec": 0, "inode": 7})
+    );
+    // A mark from before cmux-rd's identity was recorded (a machine joined before it) matches
+    // no build: the next daemon start sets the host up once more.
+    let old = json!({"machineId": "m1", "credentialGeneration": 1});
+    linux::save_mark(&folder, &old).unwrap();
+    assert!(linux::marked(&folder, &old));
+    assert!(!linux::marked(&folder, &linux::mark_of(&record(1, "m1"), &rd)));
+}
+
+#[test]
+fn cmux_rds_identity_changes_when_it_is_replaced() {
+    use super::linux::identity_of;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let rd = dir.path().join("cmux-rd");
+    // Not there, or not runnable: not installed.
+    assert_eq!(identity_of(&rd), None);
+    std::fs::write(&rd, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(identity_of(&rd), None);
+    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let first = identity_of(&rd).unwrap();
+    assert_eq!(first.size, 10);
+    // Looking again changes nothing.
+    assert_eq!(identity_of(&rd), Some(first));
+    // An install as the join line does it (a new file moved over the old one): a new identity.
+    let new = dir.path().join(".cmux-rd.new");
+    std::fs::write(&new, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::rename(&new, &rd).unwrap();
+    let second = identity_of(&rd).unwrap();
+    assert_ne!(second, first);
+    // A symlink is followed to the binary it names.
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&rd, &link).unwrap();
+    assert_eq!(identity_of(&link), Some(second));
+    // A directory is not cmux-rd.
+    assert_eq!(identity_of(dir.path()), None);
+}
+
+#[test]
+fn the_watcher_tries_each_cmux_rd_build_once_per_daemon_run() {
+    use super::linux::{Step, next_step};
+    let a = rd_identity(1000, 1);
+    let b = rd_identity(2000, 2);
+    // Not installed, whatever was tried before.
+    assert_eq!(next_step(None, None), Step::NotInstalled);
+    assert_eq!(next_step(Some(&a), None), Step::NotInstalled);
+    // A build not tried yet in this daemon run (none yet, a new one, one that came back after
+    // another): the enable.
+    assert_eq!(next_step(None, Some(a)), Step::Enable(a));
+    assert_eq!(next_step(Some(&a), Some(b)), Step::Enable(b));
+    assert_eq!(next_step(Some(&b), Some(a)), Step::Enable(a));
+    // The build it tried, whether that enable worked or not: nothing, no loop.
+    assert_eq!(next_step(Some(&a), Some(a)), Step::Wait);
+    // Run the watcher's ticks over a timeline: one attempt per build.
+    let timeline = [None, None, Some(a), Some(a), Some(a), Some(b), Some(b), None, Some(b)];
+    let mut attempted = None;
+    let mut enables = Vec::new();
+    for now in timeline {
+        if let Step::Enable(id) = next_step(attempted.as_ref(), now) {
+            attempted = Some(id);
+            enables.push(id);
+        }
+    }
+    assert_eq!(enables, vec![a, b]);
+    assert_eq!(super::linux::CHECK_EVERY, Duration::from_secs(60));
+}
+
+#[test]
+fn a_missing_cmux_rd_says_why_the_join_could_not_install_it() {
+    use super::linux::{INSTALL_FAILED, install_failure, not_installed_detail};
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("share-host");
+    let rd = Path::new("/home/u/.local/bin/cmux-rd");
+    // No file (no folder even): the plain line.
+    assert_eq!(install_failure(&folder), None);
+    assert_eq!(
+        not_installed_detail(rd, &folder),
+        "cmux-rd is not installed (/home/u/.local/bin/cmux-rd)"
+    );
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join(INSTALL_FAILED);
+    assert_eq!(INSTALL_FAILED, "cmux-rd-install");
+    // The join line's reason: its first line that says something.
+    std::fs::write(&file, "\nchecksum verification failed for cmux-rd\nsecond line\n").unwrap();
+    assert_eq!(
+        not_installed_detail(rd, &folder),
+        "cmux-rd is not installed (/home/u/.local/bin/cmux-rd): the join could not install it: \
+         checksum verification failed for cmux-rd"
+    );
+    // Control characters never reach the status.
+    std::fs::write(&file, "cannot \u{1b}[31mdownload\tcmux-rd\n").unwrap();
+    assert_eq!(install_failure(&folder).unwrap(), "cannot [31mdownloadcmux-rd");
+    // An oversized file: at most 1 KiB is read, and the line is cut short.
+    std::fs::write(&file, "x".repeat(1 << 20)).unwrap();
+    assert_eq!(install_failure(&folder).unwrap(), "x".repeat(300));
+    // Only whitespace says nothing.
+    std::fs::write(&file, " \n\n").unwrap();
+    assert_eq!(install_failure(&folder), None);
+    // Once the join line installs cmux-rd it removes the file: the plain line again.
+    std::fs::remove_file(&file).unwrap();
+    assert_eq!(install_failure(&folder), None);
 }
 
 #[test]
