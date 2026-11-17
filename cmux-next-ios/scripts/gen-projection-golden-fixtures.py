@@ -41,6 +41,8 @@ STAGES = {
 }
 
 HEADER = re.compile(r"^# Mac pane (\d+)x(\d+), phone (\d+)x(\d+)$", re.M)
+SAMPLE_NAMES = [(b"leo@cosmic-gray", b"dev@sample-host"), (b"/Users/leo/", b"/Users/dev/")]
+assert all(len(real) == len(sample) for real, sample in SAMPLE_NAMES)
 
 
 def stages_for(name: str, data: bytes):
@@ -84,6 +86,11 @@ def main() -> None:
             sys.exit(f"{name}: no '# Mac pane CxR, phone CxR' header")
         mc, mr, pc, pr = (int(g) for g in grid.groups())
         data = vt.read_bytes()
+        # Screenshots of these fixtures go into PR media, which refuses personal machine and account
+        # names. Swap them for sample ones of the same byte length, so every column stays where the
+        # golden put it.
+        for real, sample in SAMPLE_NAMES:
+            data = data.replace(real, sample)
         stages = ", ".join(
             f".init(name: {swift_string(s)}, end: {end}, streamed: {'true' if streamed else 'false'})"
             for s, end, streamed in stages_for(name, data)
