@@ -1,0 +1,244 @@
+name: Sync store bench (staging)
+
+# sync-bench (cmux-tui/scripts/sync_bench.py) scenarios a and e in one run on one Linux runner: a is the cold
+# direct copy of the pinned `projects` tree over the link, e the same tree through the content-addressed store
+# (`cmux link sync push --store`: the push uploads the blobs the store lacks to the platform's /v1/sync and the
+# machine daemon fetches them from there), each into an empty machine folder, at the given round trip. The cmux-tui
+# is a release build of the `commit` input (default: cmux#45321's head, the store client that falls back to a
+# direct copy on 507 and registers GC roots), built here. The scripts come from this workflow's own ref.
+#
+# Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev (the pair
+# cloud-journey-pr.yml reads for a same-repo pull request). scripts/cmux-next/sync-store-bench.ts signs in, mints an
+# install token as the journey's "install token" step does, hands it to the bench in an owner-only file under
+# RUNNER_TEMP, then deletes the file and revokes the install. Same-repo pull requests and feat-cmux-next only; a
+# fork's never gets them. Staging only, never production.
+#
+# The store keeps what e uploaded (deduplicated, under the account's 200 GiB quota; its root expires after 90 days
+# without a push), so a second run's e finds most blobs already stored: the first run on an account is the cold one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The cmux commit whose cmux-tui is benched (full sha)
+        required: false
+        default: 9c178a6947f72dc984b6ac251348e3a98bb9f32c
+        type: string
+      rtt_ms:
+        description: Round trips in ms, comma-separated (sync_bench --rtt-ms)
+        required: false
+        default: "50"
+        type: string
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/sync-store-bench.yml
+      - scripts/cmux-next/sync-store-bench.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-store-bench-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 180
+    env:
+      COMMIT: ${{ inputs.commit || '9c178a6947f72dc984b6ac251348e3a98bb9f32c' }}
+      RTT_MS: ${{ inputs.rtt_ms || '50' }}
+    steps:
+      - name: Refuse a malformed commit or round trip
+        run: |
+          set -euo pipefail
+          printf '%s' "$COMMIT" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::commit must be a full 40-character sha"; exit 1; }
+          printf '%s' "$RTT_MS" | grep -Eqx '[0-9]{1,4}(,[0-9]{1,4})*' || { echo "::error::rtt_ms must be numbers, comma-separated"; exit 1; }
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Check out the benched commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.COMMIT }}
+          path: benched
+          persist-credentials: false
+          submodules: false
+
+      - name: Install bench and build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config socat iproute2 openssl
+          git -C benched submodule update --init --depth 1 ghostty-next
+
+      - name: Pick the bench root (the mount with the most free space)
+        run: |
+          set -euo pipefail
+          df -h / "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /var/tmp /mnt 2>/dev/null || true
+          best=/var/tmp; most=0
+          for dir in /var/tmp "$RUNNER_TEMP" /mnt; do
+            [ -d "$dir" ] && [ -w "$dir" ] || continue
+            free="$(df -Pk "$dir" | awk 'NR==2 {print $4}')"
+            if [ "$free" -gt "$most" ]; then most="$free"; best="$dir"; fi
+          done
+          echo "SYNC_BENCH_ROOT=$best/sync-bench" >> "$GITHUB_ENV"
+          echo "bench root $best/sync-bench ($((most / 1048576)) GiB free)"
+
+      # The tree is network and disk; the build is CPU. The generation runs beside the build and is waited for after.
+      - name: Start generating the projects tree
+        run: |
+          set -euo pipefail
+          mkdir -p "$SYNC_BENCH_ROOT"
+          nohup python3 cmux-tui/scripts/sync_bench.py gen --layout projects > "$RUNNER_TEMP/sync-bench-gen.log" 2>&1 &
+          echo "GEN_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Set up cmux-tui Rust (the benched commit's toolchain)
+        uses: ./benched/.github/actions/setup-cmux-tui-rust
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        working-directory: benched
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Build the benched commit's Linux cmux-tui (release)
+        id: build
+        working-directory: benched/cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          cargo build --release -p cmux-tui --bin cmux-tui --locked
+          binary="${CARGO_TARGET_DIR:-$PWD/target}/release/cmux-tui"
+          case "$binary" in /*) ;; *) binary="$PWD/$binary" ;; esac
+          test -x "$binary"
+          file "$binary" | grep -q 'ELF 64-bit'
+          sha256sum "$binary"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the projects tree
+        run: |
+          set -euo pipefail
+          tail --pid="$GEN_PID" -f /dev/null
+          tail -n 40 "$RUNNER_TEMP/sync-bench-gen.log"
+          python3 cmux-tui/scripts/sync_bench.py gen --layout projects
+          top="$SYNC_BENCH_ROOT/trees/projects"
+          echo "TREE_BYTES=$(du -sb "$top" | cut -f1)" >> "$GITHUB_ENV"
+          echo "TREE_FILES=$(find "$top" -type f | wc -l)" >> "$GITHUB_ENV"
+          du -sh "$top"; df -h "$SYNC_BENCH_ROOT"
+
+      - name: Check that this runner's kernel has netem
+        run: |
+          set -euo pipefail
+          sudo modprobe sch_netem 2>/dev/null || true
+          if sudo ip link add sbprobe0 type dummy && sudo tc qdisc add dev sbprobe0 root netem delay 25ms; then
+            echo "netem: yes"
+          else
+            echo "::warning title=sync-store-bench::this runner's kernel has no netem; running at rtt 0 only"
+            echo "RTT_MS=0" >> "$GITHUB_ENV"
+          fi
+          sudo ip link del sbprobe0 2>/dev/null || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # The only step that sees the stack pair, through env.
+      - name: sync-bench a and e (staging store)
+        timeout-minutes: 120
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          BINARY: ${{ steps.build.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/sync-store-bench"
+          mkdir -p "$out"
+          bun scripts/cmux-next/sync-store-bench.ts --backend staging --out "$out" -- \
+            python3 cmux-tui/scripts/sync_bench.py run --commit "$COMMIT" --binary "$BINARY" \
+              --layout projects --scenario a,e --rtt-ms "$RTT_MS" > "$out/records.jsonl"
+
+      - name: Summarize
+        if: always()
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/sync-store-bench"
+          mkdir -p "$out"
+          cp -r "$SYNC_BENCH_ROOT/results/$COMMIT" "$out/results" 2>/dev/null || true
+          if grep -rEiq '(cmvm|cmk|crt|crk|cmm|cmj|csg)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]{8,}' "$out"; then
+            echo "::error::the bench output holds a secret-shaped value; it is neither shown nor uploaded"
+            rm -rf "$out"
+            exit 1
+          fi
+          python3 -I - "$out" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib, sys
+          out = pathlib.Path(sys.argv[1])
+          print("## Sync store bench (staging)\n")
+          print(f"- cmux-tui: release build of `{os.environ['COMMIT']}`; rtt {os.environ['RTT_MS']} ms")
+          tb, tf = os.environ.get("TREE_BYTES"), os.environ.get("TREE_FILES")
+          if tb:
+              print(f"- projects tree on disk: {int(tb) / (1 << 30):.2f} GiB, {tf} files (node_modules, target/ and .env stay on the Mac)")
+          store = out / "store.json"
+          if store.exists():
+              s = json.loads(store.read_text())
+              print(f"- store: platform `{s.get('platform')}`, usage before {s.get('usage_before')}, after {s.get('usage_after')}; install revoked: {s.get('install_revoked')}")
+          print()
+          records = out / "records.jsonl"
+          lines = records.read_text().splitlines() if records.exists() else []
+          GIB = 1 << 30
+          for line in lines:
+              try:
+                  r = json.loads(line)
+              except ValueError:
+                  continue
+              print(f"### {r['layout']} tree {r['tree']}, rtt {r['rtt_ms']} ms, host {r['host']}\n")
+              print("| scenario | exit | wall s | written files | GiB written | store used | store detail |")
+              print("|---|---|---|---|---|---|---|")
+              for key, row in r["scenarios"].items():
+                  if "not_run" in row:
+                      print(f"| {key} | not run | - | - | - | - | {row['not_run']} |")
+                      continue
+                  s = row.get("summary") or {}
+                  st = s.get("store")
+                  used = "-" if st is None else ("yes" if st.get("used") else "no")
+                  detail = "-" if st is None else json.dumps(st)[:300].replace("|", "/")
+                  print(f"| {key} | {row.get('exit')} | {row.get('wall_ms', 0) / 1000:.1f} | {s.get('written', '-')} | "
+                        f"{(s.get('bytes') or 0) / GIB:.2f} | {used} | {detail} |")
+                  if row.get("exit"):
+                      tail = (row.get("stderr_tail") or "")[-600:].replace("`", "'")
+                      print(f"\n<details><summary>{key} stderr tail</summary>\n\n```\n{tail}\n```\n</details>\n")
+              print()
+          if not lines:
+              print("No bench record was written (the run stopped before a scenario finished).")
+          PY
+
+      - name: Upload the bench records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sync-store-bench
+          path: ${{ runner.temp }}/sync-store-bench
+          retention-days: 3
+          if-no-files-found: ignore
