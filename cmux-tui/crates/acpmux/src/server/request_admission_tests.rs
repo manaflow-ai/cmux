@@ -5,6 +5,7 @@ use super::{
 use crate::config::{Config, StoreMode};
 use crate::hub::Hub;
 use crate::rpc::{Message, method};
+use crate::server::serve_connection_with;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{Semaphore, mpsc};
@@ -176,7 +177,7 @@ async fn a_request_read_after_stop_is_refused_before_anything_is_made() {
     let hub = stopped_hub();
     let (in_tx, in_rx) = mpsc::channel(4);
     let (out_tx, mut out_rx) = mpsc::channel(16);
-    let server = tokio::spawn(super::super::serve_connection_with(
+    let server = tokio::spawn(serve_connection_with(
         hub.clone(),
         in_rx,
         out_tx,
@@ -208,7 +209,7 @@ async fn a_create_read_after_stop_makes_no_session() {
     let before = hub.session_counts();
     let (in_tx, in_rx) = mpsc::channel(4);
     let (out_tx, mut out_rx) = mpsc::channel(16);
-    let server = tokio::spawn(super::super::serve_connection_with(
+    let server = tokio::spawn(serve_connection_with(
         hub.clone(),
         in_rx,
         out_tx,

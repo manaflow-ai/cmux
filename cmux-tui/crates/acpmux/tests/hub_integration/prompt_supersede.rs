@@ -276,7 +276,7 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     // when the agent exits. Wait for that hub-side transition, rather than reading the stopped
     // connection or sleeping.
     tokio::time::timeout(Duration::from_secs(30), async {
-        while hub.resolve(&session).is_some_and(|s| s.turn().is_some()) {
+        while hub.resolve(&session).is_ok_and(|s| s.turn().is_some()) {
             tokio::task::yield_now().await;
         }
     })
