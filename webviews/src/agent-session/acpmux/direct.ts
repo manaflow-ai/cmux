@@ -74,7 +74,7 @@ import {
   type ComposerAttachment,
 } from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
-import { fitPromptBudget, uploadsToFit } from "./promptBudget";
+import { fitPromptBudget, promptBudgetFor, uploadsToFit } from "./promptBudget";
 import type { SendPrompt, SendUploadResult } from "./sendUploads";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
@@ -11671,7 +11671,7 @@ export class AcpmuxDirectClient {
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
     // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
     // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
-    let carried = fitPromptBudget(input, sendAttachments, options);
+    let carried = fitPromptBudget(input, sendAttachments, options, promptBudgetFor(this.socket));
     // Still too large: the largest attachments with no saved copy upload now, under the Send's
     // ticket, and go as links (sendUploads.ts). A failed upload fails the send with its words.
     // Only under a ticket bound to this chat (bindSendGesture): the host holds no other for an
@@ -11682,7 +11682,7 @@ export class AcpmuxDirectClient {
     // of the send, as before.
     const uploads =
       this.uploadForSend && bound?.sessionId === sessionId && bound.ticket === ticket
-        ? uploadsToFit(input, sendAttachments, options)
+        ? uploadsToFit(input, sendAttachments, options, promptBudgetFor(this.socket))
         : [];
     const ticketGeneration = this.selectionGeneration;
     const unclaim = () => {
@@ -12891,7 +12891,7 @@ export class AcpmuxDirectClient {
       ? attachments
       : attachments.filter((attachment) => attachment.kind !== "audio");
     const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
-    const carried = sendable.length ? fitPromptBudget(text, sendable) : sendable;
+    const carried = sendable.length ? fitPromptBudget(text, sendable, {}, promptBudgetFor(this.socket)) : sendable;
     const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
