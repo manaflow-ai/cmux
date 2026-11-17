@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44119974731",
+  "recorded_at": "2026-11-17T16:06:28Z",
+  "reason": "cmux-tui 45f939340626 changes the image's cmux-tui (pinned aa5051e5a714)",
+  "dry_run": false,
+  "cmux_tui": "45f939340626c8f4d2ec9860e758898a411f3671",
+  "fixes": [
+    {
+      "sha": "45f939340626c8f4d2ec9860e758898a411f3671",
+      "mergedAt": "2026-11-17T07:42:56-08:00",
+      "subject": "cmux-rd: re-encode the damage of a frame the encoder dropped (#45201)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T16:06:28Z",
+    "snapshot_id": "sh-2d0bb5f009ac4bc1a63da93d64bba56d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44119974731): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c7ee0af30df7d2fa7bc28959e9e6072c74304994",
+    "image": "cloud-native-auto-45f93934-44119974731-1",
+    "revision": "ci-44119974731-1",
+    "at": "2026-11-17T16:06:28Z"
+  },
+  "rolled_back": false
+}
