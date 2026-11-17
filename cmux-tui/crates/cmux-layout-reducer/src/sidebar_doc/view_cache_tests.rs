@@ -79,7 +79,7 @@ fn step(
         6 => vec![op(json!({"op": "pin", "items": [item]}))],
         7 => vec![op(json!({"op": "unpin", "items": [item]}))],
         8 => vec![op(
-            json!({"op": "archive", "items": [rng.pick(&[item.clone(), group.clone().unwrap_or_default()]).cloned()]}),
+            json!({"op": "archive", "items": [rng.pick(&[item, group.clone().unwrap_or_default()]).cloned()]}),
         )],
         9 => vec![op(json!({"op": "unarchive", "items": [item]}))],
         10 => {
