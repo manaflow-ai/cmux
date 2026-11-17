@@ -263,6 +263,90 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The agent pane against the real acpmux daemon (webviews/test/support/realAcpmux.ts): a new chat
+  # settles with no layout shift, and the model, effort and access picks hold through a first send,
+  # a reload, a daemon restart and a harness switch. Leo, 2026-11-17: "we need to test out more of
+  # these permission related combinations in ci and whatnot so things are as people would expect".
+  # The webview shards build no Rust, so these files skip there; this job builds acpmux and sets
+  # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
+  agent-pane-real-acpmux:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    name: Agent pane on real acpmux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          shared-key: agent-pane-real-acpmux
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
+          workspaces: cmux-tui -> target
+
+      - name: Build acpmux
+        working-directory: cmux-tui
+        run: |
+          cargo build --locked -p acpmux --bin acpmux
+          echo "ACPMUX_BIN=$PWD/target/debug/acpmux" >> "$GITHUB_ENV"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Run the real-daemon pane checks
+        working-directory: webviews
+        env:
+          CMUX_REAL_ACPMUX: "1"
+          CMUX_BROWSER_TESTS: "1"
+          FAST_CHECKS_OUT: ${{ runner.temp }}/agent-pane-real-acpmux
+        run: |
+          status=0
+          for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do
+            echo "::group::$file"
+            bun test "$file" || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Upload the measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-pane-real-acpmux
+          if-no-files-found: ignore
+          retention-days: 3
+
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
@@ -303,7 +387,7 @@ jobs:
           engines: chromium
 
       - name: Install browser for instant navigation tests
-        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Instant navigation tests
         env:
@@ -1579,6 +1663,7 @@ jobs:
       - web-tests
       - web-instant-navigation
       - react-apps-check
+      - agent-pane-real-acpmux
       - diff-sidecar-check
       - web-db-migrations
     # Keep the web verdict after a failed dependency, but skip it after run
@@ -1658,6 +1743,7 @@ jobs:
               "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
               "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "agent-pane-real-acpmux": inputs["web"] == "true" and subareas.get("react_apps") == "true",
               "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }
