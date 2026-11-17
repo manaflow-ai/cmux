@@ -133,10 +133,12 @@ jobs:
 
       # share: Xvfb (the host's virtual display and the viewer's own) and cmux-rd from the run's commit,
       # with the release features (cmux-rd-release.yml): Cisco's OpenH264, downloaded at run time, and the
-      # device hub link. cmux-rd-host is its own Cargo workspace.
+      # device hub link. cmux-rd-host is its own Cargo workspace. dbus-user-session gives the joined
+      # user's lingering user manager its session bus (/run/user/UID/bus), which the share's user
+      # units need; the runner image has none (run 44004680060: no bus after 30 s).
       - name: Install the share's display server
         if: inputs.share
-        run: sudo apt-get install -y xvfb
+        run: sudo apt-get install -y xvfb dbus-user-session
 
       - name: Build cmux-rd
         id: cmuxrd
