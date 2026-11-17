@@ -254,7 +254,9 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
 /// Whether `link` is the composer's link to the original of inline image `image`: the composer
 /// writes the two with the file's name (webviews `attachments.ts` `attachmentBlocks`).
 fn same_picture(image: &Value, link: &Value) -> bool {
-    let name = |b: &Value| b.get("name").and_then(Value::as_str).filter(|n| !n.is_empty());
+    fn name(block: &Value) -> Option<&str> {
+        block.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())
+    }
     inline_image(image).is_some() && name(image).is_some() && name(image) == name(link)
 }
 

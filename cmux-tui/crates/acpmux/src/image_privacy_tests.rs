@@ -64,7 +64,7 @@ fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
     let mut out = u32::try_from(data.len()).unwrap().to_be_bytes().to_vec();
     out.extend(kind);
     out.extend(data);
-    let crc = crc32(&out[4..]);
+    let crc = crc32fast::hash(&out[4..]);
     out.extend(crc.to_be_bytes());
     out
 }

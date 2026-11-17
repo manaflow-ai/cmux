@@ -143,7 +143,11 @@ pub async fn sanitize_prompt(m: &str, params: &mut Value) -> Result<(), RpcError
     if !blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("image")) {
         return Ok(());
     }
-    *blocks = cleaned_off_runtime(blocks.clone(), sanitize_blocks).await?;
+    // Taken out while it is cleaned; a refused prompt goes no further, so it is not put back.
+    let cleaned = cleaned_off_runtime(std::mem::take(blocks), sanitize_blocks).await?;
+    if let Some(blocks) = params.pointer_mut(pointer).and_then(Value::as_array_mut) {
+        *blocks = cleaned;
+    }
     Ok(())
 }
 
@@ -191,7 +195,7 @@ impl Chunk<'_> {
         else {
             return false;
         };
-        <[u8; 4]>::try_from(crc).map(u32::from_be_bytes) == Ok(crc32fast::hash(covered))
+        <[u8; 4]>::try_from(crc).ok().map(u32::from_be_bytes) == Some(crc32fast::hash(covered))
     }
 }
 
