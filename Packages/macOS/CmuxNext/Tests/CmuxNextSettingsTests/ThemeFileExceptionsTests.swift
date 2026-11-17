@@ -57,6 +57,26 @@ import Testing
         #expect(!settings.snapshot.reducedBackgrounds)
     }
 
+    /// Settings > Background's No wallpaper tile writes `appearance.background` "none", the
+    /// default, under a theme file that sets a painting: it applies live and stays after a reload.
+    @Test func noWallpaperTurnsTheThemeFilesPictureOff() async throws {
+        let home = try ThemeFileTests.Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.background": "bruegel-fall-rebel-angels" }"#, theme: "tokyo")
+        let settings = try ThemeFileTests.controller(home, config: #"{ "appearance": { "themeFile": "tokyo" } }"#)
+        await settings.reload()
+        #expect(settings.snapshot.backdropSelection != nil)
+        try await settings.setSetting(descriptor(BackdropSelectionSetting.configPath), to: "none", by: .user)
+        #expect(settings.snapshot.backdropSelection == nil)
+        #expect(settings.fileRoot.value(at: BackdropSelectionSetting.configPath) == "none")
+        // A relaunch reads the same files.
+        let relaunched = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(),
+                                                fileURL: home.config, managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                                managedWatchFiles: [])
+        await relaunched.reload()
+        #expect(relaunched.snapshot.backdropSelection == nil)
+    }
+
     @Test func choosingAnotherThemeFileAppliesItWhole() async throws {
         let home = try ThemeFileTests.Home()
         defer { withExtendedLifetime(home) {} }
