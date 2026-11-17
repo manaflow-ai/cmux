@@ -10,7 +10,7 @@ import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
 import { TeamTag, type ActiveTeamTag, withTeam } from "./TeamTag";
 import {
-  AnotherMachineIcon,
+  DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   ServerIcon,
@@ -47,6 +47,8 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
+import { GitHubMark } from "./GitHubInstallCard";
+import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
   addExtraFolder,
@@ -77,21 +79,28 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
+  chatFolderChoices,
+  shownChatFolder,
   folderChipState,
-  isCloudChatFolder,
+  startedCloudFolderName,
+  folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
+import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
-/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Remote) | Machine,
-///   the machine control only while the pick is another machine. Cloud has none: it gives the
+/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Other devices) | Machine,
+///   the machine control only while the pick is another machine. Other devices opens the person's
+///   own machines in the Where menu itself (Austin, 2026-11-12; it was Remote, which opened the
+///   machine control). Cloud has none: it gives the
 ///   workspace its own new machine (design/composer.md rule 18).
 /// - `where-machine-always`: the same, the machine control also shown on This Mac (its own name
 ///   with its live dot); never for Cloud.
 /// - `cloud-toggle` (ChatGPT Work): Project | Machine (This Mac first), and a cloud toggle at the
 ///   strip's end asking "Where should this chat run?" (This Mac, Cloud).
-/// - `combined`: one control for both, This Mac and Cloud, the machines behind Machines….
+/// - `combined`: one control for both, This Mac, Cloud and Other devices (the person's own
+///   machines, Austin 2026-11-12), every machine behind Machines….
 /// A started chat always has the one combined control (its machine and its one move).
 export type StripLayout = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
 
@@ -189,6 +198,8 @@ export function ComposerContext({
   cloudEnvironmentDropUp,
   unavailableGroup,
   unavailableExpanded,
+  cloudStartOut = false,
+  github: githubSeam,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -320,6 +331,12 @@ export function ComposerContext({
   /// and whether that group starts open.
   unavailableGroup?: UnavailableGroup;
   unavailableExpanded?: boolean;
+  /// A Cloud start this page sent is out (App.tsx `cloudStarting`): the folder went with it, so the
+  /// folder chip is a plain label until the start ends (folderlessCloud.ts `folderMenu`).
+  cloudStartOut?: boolean;
+  /// Gallery and test seam: the folder menu's GitHub part (githubRepos.ts); the page's store when omitted.
+  /// Only a new chat with Cloud picked shows it.
+  github?: GitHubPicker;
 }) {
   acpmuxPerf.render("composer:context");
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
@@ -335,6 +352,8 @@ export function ComposerContext({
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const accountTeam = useCloudTeam();
+  const pageGitHub = useGitHubPicker();
+  const github = githubSeam ?? pageGitHub;
   // The team Cloud runs in, named wherever Cloud is the pick (Leo, 2026-11-09: "i guess is team?
   // it's kinda hard to realize tho"); none while signed out.
   const cloudTeam = cloudSignedIn === false ? undefined : (cloudTeamSeam ?? accountTeam);
@@ -485,19 +504,20 @@ export function ComposerContext({
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
   // machine the account stops listing ends it for good too (it does not come back with the
   // machine), and one that failed to start stops it moving.
-  // Remote was picked in the Where menu: the machine control shows and opens (each pick
-  // a new request), until the chat or its machine changes.
-  const [machineAsk, setMachineAsk] = useState<{ key: string; request: number } | undefined>(undefined);
-  // Keyed by the chat, not the pick: New Tab echoes the picked machine back into summary, which
-  // changes pickKey, and the open request must survive that echo.
-  const askKey = summary?.sessionId ?? "";
-  const machineRequest = machineAsk?.key === askKey ? machineAsk.request : undefined;
-  const machineAsked = machineRequest !== undefined;
   const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string } | undefined>(undefined);
   const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
   if (waitingPick && !waitMachine) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
+  // The picked machine is a Cloud one: its menu never lists another chat's private `~/chats/<chat>`.
+  // Over a remote route the `local` row is the machine the route reaches, not this Mac: its folders
+  // are the ones its host listed for it (`machineFolders`), never this Mac's `projectChoices`.
+  const routeElsewhere = route?.origin === "remote" || route?.origin === "peer";
+  const machineOnCloud =
+    selectedComputer === "local"
+      ? routeElsewhere && route?.ownerCloud === true
+      : peerKinds[selectedComputer] === "cloud" ||
+        (selectedComputer === initialComputer && summary?.hostKind === "cloud");
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer === "local") {
@@ -509,29 +529,44 @@ export function ComposerContext({
         known.push({ id, label: projectLabel(id), detail: id });
       }
     }
-    const choices = selectedComputer === "local" ? projectChoices : ownMachine ? machineFolders : undefined;
-    if (!choices) return known;
-    const projects = choices.map((project) => ({
+    const choices =
+      selectedComputer === "local"
+        ? routeElsewhere
+          ? machineFolders
+          : projectChoices
+        : ownMachine
+          ? machineFolders
+          : undefined;
+    const listed = choices?.map((project): Location => ({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
       ...(project.repo ? { repo: project.repo } : {}),
     }));
-    const seen = new Set(projects.map((project) => project.id));
-    return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine, savedFolders]);
+    return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
+  }, [
+    summary,
+    sessions,
+    selectedComputer,
+    projectChoices,
+    machineFolders,
+    ownMachine,
+    savedFolders,
+    machineOnCloud,
+    routeElsewhere,
+  ]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
   // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
   // a Cloud machine only, since an SSH machine's `~/chats/api` is a project like any other.
   const summaryOnCloud =
-    summary?.hostKind === "cloud" || (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud");
+    summary?.hostKind === "cloud" ||
+    (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud") ||
+    (selectedComputer === "local" && machineOnCloud);
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? isAgentHome(summaryFolder) || (summaryOnCloud && isCloudChatFolder(summaryFolder))
-        ? undefined
-        : normalizeCwd(summaryFolder)
+      ? normalizeCwd(shownChatFolder(summary, selectedComputer, summaryOnCloud))
       : projectChoices
         ? undefined
         : folders[0]?.id;
@@ -541,7 +576,9 @@ export function ComposerContext({
   const liveEnvironment = useCloudEnvironmentControl(
     cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments === true,
     currentFolder,
-    currentFolder ? folders.find((folder) => folder.id === currentFolder)?.repo?.github : undefined,
+    currentFolder
+      ? (folders.find((folder) => folder.id === currentFolder)?.repo?.github ?? githubFolderRepo(currentFolder))
+      : undefined,
     runMode?.environment,
   );
   const environmentControl = cloudEnvironmentSeam ?? liveEnvironment;
@@ -563,11 +600,20 @@ export function ComposerContext({
   useEffect(() => {
     if (arrivedId) arrive.current(arrivedId);
   }, [arrivedId]);
-  if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
+  // What the folder chip opens (folderlessCloud.ts `folderMenu`): a Cloud chat's never lists this
+  // Mac's folders or Add folder… once it runs on its machine, and is a label while its start is out.
+  const folderOpens = folderMenu({
+    cloudStartOut,
+    readOnly,
+    newChats,
+    onThisMac: selectedComputer === "local" && !routeElsewhere,
+    localChoices: projectChoices !== undefined,
+    cloudMachine: machineOnCloud || summaryOnCloud || cloudPicked,
+  });
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
   // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
@@ -579,6 +625,8 @@ export function ComposerContext({
       })
     : undefined;
   const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  // A GitHub repository picked for a new Cloud chat (`github:owner/name`) reads `owner/name`.
+  const currentGitHub = githubFolderRepo(currentFolder);
   const place = !currentLocation
     ? undefined
     : branch
@@ -586,13 +634,15 @@ export function ComposerContext({
       : isMainCheckout(currentLocation)
         ? undefined
         : worktreeName(currentLocation);
-  const currentName = currentLocation
-    ? currentRepo
-      ? place && place !== currentRepo.name
-        ? `${currentRepo.name} · ${place}`
-        : currentRepo.name
-      : projectLabel(currentLocation.id)
-    : undefined;
+  const currentName = currentGitHub
+    ? currentGitHub
+    : currentLocation
+      ? currentRepo
+        ? place && place !== currentRepo.name
+          ? `${currentRepo.name} · ${place}`
+          : currentRepo.name
+        : projectLabel(currentLocation.id)
+      : undefined;
   // A started chat's Add folder…: the host's folder panel, then a new chat there.
   const browseNewChat =
     onBrowseFolder && onNewChat
@@ -777,6 +827,12 @@ export function ComposerContext({
   const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
   const layout: StripLayout = readOnly || moves ? "combined" : stripLayout;
+  // A started chat on a Cloud machine: the chip's popover opens on its machine card, and the chip
+  // carries the machine's dot (MachineCard.tsx).
+  const machineCardShown = started && environmentsShown && layout === "combined" && !waiting && !savedPick;
+  const { card: machineCardRows, dot: machineDot } = useMachineCard(currentPickerComputer, Boolean(machineCardShown));
+  // After the last hook: nothing to show yet draws the bare strip.
+  if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
     ...(unavailableGroup ? { unavailableGroup } : {}),
@@ -785,8 +841,8 @@ export function ComposerContext({
     current: selectedComputer,
     onPick: pickEnvironment,
     ...((!started || onboardingConnect) && onConnect ? { onConnect } : {}),
-    // A fresh home may not have a Cloud list reply at all. EnvironmentPicker treats only
-    // an explicit true as signed in, so it can offer the existing sign-in action there.
+    // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
+    // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
     ...(cloudTeam ? { cloudTeam } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
@@ -801,11 +857,6 @@ export function ComposerContext({
   const pickedOff = selectedComputer !== "local" && !savedPick;
   const cloudSide =
     cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
-  // Leaving Remote for Cloud, Sandboxed or a saved folder ends its open request, so a later This Mac pick
-  // (which may skip the Where onPick when Cloud already cleared the machine) shows no machine chip.
-  // A folder-only saved environment picked starts on this Mac: no machine chip either.
-  if (machineAsk !== undefined && (cloudSide || sandboxPicked || savedFolderPick !== undefined))
-    setMachineAsk(undefined);
   // What the folder chip says (folderlessCloud.ts): with Cloud and no folder, No folder, a valid start
   // in a fresh folder on the machine, never an empty Choose folder.
   const folderState = folderChipState({
@@ -814,21 +865,26 @@ export function ComposerContext({
     noProject,
     cloud: !sandboxPicked && (cloudSide || summary?.hostKind === "cloud"),
   });
+  // A started Cloud chat in its machine's fresh folder names that folder, never No folder.
+  const startedCloudFolder = startedCloudFolderName(summaryFolder, { cloud: summaryOnCloud, started });
   const folderValue =
-    (folderState === "folder" && currentName
-      ? currentName
-      : folderState === "folder" && currentFolder
-        ? projectLabel(currentFolder)
-        : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
-  const folderDetail = folderState === "cloudFresh" ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
-  // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
+    (startedCloudFolder !== undefined && folderState === "cloudFresh"
+      ? startedCloudFolder
+      : folderState === "folder" && currentName
+        ? currentName
+        : folderState === "folder" && currentFolder
+          ? projectLabel(currentFolder)
+          : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
+  const folderDetail =
+    folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
+  // A saved environment on this Mac is This Mac's; one on an SSH machine is Other devices'.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
     ? t("composer.sandboxed")
     : cloudSide
       ? t("composer.cloud")
       : offMac
-        ? t("composer.anotherMachine")
+        ? t("composer.otherDevices")
         : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
@@ -843,12 +899,11 @@ export function ComposerContext({
     sandboxPicked || cloudSide ? (
       <EnvironmentIcon kind="cloud" />
     ) : offMac ? (
-      <AnotherMachineIcon />
+      <DevicesIcon />
     ) : (
       <EnvironmentIcon kind="local" />
     );
-  // The third chip: which machine while another machine is the pick (or Remote was just
-  // picked); in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
+  // The third chip: which machine while another machine is the pick; in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
   // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". Only a
@@ -856,7 +911,7 @@ export function ComposerContext({
   const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
   const machineShown =
     layout === "where-machine"
-      ? offMac || savedPick !== undefined || cloudMachinePicked || (machineAsked && !cloudSide && !sandboxPicked)
+      ? offMac || savedPick !== undefined || cloudMachinePicked
       : layout === "where-machine-always"
         ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
         : true;
@@ -864,7 +919,7 @@ export function ComposerContext({
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
   // machine picked says Cloud (Send reuses the person's machine or makes one, so no New machine shows;
-  // Leo, 2026-11-04); Remote with none picked asks for one.
+  // Leo, 2026-11-04).
   const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
     cloudPicked && cloudWorksOn
@@ -924,35 +979,24 @@ export function ComposerContext({
         }
         value={placeName}
         chevron
+        {...(machineDot ? { live: machineDot.live, liveWords: machineDot.words } : {})}
+        {...(machineDot?.sleep ? { sleep: machineDot.sleep } : {})}
       />
     );
-  // Remote: the first of the person's own machines a chat can start on is the pick (so the
-  // strip always says where the chat starts), and the machine chip opens to change it; with none of
-  // them listed, Add Machine….
-  const anotherMachine = () => {
-    const others = orderEnvironments(pickerComputers).filter(
-      (computer) => computer.kind !== "local" && computer.kind !== "cloud",
-    );
-    if (others.length === 0) {
-      onConnect?.("addMachine");
-      return;
-    }
-    const first = others.find(environmentReady);
-    if (first && !offMac) pickEnvironment(first.id);
-    setMachineAsk({ key: askKey, request: (machineAsk?.request ?? 0) + 1 });
-  };
   return (
     <div className="acpmux-composer-strip">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
         <div className="acpmux-location-leading">
-          {!folderShown ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+          {!folderShown ? null : folderOpens.kind === "localFolders" ? (
             <FolderPopover
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
               face={
                 <LocationFace
                   icon={
-                    currentLocation ? (
+                    currentGitHub ? (
+                      <GitHubMark />
+                    ) : currentLocation ? (
                       <ProjectBadge
                         project={{
                           cwd: currentLocation.id,
@@ -993,6 +1037,8 @@ export function ComposerContext({
               {...(onNewProject ? { onNewProject } : {})}
               {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
+              // A new chat with Cloud picked also offers the person's GitHub repositories.
+              {...(cloudSide && !sandboxPicked && !readOnly ? { github } : {})}
             />
           ) : (
             <LocationPicker
@@ -1001,12 +1047,12 @@ export function ComposerContext({
               value={folderValue}
               options={folders}
               selected={currentFolder}
-              disabled={readOnly && !newChats}
+              disabled={folderOpens.kind === "label"}
               icon={<FolderIcon />}
               middle={currentFolder !== undefined}
               allowPath
               {...(extra ? { extra } : {})}
-              onBrowse={newChats ? browseNewChat : undefined}
+              onBrowse={folderOpens.addFolder ? browseNewChat : undefined}
               extras={
                 newChats && currentFolder
                   ? [
@@ -1069,9 +1115,12 @@ export function ComposerContext({
                   )
                 }
                 environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
+                // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
+                otherDevices={!readOnly && !moves}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
                 {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
+                {...(machineCardRows ? { card: machineCardRows } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
@@ -1099,11 +1148,9 @@ export function ComposerContext({
                     />
                   }
                   rows="where"
-                  onAnother={anotherMachine}
-                  onPick={(id) => {
-                    setMachineAsk(undefined);
-                    pickEnvironment(id);
-                  }}
+                  // Other devices opens the person's own machines in place; a pick there is the
+                  // machine chip's pick (Austin, 2026-11-12: it was Remote, which opened that chip).
+                  otherDevices
                 />
                 {machineShown && (
                   <EnvironmentPicker
@@ -1117,7 +1164,6 @@ export function ComposerContext({
                     ownOnly={!cloudMachinePicked}
                     digits={false}
                     setupMenu={false}
-                    {...(machineRequest !== undefined ? { openRequest: machineRequest } : {})}
                   />
                 )}
                 {environmentControl && (
@@ -1353,6 +1399,7 @@ function LocationFace({
   middle = false,
   live,
   sleep,
+  liveWords,
   state,
   detail,
   team,
@@ -1366,6 +1413,9 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
+  /// The live dot's words for screen readers in place of Connected / Paused (the machine card's
+  /// Awake / Asleep).
+  liveWords?: string;
   /// The folder chip's state (folderlessCloud.ts), for tests.
   state?: FolderChipState;
   /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
@@ -1398,13 +1448,16 @@ function LocationFace({
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
           <Spinner size={12} loading className="acpmux-env-live-spinner" />
-          <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
+          <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}
       {live !== undefined && sleep !== "resuming" && (
         <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {t(live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected")}
+            {liveWords ??
+              t(
+                live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected",
+              )}
           </span>
         </span>
       )}

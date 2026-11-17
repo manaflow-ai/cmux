@@ -34,12 +34,14 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "cloudModels",
   "worktreeSetup",
   "contextMenus",
   "personalization",
   "sharedLinks",
   "customizeLibrary",
   "tailnet",
+  "models",
   "keys",
 ] as const;
 

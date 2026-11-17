@@ -44,6 +44,8 @@ mod probe_schedule;
 mod probing;
 mod single_path;
 mod stream;
+#[cfg(test)]
+mod tcp_model_tests;
 mod tcp_stack;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.

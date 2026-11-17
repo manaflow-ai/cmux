@@ -89,6 +89,7 @@ extension WorkspaceRowView {
             }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            cloudMark.setTint(Palette.textSecondary)
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -115,10 +116,7 @@ extension WorkspaceRowView {
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        // View owns one compact trailing slot at rest. The whole existing text/control cluster uses
-        // the remaining width, so hover close, overflow, badges and captions never collide with it.
-        let contentWidth = max(0, full.width - (screenAction == nil ? 0 : SidebarStyle.trailingSlotPitch))
-        let b = NSRect(x: full.minX, y: full.minY, width: contentWidth, height: full.height - statusHeight)
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -130,7 +128,6 @@ extension WorkspaceRowView {
         // (Leo 2026-10-21); the members' line is one layer per group beside the rows
         // (SidebarListView+GroupLines).
         let (th, sh, top, cy) = textMetrics(head: b)
-        screenSlot.frame = SidebarStyle.trailingColumnFrame(rowWidth: full.width, centerY: cy, side: SidebarStyle.controlSize)
         let columns = SidebarStyle.columns(rowWidth: b.width, depth: treeDepth)
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
@@ -293,8 +290,14 @@ extension WorkspaceRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : columns.lead)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
+        // A Cloud row's mark sits right after the name, which gives up room for it (it truncates first).
+        let cloudRoom = cloudMark.isHidden ? 0 : ind + Metrics.space1
+        let titleWidth = max(0, textW - inset - cloudRoom) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
+        if !cloudMark.isHidden {
+            let nameEnd = title.frame.minX + min(title.intrinsicContentSize.width, title.frame.width)
+            cloudMark.frame = NSRect(x: nameEnd + Metrics.space1, y: title.frame.midY - ind / 2, width: ind, height: ind)
+        }
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
@@ -313,7 +316,7 @@ extension WorkspaceRowView {
         startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay

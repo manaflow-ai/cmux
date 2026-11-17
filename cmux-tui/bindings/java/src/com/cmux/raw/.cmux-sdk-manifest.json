@@ -782,8 +782,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6016f87c08ea910d4eb733d9be3630bee848099b2ec8fe74e6000c56f5f7485f",
-      "size": 84303
+      "sha256": "4ee005e76cf28ac4642567a4aed4e32ad2b7990d4e284222d051ef17af196cd7",
+      "size": 84518
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1391,6 +1391,11 @@
       "size": 3163
     },
     {
+      "path": "FloatPaneRequest.java",
+      "sha256": "d07692d8d854b24e71d7c243d43d3c13caa250b25079b69a7d8c31747a21a7aa",
+      "size": 5380
+    },
+    {
       "path": "FocusDirectionRequest.java",
       "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
       "size": 2577
@@ -1452,8 +1457,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "1a316f440f3078b9bd521eec73ccb46c697ab92fa95356af30bfd805612d5e28",
-      "size": 72196
+      "sha256": "3f74e272cfa1232c04cd6404c4c8dda55c3df47a440a8325e2b1dca2cd965813",
+      "size": 72401
     },
     {
       "path": "GetBlobRequest.java",
@@ -2227,7 +2232,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "add7f3f0a0c3d23dafcafee855943107fa28ae271565628cccba9ef6f6aa3f7c",
+      "sha256": "62efac0e0a7f8b991a41e6c1931b5ce3f2326eb4fafe146f3cafcfb6e4334321",
       "size": 8310
     },
     {
@@ -3757,7 +3762,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8",
+  "ir_sha256": "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
