@@ -84,4 +84,18 @@ describe("clock widget", () => {
     const glass = (await renderScene(source, { size: "large", settings: { color: "glass" } })).ops.find((op) => op.props?.text === "9:41")!
     expect(glass.props).toMatchObject({ color: "primary", opacity: 0.55, weight: "heavy" })
   })
+
+  test("the person's zone from the context: its time and day, its name on the analog row, and no city at its own offset", async () => {
+    const small = (await renderScene(source, { size: "small", timeZone: "Asia/Tokyo" })).ops
+    expect(texts(small)).toEqual(["TUESDAY", "Nov 17", "2:41", "AM"])
+    expect(small.find((op) => op.props?.text === "TUESDAY")!.props).toMatchObject({ color: "#FF3B30" })
+    const row = texts((await renderScene(source, { size: "medium", timeZone: "Asia/Tokyo", settings: { face: "analog" } })).ops)
+    expect(row[0]).toBe("Tokyo")
+    expect(row).not.toContain("Here")
+    expect(row).toContain("Los Angeles")
+    const large = texts((await renderScene(source, { size: "large", timeZone: "Asia/Tokyo" })).ops)
+    expect(large).toContain("Yesterday, \u221217h")
+    // An unknown zone name: the runtime's clock, and "Here".
+    expect(texts((await renderScene(source, { size: "medium", timeZone: "Nowhere/City", settings: { face: "analog" } })).ops)[0]).toBe("Here")
+  })
 })

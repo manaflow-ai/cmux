@@ -10,6 +10,8 @@ export interface Render {
   settings?: Record<string, unknown>
   /** "widget" (default): the widget host's mount, whose context has now(); "section": a host without it. */
   surface?: "widget" | "section"
+  /** The person's IANA zone in the widget context (default Los Angeles, the fixtures' zone). */
+  timeZone?: string
 }
 
 export async function renderScene(source: string, render: Render): Promise<{ ops: Op[]; host: FakeHost }> {
@@ -17,7 +19,15 @@ export async function renderScene(source: string, render: Render): Promise<{ ops
   // Pin the clock before the app's script runs, so nothing reads the real time.
   host.eval(`Date.now = () => ${AT}`)
   host.eval(source)
-  host.mount("w", "renderClock", { surface: render.surface ?? "widget", size: render.size, place: "newtab", instance: `preview-${render.size}`, settings: render.settings ?? {} })
+  const widget = (render.surface ?? "widget") === "widget"
+  host.mount("w", "renderClock", {
+    surface: render.surface ?? "widget",
+    size: render.size,
+    place: "newtab",
+    instance: `preview-${render.size}`,
+    settings: render.settings ?? {},
+    ...(widget ? { locale: "en-US", timeZone: render.timeZone ?? "America/Los_Angeles" } : {})
+  })
   await host.settle()
   return { ops: host.batches("w").flat(), host }
 }

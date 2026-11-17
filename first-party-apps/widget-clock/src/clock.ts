@@ -65,6 +65,29 @@ export function twelveHour(settings: Settings, locale: string | undefined): bool
 export const wall = (at: number, offsetMinutes: number) => new Date(at + offsetMinutes * MINUTE)
 export const localOffset = (at: number) => -new Date(at).getTimezoneOffset()
 
+/** The person's offset at `at`: their IANA zone (the widget context's `timeZone`) by its rules, else the runtime's. */
+export function homeOffset(timeZone: string | undefined, at: number, zoneOf: ZoneOf): number {
+  if (timeZone) {
+    try {
+      return zoneOf(timeZone, at).offsetMinutes
+    } catch {
+      // An unknown zone name: the runtime's offset.
+    }
+  }
+  return localOffset(at)
+}
+
+/** The analog row's label for the person's own dial: their city, from a zone the rules know, else "Here". */
+export function homeName(timeZone: string | undefined, at: number, zoneOf: ZoneOf): string {
+  if (!timeZone || !timeZone.includes("/")) return "Here"
+  try {
+    zoneOf(timeZone, at)
+    return cityName(timeZone)
+  } catch {
+    return "Here"
+  }
+}
+
 export interface TimeParts {
   /** "9:41" or "09:41" */
   time: string
@@ -135,11 +158,10 @@ export function handAngles(clock: Date): { hourAngle: number; minuteAngle: numbe
   return { hourAngle: minutes * 0.5, minuteAngle: minutes * 6 }
 }
 
-export function city(zone: string, at: number, twelve: boolean, zoneOf: ZoneOf): City {
+export function city(zone: string, at: number, twelve: boolean, zoneOf: ZoneOf, here = localOffset(at)): City {
   const name = cityName(zone)
   try {
     const { offsetMinutes } = zoneOf(zone, at)
-    const here = localOffset(at)
     const clock = wall(at, offsetMinutes)
     const mine = wall(at, here)
     const days = Math.round((Date.UTC(clock.getUTCFullYear(), clock.getUTCMonth(), clock.getUTCDate()) - Date.UTC(mine.getUTCFullYear(), mine.getUTCMonth(), mine.getUTCDate())) / DAY)
@@ -163,9 +185,9 @@ export function city(zone: string, at: number, twelve: boolean, zoneOf: ZoneOf):
  * The cities a widget shows: the person's list, minus cities at their own offset when the list is
  * the default one (an explicit list is shown as written), at most `count`.
  */
-export function cities(setting: unknown, at: number, twelve: boolean, zoneOf: ZoneOf, count: number): City[] {
+export function cities(setting: unknown, at: number, twelve: boolean, zoneOf: ZoneOf, count: number, here = localOffset(at)): City[] {
   const explicit = typeof setting === "string" && setting.trim() !== ""
-  const all = zonesFrom(setting).map((zone) => city(zone, at, twelve, zoneOf))
+  const all = zonesFrom(setting).map((zone) => city(zone, at, twelve, zoneOf, here))
   const shown = explicit ? all : all.filter((c) => c.offset !== "")
   return shown.slice(0, count)
 }

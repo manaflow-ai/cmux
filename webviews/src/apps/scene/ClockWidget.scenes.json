@@ -18,7 +18,7 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": "caption", "weight": "bold", "color": "danger", "text": "MONDAY" }
+        "props": { "font": "caption", "weight": "bold", "color": "#FF3B30", "text": "MONDAY" }
       },
       { "op": "children", "id": "n2", "children": ["n3"] },
       { "op": "create", "id": "n4", "type": "Group", "props": {} },
@@ -37,8 +37,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "9:41",
           "font": 50,
           "weight": "heavy",
@@ -91,7 +91,7 @@
         "op": "create",
         "id": "n4",
         "type": "Text",
-        "props": { "font": "caption", "weight": "bold", "color": "danger", "text": "MONDAY" }
+        "props": { "font": "caption", "weight": "bold", "color": "#FF3B30", "text": "MONDAY" }
       },
       { "op": "children", "id": "n3", "children": ["n4"] },
       { "op": "create", "id": "n5", "type": "Group", "props": {} },
@@ -110,8 +110,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "9:41",
           "font": 56,
           "weight": "heavy",
@@ -252,8 +252,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "9:41",
           "font": 64,
           "weight": "heavy",
@@ -894,7 +894,7 @@
         "op": "create",
         "id": "n33",
         "type": "Text",
-        "props": { "font": "caption", "weight": "semibold", "lineLimit": 1, "text": "Here" }
+        "props": { "font": "caption", "weight": "semibold", "lineLimit": 1, "text": "Los Angeles" }
       },
       {
         "op": "create",
@@ -1369,8 +1369,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "09:41",
           "font": 64,
           "weight": "heavy",
@@ -1552,8 +1552,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "9:41",
           "font": 64,
           "weight": "thin",
@@ -1761,7 +1761,7 @@
         "op": "create",
         "id": "n3",
         "type": "Text",
-        "props": { "font": "caption", "weight": "bold", "color": "danger", "text": "MONDAY" }
+        "props": { "font": "caption", "weight": "bold", "color": "#FF3B30", "text": "MONDAY" }
       },
       { "op": "children", "id": "n2", "children": ["n3"] },
       { "op": "create", "id": "n4", "type": "Group", "props": {} },
@@ -1780,8 +1780,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "monospaced": true,
           "text": "9:41",
           "font": 40,
@@ -1842,8 +1842,8 @@
         "type": "Text",
         "props": {
           "lineLimit": 1,
-          "fixedSize": "horizontal",
           "contentTransition": "numericText",
+          "fixedSize": "horizontal",
           "text": "9:41",
           "font": 56,
           "weight": "regular",

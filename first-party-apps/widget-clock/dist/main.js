@@ -2329,7 +2329,12 @@
       "workspace.open_url"
     ]
   };
+  var WIDGET_TYPE = { bigNumber: 34, title: 15, label: 13, body: 13, caption: 12, footnote: 11 };
   var WIDGET_INSET = { newtab: 16, sidebar: 12 };
+  function BigNumber(text, options = {}) {
+    const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1).contentTransition("numericText");
+    return options.tint ? view.color(options.tint) : view;
+  }
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
   var RUNTIME_VERSION = String(globalThis.__cmuxAppRuntimeVersion ?? "");
@@ -2393,6 +2398,24 @@
   }
   var wall = (at, offsetMinutes) => new Date(at + offsetMinutes * MINUTE);
   var localOffset = (at) => -new Date(at).getTimezoneOffset();
+  function homeOffset(timeZone, at, zoneOf) {
+    if (timeZone) {
+      try {
+        return zoneOf(timeZone, at).offsetMinutes;
+      } catch {}
+    }
+    return localOffset(at);
+  }
+  function homeName(timeZone, at, zoneOf) {
+    if (!timeZone || !timeZone.includes("/"))
+      return "Here";
+    try {
+      zoneOf(timeZone, at);
+      return cityName(timeZone);
+    } catch {
+      return "Here";
+    }
+  }
   function timeParts(clock, twelve) {
     const h = clock.getUTCHours();
     const m = two(clock.getUTCMinutes());
@@ -2421,11 +2444,10 @@
     const minutes = Math.floor(clock.getTime() / 60000);
     return { hourAngle: minutes * 0.5, minuteAngle: minutes * 6 };
   }
-  function city(zone, at, twelve, zoneOf) {
+  function city(zone, at, twelve, zoneOf, here = localOffset(at)) {
     const name = cityName(zone);
     try {
       const { offsetMinutes } = zoneOf(zone, at);
-      const here = localOffset(at);
       const clock = wall(at, offsetMinutes);
       const mine = wall(at, here);
       const days = Math.round((Date.UTC(clock.getUTCFullYear(), clock.getUTCMonth(), clock.getUTCDate()) - Date.UTC(mine.getUTCFullYear(), mine.getUTCMonth(), mine.getUTCDate())) / DAY);
@@ -2444,9 +2466,9 @@
       return { zone, name, time: "--:--", period: "", offset: "", day: "Unknown zone", hourAngle: 0, minuteAngle: 0, night: false, problem: true };
     }
   }
-  function cities(setting, at, twelve, zoneOf, count) {
+  function cities(setting, at, twelve, zoneOf, count, here = localOffset(at)) {
     const explicit = typeof setting === "string" && setting.trim() !== "";
-    const all = zonesFrom(setting).map((zone) => city(zone, at, twelve, zoneOf));
+    const all = zonesFrom(setting).map((zone) => city(zone, at, twelve, zoneOf, here));
     const shown = explicit ? all : all.filter((c) => c.offset !== "");
     return shown.slice(0, count);
   }
@@ -2472,6 +2494,7 @@
   var TIME_FONT = { small: 50, medium: 56, large: 64 };
   var MONO_TIME_FONT = { small: 40, medium: 46, large: 56 };
   var zoneOf = (zone, at) => cmux.time.zone(zone, at);
+  var WEEKDAY_RED = "#FF3B30";
   function withDesign(view, style) {
     const designable = view;
     if (typeof designable.fontDesign === "function")
@@ -2479,7 +2502,7 @@
     return untrack(style).design === "monospaced" ? view.monospaced() : view;
   }
   function bigTime(time, period, hasPeriod, size, style) {
-    const digits = Text(time).font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal").contentTransition("numericText");
+    const digits = BigNumber(time).font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal");
     return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
       withDesign(digits, style),
       () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null
@@ -2550,16 +2573,17 @@
     const now = minuteClock(context);
     const settings = computed(() => ({ ...cmux.app.settings(), ...context.settings ?? {} }));
     const size = sizeOf(context.size);
-    const twelve = computed(() => twelveHour(settings(), cmux.app.locale));
-    const here = computed(() => wall(now(), localOffset(now())));
+    const twelve = computed(() => twelveHour(settings(), context.locale || cmux.app.locale));
+    const offset = computed(() => homeOffset(context.timeZone, now(), zoneOf));
+    const here = computed(() => wall(now(), offset()));
     const parts = computed(() => timeParts(here(), twelve()));
-    const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size]));
+    const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size], offset()));
     const time = () => parts().time;
     const period = () => parts().period;
     const style = computed(() => timeStyle(settings()));
     const dated = () => showsDate(settings());
     const dateStack = () => [
-      () => dated() ? Text(() => weekday(here())).font("caption").weight("bold").color("danger") : null,
+      () => dated() ? Text(() => weekday(here())).font("caption").weight("bold").color(WEEKDAY_RED) : null,
       () => dated() ? Text(() => shortDate(here())).font("title3").weight("semibold") : null
     ];
     if (settings().face === "analog") {
@@ -2576,7 +2600,7 @@
           Text(sub).font("caption2").secondary().lineLimit(1)
         ]);
         return HStack({ spacing: 12, alignment: "center" }, [
-          dial(() => "Here", () => [time(), period()].filter(Boolean).join(" "), () => handAngles(here())),
+          dial(() => homeName(context.timeZone, now(), zoneOf), () => [time(), period()].filter(Boolean).join(" "), () => handAngles(here())),
           ...[0, 1, 2].map((i) => dial(() => others()[i]?.name ?? "", () => others()[i] ? [others()[i].day === "Today" ? "" : others()[i].day, others()[i].offset].filter(Boolean).join(" ") || "Same time" : "", () => others()[i] ?? { hourAngle: 0, minuteAngle: 0 }))
         ]);
       }

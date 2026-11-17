@@ -37,7 +37,8 @@ ticks the mount context's `now()` on the minute only while the tile is shown, an
 it. On a host without `now()` (an older cmux) it arms one one-shot timer to just after the next
 minute, which arms the next and is cleared with the view. A tick sends one scene update: the time's
 Text node (and the cities' times and the hands). No reads, no network, no scopes: zone rules come
-from `cmux.time.zone`.
+from `cmux.time.zone`. The person's own zone and locale come from the widget context (`timeZone`,
+`locale`): their offset is `cmux.time.zone(timeZone, now())`, and the analog row names their city.
 
 ## Files
 
@@ -58,8 +59,6 @@ from `cmux.time.zone`.
 - `HStack` has no baseline alignment: AM/PM sits centered beside the big time, not on its baseline.
 - Shapes are square (`size` only; `frame` is ignored on `Circle`/`Capsule`/`Rectangle`): clock hands
   are drawn as rotated stacks with a background instead.
-- No local IANA zone name in the sandbox (`cmux.time.zone` has no "local"): the analog row says
-  "Here" rather than the person's city.
 - No seconds: a seconds hand or `:SS` would need a host-drawn ticking text or rotation (as SwiftUI's
   `Text(date, style: .timer)`), which the scene vocabulary does not have; per-second scene updates
   would spend the refresh budget.

@@ -10,13 +10,14 @@
 // cmux.time.zone. The view redraws once a minute, just after the minute starts, from a one-shot
 // timer that arms the next; nothing runs between minutes.
 
-import { cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, untrack, VStack, ZStack, Circle, WIDGET_INSET, type View } from "cmux-extension-sdk"
+import { BigNumber, cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, untrack, VStack, ZStack, Circle, WIDGET_INSET, type View } from "cmux-extension-sdk"
 import {
   CITY_COUNT,
   cities,
   dateLine,
   handAngles,
-  localOffset,
+  homeName,
+  homeOffset,
   shortDate,
   shortWeekday,
   showsDate,
@@ -40,6 +41,9 @@ export interface WidgetContext {
   place?: "newtab" | "sidebar"
   settings?: Settings
   instance?: string
+  /** The person's locale (BCP 47) and IANA zone, from the page (the sandbox has no Intl). */
+  locale?: string
+  timeZone?: string
   /** The host's reactive clock (ms), ticked on the minute while the tile shows (manifest refresh: 60 s). */
   now?: () => number
 }
@@ -50,6 +54,9 @@ const TIME_FONT: Record<Size, number> = { small: 50, medium: 56, large: 64 }
 const MONO_TIME_FONT: Record<Size, number> = { small: 40, medium: 46, large: 56 }
 
 const zoneOf: ZoneOf = (zone, at) => cmux.time.zone(zone, at)
+
+/** The weekday's red (Apple's system red): a hex, since a theme token may not be red. */
+const WEEKDAY_RED = "#FF3B30"
 
 /**
  * The font design (rounded, serif, mono) on a text. A host whose scene has `fontDesign` takes the
@@ -63,14 +70,13 @@ function withDesign(view: View, style: () => TimeStyle): View {
 
 /** The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it). */
 function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size, style: () => TimeStyle): View {
-  const digits = Text(time)
+  const digits = BigNumber(time)
     .font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size])
     .weight(() => style().weight)
     .color(() => style().color)
     .opacity(() => style().opacity)
     .lineLimit(1)
     .fixedSize("horizontal")
-    .contentTransition("numericText")
   return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
     withDesign(digits, style),
     () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null)
@@ -163,17 +169,19 @@ function clockView(context: WidgetContext): View {
   const now = minuteClock(context)
   const settings = computed<Settings>(() => ({ ...(cmux.app.settings() as Settings), ...(context.settings ?? {}) }))
   const size = sizeOf(context.size)
-  const twelve = computed(() => twelveHour(settings(), cmux.app.locale))
-  const here = computed(() => wall(now(), localOffset(now())))
+  const twelve = computed(() => twelveHour(settings(), context.locale || cmux.app.locale))
+  // The person's offset by their zone's rules (the context's timeZone), else the runtime's.
+  const offset = computed(() => homeOffset(context.timeZone, now(), zoneOf))
+  const here = computed(() => wall(now(), offset()))
   const parts = computed(() => timeParts(here(), twelve()))
-  const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size]))
+  const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size], offset()))
   const time = () => parts().time
   const period = () => parts().period
   const style = computed(() => timeStyle(settings()))
   const dated = () => showsDate(settings())
   /** The weekday in red over the short date (small and medium), unless the date is off. */
   const dateStack = (): Array<() => View | null> => [
-    () => (dated() ? Text(() => weekday(here())).font("caption").weight("bold").color("danger") : null),
+    () => (dated() ? Text(() => weekday(here())).font("caption").weight("bold").color(WEEKDAY_RED) : null),
     () => (dated() ? Text(() => shortDate(here())).font("title3").weight("semibold") : null)
   ]
 
@@ -193,7 +201,7 @@ function clockView(context: WidgetContext): View {
           Text(sub).font("caption2").secondary().lineLimit(1)
         ])
       return HStack({ spacing: 12, alignment: "center" }, [
-        dial(() => "Here", () => [time(), period()].filter(Boolean).join(" "), () => handAngles(here())),
+        dial(() => homeName(context.timeZone, now(), zoneOf), () => [time(), period()].filter(Boolean).join(" "), () => handAngles(here())),
         ...[0, 1, 2].map((i) =>
           dial(
             () => others()[i]?.name ?? "",
