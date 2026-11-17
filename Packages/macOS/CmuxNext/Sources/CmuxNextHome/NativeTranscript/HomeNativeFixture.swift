@@ -160,6 +160,9 @@ public final class HomeNativeFixture {
     /// notice (``HomeFeedRow``, `source`/`title`; default "cmux updated to nightly 4295228") in the
     /// shown conversation, as the app does for the default Chief.
     public func debugDrive(_ action: String, _ params: [String: String]) -> [String: String]? {
+        #if DEBUG
+        if action == "hover_media" { return ["ok": String(view?.transcript.debugHoverMedia(Int(params["index"] ?? "0") ?? 0) ?? false)] }
+        #endif
         if action == "fixture_media" {
             // {mine, missing: "true" | "false"}: the Chief's PNG and two poster-less MP4s, my wide picture, a missing one.
             return ["ok": String(debugChiefMedia(mine: params["mine"] != "false", missing: params["missing"] != "false"))]
