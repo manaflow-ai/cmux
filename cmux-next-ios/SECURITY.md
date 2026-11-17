@@ -1015,13 +1015,18 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   cannot prove its pinned key learns only that a cmux phone asked for its
   chat list (ask-48f698fc26). Until then the phone keeps at most 256
   notifications, 8 MiB of them in all, from that channel (`AcpmuxConnection`
-  `held`); a compressed message may inflate to at most what is left of the
-  8 MiB and is refused by its header before it is inflated. A Mac that sends
-  more is cut off (the channel closes; nothing is dropped quietly), so one that
-  never passes the check cannot fill the phone's memory while it waits. The
-  answers to the phone's own two requests are kept whole, one each and at most
-  64 MiB as on any connection, so an older Mac that ignores the row limit still
-  delivers its whole list.
+  `held`). One rule bounds every message while its frames arrive, plain or
+  compressed (`MessageJoiner` `budget`): it may grow to at most what is left of
+  the 8 MiB, a compressed one judged by its header before it is inflated. The
+  one exception is decided from the message's first bytes (`{"id":N` or
+  `{"jsonrpc":"2.0","id":N` in the first 64 bytes of text, with at most 4 KiB
+  of compressed bytes inflated to read them): an answer to one of the phone's
+  own two requests still waiting may be 64 MiB as on any connection, once per
+  request, so an older Mac that ignores the row limit still delivers its whole
+  list. A Mac that sends more is cut off while it sends (the channel closes;
+  nothing is dropped quietly), so one that never passes the check holds at most
+  8 MiB of notifications and two answers of 64 MiB, what an honest Mac's
+  answers may take, in the phone's memory while it waits.
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered

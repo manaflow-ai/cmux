@@ -190,8 +190,8 @@ public final class AcpmuxHub {
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-            ]))
-            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams)
+            ]), timeout: requestTimeout)
+            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
             if let gate, !(await gate()) {
                 // The pairing failed: nothing this Mac sent is applied, and nothing is said here
                 // (the pairing says why).

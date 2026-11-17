@@ -264,12 +264,14 @@ public actor AcpmuxConnection {
     func route(_ data: Data) {
         guard cutOff == nil else { return }
         var joiner = frames
-        // Before the check, a compressed message may inflate to at most what is left of the
-        // budget: one whose header says more is refused before it is inflated. Plain text is read
-        // at the usual limit, since its bytes came over the link.
-        joiner.inflateLimit = held == nil ? MessageJoiner.maxMessage : max(0, Self.heldByteLimit - heldBytes)
+        // Before the check every message, plain or compressed, grows to at most what is left of
+        // the budget while it arrives, unless its first bytes answer one of this phone's own
+        // requests still waiting: that one may be as long as any message, once per request.
+        joiner.budget = held == nil ? MessageJoiner.maxMessage : max(0, Self.heldByteLimit - heldBytes)
+        joiner.replyIDs = held == nil ? [] : submitted.subtracting(claimedReplies)
         let message = joiner.push(data)
         let refused = joiner.takeRefused()
+        if let id = joiner.takeClaimed() { claimedReplies.insert(id) }
         frames = joiner
         if held != nil, let refused {
             cutOff = "a message of \(refused) bytes"
@@ -283,6 +285,8 @@ public actor AcpmuxConnection {
     }
 
     private var frames = MessageJoiner()
+    /// Requests whose answer already took its allowance before the check (one message each).
+    private var claimedReplies: Set<Int> = []
 
     /// `bytes`: the message's length as read (inflated, for a compressed one).
     private func dispatch(_ value: JSONValue, bytes: Int) {
@@ -341,19 +345,31 @@ public actor AcpmuxConnection {
         static let fullFrame = 256 * 1024
         static let maxMessage = 64 << 20
         private var pending = Data()
-        /// The longest a compressed message may inflate to: ``maxMessage``, or before the pairing
-        /// check what is left of ``AcpmuxConnection/heldByteLimit``. One whose header says more
-        /// is refused by that length, before it is inflated.
-        var inflateLimit = Self.maxMessage
+        /// The longest a message may grow to while its frames arrive (its text, inflated for a
+        /// compressed one): ``maxMessage``, or before the pairing check what is left of
+        /// ``AcpmuxConnection/heldByteLimit``.
+        var budget = Self.maxMessage
+        /// Before the pairing check, this phone's own requests still waiting: a message whose
+        /// first bytes give one of these ids may be as long as ``maxMessage`` (``takeClaimed()``).
+        var replyIDs: Set<Int> = []
+        /// The limit of the message being joined; nil until its first bytes are in.
+        private var limit: Int?
         /// The length of the last message returned (its text, inflated for a compressed one).
         private(set) var lastBytes = 0
-        /// The length of a message refused since the last ``takeRefused()``: compressed past
-        /// `inflateLimit`, or plain past ``maxMessage``.
+        /// The length of a message refused since the last ``takeRefused()``: longer than its
+        /// limit (a compressed one by its header, before it is inflated).
         private var refused: Int?
+        /// The request id a message took the answer's allowance for, since the last ``takeClaimed()``.
+        private var claimed: Int?
 
         mutating func takeRefused() -> Int? {
             defer { refused = nil }
             return refused
+        }
+
+        mutating func takeClaimed() -> Int? {
+            defer { claimed = nil }
+            return claimed
         }
 
         /// The message once complete, else nil (waiting, or a frame that was dropped).
@@ -362,28 +378,70 @@ public actor AcpmuxConnection {
             if (pending.first ?? frame.first) == DeflatedMessage.marker {
                 return pushDeflated(frame)
             }
+            if pending.isEmpty { start(Self.leadingID(frame)) }
             pending.append(frame)
             // A whole JSON message ends with `}` or `]` (acpmux sends objects): parse only
             // then, so a large message is not parsed again on each of its chunks.
             if Self.mayEnd(pending), let value = Self.decode(pending) {
                 lastBytes = pending.count
-                pending = Data()
+                reset()
                 return value
             }
-            if frame.count >= Self.chunk, pending.count <= Self.maxMessage {
+            let limit = limit ?? budget
+            if pending.count > limit {
+                refused = pending.count
+                reset()
                 return nil
             }
-            if pending.count > Self.maxMessage { refused = pending.count }
+            if frame.count >= Self.chunk {
+                return nil
+            }
             let stale = pending.count > frame.count
-            pending = Data()
+            reset()
             lastBytes = frame.count
-            return stale && Self.mayEnd(frame) ? Self.decode(frame) : nil
+            return stale && Self.mayEnd(frame) && frame.count <= budget ? Self.decode(frame) : nil
+        }
+
+        /// A message whose first bytes gave `id` starts: an answer to one of ``replyIDs`` may be
+        /// as long as any message, everything else as long as ``budget``.
+        private mutating func start(_ id: Int?) {
+            if let id, replyIDs.contains(id) {
+                limit = Self.maxMessage
+                claimed = id
+            } else {
+                limit = budget
+            }
+        }
+
+        private mutating func reset() {
+            pending = Data()
+            limit = nil
         }
 
         private mutating func pushDeflated(_ frame: Data) -> JSONValue? {
             pending.append(frame)
-            if let header = DeflatedMessage(header: pending), header.textBytes > inflateLimit { refused = header.textBytes }
-            switch DeflatedMessage.state(pending, limit: inflateLimit) {
+            if limit == nil, let header = DeflatedMessage(header: pending) {
+                // The id comes from the first bytes of the text, inflated from what is in so far.
+                if let text = DeflatedMessage.textPrefix(pending.prefix(DeflatedMessage.headerBytes + Self.peekBytes), count: 64) {
+                    start(Self.leadingID(text))
+                } else if pending.count >= DeflatedMessage.headerBytes + min(header.deflateBytes, Self.peekBytes) {
+                    // The first bytes of a reply inflate from far fewer: this one is not a reply.
+                    start(nil)
+                }
+            }
+            if pending.count > max(limit ?? budget, Self.chunk) + DeflatedMessage.headerBytes {
+                // Never more compressed bytes than the text they inflate to may hold.
+                refused = pending.count
+                reset()
+                return nil
+            }
+            guard let limit else { return nil }
+            if let header = DeflatedMessage(header: pending), header.textBytes > limit {
+                refused = header.textBytes
+                reset()
+                return nil
+            }
+            switch DeflatedMessage.state(pending, limit: limit) {
             case .waiting:
                 return nil
             case .whole(let text, let used):
@@ -391,15 +449,48 @@ public actor AcpmuxConnection {
                 // A frame never holds two messages, so bytes past the envelope that came with an
                 // earlier frame mean one of its frames was lost: this frame starts the next.
                 let lost = pending.count > used && pending.count > frame.count
-                pending = Data()
+                reset()
                 // More bytes than the envelope holds: a frame of it was lost and this frame
                 // starts the next message. Read that frame alone.
                 return lost ? push(frame) : Self.decode(text)
             case .bad:
                 let lost = pending.count > frame.count
-                pending = Data()
+                reset()
                 return lost ? push(frame) : nil
             }
+        }
+
+        /// The id at the start of an answer's text: `{"id":N` or `{"jsonrpc":"2.0","id":N`, the
+        /// two orders acpmux writes (serde_json sorts keys unless `preserve_order` is on); nil for
+        /// anything else, a notification included.
+        /// How many compressed bytes are inflated to find a message's id.
+        static let peekBytes = 4096
+
+        static func leadingID(_ text: Data) -> Int? {
+            let bytes = [UInt8](text.prefix(64))
+            var at = 0
+            func skipSpace() {
+                while at < bytes.count, bytes[at] == 0x20 || bytes[at] == 0x0a || bytes[at] == 0x0d || bytes[at] == 0x09 { at += 1 }
+            }
+            func take(_ literal: String) -> Bool {
+                skipSpace()
+                let want = Array(literal.utf8)
+                guard at + want.count <= bytes.count, Array(bytes[at..<(at + want.count)]) == want else { return false }
+                at += want.count
+                return true
+            }
+            guard take("{") else { return nil }
+            if take("\"jsonrpc\""), !(take(":") && take("\"2.0\"") && take(",")) { return nil }
+            guard take("\"id\""), take(":") else { return nil }
+            skipSpace()
+            var id = 0
+            var digits = 0
+            while at < bytes.count, bytes[at] >= 0x30, bytes[at] <= 0x39, digits < 9 {
+                id = id * 10 + Int(bytes[at] - 0x30)
+                at += 1
+                digits += 1
+            }
+            return digits > 0 ? id : nil
         }
 
         private static func mayEnd(_ data: Data) -> Bool {
