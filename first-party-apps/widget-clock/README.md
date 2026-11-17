@@ -51,8 +51,6 @@ from `cmux.time.zone`.
 - `HStack` has no baseline alignment: AM/PM sits centered beside the big time, not on its baseline.
 - Shapes are square (`size` only; `frame` is ignored on `Circle`/`Capsule`/`Rectangle`): clock hands
   are drawn as rotated stacks with a background instead.
-- `ZStack` children are not centered by default in the web renderer: every layer of the dial is the
-  dial's full size so they line up.
 - No local IANA zone name in the sandbox (`cmux.time.zone` has no "local"): the analog row says
   "Here" rather than the person's city.
 - No seconds: a seconds hand or `:SS` would need a host-drawn ticking text or rotation (as SwiftUI's
