@@ -49,7 +49,8 @@ FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any promp
 FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
 exits 1 without answering, as a harness wrapper that refuses to start does.
 
-FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
+FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it ("hold" runs
+its turn until session/cancel):
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
 task_complete, written a moment after the turn answers. session/load finds a rollout by the id in its file name (an
@@ -282,6 +283,17 @@ def codex_store_prompt(rid, params):
     codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
     # A turn takes time: it never ends in the millisecond it started.
     time.sleep(0.02)
+    # "hold": the turn runs until session/cancel (at most 30 s), its rollout holding its start
+    # and its prompt only, as Codex's does mid-turn.
+    if text.strip() == "hold":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "holding"}})
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
     reply = "ok: " + text
     if text.strip() == "history-probe":
         with open(rollouts[sid]) as f:

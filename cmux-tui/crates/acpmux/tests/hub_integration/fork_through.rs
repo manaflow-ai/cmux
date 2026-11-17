@@ -11,6 +11,9 @@ mod fork_latency;
 // Fork Conversation's Cancel and its quiet history copy.
 #[path = "fork_cancel.rs"]
 mod fork_cancel;
+// A Codex chat forked while its turn runs, which shares the Codex helpers.
+#[path = "codex_fork_mid_turn.rs"]
+mod codex_fork_mid_turn;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
