@@ -898,6 +898,30 @@ class LightSpillRoute(unittest.TestCase):
         self.assertEqual(placement.light_spill_route(self.values(), runners, light_seen(queued={LIGHT_SIDE: 2})),
                          ("", ()))
 
+    def test_with_the_cloud_leg_full_the_jobs_queue_on_the_owned_light_label(self):
+        # 2026-11-17, cmux#43307 (run 44001991089): no idle light runner at placement and the Blacksmith leg at
+        # 17 in flight plus 91 queued of 10; its daemon tests went to that queue and waited there for hours.
+        small = placement.GUI_OVERFLOW
+        full, free = ({small: 17}, {small: 91}), ({small: 2}, {small: 0})
+        busy = self.light(2, busy=2)
+        self.assertEqual(placement.light_spill_route(self.values(), busy, light_seen(), live=full[0], waiting=full[1]),
+                         (LIGHT_SIDE, ("daemon-test", "generated-files", "swift-canary")))
+        # One idle light runner: the first job takes it and the rest queue there too.
+        self.assertEqual(placement.light_spill_route(self.values(), [*busy, *self.light(1)], light_seen(),
+                                                     live=full[0], waiting=full[1]),
+                         (LIGHT_SIDE, ("daemon-test", "generated-files", "swift-canary")))
+        # A cloud slot free now: the cascade keeps it, as before.
+        self.assertEqual(placement.light_spill_route(self.values(), busy, light_seen(), live=free[0], waiting=free[1]),
+                         ("", ()))
+        # Never while a nightly waits on the light family, with the counts unread, or with no light runner online.
+        nightly = light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})
+        self.assertEqual(placement.light_spill_route(self.values(), busy, nightly, live=full[0], waiting=full[1]),
+                         ("", ()))
+        self.assertEqual(placement.light_spill_route(self.values(), busy, light_seen()), ("", ()))
+        offline = [runner("cmux17-glaeda-1", status="offline", labels=(LIGHT_SIDE,))]
+        self.assertEqual(placement.light_spill_route(self.values(), offline, light_seen(), live=full[0], waiting=full[1]),
+                         ("", ()))
+
     def test_nothing_known_nothing_free_or_nothing_listed_places_nothing(self):
         idle = self.light(3)
         cases = {
