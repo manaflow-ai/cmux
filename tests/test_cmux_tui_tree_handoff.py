@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 import yaml
 
@@ -44,7 +45,7 @@ import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
 if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
-    print("gh: API rate limit exceeded for installation ID 1. (HTTP 403)", file=sys.stderr); sys.exit(1)
+    print("gh: API rate limit exceeded for the repo installation (HTTP 403)", file=sys.stderr); sys.exit(1)
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
 open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
@@ -53,6 +54,10 @@ path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
     if state.get("delete_fails"):
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
+    sys.exit(0)
+if "/runs?" in path:
+    runs = [dict(value, id=int(key)) for key, value in state.get("runs", {}).items()]
+    print(json.dumps({"total_count": len(runs), "workflow_runs": runs if path.endswith("page=1") else []}))
     sys.exit(0)
 if path.endswith("/logs"):
     job = path.split("/")[-2]
@@ -181,7 +186,7 @@ class CommandTests(unittest.TestCase):
         self.assertIn(["api", "-X", "DELETE", "repos/o/r/actions/artifacts/31"], calls)
         self.assertFalse(any(c[:3] == ["run", "rerun", "13"] for c in calls))
         lists = [c for c in calls if c[0] == "api" and c[-1].endswith("per_page=100&page=1")]
-        self.assertEqual(len(lists), 2, "jobs and artifacts are read one bounded page per call")
+        self.assertEqual(len(lists), 2, "jobs and artifacts are each one bounded page")
         self.assertFalse(any("--paginate" in c for c in calls))
 
     def test_quota_only_owner_hands_nothing_off(self):
@@ -210,6 +215,8 @@ class CommandTests(unittest.TestCase):
         deletes = [c[-1] for c in calls if "-X" in c]
         self.assertEqual(sorted(deletes), [f"repos/o/r/actions/artifacts/{a}" for a in (31, 32, 33)])
         self.assertIn("Not re-running run 14", result.stdout)
+        run_lists = [c for c in calls if c[0] == "api" and "/actions/runs?" in " ".join(c)]
+        self.assertEqual(len(run_lists), 1, "all deferred run records come from one bounded list")
         # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
         self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
 
@@ -262,8 +269,25 @@ class CommandTests(unittest.TestCase):
                 result, calls = self.run_handoff({**self.DEFERRED, "rate_limited": limited}, spare=spare)
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(f"::error title=tree not handed off::tree {KEY} was not handed off", result.stdout)
-                self.assertIn("rate limit exceeded", result.stdout)
+                self.assertIn("no attempt before ", result.stdout)
+                self.assertIn("repo installation's API limit", result.stdout)
                 self.assertEqual(calls, [], "no call was answered, so nothing was re-run")
+
+    def test_published_rate_limit_is_a_quota_only_error_with_retry_boundary(self):
+        state = {"rate_limited": ["t"], "artifacts": [marker(31, 12)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=deferred runs not re-run::[quota-only]", result.stdout)
+        self.assertIn("run 99; no attempt before ", result.stdout)
+        self.assertIn("the repo installation's API limit", result.stdout)
+        self.assertNotIn("installation ID", result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):
+        now = datetime(2026, 11, 17, 4, 55, tzinfo=timezone.utc)
+        self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891600", now), "05:00Z")
+        self.assertEqual(handoff.quota_retry_before("API rate limit exceeded", now), "05:00Z")
 
     def test_other_refusals_do_not_spend_the_spare_token(self):
         # HTTP 403 without a rate limit (the fake's jobs_error) is not a quota refusal.

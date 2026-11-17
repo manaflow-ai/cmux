@@ -6671,6 +6671,47 @@ class GitHubQuotaRedIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.GITHUB_QUOTA.search("Deployment rate limited"))
 
 
+class GitHubQuotaJobRed(unittest.TestCase):
+    """The published-tree hand-off's own quota refusal is a retryable job state, not a PR red."""
+
+    NAME = "re-run the runs that deferred to the published tree"
+    STEP = "Re-run the runs that deferred to this tree"
+    QUOTA = ("##[error][quota-only] deferred runs not re-run for the published tree; run 10; "
+             "no attempt before 05:00Z; the repo installation's API limit refused its API call.")
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.jobs[1]["id"] = 12345
+        github.logs[12345] = log(self.NAME, self.STEP, *lines)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success") for step in github.jobs[2]["steps"]])
+        github.logs[2] = log(self.NAME, self.STEP, "Re-ran run 1 (feat-cmux-next, attempt 1).")
+        with self.assertRaises(excuse.JobRateLimited) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return str(caught.exception)
+
+    def test_quota_only_job_is_a_typed_retryable_refusal(self):
+        self.assertIn("run 10; job 12345; no attempt before 05:00Z", self.judge(self.QUOTA, self.EXIT))
+
+    def test_another_error_keeps_the_job_as_a_normal_red(self):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, self.QUOTA,
+                              "##[error]manifest mismatch: cmux-tui/abc/manifest.json holds other bytes", self.EXIT)
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.JobRateLimited)
+
+    def test_marker_parser_requires_the_exact_job_and_live_error(self):
+        job = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        job["id"] = 12345
+        self.assertEqual(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, self.QUOTA, self.EXIT)),
+                         "run 10; job 12345; no attempt before 05:00Z")
+        self.assertIsNone(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, self.EXIT)))
+
+
 class RetargetedGitHub(FakeGitHub):
     """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1
     ran at 00:40Z in pull_request_target run 10 under the old base and failed; main has no run of its workflow with a

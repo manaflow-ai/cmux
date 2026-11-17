@@ -39,6 +39,9 @@ it. A re-run that finds the tree published never defers again, so the markers
 A run still in progress is left with its marker: its own adopt step, after its
 marker, reads the tree this run already published.
 
+The published path spends one artifact-list call, one batched workflow-run list, and two calls per candidate
+(rerun plus marker deletion): 2+2N rather than the old 1+3N per-run reads.
+
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
 GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
@@ -46,6 +49,7 @@ GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate li
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
@@ -66,10 +70,32 @@ PUBLISHED_MAX_ATTEMPT = MAX_ATTEMPT + 2
 ATTEST_STEP = re.compile(r"^(?:Attest raw binary subjects(?: \((?:try \d+|last try)\))?|Retry the attestation\b.*)$")
 RATE_LIMIT_TEXT = re.compile(
     r"rate limit exceeded|secondary rate limit|too many requests|\bHTTP 429\b|status(?: code)?:? 429", re.IGNORECASE)
+RATE_LIMIT_RESET = re.compile(r"(?:x[- ]?ratelimit[- ]?reset|reset(?:s)?(?: at)?)\s*[:=]?\s*(\d{10})", re.IGNORECASE)
 # gh's answer for an artifact that no longer exists.
 MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+
+
+class QuotaRefused(RuntimeError):
+    """The repo installation's API limit refused a hand-off call."""
+
+    def __init__(self, retry_before: str):
+        self.retry_before = retry_before
+        super().__init__(retry_before)
+
+
+def quota_retry_before(text: str, now: datetime | None = None) -> str:
+    """Return a safe UTC HH:MMZ boundary from a response, or the next full-hour window."""
+    match = RATE_LIMIT_RESET.search(text)
+    if match:
+        try:
+            return datetime.fromtimestamp(int(match.group(1)), timezone.utc).strftime("%H:%MZ")
+        except (OverflowError, OSError, ValueError):
+            pass
+    current = now or datetime.now(timezone.utc)
+    boundary = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    return boundary.strftime("%H:%MZ")
 
 
 def failed_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -91,15 +117,15 @@ def quota_only_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapp
     return bool(failed) and all(job_quota_only(job, log_of(job)) for job in failed)
 
 
-def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str]]:
-    """(artifact id, run id, branch) of unexpired deferred markers left by other runs, feat-cmux-next
+def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str, Mapping[str, Any]]]:
+    """(artifact id, run id, branch, embedded run record) of unexpired deferred markers left by other runs, feat-cmux-next
     pushes first, newest run first within each branch class."""
     rows = []
     for artifact in artifacts:
         run = artifact.get("workflow_run") or {}
         if artifact.get("expired") or not run.get("id") or int(run["id"]) == self_run:
             continue
-        rows.append((int(artifact["id"]), int(run["id"]), str(run.get("head_branch") or "")))
+        rows.append((int(artifact["id"]), int(run["id"]), str(run.get("head_branch") or ""), run))
     return sorted(rows, key=lambda row: (row[2] != "feat-cmux-next", -row[1]))
 
 
@@ -116,12 +142,16 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
 def _gh(*args: str) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
-    if result.returncode != 0 and spare and spare != os.environ.get("GH_TOKEN") and RATE_LIMIT_TEXT.search(result.stderr):
+    refused = f"{result.stderr}\n{result.stdout}"
+    if result.returncode != 0 and spare and spare != os.environ.get("GH_TOKEN") and RATE_LIMIT_TEXT.search(refused):
         # One switch for the whole hand-off: the spare token is now GH_TOKEN, so a second refusal is final.
         print("::notice title=tree hand-off token::GH_TOKEN is rate limited; the hand-off continues on GH_TOKEN_SPARE")
         os.environ["GH_TOKEN"] = spare
         del os.environ["GH_TOKEN_SPARE"]
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
+        refused = f"{result.stderr}\n{result.stdout}"
+    if result.returncode != 0 and RATE_LIMIT_TEXT.search(refused):
+        raise QuotaRefused(quota_retry_before(refused))
     return result
 
 
@@ -149,6 +179,20 @@ def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
         print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
 
 
+def deferred_runs(repo: str, candidates: Sequence[tuple[int, int, str, Mapping[str, Any]]]) -> dict[int, Mapping[str, Any]]:
+    """Read all candidate run records in one bounded list call when artifact metadata lacks run state."""
+    embedded = {deferred: run for _, deferred, _, run in candidates
+                if run.get("status") is not None or run.get("run_attempt") is not None}
+    missing = [row for row in candidates if row[1] not in embedded]
+    if not missing:
+        return embedded
+    dates = [str(row[3].get("created_at") or "")[:10] for row in missing if row[3].get("created_at")]
+    created = f"&created=>={min(dates)}" if dates else ""
+    runs = _list(f"repos/{repo}/actions/runs?per_page=100{created}", "workflow_runs")
+    embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
+    return embedded
+
+
 def rerun_published(repo: str, run_id: int, key: str) -> None:
     """Re-run every completed run that deferred to published tree `key`, so each writes its commit manifest."""
     artifacts = _list(f"repos/{repo}/actions/artifacts?name=cmux-tui-tree-deferred-{key}&per_page=100", "artifacts")
@@ -156,13 +200,14 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to it.")
         return
+    records = deferred_runs(repo, candidates)
     failed = []
-    for artifact, deferred, branch in candidates:
-        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
-        if result.returncode != 0 or not result.stdout.strip():
-            failed.append(f"could not read run {deferred} ({branch}): {result.stderr.strip()}")
+    for artifact, deferred, branch, _ in candidates:
+        run = records.get(deferred)
+        if run is None:
+            failed.append(f"could not read run {deferred} ({branch}) from the batched run list")
             continue
-        allowed, why = may_rerun(json.loads(result.stdout), PUBLISHED_MAX_ATTEMPT)
+        allowed, why = may_rerun(run, PUBLISHED_MAX_ATTEMPT)
         if not allowed:
             print(f"Not re-running run {deferred} ({branch}): {why}.")
             continue
@@ -195,7 +240,7 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to this one.")
         return
-    for artifact, deferred, branch in candidates:
+    for artifact, deferred, branch, _ in candidates:
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
         if result.returncode != 0 or not result.stdout.strip():
             print(f"::warning::could not read run {deferred} ({branch}): {result.stderr.strip()}")
@@ -231,6 +276,11 @@ def main(argv: list[str]) -> int:
     if args.published:
         try:
             rerun_published(args.repo, args.run_id, args.key)
+        except QuotaRefused as error:
+            print(f"::error title=deferred runs not re-run::[quota-only] deferred runs not re-run for the "
+                  f"published tree; run {args.run_id}; no attempt before {error.retry_before}; the repo "
+                  "installation's API limit refused its API call. Deferred markers remain for the next run.")
+            return 1
         except Exception as error:  # the step fails its job: a deferred commit is left without its manifest
             print(f"::error title=deferred runs not re-run::tree {args.key} is published, but {error}. Those "
                   "commits have no cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
@@ -238,6 +288,11 @@ def main(argv: list[str]) -> int:
         return 0
     try:
         handoff(args.repo, args.run_id, args.key)
+    except QuotaRefused as error:
+        print(f"::error title=tree not handed off::tree {args.key} was not handed off: the repo installation's "
+              f"API limit refused its API call; no attempt before {error.retry_before}. Dispatch "
+              "cmux-tui-tree-request.yml after that window.")
+        return 1
     except Exception as error:  # the step fails its job: say why nothing was handed off, and the way out
         print(f"::error title=tree not handed off::tree {args.key} was not handed off: {error}. "
               "No run may build it now: dispatch cmux-tui-tree-request.yml with a commit of the tree.")
