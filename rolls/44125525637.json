@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44125525637",
+  "recorded_at": "2026-11-17T16:38:33Z",
+  "reason": "cmux-tui c3eb1920f876 changes the image's cmux-tui (pinned 688ead4ab568)",
+  "dry_run": false,
+  "cmux_tui": "c3eb1920f8766396cb4fc9ed0f88a18c674dca3d",
+  "fixes": [
+    {
+      "sha": "c3eb1920f8766396cb4fc9ed0f88a18c674dca3d",
+      "mergedAt": "2026-11-17T08:02:57-08:00",
+      "subject": "Cloud first pass: tell the chat's agent what stayed on the Mac (#44220)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T16:38:33Z",
+    "snapshot_id": "sh-ec0d1f534bd44f70afb425c7fbf55092",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44125525637): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "da7824794b13fcc6744727199367f888bcb60919",
+    "image": "cloud-native-auto-c3eb1920-44125525637-1",
+    "revision": "ci-44125525637-1",
+    "at": "2026-11-17T16:38:33Z"
+  },
+  "rolled_back": false
+}
