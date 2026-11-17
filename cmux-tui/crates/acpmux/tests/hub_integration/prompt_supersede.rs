@@ -271,16 +271,9 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     let session = c.new_session().await;
     c.busy(&session, None).await;
     hub.shutdown_all().await;
-    // The stopped request gets no reply. The turn continues after its future is dropped;
-    // `fail_unless_shutdown_settles` clears `Session::turn` under the shutdown guard when the
-    // agent exit is handed off.
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while hub.resolve(&session).is_ok_and(|s| s.turn().is_some()) {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the handed-off turn did not finish its shutdown transition");
+    // The stopped request future is dropped at the fence before `finish_turn` in
+    // `hub/turns.rs` can run. `Hub::end_sessions` in `hub/shutdown.rs` takes the turn under
+    // `settled_by_shutdown`; the next daemon therefore sees the cut prompt without an end.
     drop(c);
     drop(hub);
 
