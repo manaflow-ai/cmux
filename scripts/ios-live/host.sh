@@ -289,8 +289,16 @@ case "$cmd" in
   tap) owner="${1:?tap OWNER X Y}"; lease holds "$owner"; ensure_device; axe tap --udid "$udid" -x "${2:?}" -y "${3:?}" ;;
   type) owner="${1:?type OWNER TEXT}"; lease holds "$owner"; ensure_device; axe type "${2:?}" --udid "$udid" ;;
 
-  window)  # open the Simulator app on this device, in the background (for a person at the host)
-    ensure_device; open -g -a Simulator --args -DeviceSetPath "$sims" -CurrentDeviceUDID "$udid"; echo "Simulator: $device_name" ;;
+  window)  # open the Simulator app on this device, in the background (for a person at the host).
+    # Xcode 27 ships no Simulator.app: its Device Hub (com.apple.dt.Devices) shows simulators instead.
+    ensure_device
+    if open -Ra Simulator 2>/dev/null; then
+      open -g -a Simulator --args -DeviceSetPath "$sims" -CurrentDeviceUDID "$udid"; echo "Simulator: $device_name"
+    else
+      open -g -b com.apple.dt.Devices --args -DeviceSetPath "$sims" -CurrentDeviceUDID "$udid" \
+        || die "neither Simulator.app nor Device Hub (com.apple.dt.Devices) is installed"
+      echo "Device Hub: $device_name ($udid, set $sims)"
+    fi ;;
   log) tail -n "${1:-40}" "$root/live/live/live-code.log" 2>/dev/null || echo "no live code log" ;;
   udid) ensure_device; echo "$udid"; echo "set: $sims" ;;
   status)
