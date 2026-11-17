@@ -164,7 +164,10 @@ fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
             format!("must be within {min} to {max}"),
         ));
     }
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "callers bound min and max to the f32 range, and the check above keeps n inside them"
+    )]
     Ok(n as f32)
 }
 
