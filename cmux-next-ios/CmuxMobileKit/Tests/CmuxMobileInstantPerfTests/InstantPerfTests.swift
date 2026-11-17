@@ -1,6 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
-import CmuxMobileLive
+@testable import CmuxMobileLive
 import CmuxMobileTransport
 import Foundation
 import Testing
