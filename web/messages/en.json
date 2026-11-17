@@ -239,6 +239,11 @@
       "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
       "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
     },
+    "hostRecovery": {
+      "title": "Machine's host is being recovered",
+      "message": "This machine's disk is on a Cloud host that is being recovered, so it can't start yet. Its files are kept.",
+      "action": "Try again in a few minutes. Don't delete or recreate the machine: its disk is kept and comes back with it. If it still won't start after an hour, contact support with the trace ID."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",

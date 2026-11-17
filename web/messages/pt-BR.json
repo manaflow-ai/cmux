@@ -80,6 +80,11 @@
       "message": "Esta máquina está iniciando, pausando ou não está em execução, então não pode fazer isso agora.",
       "action": "Aguarde um momento e tente novamente. Verifique o status da máquina com cmux vm ls e retome-a primeiro se estiver pausada."
     },
+    "hostRecovery": {
+      "title": "O host da máquina está sendo recuperado",
+      "message": "O disco desta máquina está em um host do Cloud que está sendo recuperado, então ela ainda não pode iniciar. Os arquivos dela são mantidos.",
+      "action": "Tente novamente em alguns minutos. Não exclua nem recrie a máquina: o disco dela é mantido e volta com ela. Se ela ainda não iniciar depois de uma hora, entre em contato com o suporte informando o ID de rastreamento."
+    },
     "networkRuleCapacity": {
       "title": "Regras de rede no limite",
       "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",
