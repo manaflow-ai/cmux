@@ -8,6 +8,14 @@
 // tools speak the cmux-tui resource CLI to the session the Mac app attaches to.
 
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand, shellQuote } from "../vms/drivers/cmuxTuiDaemon";
+import {
+  argumentsFingerprint,
+  IDEMPOTENCY_KEY_ARG,
+  IdempotencyCache,
+  IdempotencyConflict,
+  idempotencyKeySchema,
+  readIdempotencyKey,
+} from "./cloudMcpIdempotency";
 
 export const CLOUD_MCP_SERVER_NAME = "cmux-cloud";
 export const CLOUD_MCP_SERVER_VERSION = "0.1.0";
@@ -55,6 +63,11 @@ export class CloudMcpToolError extends Error {
  * `CloudMcpToolError` before anything runs on it.
  */
 export type CloudMcpGateway = {
+  /**
+   * Who the gateway acts for, as a stable id (the user id). `idempotency_key` dedupes per
+   * caller; a gateway without one runs every call (no key is remembered across callers).
+   */
+  readonly callerId?: string;
   readonly listMachines: () => Promise<readonly CloudMcpMachine[]>;
   /** Runs `cmux-tui <args>` on the machine as its session user; `args` is already shell-quoted. */
   readonly runCmuxTui: (machineId: string, args: string, timeoutMs: number) => Promise<CloudMcpExecResult>;
@@ -79,22 +92,22 @@ type ToolDefinition = {
 
 const machineIdSchema = {
   type: "string",
-  description: "Machine id from list_machines.",
+  description: "Machine id from machine_list.",
 };
 const terminalIdSchema = {
   type: "string",
-  description: "Terminal id (term_…) from list_terminals or run_agent.",
+  description: "Terminal id (term_…) from terminal_list or agent_run.",
 };
 
 export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "list_machines",
+    name: "machine_list",
     description: "List the caller's cmux Cloud machines with their ids and status.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { title: "List machines", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
-    name: "list_terminals",
+    name: "terminal_list",
     description: "List the terminals running on one of the caller's machines. Resumes the machine if it is paused.",
     inputSchema: {
       type: "object",
@@ -106,16 +119,17 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
     annotations: { title: "List terminals", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
-    name: "run_agent",
+    name: "agent_run",
     description:
       "Start a coding agent (claude, codex, opencode or pi) with a one-shot prompt in a new terminal on one of the caller's machines. " +
-      "Returns the terminal id; read progress with read_terminal. The terminal stays open after the agent exits.",
+      "Returns the terminal id; read progress with terminal_read. The terminal stays open after the agent exits.",
     inputSchema: {
       type: "object",
       properties: {
         machine_id: machineIdSchema,
         agent: { type: "string", enum: [...CLOUD_MCP_AGENTS] },
         prompt: { type: "string", description: "The task for the agent." },
+        idempotency_key: idempotencyKeySchema,
       },
       required: ["machine_id", "agent", "prompt"],
       additionalProperties: false,
@@ -123,7 +137,7 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
     annotations: { title: "Run agent", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
-    name: "read_terminal",
+    name: "terminal_read",
     description:
       "Read a terminal on one of the caller's machines. `screen` (default) is the visible screen; `output` is the recent output stream, which keeps lines that scrolled off. " +
       "Resumes the machine if it is paused.",
@@ -140,7 +154,7 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
     annotations: { title: "Read terminal", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
-    name: "send_input",
+    name: "terminal_input_write",
     description:
       "Type text into a terminal on one of the caller's machines, optionally followed by Enter. What the text does depends on the program in that terminal.",
     inputSchema: {
@@ -150,13 +164,58 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
         terminal_id: terminalIdSchema,
         text: { type: "string" },
         submit: { type: "boolean", description: "Press Enter after the text. Default false." },
+        idempotency_key: idempotencyKeySchema,
       },
       required: ["machine_id", "terminal_id", "text"],
       additionalProperties: false,
     },
-    annotations: { title: "Send input", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    annotations: { title: "Write terminal input", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
 ];
+
+/**
+ * The verb_noun names the prototype shipped, kept as aliases for one release so installed
+ * connectors keep working (ergonomics.md section 3: noun_verb from the
+ * operation id, the local catalog's scheme). Each calls the same handler as its new name.
+ * The lifecycle names cmux #18302 adds map the same way once those tools exist.
+ */
+export const CLOUD_MCP_TOOL_ALIASES: Readonly<Record<string, string>> = {
+  list_machines: "machine_list",
+  list_terminals: "terminal_list",
+  read_terminal: "terminal_read",
+  send_input: "terminal_input_write",
+  run_agent: "agent_run",
+  create_machine: "machine_create",
+  pause_machine: "machine_pause",
+  resume_machine: "machine_resume",
+  delete_machine: "machine_delete",
+  get_account: "account_get",
+  get_profile: "profile_get",
+  read_settings: "settings_get",
+  update_settings: "settings_set",
+  open_cloud: "cloud_open",
+};
+
+/** The tool a name (new or alias) calls, or null for an unknown name. */
+export function resolveCloudMcpToolName(name: string): string | null {
+  if (CLOUD_MCP_TOOLS.some((tool) => tool.name === name)) return name;
+  const target = CLOUD_MCP_TOOL_ALIASES[name];
+  return target && CLOUD_MCP_TOOLS.some((tool) => tool.name === target) ? target : null;
+}
+
+/** `tools/list`: the tools, then each live alias as a deprecated copy of its target. */
+export const CLOUD_MCP_LISTED_TOOLS: readonly ToolDefinition[] = [
+  ...CLOUD_MCP_TOOLS,
+  ...Object.entries(CLOUD_MCP_TOOL_ALIASES).flatMap(([alias, target]) => {
+    const tool = CLOUD_MCP_TOOLS.find((t) => t.name === target);
+    return tool ? [{ ...tool, name: alias, description: `Deprecated alias of ${target}; call ${target}. ${tool.description}` }] : [];
+  }),
+];
+
+/** Tools that act and take `idempotency_key`. */
+const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set(["agent_run", "terminal_input_write", "machine_create"]);
+
+export type CloudMcpToolResult = ToolResult;
 
 type ToolResult = {
   readonly content: ReadonlyArray<{ readonly type: "text"; readonly text: string }>;
@@ -198,7 +257,7 @@ function requireBoundedText(args: JsonObject, key: string): string {
 function requireMachineId(args: JsonObject): string {
   const value = requireString(args, "machine_id");
   if (!MACHINE_ID_PATTERN.test(value)) {
-    throw new CloudMcpToolError("invalid_arguments", "`machine_id` is not a machine id. Use an id from list_machines.");
+    throw new CloudMcpToolError("invalid_arguments", "`machine_id` is not a machine id. Use an id from machine_list.");
   }
   return value;
 }
@@ -206,7 +265,7 @@ function requireMachineId(args: JsonObject): string {
 function requireTerminalId(args: JsonObject): string {
   const value = requireString(args, "terminal_id");
   if (!TERMINAL_ID_PATTERN.test(value)) {
-    throw new CloudMcpToolError("invalid_arguments", "`terminal_id` must be a term_… id from list_terminals or run_agent.");
+    throw new CloudMcpToolError("invalid_arguments", "`terminal_id` must be a term_… id from terminal_list or agent_run.");
   }
   return value;
 }
@@ -295,7 +354,7 @@ async function listTerminals(gateway: CloudMcpGateway, args: JsonObject): Promis
 }
 
 async function runAgent(gateway: CloudMcpGateway, args: JsonObject): Promise<ToolResult> {
-  rejectUnknownArguments(args, ["machine_id", "agent", "prompt"]);
+  rejectUnknownArguments(args, ["machine_id", "agent", "prompt", IDEMPOTENCY_KEY_ARG]);
   const machineId = requireMachineId(args);
   const agent = requireString(args, "agent");
   if (!(CLOUD_MCP_AGENTS as readonly string[]).includes(agent)) {
@@ -353,7 +412,7 @@ async function readTerminal(gateway: CloudMcpGateway, args: JsonObject): Promise
 }
 
 async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<ToolResult> {
-  rejectUnknownArguments(args, ["machine_id", "terminal_id", "text", "submit"]);
+  rejectUnknownArguments(args, ["machine_id", "terminal_id", "text", "submit", IDEMPOTENCY_KEY_ARG]);
   const machineId = requireMachineId(args);
   const terminalId = requireTerminalId(args);
   const text = requireBoundedText(args, "text");
@@ -366,23 +425,67 @@ async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<To
   return toolSuccess({ machine_id: machineId, terminal_id: terminalId, sent_bytes: Buffer.byteLength(text, "utf8"), submitted: submit });
 }
 
-export async function callCloudMcpTool(gateway: CloudMcpGateway, name: string, rawArgs: unknown): Promise<ToolResult> {
-  const args: JsonObject = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs as JsonObject : {};
+async function runTool(gateway: CloudMcpGateway, tool: string, args: JsonObject): Promise<ToolResult> {
   try {
-    switch (name) {
-      case "list_machines": {
+    switch (tool) {
+      case "machine_list": {
         rejectUnknownArguments(args, []);
         const machines = await gateway.listMachines();
         return toolSuccess({ machines: machines.map((m) => ({ id: m.id, name: m.name, status: m.status })) });
       }
-      case "list_terminals": return await listTerminals(gateway, args);
-      case "run_agent": return await runAgent(gateway, args);
-      case "read_terminal": return await readTerminal(gateway, args);
-      case "send_input": return await sendInput(gateway, args);
-      default: return toolFailure("unknown_tool", `Unknown tool: ${name}`);
+      case "terminal_list": return await listTerminals(gateway, args);
+      case "agent_run": return await runAgent(gateway, args);
+      case "terminal_read": return await readTerminal(gateway, args);
+      case "terminal_input_write": return await sendInput(gateway, args);
+      default: return toolFailure("unknown_tool", `Unknown tool: ${tool}`);
     }
   } catch (error) {
     if (error instanceof CloudMcpToolError) return toolFailure(error.code, error.message);
+    throw error;
+  }
+}
+
+/** First results of keyed calls, per caller and tool (bounded: cloudMcpIdempotency.ts). */
+export const cloudMcpIdempotencyCache = new IdempotencyCache<ToolResult>();
+
+function withKey(result: ToolResult, key: string, replayed: boolean): ToolResult {
+  return {
+    ...result,
+    structuredContent: { ...result.structuredContent, idempotency_key: key, ...(replayed ? { replayed: true } : {}) },
+  };
+}
+
+export async function callCloudMcpTool(
+  gateway: CloudMcpGateway,
+  name: string,
+  rawArgs: unknown,
+  cache: IdempotencyCache<ToolResult> = cloudMcpIdempotencyCache,
+): Promise<ToolResult> {
+  const args: JsonObject = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs as JsonObject : {};
+  const tool = resolveCloudMcpToolName(name);
+  if (!tool) return toolFailure("unknown_tool", `Unknown tool: ${name}`);
+  if (!IDEMPOTENT_TOOLS.has(tool)) return runTool(gateway, tool, args);
+  const check = readIdempotencyKey(args);
+  if (!check.ok) return toolFailure("invalid_arguments", check.message);
+  if (check.key === null) return runTool(gateway, tool, args);
+  const key = check.key;
+  if (gateway.callerId === undefined) return withKey(await runTool(gateway, tool, args), key, false);
+  try {
+    const { result, replayed } = await cache.once(
+      `${gateway.callerId}\u0000${tool}`,
+      key,
+      argumentsFingerprint(args),
+      () => runTool(gateway, tool, args),
+      (result) => result.isError === true,
+    );
+    return withKey(result, key, replayed);
+  } catch (error) {
+    if (error instanceof IdempotencyConflict) {
+      return toolFailure(
+        "idempotency.conflict",
+        `\`${IDEMPOTENCY_KEY_ARG}\` ${JSON.stringify(key)} was already used with other arguments; use a new key for a new call.`,
+      );
+    }
     throw error;
   }
 }
@@ -426,18 +529,19 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: CLOUD_MCP_SERVER_NAME, version: CLOUD_MCP_SERVER_VERSION },
           instructions:
-            "Control the caller's cmux Cloud machines. Call list_machines first; every other tool takes a machine_id from it. " +
-            "run_agent starts a coding agent in a new terminal; poll it with read_terminal.",
+            "Control the caller's cmux Cloud machines. Call machine_list first; every other tool takes a machine_id from it. " +
+            "agent_run starts a coding agent in a new terminal; poll it with terminal_read. " +
+            "agent_run and terminal_input_write take an optional idempotency_key: retry with the same key and it acts once.",
         },
       };
     }
     case "ping":
       return { jsonrpc: "2.0", id, result: {} };
     case "tools/list":
-      return { jsonrpc: "2.0", id, result: { tools: CLOUD_MCP_TOOLS } };
+      return { jsonrpc: "2.0", id, result: { tools: CLOUD_MCP_LISTED_TOOLS } };
     case "tools/call": {
       if (typeof params.name !== "string") return rpcError(id, -32602, "tools/call needs a tool name.");
-      if (!CLOUD_MCP_TOOLS.some((tool) => tool.name === params.name)) {
+      if (!resolveCloudMcpToolName(params.name)) {
         return rpcError(id, -32602, `Unknown tool: ${params.name}`);
       }
       return { jsonrpc: "2.0", id, result: await callCloudMcpTool(gateway, params.name, params.arguments) };
