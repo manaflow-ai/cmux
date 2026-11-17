@@ -41,7 +41,8 @@ fn release_builds_use_the_release_features() {
 
 #[test]
 fn release_features_link_no_gpl_only_crate() {
-    let probe = Command::new(cargo()).args(["license", "--version"]).output();
+    // cargo-license 0.7 has no --version; --help succeeds only when it is installed.
+    let probe = Command::new(cargo()).args(["license", "--help"]).output();
     if !probe.map(|o| o.status.success()).unwrap_or(false) {
         eprintln!(
             "\n\n==== SKIPPED: release_features_link_no_gpl_only_crate ====\n\
