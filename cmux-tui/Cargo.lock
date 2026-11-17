@@ -1413,20 +1413,15 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "bytes",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-unix-socket",
  "fs4",
- "futures-util",
  "getrandom 0.3.4",
  "hex",
  "hmac",
  "http",
- "http-body-util",
- "hyper",
- "hyper-util",
  "libc",
  "reqwest",
  "rustls",
@@ -1435,7 +1430,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
- "tokio-util",
  "tower-http",
  "tracing",
  "url",
@@ -1946,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2104,7 +2098,6 @@ dependencies = [
  "base64",
  "cmux-build-space",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
