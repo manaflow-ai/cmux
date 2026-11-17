@@ -19,7 +19,6 @@
     "agent-session/acpmux/Keycap.tsx#Keycap",
     "agent-session/acpmux/NewTabFolderAsk.tsx#NewTabFolderAsk",
     "agent-session/acpmux/PaneNotices.tsx#PaneNotices",
-    "agent-session/acpmux/PlanScopeDriftNotice.tsx#PlanScopeDriftCard",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/backdropLayer.tsx#ComposerListAnchor",
     "agent-session/acpmux/backdropLayer.tsx#ComposerListLayer",

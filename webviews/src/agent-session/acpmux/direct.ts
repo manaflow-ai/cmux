@@ -151,7 +151,6 @@ import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { bgDoneNotice, bgDoneStarted } from "./conversation/bgDoneNotice";
-import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
   cliHost,
@@ -8800,17 +8799,6 @@ export class AcpmuxDirectClient {
       if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
         this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
-      if (sessionId) {
-        const permissionId = String(msg.permissionId ?? "");
-        const permission =
-          this.askedPermissions.get(permissionId) ??
-          this.groupedPermissions.get(permissionId) ??
-          this.waitingPermissions.get(permissionId) ??
-          (this.pendingPermission?.permissionId === permissionId ? this.pendingPermission : undefined);
-        const decision = permission && permissionDecision(permission, msg.outcome);
-        if (permission?.plan && decision && (decision.kind === "allowed" || decision.kind === "allowedAlways"))
-          approvePlan(sessionId, permission.plan);
-      }
       this.recordQuestion(event, msg);
       this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
@@ -8824,18 +8812,6 @@ export class AcpmuxDirectClient {
           this.nextWaitingPermission() ??
           (this.permissions.state.supported ? undefined : [...this.groupedPermissions.values()].at(-1));
     } else if (event.kind === "permission_auto") {
-      if (sessionId) {
-        const permission = permissionFromMessage({ ...msg, sessionId }, sessionId);
-        const optionId = typeof msg.optionId === "string" ? msg.optionId : undefined;
-        const decision =
-          permission && optionId ? permissionDecision(permission, { outcome: "selected", optionId }) : undefined;
-        const optionAllowed =
-          decision?.kind === "allowed" ||
-          decision?.kind === "allowedAlways" ||
-          (decision === undefined && msg.chatAllowance === true);
-        const autoApproved = msg.cancelled !== true && (typeof msg.fullAccess === "string" || optionAllowed);
-        if (autoApproved && permission?.plan) approvePlan(sessionId, permission.plan);
-      }
       if (typeof msg.fullAccess === "string") this.recordFullAccess(event, msg);
     } else if (event.kind === "secret_request")
       this.pendingSecret = {
@@ -9421,17 +9397,6 @@ export class AcpmuxDirectClient {
       return;
     }
     const update = sessionUpdate(event);
-    if (sessionId && update && (event.kind === "tool_call" || event.kind === "tool_call_update")) {
-      const tool = String(update._meta?.claude?.tool ?? update.title ?? "").toLowerCase();
-      const editing =
-        update.kind === "edit" ||
-        update.kind === "fileChange" ||
-        update.kind === "delete" ||
-        update.kind === "move" ||
-        (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
-        /(?:edit|write|patch|replace|notebookedit)/.test(tool);
-      if (editing) rememberPlanEdit(sessionId, editPaths(update));
-    }
     const resultTurnId =
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
@@ -9451,9 +9416,6 @@ export class AcpmuxDirectClient {
         if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
         return;
       }
-    }
-    if (sessionId && event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
-      clearPlanScope(sessionId);
     }
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
