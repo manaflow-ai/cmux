@@ -41,6 +41,8 @@ use std::time::Duration;
 pub const RING_SLOTS: usize = 8192;
 /// How often the writer drains the ring while tracing is on.
 pub const DRAIN_INTERVAL: Duration = Duration::from_millis(50);
+/// How long a writer with nothing to write keeps its timed drains before it sleeps until a hop wakes it.
+const IDLE_BEFORE_SLEEP: Duration = Duration::from_secs(1);
 /// A hop that finds this many records waiting wakes the writer at once.
 const HIGH_WATER: usize = RING_SLOTS / 2;
 /// The longest terminal id a record keeps (a 16-byte id in lowercase hex).
@@ -165,6 +167,8 @@ struct Shared {
     /// Records written so far, for [`flush`] (records pushed: `ring.tail`).
     written: Mutex<usize>,
     written_changed: Condvar,
+    /// Passes of the writer loop so far (the tests count the writer's wakeups with it).
+    drains: AtomicU64,
 }
 
 struct Sink {
@@ -189,6 +193,7 @@ pub fn init() -> bool {
             nudged: AtomicBool::new(false),
             written: Mutex::new(0),
             written_changed: Condvar::new(),
+            drains: AtomicU64::new(0),
         });
         let drained = shared.clone();
         let writer = std::thread::Builder::new()
@@ -239,6 +244,7 @@ fn write_records(file: std::fs::File, sink: &Shared) {
             *written += count;
             sink.written_changed.notify_all();
         }
+        sink.drains.fetch_add(1, Ordering::Relaxed);
         sink.nudged.store(false, Ordering::Relaxed);
         if sink.ring.waiting() == 0 {
             std::thread::park_timeout(DRAIN_INTERVAL);
@@ -468,6 +474,73 @@ fn thread_id() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shared() -> std::sync::Arc<Shared> {
+        std::sync::Arc::new(Shared {
+            ring: Ring::new(),
+            dropped: AtomicU64::new(0),
+            nudged: AtomicBool::new(false),
+            written: Mutex::new(0),
+            written_changed: Condvar::new(),
+            drains: AtomicU64::new(0),
+        })
+    }
+
+    /// A writer thread on its own ring, writing to /dev/null. It never ends: the test process ends it.
+    fn writer(shared: &std::sync::Arc<Shared>) -> Sink {
+        let file = std::fs::OpenOptions::new().write(true).open("/dev/null").unwrap();
+        let drained = shared.clone();
+        let thread = std::thread::spawn(move || write_records(file, &drained));
+        Sink { shared: shared.clone(), writer: thread.thread().clone() }
+    }
+
+    fn plain(flow: u64) -> Record {
+        Record { name: "x", flow, terminal: [0; TERMINAL_BYTES], terminal_len: 0, tid: 0, t_ns: 0 }
+    }
+
+    /// A producer preempted between its claim of a slot (the compare-and-swap on `tail`) and its publish leaves
+    /// `waiting()` above 0 with nothing to pop. The writer looped with no park while `waiting()` was above 0, so it
+    /// spun a core until that producer ran again, and for good if it never did.
+    #[cfg(unix)]
+    #[test]
+    fn a_claimed_slot_not_yet_published_does_not_spin_the_writer() {
+        let shared = shared();
+        shared.ring.tail.fetch_add(1, Ordering::Relaxed); // a claim whose producer never publishes
+        let _sink = writer(&shared);
+        std::thread::sleep(Duration::from_millis(300));
+        let drains = shared.drains.load(Ordering::Relaxed);
+        assert!(
+            drains <= 12,
+            "the writer looped {drains} times in 300 ms over an unpublished slot (timed drains: 6)"
+        );
+    }
+
+    /// Tracing on but idle: the writer drained every 50 ms for good, 20 wakeups a second in every traced process
+    /// with nothing to write. After a second with no records it sleeps until a hop wakes it, and that hop's record
+    /// still reaches the file at once.
+    #[cfg(unix)]
+    #[test]
+    fn an_idle_writer_sleeps_until_a_hop_wakes_it() {
+        let shared = shared();
+        let sink = writer(&shared);
+        std::thread::sleep(IDLE_BEFORE_SLEEP + Duration::from_millis(300));
+        let asleep = shared.drains.load(Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(500));
+        let later = shared.drains.load(Ordering::Relaxed);
+        assert_eq!(later, asleep, "an idle writer woke {} times in 500 ms", later - asleep);
+
+        push(&sink, plain(1));
+        let deadline = std::time::Instant::now() + DRAIN_INTERVAL / 2;
+        let mut written = shared.written.lock().unwrap();
+        while *written < 1 && std::time::Instant::now() < deadline {
+            written =
+                shared.written_changed.wait_timeout(written, Duration::from_millis(5)).unwrap().0;
+        }
+        assert_eq!(
+            *written, 1,
+            "the hop after a sleep did not wake the writer within half a drain interval"
+        );
+    }
 
     #[test]
     fn hex_matches_the_daemon_terminal_id() {
