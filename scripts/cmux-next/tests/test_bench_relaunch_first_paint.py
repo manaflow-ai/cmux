@@ -56,7 +56,8 @@ class NewVersionTests(unittest.TestCase):
         bundle = os.path.join(root, "cmux DEV x.app")
         page = os.path.join(bundle, "Contents", "Resources", "agent-pane")
         os.makedirs(os.path.join(page, "chunks"))
-        for name, text in (("pane.js", "export {};"), ("chat-snapshot.js", "1;"), ("chunks/a.js", "2;"),
+        os.makedirs(os.path.join(page, "locales"))
+        for name, text in (("pane.js", "export {};"), ("chat-snapshot.js", "1;"), ("chunks/a.js", "2;"), ("locales/en.js", "3;"),
                            ("pane.css", "a{}"), ("index.html", '<link href="pane.css?h=0123456789abcdef" />')):
             with open(os.path.join(page, name), "w") as handle:
                 handle.write(text)
@@ -68,7 +69,7 @@ class NewVersionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             bundle = self.make_bundle(root)
             page = os.path.join(bundle, "Contents", "Resources", "agent-pane")
-            before = {name: open(os.path.join(page, name)).read() for name in ("pane.js", "chat-snapshot.js", "chunks/a.js", "pane.css")}
+            before = {name: open(os.path.join(page, name)).read() for name in ("pane.js", "chat-snapshot.js", "chunks/a.js", "locales/en.js", "pane.css")}
             ok = subprocess.CompletedProcess([], 0, "", "")
             with mock.patch.object(rr.subprocess, "run", return_value=ok) as run:
                 rr.new_version_bundle(bundle, 1)

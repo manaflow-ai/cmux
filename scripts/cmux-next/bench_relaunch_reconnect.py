@@ -225,10 +225,8 @@ def new_version_bundle(bundle: str, generation: int):
         if not {"index.html", "pane.css", "chat-snapshot.js"} <= set(files):
             continue
         pages += 1
-        scripts = [os.path.join(root, f) for f in files if f.endswith(".js")]
-        chunks = os.path.join(root, "chunks")
-        if os.path.isdir(chunks):
-            scripts += [os.path.join(chunks, f) for f in os.listdir(chunks) if f.endswith(".js")]
+        # Every script the page ships, at any depth (chunks/, locales/ and the rest), as an update replaces them all.
+        scripts = [os.path.join(where, f) for where, _sub, names in os.walk(root) for f in names if f.endswith(".js")]
         for path in scripts + [os.path.join(root, "pane.css")]:
             with open(path, "a") as handle:
                 handle.write(f"\n/* {tag} */\n")

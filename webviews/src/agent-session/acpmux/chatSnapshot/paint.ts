@@ -60,17 +60,38 @@ function sheetOf(view: Window, text: string): CSSStyleSheet | undefined {
   }
 }
 
+/// The `data-*` look attributes the host's theme apply owns on `<html>` (WebTheme.swift's document-start
+/// apply: each set when the theme has it, a decoration slot removed when the theme leaves it empty).
+const HOST_LOOK_ATTRIBUTES = new Set([
+  "data-scrollers",
+  "data-status-indicators",
+  "data-working-look",
+  "data-cmux-motion",
+  "data-glass",
+  "data-cmux-font-smoothing",
+]);
+const HOST_DECORATION_PREFIX = "data-cmux-decoration-";
+
+export function isHostLookAttribute(name: string): boolean {
+  return HOST_LOOK_ATTRIBUTES.has(name) || name.startsWith(HOST_DECORATION_PREFIX);
+}
+
 /// The theme the host gave this document before page code ran (WebTheme's document-start apply: the
 /// `--cmux-*` variables and `color-scheme` on `<html>`, and its `data-*` look attributes), over the
 /// copy's own: the copy draws in the colors the live page draws in, so the swap changes no color, and a
 /// variable this build added is there for this build's sheet. Under the theme the copy was written in
-/// the values are the same.
-function layerHostTheme(stand: HTMLElement, root: HTMLElement): void {
+/// the values are the same. A look attribute the copy's theme set and the live one leaves out goes too
+/// (an old theme's working look or decoration drew its borders and motion until the swap); the copy's
+/// page-state attributes, which the host never sets, stay as the copy laid out with them.
+export function layerHostTheme(stand: HTMLElement, root: HTMLElement): void {
   for (let index = 0; index < root.style.length; index += 1) {
     const name = root.style.item(index);
     if (name.startsWith("--")) stand.style.setProperty(name, root.style.getPropertyValue(name));
   }
   if (root.style.colorScheme) stand.style.colorScheme = root.style.colorScheme;
+  for (const attribute of Array.from(stand.attributes))
+    if (isHostLookAttribute(attribute.name) && !root.hasAttribute(attribute.name))
+      stand.removeAttribute(attribute.name);
   for (const attribute of Array.from(root.attributes))
     if (attribute.name.startsWith("data-")) stand.setAttribute(attribute.name, attribute.value);
 }
