@@ -137,7 +137,11 @@ test("a sessionless chat whose first send's start acpmux refuses says why, and l
     await until(() => actions()?.["chat.send"] !== undefined, "the pane connected to the mock daemon");
     await act(async () => void (await actions()!["chat.send"]!({ text: "say hello" }).catch(() => undefined)));
     await until(() => starts > 0, "the send started the chat");
-    await until(() => !!host.textContent?.includes("couldn’t start"), "the pane says the start failed");
+    // The notice is a plain row with no Details: the reason is in its one sentence (the tagged build
+    // said only "The agent couldn’t start." while the reason went to the log).
+    const notice = () => host.querySelector(".acpmux-notice")?.textContent?.trim() ?? "";
+    await until(() => notice() !== "", "the pane says the start failed");
+    expect(notice()).toBe("Couldn't start the agent: agent launch is disabled in this build session");
     expect(host.textContent).not.toContain("Something went wrong");
     const line = logged.find((entry) => entry.startsWith("agent pane: couldn't start"));
     expect(line).toContain("agent launch is disabled in this build session");
