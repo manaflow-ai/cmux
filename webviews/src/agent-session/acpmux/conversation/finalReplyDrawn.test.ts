@@ -21,6 +21,7 @@ import { JSDOM } from "jsdom";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import type { AcpmuxRow } from "../model";
+import { isBgDoneTurn } from "./bgDoneNotice";
 import { turnReplies, undrawnReplies } from "./repliesDrawn";
 import { turnView } from "./turns";
 
@@ -385,9 +386,8 @@ for (const { session, file, events } of RECORDED)
     const replies = turnReplies(events);
     // The background finishes' turns are among them.
     expect(
-      replies.filter((reply) =>
-        events.some((e) => e.seq === reply.startSeq && /^bg-done-/.test(String(e.msg?.promptId))),
-      ).length,
+      replies.filter((reply) => events.some((e) => e.seq === reply.startSeq && isBgDoneTurn(String(e.msg?.promptId))))
+        .length,
     ).toBeGreaterThan(0);
     const rows = replay(events, session);
     eachArm((arm) => {
