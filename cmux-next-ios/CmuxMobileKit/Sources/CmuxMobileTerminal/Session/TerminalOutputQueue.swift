@@ -136,6 +136,39 @@ public struct TerminalOutputQueue: Sendable {
         }
     }
 
+    /// The Mac's newest answer to a resize starts here: the grid change just
+    /// queued, whose mirror reset (`reset`) arrives next. Answers queued
+    /// before it and not fed yet (a grid change, its reset and replay, and
+    /// any bytes after them) are dead: the reset clears whatever they draw.
+    /// They are dropped, so only the newest grid reaches the screen and the
+    /// replay the screen waits for is the one fed next. Mode switches and
+    /// grid owners stay, in order. Returns the bytes dropped.
+    @discardableResult
+    public mutating func dropAnswersBeforeLastGrid(reset: Data) -> Int {
+        guard case .hostGrid? = items.last else { return 0 }
+        let last = items.count - 1
+        var first: Int?
+        for index in 0..<last {
+            guard case .hostGrid = items[index], index + 1 < last,
+                  case .bytes(let chunks) = items[index + 1], chunks.first == reset else { continue }
+            first = index
+            break
+        }
+        guard let first else { return 0 }
+        var dropped = 0
+        var kept: [Item] = []
+        for item in items[first..<last] {
+            switch item {
+            case .bytes(let chunks): dropped += chunks.reduce(0) { $0 + $1.count }
+            case .hostGrid: break
+            case .alternateScreen, .hostGridOwner: kept.append(item)
+            }
+        }
+        items.replaceSubrange(first..<last, with: kept)
+        pendingBytes -= dropped
+        return dropped
+    }
+
     /// Drops everything (the session restarted).
     public mutating func removeAll() {
         items.removeAll()

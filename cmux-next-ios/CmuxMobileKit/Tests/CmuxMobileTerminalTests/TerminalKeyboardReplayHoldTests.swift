@@ -91,3 +91,50 @@ import Testing
         #expect(!holds)
     }
 }
+
+/// A double toggle asks the Mac three times (28, 40, then 30 rows) while
+/// the keyboard moves: each answer is a grid change, a mirror reset and a
+/// replay, queued behind the keyboard hold. Only the newest is fed.
+@Suite struct TerminalOutputQueueAnswerTests {
+    let reset = TerminalKeyboardReplayHold.mirrorReset
+
+    private func steps(_ queue: inout TerminalOutputQueue) -> [TerminalOutputQueue.Step] {
+        var out: [TerminalOutputQueue.Step] = []
+        while let step = queue.next(budget: 1 << 20) { out.append(step) }
+        return out
+    }
+
+    @Test func aNewerAnswerDropsTheQueuedOnesBeforeIt() {
+        var queue = TerminalOutputQueue()
+        queue.append(Data("echo".utf8))
+        queue.append(hostGrid: 53, rows: 28)
+        queue.append(reset)
+        queue.append(Data("replay28".utf8))
+        queue.append(alternateScreen: true)
+        queue.append(hostGrid: 53, rows: 40)
+        queue.append(reset)
+        queue.append(Data("replay40".utf8))
+        queue.append(hostGrid: 53, rows: 30)
+        let dropped = queue.dropAnswersBeforeLastGrid(reset: reset)
+        #expect(dropped == 2 * reset.count + 16)
+        queue.append(reset)
+        queue.append(Data("replay30".utf8))
+        #expect(queue.pendingBytes == 4 + reset.count + 8)
+        #expect(steps(&queue) == [.bytes(Data("echo".utf8)), .alternateScreen(true), .hostGrid(columns: 53, rows: 30),
+                                  .bytes(reset + Data("replay30".utf8))])
+    }
+
+    @Test func aGridWithNoQueuedAnswerBeforeItDropsNothing() {
+        var queue = TerminalOutputQueue()
+        queue.append(Data("echo".utf8))
+        queue.append(hostGrid: 53, rows: 26)
+        #expect(queue.dropAnswersBeforeLastGrid(reset: reset) == 0)
+        // A grid change with no reset after it (another device's grid) is
+        // not an answer: the bytes after it stay.
+        queue.append(Data("live".utf8))
+        queue.append(hostGrid: 53, rows: 30)
+        #expect(queue.dropAnswersBeforeLastGrid(reset: reset) == 0)
+        #expect(steps(&queue).count == 4)
+    }
+}
+

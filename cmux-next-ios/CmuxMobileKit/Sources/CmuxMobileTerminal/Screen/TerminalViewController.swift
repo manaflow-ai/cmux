@@ -1406,6 +1406,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // waiting for older rows is placed by this reset's replay.
                 olderRowsAsked = false
                 markReadingPosition()
+                // The queue waits for the keyboard (`replayHold`) and the
+                // Mac answered again (a double toggle: 28, 40 and 30 rows
+                // asked): the answers before this one are cleared by this
+                // reset, so only its grid is drawn, and the replay gate
+                // counts the replay fed next.
+                if replayHold.gridPending || replayHold.holding,
+                   output.dropAnswersBeforeLastGrid(reset: Self.mirrorReset) > 0 {
+                    sizingLog.notice("older answers dropped: the Mac answered again while the keyboard moved")
+                }
                 // Held for the keyboard: the frame is held when it is fed.
                 if replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).takeHeldFrame {
                     freezeLastFrame()
