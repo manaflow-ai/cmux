@@ -22,14 +22,6 @@ import Foundation
 /// work (the unread count, the first tab, the group spans) runs one time at the hold's end, and the restore puts back
 /// the record that the lift took out.
 extension DaemonStore {
-    /// What one lift holds: each pending create's workspace (its screens), the screen of each pending split, zoom or
-    /// swap (its tree and its zoom) and the pane of each pending tab creation (its tab list).
-    struct HeldOverlayPublication {
-        var workspaces: [WorkspaceModel] = []
-        var screens: [ScreenModel] = []
-        var panes: [PaneModel] = []
-    }
-
     /// Holds the publication of the list, of each pending create's workspace's screens, of the tree and zoom of each
     /// pending split's, zoom's or swap's screen and of the tab list of each pending tab creation's pane; returns what
     /// it held.
@@ -70,6 +62,14 @@ extension DaemonStore {
         for screen in held.screens { screen.publishHeldTree() }
         for pane in held.panes { pane.publishHeldTabs() }
     }
+}
+
+/// What one lift holds: each pending create's workspace (its screens), the screen of each pending split, zoom or
+/// swap (its tree and its zoom) and the pane of each pending tab creation (its tab list).
+struct HeldOverlayPublication {
+    var workspaces: [WorkspaceModel] = []
+    var screens: [ScreenModel] = []
+    var panes: [PaneModel] = []
 }
 
 extension IntentUndo {
