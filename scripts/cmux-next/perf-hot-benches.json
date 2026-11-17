@@ -195,6 +195,11 @@
       "what": "one commit of the feed client's mirror (client/mirror.rs commit: every owner event, intent and frame tick): recompute the touched ids, wake due snoozes (ledger.rs woken), keep the badge counts",
       "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (N | p50 | p95 at 1k, 10k and 100k items with a snooze backlog; fails when the 100k p95 passes 3x the 1k p95, or a hook of the 1k/s storm passes 100 us p95)",
       "owner": "feed"
+    },
+    "feed-view-read": {
+      "what": "one feed.view.read (client/view.rs ViewContext::view, under the feed client's state lock): the page's Inbox or List read on open and on every feed-view-changed, each entry's item JSON, row and pending mark",
+      "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (inbox page 50 and the page's read at 1k and 100k items; the read fails past 12 ms p95 at 1k), plus feed_stress a_view_builds_each_item_once (allocations, in CI)",
+      "owner": "feed"
     }
   }
 }
