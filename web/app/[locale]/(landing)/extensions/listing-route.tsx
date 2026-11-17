@@ -3,7 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
-import { type Listing, loadAuthorListings, loadListing } from "@/app/lib/extensions/registry";
+import { type Listing, loadAuthorListings, loadListing } from "@/app/extensions/_lib/registry";
 import {
   type ListingKind,
   type ListingRoute,
@@ -12,8 +12,8 @@ import {
   listingUrl,
   parseListingSlug,
   remixDeeplink,
-} from "@/app/lib/extensions/refs";
-import { listingMetadata } from "@/app/lib/extensions/seo";
+} from "@/app/extensions/_lib/refs";
+import { listingMetadata } from "@/app/extensions/_lib/seo";
 import { CliInstall, ListingDetail, ListingIcon } from "./listing-ui";
 import { InstallHandoff } from "./install-handoff";
 

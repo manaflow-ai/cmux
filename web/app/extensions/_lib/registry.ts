@@ -1,5 +1,5 @@
 import { cacheLife } from "next/cache";
-import { GITHUB_HOST, type ListingKey, type ListingKind, installReference } from "./refs";
+import { GITHUB_HOST, type ListingKey, type ListingKind, installReference, isValidKey } from "./refs";
 
 /**
  * The public extension registry (cmux-platform, contract.md "Registry API").
@@ -141,7 +141,8 @@ function contentRows(value: unknown[]): SetupItem[] {
 
 function tierOf(record: Record<string, unknown>, kind: ListingKind): ListingTier {
   if (kind === "setup" || record.kind === "setup") return "setup";
-  const tier = record.tier ?? record.type;
+  // The tier may come as `tier`, `type` or (registry repo entries) `kind`.
+  const tier = record.tier ?? record.type ?? record.kind;
   return tier === "theme" || tier === "snippet" ? tier : "plugin";
 }
 
@@ -189,6 +190,8 @@ export function parseListing(json: unknown, kind: ListingKind = "extension"): Li
   const { record, owner, repo, name, commit } = required;
   const host = text(record.host, 253)?.toLowerCase() ?? GITHUB_HOST;
   const path = (text(record.path, 500) ?? "").replace(/^\/+|\/+$/g, "");
+  // Every link on the page is built from these: a value the URL patterns refuse drops the listing.
+  if (!isValidKey({ host, owner, repo, path })) return null;
   const categories = stringList(record.categories, 10).map((category) => category.slice(0, 40));
   const screenshots = httpsList(record.screenshots, 10);
   const listing: Listing = {

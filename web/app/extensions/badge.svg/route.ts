@@ -1,4 +1,4 @@
-import { badgeSvg, parseBadgeSize, parseBadgeTheme } from "@/app/lib/extensions/badge";
+import { badgeSvg, parseBadgeSize, parseBadgeTheme } from "@/app/extensions/_lib/badge";
 
 /**
  * The "Get it on cmux" README badge. `?size=small|large` (default 122x44,

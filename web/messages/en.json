@@ -7753,6 +7753,7 @@
     "installCommand": "Or install it from the command line:",
     "pinned": "Pinned to the reviewed release.",
     "remixTitle": "Fork and customize {name}",
-    "remixIntro": "Opening cmux with an agent ready to copy {name} into a repo of your own and change it the way you want."
+    "remixIntro": "Opening cmux with an agent ready to copy {name} into a repo of your own and change it the way you want.",
+    "notListed": "{name} is not listed on cmux.com, so the cmux team has not reviewed it. cmux shows what it can access before you install it."
   }
 }

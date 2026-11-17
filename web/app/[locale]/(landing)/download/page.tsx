@@ -3,7 +3,8 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { DOWNLOAD_CONFIRMATION_HREF } from "@/app/lib/download";
-import { installDeeplink, parseInstallReference, installReference } from "@/app/lib/extensions/refs";
+import { installDeeplink, parseInstallReference, installReference } from "@/app/extensions/_lib/refs";
+import { loadListing } from "@/app/extensions/_lib/registry";
 import { InstallHandoff } from "../extensions/install-handoff";
 
 // A listing page answers with its real status (404 for an unapproved repo) and full HTML for crawlers,
@@ -26,13 +27,18 @@ export default async function DownloadPage({ searchParams }: { searchParams: Sea
   const commit = typeof query.commit === "string" ? query.commit : null;
   const kind = query.kind === "setup" ? "setup" : "extension";
   const t = await getTranslations("extensions");
-  const name = installReference(install);
+  // A link from anywhere can name any repo: say so when cmux.com does not list it.
+  const listing = await loadListing(kind, install);
+  const name = listing?.name ?? installReference(install);
   return (
     <div className="min-h-screen">
       <SiteHeader section={t("installDownload")} />
       <main className="mx-auto w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight">{t("installDownload")}</h1>
         <p className="mb-8 mt-1 text-[15px] text-muted">{t("installDownloadBody", { name })}</p>
+        {listing ? null : (
+          <p className="-mt-4 mb-8 rounded-lg border border-border bg-code-bg px-4 py-3 text-[14px] text-muted">{t("notListed", { name })}</p>
+        )}
         <InstallHandoff
           href={installDeeplink(install, commit, kind)}
           autoOpen={false}

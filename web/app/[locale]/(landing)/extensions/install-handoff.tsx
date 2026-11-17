@@ -38,7 +38,9 @@ export function InstallHandoff({
 
   useEffect(() => {
     if (!downloaded) return;
+    // Offer the link once more, the first time the person comes back (after installing cmux).
     const retry = () => {
+      window.removeEventListener("focus", retry);
       if (canAutoOpen(window.navigator)) window.location.href = href;
     };
     window.addEventListener("focus", retry);

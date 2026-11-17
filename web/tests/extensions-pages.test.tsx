@@ -5,11 +5,11 @@ import { gitlabListing, pomodoroListing, setupListing, snippetListing, themeList
 // Registry reads are cached with `use cache`; outside Next the cache profile call is a no-op.
 mock.module("next/cache", () => ({ cacheLife: () => {} }));
 
-const refs = await import("../app/lib/extensions/refs");
-const { Readme, rewriteReadmeUrl } = await import("../app/lib/extensions/readme");
-const registry = await import("../app/lib/extensions/registry");
-const { listingJsonLd, listingMetadata } = await import("../app/lib/extensions/seo");
-const { extensionSitemapEntries } = await import("../app/lib/extensions/sitemap");
+const refs = await import("../app/extensions/_lib/refs");
+const { Readme, rewriteReadmeUrl } = await import("../app/extensions/_lib/readme");
+const registry = await import("../app/extensions/_lib/registry");
+const { listingJsonLd, listingMetadata } = await import("../app/extensions/_lib/seo");
+const { extensionSitemapEntries } = await import("../app/extensions/_lib/sitemap-entries");
 
 const pomodoro = registry.parseListing(pomodoroListing)!;
 const gitlab = registry.parseListing(gitlabListing)!;

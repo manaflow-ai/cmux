@@ -22,8 +22,8 @@ import {
 import { changelogStore } from "./lib/changelog-store";
 import { isDocsZoneDeployment } from "./lib/docs-channel";
 import { keepServedDocsEntries, releaseDocsUrls } from "./lib/release-docs-sitemap";
-import { loadAllListings } from "./lib/extensions/registry";
-import { extensionSitemapEntries } from "./lib/extensions/sitemap";
+import { loadAllListings } from "./extensions/_lib/registry";
+import { extensionSitemapEntries } from "./extensions/_lib/sitemap-entries";
 
 /**
  * The served sitemap. A docs zone lists the docs it was built with. The main
@@ -35,14 +35,17 @@ import { extensionSitemapEntries } from "./lib/extensions/sitemap";
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (isDocsZoneDeployment()) return sitemapEntries();
-  const [extensions, setups] = await Promise.all([loadAllListings("extension"), loadAllListings("setup")]);
+  // The registry and the release docs sitemap are read at once; each read is bounded by its timeout.
+  const [extensions, setups, servedDocs] = await Promise.all([
+    loadAllListings("extension"),
+    loadAllListings("setup"),
+    releaseDocsUrls().catch((error: unknown) => {
+      console.error("sitemap.release_docs_unavailable", error);
+      return null;
+    }),
+  ]);
   const entries = [...sitemapEntries(), ...extensionSitemapEntries(extensions, setups)];
-  try {
-    return keepServedDocsEntries(entries, new Set(await releaseDocsUrls()));
-  } catch (error) {
-    console.error("sitemap.release_docs_unavailable", error);
-    return entries;
-  }
+  return servedDocs ? keepServedDocsEntries(entries, new Set(servedDocs)) : entries;
 }
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */

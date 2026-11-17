@@ -44,6 +44,18 @@ export function isValidOwner(value: string): boolean {
   return NAME_PATTERN.test(value);
 }
 
+/** Whether a key names a host, owner, repo and folder the page URLs can carry as they are. */
+export function isValidKey(key: ListingKey): boolean {
+  const parts = key.path ? key.path.split("/") : [];
+  return (
+    HOST_PATTERN.test(key.host) &&
+    NAME_PATTERN.test(key.owner) &&
+    NAME_PATTERN.test(key.repo) &&
+    parts.length <= MAX_PATH_SEGMENTS &&
+    parts.every((part) => PATH_SEGMENT_PATTERN.test(part))
+  );
+}
+
 function decodeSegment(segment: string): string | null {
   try {
     return decodeURIComponent(segment);

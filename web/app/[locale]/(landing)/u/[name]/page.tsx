@@ -3,9 +3,9 @@ import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { JsonLd } from "@/app/[locale]/components/json-ld";
-import { type Listing, loadAuthorListings } from "@/app/lib/extensions/registry";
-import { SITE, authorPath, isValidOwner } from "@/app/lib/extensions/refs";
-import { listingsItemListJsonLd } from "@/app/lib/extensions/seo";
+import { type Listing, loadAuthorListings } from "@/app/extensions/_lib/registry";
+import { SITE, authorPath, isValidOwner } from "@/app/extensions/_lib/refs";
+import { listingsItemListJsonLd } from "@/app/extensions/_lib/seo";
 import { ListingIndexBody } from "../../extensions/listing-index";
 
 // A listing page answers with its real status (404 for an unapproved repo) and full HTML for crawlers,

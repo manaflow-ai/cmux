@@ -2,8 +2,8 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { CopySnippet } from "./copy-snippet";
 import { JsonLd } from "@/app/[locale]/components/json-ld";
-import { Readme } from "@/app/lib/extensions/readme";
-import type { Listing } from "@/app/lib/extensions/registry";
+import { Readme } from "@/app/extensions/_lib/readme";
+import type { Listing } from "@/app/extensions/_lib/registry";
 import {
   GITHUB_HOST,
   authorPath,
@@ -14,8 +14,8 @@ import {
   releaseUrl,
   remixPath,
   repositoryTreeUrl,
-} from "@/app/lib/extensions/refs";
-import { listingJsonLd, listingSummary } from "@/app/lib/extensions/seo";
+} from "@/app/extensions/_lib/refs";
+import { listingJsonLd, listingSummary } from "@/app/extensions/_lib/seo";
 
 const BUTTON_PRIMARY =
   "inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2 text-[14px] font-medium transition-opacity hover:opacity-85";

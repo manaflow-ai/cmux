@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { JsonLd } from "@/app/[locale]/components/json-ld";
-import { type Listing, type ListingTier, LISTING_TIERS, loadAllListings } from "@/app/lib/extensions/registry";
-import { KIND_ROOT, type ListingKind, SITE, listingPath } from "@/app/lib/extensions/refs";
-import { listingSummary, listingsItemListJsonLd } from "@/app/lib/extensions/seo";
+import { type Listing, type ListingTier, LISTING_TIERS, loadAllListings } from "@/app/extensions/_lib/registry";
+import { KIND_ROOT, type ListingKind, SITE, listingPath } from "@/app/extensions/_lib/refs";
+import { listingSummary, listingsItemListJsonLd } from "@/app/extensions/_lib/seo";
 import { type BrowserCard, type BrowserTier, ListingBrowser } from "./listing-browser";
 import { CopySnippet } from "./copy-snippet";
 

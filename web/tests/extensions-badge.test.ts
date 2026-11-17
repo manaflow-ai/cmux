@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { BADGE_SIZES, badgeSvg, parseBadgeSize, parseBadgeTheme } from "../app/lib/extensions/badge";
+import { BADGE_SIZES, badgeSvg, parseBadgeSize, parseBadgeTheme } from "../app/extensions/_lib/badge";
 import { GET } from "../app/extensions/badge.svg/route";
 
 function dimensions(svg: string): { width: number; height: number } {

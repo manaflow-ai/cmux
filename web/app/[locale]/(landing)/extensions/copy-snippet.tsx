@@ -1,16 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+const COPIED_MS = 1800;
 
 /** A one-line snippet (README badge, install command) with a Copy button; long tokens wrap anywhere. */
 export function CopySnippet({ text, copyLabel, copiedLabel }: { text: string; copyLabel: string; copiedLabel: string }) {
   const [copied, setCopied] = useState(false);
 
+  // "Copied" reverts after a moment; the effect owns the timer and clears it on unmount or a new copy.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), COPIED_MS);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
     } catch {
       setCopied(false);
     }

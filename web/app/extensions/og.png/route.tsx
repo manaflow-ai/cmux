@@ -1,9 +1,9 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { KIND_ROOT, type ListingKind, type ListingKey, parseListingSlug } from "@/app/lib/extensions/refs";
-import { type Listing, loadListing } from "@/app/lib/extensions/registry";
-import { listingSummary } from "@/app/lib/extensions/seo";
+import { KIND_ROOT, type ListingKind, type ListingKey, parseListingSlug } from "@/app/extensions/_lib/refs";
+import { type Listing, loadListing } from "@/app/extensions/_lib/registry";
+import { listingSummary } from "@/app/extensions/_lib/seo";
 
 /**
  * The per-listing social card, `/extensions/og.png?kind=extension|setup&page=/extensions/OWNER/REPO[/PATH]`
@@ -42,7 +42,7 @@ function cardTarget(params: URLSearchParams): { kind: ListingKind; key: ListingK
 async function fetchImage(url: string | undefined): Promise<string | null> {
   if (!url) return null;
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS), redirect: "follow" });
+    const response = await fetch(url, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS), redirect: "error" });
     const type = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
     if (!response.ok || !IMAGE_TYPES.has(type)) return null;
     const body = Buffer.from(await response.arrayBuffer());
