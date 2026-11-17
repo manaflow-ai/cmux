@@ -112,9 +112,21 @@ fn route(facts: &TerminalChatFacts) -> TerminalChatToggle {
     })
 }
 
+/// Whether a GUI chat tab offers the toggle on the phone. Off: the toggle needs more baking
+/// before a chat shows it (Leo, 2026-11-17: "stop showing the toggle on gui", "the toggle is
+/// just so bad right now, it needs more baking time"), so a chat tab is only a chat and its
+/// page menu has no Show Terminal row that could answer [`NO_TERMINAL`]. A terminal tab keeps
+/// its toggle. Turn this on (tests use [`faces_with`]) to offer it again.
+pub const CHAT_TAB_TOGGLE: bool = false;
+
 /// The faces `facts`' tab offers.
 #[uniffi::export]
 pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
+    faces_with(facts, CHAT_TAB_TOGGLE)
+}
+
+/// [`terminal_chat_faces`], a GUI chat tab offering the toggle when `chat_tab_toggle`.
+fn faces_with(facts: TerminalChatFacts, chat_tab_toggle: bool) -> TerminalChatFaces {
     let own = if facts.chat && !facts.terminal { TabFace::Chat } else { TabFace::Terminal };
     let none = TerminalChatFaces {
         offered: false,
@@ -134,6 +146,9 @@ pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
         harness: Some(harness),
         session: Some(session),
     };
+    if own == TabFace::Chat && !chat_tab_toggle {
+        return none;
+    }
     match route(&facts) {
         TerminalChatToggle::NotAgentTab
         | TerminalChatToggle::NoSession
@@ -164,7 +179,17 @@ pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
 /// What a tap on face `to` does on a tab showing `shown`.
 #[uniffi::export]
 pub fn terminal_chat_swap(facts: TerminalChatFacts, shown: TabFace, to: TabFace) -> TerminalChatSwap {
-    let faces = terminal_chat_faces(facts.clone());
+    swap_with(facts, shown, to, CHAT_TAB_TOGGLE)
+}
+
+/// [`terminal_chat_swap`], a GUI chat tab offering the toggle when `chat_tab_toggle`.
+fn swap_with(
+    facts: TerminalChatFacts,
+    shown: TabFace,
+    to: TabFace,
+    chat_tab_toggle: bool,
+) -> TerminalChatSwap {
+    let faces = faces_with(facts.clone(), chat_tab_toggle);
     if !faces.offered || shown == to {
         return TerminalChatSwap::Stay;
     }
@@ -365,9 +390,11 @@ mod tests {
         assert!(terminal_chat_faces(terminal(Some("claude"), Some("h-1"))).offered);
     }
 
+    // The chat-tab toggle below is off by default (CHAT_TAB_TOGGLE); these keep it working
+    // for when it is turned back on.
     #[test]
     fn a_chat_a_terminal_runs_offers_both_faces() {
-        let faces = terminal_chat_faces(chat("codex", Some("h-2"), true));
+        let faces = faces_with(chat("codex", Some("h-2"), true), true);
         assert!(faces.offered);
         assert_eq!(faces.default_face, TabFace::Chat);
         assert!(faces.chat_enabled && faces.terminal_enabled);
@@ -376,12 +403,12 @@ mod tests {
 
     #[test]
     fn a_chat_no_terminal_runs_keeps_its_terminal_face_disabled() {
-        let faces = terminal_chat_faces(chat("claude", Some("h-3"), false));
+        let faces = faces_with(chat("claude", Some("h-3"), false), true);
         assert!(faces.offered);
         assert!(faces.chat_enabled && !faces.terminal_enabled);
         assert_eq!(faces.disabled_reason.as_deref(), Some(NO_TERMINAL));
         assert_eq!(
-            terminal_chat_swap(chat("claude", Some("h-3"), false), TabFace::Chat, TabFace::Terminal),
+            swap_with(chat("claude", Some("h-3"), false), TabFace::Chat, TabFace::Terminal, true),
             TerminalChatSwap::Unavailable { reason: NO_TERMINAL.to_owned() }
         );
     }
@@ -440,11 +467,11 @@ mod tests {
     #[test]
     fn a_chat_reveals_the_terminal_running_its_session() {
         assert_eq!(
-            terminal_chat_swap(chat("claude", Some(" h-4 "), true), TabFace::Chat, TabFace::Terminal),
+            swap_with(chat("claude", Some(" h-4 "), true), TabFace::Chat, TabFace::Terminal, true),
             TerminalChatSwap::RevealTerminal { harness: "claude".into(), session: "h-4".into() }
         );
         assert_eq!(
-            terminal_chat_swap(chat("claude", Some("h-4"), true), TabFace::Terminal, TabFace::Chat),
+            swap_with(chat("claude", Some("h-4"), true), TabFace::Terminal, TabFace::Chat, true),
             TerminalChatSwap::Show { face: TabFace::Chat }
         );
     }
