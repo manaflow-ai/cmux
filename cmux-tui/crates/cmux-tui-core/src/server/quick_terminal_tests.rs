@@ -821,3 +821,7 @@ fn the_quick_terminal_alone_becomes_the_tiled_pane_and_shows() {
     assert!(wire.mark().is_null(), "a tiled pane has no mark");
     assert_eq!(wire.active(), json!(quick));
 }
+
+/// The count of the quick terminal: one for each workspace.
+#[path = "quick_terminal_workspace_tests.rs"]
+mod workspace;
