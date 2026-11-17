@@ -131,7 +131,7 @@ public final class BackdropShaderView: NSView {
     private var onScreen: Bool {
         guard shader != nil, !isHidden, renderer != nil, let window else { return false }
         let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
-        let state = sight?() ?? (false, false)
+        let state = sight?() ?? (screensAsleep: false, sessionInactive: false)
         return visible && !state.screensAsleep && !state.sessionInactive
     }
 
