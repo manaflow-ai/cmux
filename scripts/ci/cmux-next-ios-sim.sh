@@ -415,7 +415,26 @@ trap 'exit 130' INT
 # gives a stock simulator, never a failed step. Without it (Blacksmith, an older worker, a local
 # run) it is the stock `simctl create` it always was. Mid-step, a test that finds it needs a feature
 # after all can turn it on with no reboot: "$CMUX_CI_SIMSLIM" [--set SET] enable UDID icloud,photos.
+#
+# A creation that fails is tried again, twice: CoreSimulator can leave a new device "allocated but
+# stuck in creation state" (2026-11-16 and 17: 7 of 40 simulator steps of one lane failed so, each
+# after its 3-11 min build). Before a retry, the devices of that exact name in that set are deleted:
+# the step's own set, or a name with the step key in it in the default set, so never another step's.
 sim_create() {
+  local attempt udid
+  for attempt in 1 2 3; do
+    if udid="$(sim_create_once "$@")"; then
+      printf '%s\n' "$udid"
+      return 0
+    fi
+    [[ $attempt -lt 3 ]] || break
+    echo "sim_create: creating $1 failed (attempt $attempt of 3); deleting what it left, then again" >&2
+    sim_delete_named "$1" "${4:-}"
+  done
+  echo "error: sim_create: could not create $1 in 3 attempts" >&2
+  return 1
+}
+sim_create_once() {
   local name=$1 type=$2 rt=$3 set=${4:-}
   if [[ -n "${CMUX_CI_SIM_CREATE:-}" && -x "${CMUX_CI_SIM_CREATE}" ]]; then
     "${CMUX_CI_SIM_CREATE}" "$name" "$type" "$rt" ${set:+"$set"}
@@ -424,6 +443,27 @@ sim_create() {
   else
     xcrun simctl create "$name" "$type" "$rt"
   fi
+}
+# sim_delete_named NAME [SET]: deletes every device named exactly NAME in SET (default set without one).
+sim_delete_named() {
+  local name=$1 set=${2:-} d
+  local list=(xcrun simctl)
+  [[ -z "$set" ]] || list+=(--set "$set")
+  while read -r d; do
+    [[ -n "$d" ]] || continue
+    "${list[@]}" shutdown "$d" >/dev/null 2>&1 || true
+    "${list[@]}" delete "$d" >/dev/null 2>&1 || true
+  done < <("${list[@]}" list -j devices 2>/dev/null | python3 -I -c '
+import json, sys
+try:
+    devices = json.load(sys.stdin).get("devices", {})
+except ValueError:
+    devices = {}
+for runtime in devices.values():
+    for d in runtime:
+        if d.get("name") == sys.argv[1] and d.get("udid"):
+            print(d["udid"])
+' "$name" || true)
 }
 # --- end sim_create
 
@@ -459,7 +499,13 @@ fi
 if [[ "$mode" != release-build ]]; then
   sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
   read -r runtime device_type <<< "$sim_choice"
+  # The step's iPhone is made before anything is built (booted after the build), so a creation that
+  # cannot succeed fails the step in seconds, not after the build.
+  sims="$work/sims"
+  mkdir -p "$sims"
+  udid="$(sim_create cmux-next-ios-sim "$device_type" "$runtime" "$sims")"
 fi
+simctl() { xcrun simctl --set "$sims" "$@"; }
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -630,10 +676,6 @@ elif [[ "$mode" == clips && -n "$listperf_base" ]]; then
 fi
 
 # --- Simulator --------------------------------------------------------------
-sims="$work/sims"
-mkdir -p "$sims"
-simctl() { xcrun simctl --set "$sims" "$@"; }
-udid="$(sim_create cmux-next-ios-sim "$device_type" "$runtime" "$sims")"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
 if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then

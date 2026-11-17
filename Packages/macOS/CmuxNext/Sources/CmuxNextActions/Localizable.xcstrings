@@ -39020,6 +39020,138 @@
           }
         }
       }
+    },
+    "floatingPanes.unavailable": {
+      "comment": "Why a floating pane action (Float Pane, New Floating Pane, Toggle Quick Terminal) cannot run in this build yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build of cmux has no floating panes yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتضمن هذا الإصدار من cmux أجزاء عائمة بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija cmuxa još nema plutajuće panele."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version af cmux har endnu ingen flydende ruder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Version von cmux hat noch keine schwebenden Teilfenster."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versión de cmux aún no tiene paneles flotantes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version de cmux n'a pas encore de volets flottants."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa versione di cmux non ha ancora pannelli flottanti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この cmux のビルドには、まだフローティングペインがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែ cmux នេះមិនទាន់មានផ្ទាំងអណ្តែតនៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 버전의 cmux에는 아직 플로팅 분할 창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen av cmux har ingen flytende ruter ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta wersja cmux nie ma jeszcze pływających paneli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão do cmux ainda não tem painéis flutuantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой версии cmux пока нет плавающих панелей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เวอร์ชันนี้ยังไม่มีบานหน้าต่างแบบลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un bu sürümünde henüz kayan bölmeler yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій версії cmux поки немає плаваючих панелей."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên bản cmux này chưa có khung nổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 暂时没有浮动窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 暫時沒有浮動窗格。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

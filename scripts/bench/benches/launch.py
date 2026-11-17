@@ -18,7 +18,7 @@ arm=base for the other side of an A/B.
   --arg runs=N         measured relaunches per side (1 to 10, default 5); --arg profile=1 adds a Time Profiler pass
   --arg labels=a,b     worker labels (default measure, on a display worker as the harness documents)
   --arg mode=premain   scripts/measure/launch-premain.sh instead (CMUX-629's pre-main study, NIGHTLY only, about 50
-                       minutes): per arm (z, a, b, c, d, e, e0, x, f; --arg arms=, --arg reps=N) the measured launch's
+                       minutes): per arm (h, a, b, c, g, d, k, e, e2, x, f, t1, t3, t6; --arg arms=, --arg reps=N) the measured launch's
                        main_start, pageins, user_ms, system_ms, disk_read_kb, resident_before, resident_at_main and
                        pages_touched, rows labeled mode=premain arm=<arm>; the harness's header says what each arm is
 

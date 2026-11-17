@@ -96,9 +96,12 @@ dropped and the attempt asks; any line that is not an answer is `bad_request` (6
 
 `carrier key --public` prints this device's carrier Noise static public key on stdout as
 one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
-request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
-`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
-missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+request, and exits 0. It is the key dial and serve use: on a Mac, for a Team-signed build,
+the login Keychain item `com.cmuxterm.app.next.carrier-noise-key` (account `device`, read
+with prompts off, so a locked or foreign item fails at once); for a build with no Team ID
+(an ad-hoc DEV build), never the Keychain but the 0600 file
+`~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`, one per
+build and tag. Either is made the same way when missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
 nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
 `bad_request` (64).
 
