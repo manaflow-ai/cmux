@@ -47,9 +47,9 @@ mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
-use cmux_hub_host::hub::{now_ms, Hub, HubError, Renewal};
+use cmux_hub_host::hub::{now_ms, utc_stamp, Hub, HubError, Renewal};
 use cmux_hub_host::identity::{self, Account, Device};
-use cmux_hub_host::net::Message;
+use cmux_hub_host::net::{Message, WebSocket};
 use cmux_hub_host::printable;
 use cmux_hub_host::session::{self, ServeCommand, Ticket};
 use consent::{LocalConsent, Pending};
@@ -761,13 +761,81 @@ fn stop_current(current: &Current) -> Option<String> {
     Some(served.id)
 }
 
-/// Holds one hub link with `hold`; when it ends, for any reason, the session it served stops.
-/// The hub does not replay a revocation, an end or sharing turned off that it pushed while
-/// the link was down, so a session must not outlive the link that would hear them (fail
-/// closed). The result of `hold` and the id of the session stopped.
-fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Option<String>) {
+/// How long a dropped hub link has to come back, with the hub saying the session it served
+/// is still on, before that session stops.
+const RELINK_WITHIN: Duration = Duration::from_secs(10);
+
+/// What became of the session served when a hub link ended.
+#[derive(Debug)]
+enum AfterLink<S> {
+    /// Nothing was served.
+    Idle,
+    /// It goes on: a new link is up (`S`) and the hub said the session is still on.
+    Kept(String, S),
+    /// It stopped: its id and why.
+    Stopped(String, String),
+}
+
+/// Holds one hub link with `hold`. When it ends with a session served, `relink` (given the
+/// session's id) must open the next link and then have the hub say the session is still
+/// approved or live, all within `within`, or the session stops. The hub does not replay a
+/// revocation, an end or sharing turned off that it pushed while the link was down, but it
+/// ends the session in every one of those, so asking after the new link is up misses
+/// nothing: what happened before shows in the answer, and what happens after comes over the
+/// new link (fail closed). A link the hub ended for good (this desktop removed or signed
+/// out) stops the session at once. The result of `hold` and what became of the session.
+fn hold_link<S: Send + 'static>(
+    current: &Current,
+    hold: impl FnOnce() -> Res<()>,
+    relink: impl FnOnce(String) -> Res<S> + Send + 'static,
+    within: Duration,
+) -> (Res<()>, AfterLink<S>) {
     let result = hold();
-    (result, stop_current(current))
+    let served = current.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|s| s.id.clone());
+    let Some(id) = served else { return (result, AfterLink::Idle) };
+    let why = match &result {
+        Err(e) if Fatal::from_hub(&**e).is_some() => e.to_string(),
+        _ => match relink_within(id, relink, within) {
+            Ok(kept) => return (result, kept),
+            Err(why) => why,
+        },
+    };
+    match stop_current(current) {
+        Some(id) => (result, AfterLink::Stopped(id, why)),
+        None => (result, AfterLink::Idle),
+    }
+}
+
+/// Runs `relink(id)` on its own thread; `Kept` when it answers a link within `within`,
+/// otherwise why not.
+fn relink_within<S: Send + 'static>(
+    id: String,
+    relink: impl FnOnce(String) -> Res<S> + Send + 'static,
+    within: Duration,
+) -> Result<AfterLink<S>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let asked = id.clone();
+    std::thread::Builder::new()
+        .name("linux-host-relink".into())
+        .spawn(move || {
+            let _ = tx.send(relink(asked).map_err(|e| e.to_string()));
+        })
+        .map_err(|e| format!("no relink: {e}"))?;
+    match rx.recv_timeout(within) {
+        Ok(Ok(link)) => Ok(AfterLink::Kept(id, link)),
+        Ok(Err(why)) => Err(why),
+        Err(_) => Err(format!("no new hub link and answer within {} s", within.as_secs())),
+    }
+}
+
+/// A link's lifetime as `1h2m3s`, `4m5s` or `6s`.
+fn lasted(d: Duration) -> String {
+    let s = d.as_secs();
+    match (s / 3600, s % 3600 / 60, s % 60) {
+        (0, 0, sec) => format!("{sec}s"),
+        (0, min, sec) => format!("{min}m{sec}s"),
+        (h, min, sec) => format!("{h}h{min}m{sec}s"),
+    }
 }
 
 /// How a ticket with `scope` is served under the consent on disk now: `Some(view_only)`,
@@ -845,23 +913,56 @@ fn run(args: &Args) -> Res<()> {
         hub.device.id,
         if applies_input { "" } else { NO_INPUT_NOTE }
     );
+    let mut next: Option<WebSocket> = None;
     loop {
         let started = Instant::now();
-        let (result, stopped) = hold_link(&current, || {
-            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input)
-        });
-        if let Some(id) = stopped {
-            eprintln!("linux-host: the hub link dropped; the session it served stopped");
-            end_later(&hub, &id, "peer_offline");
-        }
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                if let Some(fatal) = Fatal::from_hub(&*e) {
-                    return Err(fatal.into());
-                }
-                eprintln!("linux-host: hub link: {e}");
+        let opened = next.take();
+        let relink_hub = hub.clone();
+        let relink = move |id: String| -> Res<WebSocket> {
+            // The new link first: a revocation after the answer below comes over it.
+            let ws = relink_hub.user_socket()?;
+            if relink_hub.session_live(&id)? {
+                Ok(ws)
+            } else {
+                Err("the hub no longer has it on".into())
             }
+        };
+        let (result, after) = hold_link(
+            &current,
+            || hold_socket(&hub, opened, &dir, &runtime, &serve_args, &current, applies_input),
+            relink,
+            RELINK_WITHIN,
+        );
+        let why = match &result {
+            Ok(()) => "closed".to_owned(),
+            Err(e) => e.to_string(),
+        };
+        eprintln!(
+            "linux-host: {} hub link: dropped after {}: {why}",
+            utc_stamp(now_ms()),
+            lasted(started.elapsed())
+        );
+        match after {
+            AfterLink::Idle => {}
+            AfterLink::Kept(_, ws) => {
+                eprintln!(
+                    "linux-host: a new hub link is up and the hub has the session on; it goes on"
+                );
+                next = Some(ws);
+            }
+            AfterLink::Stopped(id, why) => {
+                eprintln!("linux-host: the session it served stopped: {why}");
+                end_later(&hub, &id, "peer_offline");
+            }
+        }
+        if let Err(e) = result {
+            if let Some(fatal) = Fatal::from_hub(&*e) {
+                return Err(fatal.into());
+            }
+        }
+        if next.is_some() {
+            backoff = Duration::from_secs(1);
+            continue;
         }
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_secs(1);
@@ -916,16 +1017,20 @@ fn stop_idle_display(display: u32, current: Current) {
     }
 }
 
-/// Holds one User DO socket until it closes; handles its pushes.
+/// Holds one User DO socket (`opened`, or a new one) until it closes; handles its pushes.
 fn hold_socket(
     hub: &Arc<Hub>,
+    opened: Option<WebSocket>,
     dir: &std::path::Path,
     runtime: &std::path::Path,
     serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
 ) -> Res<()> {
-    let mut ws = hub.user_socket()?;
+    let mut ws = match opened {
+        Some(ws) => ws,
+        None => hub.user_socket()?,
+    };
     let mut last_ping = Instant::now();
     let mut last_consent = Instant::now();
     loop {
@@ -1324,28 +1429,101 @@ mod tests {
         current.lock().unwrap().is_none()
     }
 
+    const RESET: &str = "Connection reset by peer (os error 104)";
+    const SOON: Duration = Duration::from_millis(500);
+
+    fn stopped(after: &AfterLink<u32>) -> Option<&str> {
+        match after {
+            AfterLink::Stopped(id, _) => Some(id),
+            _ => None,
+        }
+    }
+
     #[test]
-    fn a_dropped_hub_link_stops_the_session_it_served() {
-        // Revocations sent while the link is down are never replayed: fail closed.
+    fn a_session_the_hub_still_has_on_survives_a_dropped_hub_link() {
+        // The link reset under a live session; a new link came up and the hub answered 200.
         let (current, stop) = serving("full");
-        let held = stop.clone();
-        let (result, stopped) = hold_link(&current, || {
-            assert!(!held.load(Ordering::SeqCst), "stopped while the link was up");
-            Err("socket closed (1006 connection closed)".into())
-        });
+        let (result, after) = hold_link(
+            &current,
+            || Err(RESET.into()),
+            |id| {
+                assert_eq!(id, "s1");
+                Ok(7u32)
+            },
+            SOON,
+        );
         assert!(result.is_err());
-        assert_eq!(stopped.as_deref(), Some("s1"));
+        assert!(matches!(after, AfterLink::Kept(ref id, 7) if id == "s1"), "{after:?}");
+        assert!(!stop.load(Ordering::SeqCst), "the session stopped although the hub has it on");
+        assert!(!is_empty(&current));
+    }
+
+    #[test]
+    fn a_dropped_hub_link_stops_the_session_unless_the_hub_says_it_is_on() {
+        // The hub does not replay revocations pushed while the link was down: anything but
+        // a new link and the hub's word that the session is on stops it (fail closed).
+        let held_up = |stop: &Arc<AtomicBool>| {
+            let held = stop.clone();
+            move || -> Res<()> {
+                assert!(!held.load(Ordering::SeqCst), "stopped while the link was up");
+                Err(RESET.into())
+            }
+        };
+        // The hub says the session is no longer on (409), or the new link failed.
+        let (current, stop) = serving("full");
+        let (result, after) = hold_link(
+            &current,
+            held_up(&stop),
+            |_| -> Res<u32> { Err("the hub no longer has it on".into()) },
+            SOON,
+        );
+        assert!(result.is_err());
+        assert_eq!(stopped(&after), Some("s1"));
         assert!(stop.load(Ordering::SeqCst));
         assert!(is_empty(&current));
-        // A link the hub closed cleanly too.
+        // No new link and answer within the bound.
         let (current, stop) = serving("view");
-        let (result, stopped) = hold_link(&current, || Ok(()));
-        assert!(result.is_ok());
-        assert_eq!(stopped.as_deref(), Some("s1"));
+        let (_, after) = hold_link(
+            &current,
+            held_up(&stop),
+            |_| -> Res<u32> {
+                std::thread::sleep(Duration::from_secs(2));
+                Ok(1)
+            },
+            Duration::from_millis(50),
+        );
+        assert_eq!(stopped(&after), Some("s1"));
         assert!(stop.load(Ordering::SeqCst));
-        // Nothing served, nothing stopped.
+        // This desktop removed: stopped at once, no relink asked.
+        let (current, stop) = serving("view");
+        let removed = || -> Res<()> {
+            Err(HubError { status: 403, code: "device_removed".into(), message: "gone".into() }
+                .into())
+        };
+        let (_, after) = hold_link(
+            &current,
+            removed,
+            |_| -> Res<u32> { panic!("relinked a removed desktop") },
+            SOON,
+        );
+        assert_eq!(stopped(&after), Some("s1"));
+        assert!(stop.load(Ordering::SeqCst));
+        // Nothing served, nothing stopped or asked.
         let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(hold_link(&current, || Ok(())).1, None);
+        let (_, after) = hold_link(
+            &current,
+            || Ok(()),
+            |_| -> Res<u32> { panic!("relinked for nothing") },
+            SOON,
+        );
+        assert!(matches!(after, AfterLink::Idle));
+    }
+
+    #[test]
+    fn link_lifetimes_read_short() {
+        assert_eq!(lasted(Duration::from_secs(6)), "6s");
+        assert_eq!(lasted(Duration::from_secs(432)), "7m12s");
+        assert_eq!(lasted(Duration::from_secs(3723)), "1h2m3s");
     }
 
     fn consent_dir(tag: &str) -> std::path::PathBuf {

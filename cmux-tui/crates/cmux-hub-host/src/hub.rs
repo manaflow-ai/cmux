@@ -65,6 +65,28 @@ pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// `ms` since the Unix epoch as UTC `YYYY-MM-DDTHH:MM:SSZ`, for log lines.
+pub fn utc_stamp(ms: u64) -> String {
+    let secs = ms / 1000;
+    let rem = secs % 86_400;
+    // Howard Hinnant's civil_from_days.
+    let z = i64::try_from(secs / 86_400).unwrap_or_default() + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
 /// How the hub client renews the account session when it is about to end.
 #[derive(Clone, PartialEq)]
 pub enum Renewal {
@@ -303,6 +325,23 @@ impl Hub {
             .map(|_| ())
     }
 
+    /// Whether the hub still holds `session` approved or live, asked as its host with
+    /// `POST /v1/sessions/:id/ice` (a host may ask for its own sessions; the hub answers 200
+    /// only while the session is approved or live). Every revocation, end, removal, sign-out
+    /// or sharing turned off ends the session on the hub, so `Ok(true)` also means nothing
+    /// revoked it. `Ok(false)` when the hub says it is not active, unknown or not this
+    /// host's (409, 404, 403); any other failure is an error.
+    pub fn session_live(&self, session: &str) -> Res<bool> {
+        let path = format!("/v1/sessions/{}/ice", path_segment(session)?);
+        match self.call("POST", &path, Some(&json!({}))) {
+            Ok(_) => Ok(true),
+            Err(e) => match e.downcast_ref::<HubError>() {
+                Some(h) if matches!(h.status, 403 | 404 | 409) => Ok(false),
+                _ => Err(e),
+            },
+        }
+    }
+
     /// The User DO socket (`GET /v1/user/ws`).
     pub fn user_socket(&self) -> Res<WebSocket> {
         let url = Url::join(&self.origin, "/v1/user/ws")?;
@@ -352,6 +391,13 @@ pub fn verify(public_key: &str, message: &[u8], signature: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utc_stamps_read_as_calendar_time() {
+        assert_eq!(utc_stamp(0), "1970-01-01T00:00:00Z");
+        assert_eq!(utc_stamp(951_782_400_000), "2000-02-29T00:00:00Z");
+        assert_eq!(utc_stamp(1_794_886_285_999), "2026-11-17T03:31:25Z");
+    }
 
     #[test]
     fn signing_string_matches_the_protocol() {
