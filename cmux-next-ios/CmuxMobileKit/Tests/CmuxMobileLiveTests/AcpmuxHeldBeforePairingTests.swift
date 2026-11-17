@@ -22,7 +22,7 @@ import Testing
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(channel.closed, "the channel stayed open after \(channel.read) notifications before pairing")
-        #expect(channel.read <= 256 + 8,
+        #expect(channel.read <= AcpmuxConnection.heldNotificationLimit + 8,
                 "read \(channel.read) notifications before pairing")
         check.continuation.yield(false)
         check.continuation.finish()
@@ -30,6 +30,25 @@ import Testing
         #expect(!hub.isReady)
     }
 
+    @Test func whatWaitedForTheCheckGoesOutOnlyAfterIt() async throws {
+        let channel = FloodChannel(limit: 3)
+        let connection = AcpmuxConnection(channel: channel, held: true)
+        await connection.start()
+        let end = ContinuousClock.now + .seconds(5)
+        while channel.read < 3, ContinuousClock.now < end {
+            try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
+        }
+        let early = Task { () -> Int in
+            var count = 0
+            for await _ in connection.notifications { count += 1 }
+            return count
+        }
+        try await Task.sleep(for: .milliseconds(50)) // test: a notification out before admit would be counted
+        await connection.admit()
+        channel.end()
+        #expect(await early.value == 3)
+        #expect(!channel.closed)
+    }
 }
 
 /// A Mac that sends `_acpmux/event` notifications as fast as they are read, up to `limit`.

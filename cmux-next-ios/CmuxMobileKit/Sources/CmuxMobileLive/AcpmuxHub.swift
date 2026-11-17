@@ -160,12 +160,12 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
-        let connection = AcpmuxConnection(channel: channel)
+        let connection = AcpmuxConnection(channel: channel, held: gate != nil)
         self.connection = connection
         await connection.start()
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
-            // Notifications wait in the connection's stream until the pairing passed.
+            // Notifications wait, bounded, in the connection until the pairing passed (`admit`).
             if let gate, !(await gate()) { return }
             for await notification in notifications {
                 guard self?.connection === connection else { return }
@@ -199,6 +199,7 @@ public final class AcpmuxHub {
                 await connection.close()
                 return
             }
+            await connection.admit()
             let initialized = try await Self.reply(connection, initializeID, "initialize", timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
