@@ -92,6 +92,8 @@ extension AgentPaneCloudMachines {
 /// a moment ago is seen at once.
 @MainActor public final class AgentPaneCloudPlanReads {
     private var kept: (account: [String?], plan: AgentPaneCloudMachines.Plan, at: ContinuousClock.Instant)?
+    /// Counts ``forget()``: a read that began before one never keeps its answer after it.
+    private var forgets = 0
 
     public init() {}
 
@@ -101,15 +103,20 @@ extension AgentPaneCloudMachines {
                      _ get: () async throws -> JSONValue) async -> AgentPaneCloudMachines.Plan {
         guard let account else { return .unknown }
         if let kept, kept.account == account, now - kept.at < age { return kept.plan }
+        let began = forgets
         guard let reply = try? await get() else { return .unknown }
         let plan = AgentPaneCloudMachines.Plan(planGet: reply)
+        guard began == forgets else { return plan } // asked before a forget: answered, never kept
         if plan.state == .active { kept = (account, plan, now) } else { kept = nil }
         return plan
     }
 
     /// Drops the kept read: the next ``read(account:age:now:_:)`` asks the server (a Subscribe, which may change the
     /// plan, or a page that needs the plan as it is now: `cloudMachine.list {fresh: true}`).
-    public func forget() { kept = nil }
+    public func forget() {
+        kept = nil
+        forgets &+= 1
+    }
 }
 
 /// The start card's plan refusal (webviews CloudStartView.tsx).

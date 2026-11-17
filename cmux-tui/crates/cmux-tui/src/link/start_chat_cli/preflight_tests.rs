@@ -166,8 +166,18 @@ mod machine_room {
         );
         // Even one the platform says it made for this start, when it is smaller than asked.
         let (made, _) =
-            plan(Some("lg"), Some(json!({"vcpu": 4, "memGiB": 16, "diskGiB": 32})), true);
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 20})), true);
         assert_eq!(made["error_code"], SEED_REFUSED, "{made}");
+    }
+
+    /// A machine grown to a disk between two sizes is judged by the folder, not by the size's own disk: 10 GiB and the
+    /// 12 GiB reserve fit 24 GiB, though `md` is 32.
+    #[test]
+    fn a_disk_between_sizes_with_room_for_the_folder_goes_on() {
+        let (answer, _) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 24})), false);
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["machine"], "vm_own", "{answer}");
     }
 
     #[test]

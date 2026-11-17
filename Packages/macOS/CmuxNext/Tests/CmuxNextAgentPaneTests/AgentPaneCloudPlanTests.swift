@@ -47,6 +47,11 @@ struct AgentPaneCloudPlanTests {
         // forget() drops the kept active plan (Subscribe, or a fresh list): Pro to Max is seen at once.
         noPlan.forget()
         #expect(await noPlan.read(account: them, now: start + .seconds(4), none) == .init(state: .noPlan) && noneReads == 3)
+        // A read that was asked before a forget (a plain list still running when the fresh one starts) answers but is
+        // never kept: the next read asks again rather than reuse a plan from before the purchase.
+        let racing = AgentPaneCloudPlanReads()
+        #expect(await racing.read(account: them, now: start) { racing.forget(); return try await get() } == pro && reads == 5)
+        #expect(await racing.read(account: them, now: start + .seconds(1), get) == pro && reads == 6)
 
         let machines = AgentPaneCloudMachines()
         machines.list = { .init(signedIn: true, loaded: true, machines: [], plan: pro) }

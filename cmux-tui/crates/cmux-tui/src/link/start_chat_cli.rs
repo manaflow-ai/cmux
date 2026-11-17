@@ -515,9 +515,14 @@ fn plan_with_calls(
                     }
                     // The platform answers the workspace's machine at whatever size it is: one smaller than the size
                     // asked takes no clone or copy (pinned above, so a retry reaches the same machine, never another).
+                    // The platform's answer names no machine: its name is the App's list's, else the id.
+                    let listed = request.machines.iter().find(|machine| machine.id == id);
                     let machine = preflight::Machine {
                         id,
-                        title: body_title.as_deref().unwrap_or(id),
+                        title: body_title
+                            .as_deref()
+                            .or(listed.map(|machine| machine.title.as_str()))
+                            .unwrap_or(id),
                         disk_bytes: disk,
                     };
                     if let Some(refusal) =

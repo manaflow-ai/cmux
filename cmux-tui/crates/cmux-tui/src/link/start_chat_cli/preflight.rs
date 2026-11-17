@@ -75,8 +75,8 @@ pub(super) struct Machine<'a> {
 /// smaller disk than that size's: an existing machine the platform answered at its own size (the workspace already had
 /// it) or a pinned one. Nothing is cloned or copied there: the clone would fill its disk. A plan upgrade does not help,
 /// the workspace's machine is fixed, so it is the folder too big for this machine, never `cloud.size.locked`. None for
-/// the chat size or none asked, a size off the ladder, a machine whose disk is unknown (an older platform) or a disk at
-/// least the size's.
+/// the chat size or none asked, a size off the ladder, a machine whose disk is unknown (an older platform) or a disk
+/// with room for the folder and the reserve (at least the size's, when the folder's bytes are unknown).
 pub(super) fn too_small(
     size: Option<&str>,
     bytes: Option<u64>,
@@ -85,7 +85,13 @@ pub(super) fn too_small(
     let size = size.filter(|size| *size != "sm")?;
     let (_, asked) = LADDER.iter().find(|(name, _)| *name == size)?;
     let disk = machine.disk_bytes?;
-    if disk >= *asked {
+    // A disk between two sizes (a machine grown by hand) has room when the folder and the reserve fit it; the
+    // size's own disk decides only when the folder's bytes are unknown.
+    let fits = match bytes {
+        Some(bytes) => bytes.saturating_add(RESERVED_BYTES) <= disk,
+        None => disk >= *asked,
+    };
+    if fits {
         return None;
     }
     let room = disk.saturating_sub(RESERVED_BYTES).max(LEAST_ROOM_BYTES);

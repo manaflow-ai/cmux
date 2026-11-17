@@ -483,15 +483,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code`,
     /// `install_url` and `copy_bytes`, so they come from the answer's own JSON line when Rust left them out.
     private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
-        guard answer.fallbackCode == nil || answer.copyBytes == nil else { return answer }
+        guard answer.fallbackCode == nil || answer.copyBytes == nil || answer.machineTitle == nil else { return answer }
         struct Fields: Decodable {
-            var fallbackCode: String?, installURL: String?, copyBytes: Int64?
-            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes" }
+            var fallbackCode: String?, installURL: String?, copyBytes: Int64?, machineTitle: String?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes", machineTitle = "machine_title" }
         }
         let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
         guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
         var answer = answer
         (answer.fallbackCode, answer.installURL, answer.copyBytes) = (answer.fallbackCode ?? fields.fallbackCode, answer.installURL ?? fields.installURL, answer.copyBytes ?? fields.copyBytes)
+        answer.machineTitle = answer.machineTitle ?? fields.machineTitle
         return answer
     }
 
