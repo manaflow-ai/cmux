@@ -95,7 +95,8 @@ fn failure(answer: &Answer) -> Value {
                 (403, Some("policy.denied")) => "repo.no_access",
                 (429, _) => "rate_limited",
                 (400, _) => "request.invalid",
-                (401 | 403, _) => "auth.required",
+                (401, _) => "auth.required",
+                (403, _) => "auth.forbidden",
                 _ => "integration.unavailable",
             };
             let message = match code {
@@ -111,6 +112,10 @@ fn failure(answer: &Answer) -> Value {
                 }
                 "auth.required" => {
                     "This machine's cmux Cloud sign-in needs renewing. Reconnect to the machine, then retry."
+                }
+                // Not a sign-in to renew: the machine is not live, or it, its team or the person may not use GitHub.
+                "auth.forbidden" => {
+                    "cmux Cloud refused GitHub for this machine. Check that it is running and you are still in its team, then retry."
                 }
                 _ => "GitHub did not answer. Retry listing repositories.",
             };

@@ -61,7 +61,12 @@ fn github_repos_errors_name_a_next_action_and_never_copy_the_api_message() {
         (400, "request.invalid", "cursor is stale: not copied", "cursor_stale"),
         (400, "request.invalid", "query too long: not copied", "request.invalid"),
         (403, "policy.denied", "not copied", "repo.no_access"),
-        (403, "auth.forbidden", "not copied", "auth.required"),
+        (
+            403,
+            "auth.forbidden",
+            "a VM install speaks only for its own live machine",
+            "auth.forbidden",
+        ),
         (401, "auth.required", "not copied", "auth.required"),
         (429, "rate_limited", "not copied", "rate_limited"),
         (503, "integration.unavailable", "not copied", "integration.unavailable"),
@@ -69,7 +74,11 @@ fn github_repos_errors_name_a_next_action_and_never_copy_the_api_message() {
         let reply = answer(&ask(json!({})), "team-a", |_| api_error(status, code, message));
         assert_eq!(reply["error"]["code"], expected, "{status} {code}");
         assert!(!reply["error"]["message"].as_str().unwrap().contains("not copied"));
+        assert!(!reply["error"]["message"].as_str().unwrap().contains("own live machine"));
     }
+    // A refused machine is not told to renew its sign-in.
+    let refused = answer(&ask(json!({})), "team-a", |_| api_error(403, "auth.forbidden", "m"));
+    assert!(!refused["error"]["message"].as_str().unwrap().contains("renewing"));
     let reply = answer(&ask(json!({})), "team-a", |_| {
         http(429, json!({"error":{"code":"rate_limited","message":"m"},"retry_after":7}))
     });
