@@ -15,6 +15,7 @@
 #include "include/cef_parser.h"
 #include "include/cef_ssl_status.h"
 #include "include/cef_task.h"
+#include "include/cef_urlrequest.h"
 #include "include/cef_x509_certificate.h"
 #include "shim_internal.h"
 
@@ -199,6 +200,47 @@ class FaviconReply : public CefDownloadImageCallback {
   IMPLEMENT_REFCOUNTING(FaviconReply);
 };
 
+// Collects one profile fetch's body (at most max_bytes) and replies once:
+// a = HTTP status (0 on a network failure or an oversize body), s1 = base64 body.
+class ProfileFetchReply : public CefURLRequestClient {
+ public:
+  ProfileFetchReply(int browser_id, int reply, size_t max_bytes)
+      : browser_id_(browser_id), reply_(reply), max_bytes_(max_bytes) {}
+
+  void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+    CefRefPtr<CefResponse> response = request->GetResponse();
+    const bool ok = request->GetRequestStatus() == UR_SUCCESS && !oversize_;
+    const int status = ok && response ? response->GetStatus() : 0;
+    std::string encoded = ok && !body_.empty() ? CefBase64Encode(body_.data(), body_.size()).ToString() : "";
+    body_.clear();
+    EmitOnUI(browser_id_, reply_, status, encoded);
+  }
+  void OnUploadProgress(CefRefPtr<CefURLRequest>, int64_t, int64_t) override {}
+  void OnDownloadProgress(CefRefPtr<CefURLRequest>, int64_t, int64_t) override {}
+  void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t length) override {
+    if (oversize_) return;
+    if (body_.size() + length > max_bytes_) {
+      oversize_ = true;
+      body_.clear();
+      request->Cancel();
+      return;
+    }
+    body_.append(static_cast<const char*>(data), length);
+  }
+  bool GetAuthCredentials(bool, const CefString&, int, const CefString&, const CefString&,
+                          CefRefPtr<CefAuthCallback>) override {
+    return false;  // never answer a password prompt
+  }
+
+ private:
+  int browser_id_;
+  int reply_;
+  size_t max_bytes_;
+  bool oversize_ = false;
+  std::string body_;
+  IMPLEMENT_REFCOUNTING(ProfileFetchReply);
+};
+
 }  // namespace
 
 namespace {
@@ -327,6 +369,23 @@ int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int m
   // As a favicon (Chromium's favicon request flags), from the cache when it
   // has the icon, in the tab's request context: its cookies and profile.
   browser->GetHost()->DownloadImage(url, true, static_cast<uint32_t>(max_size), false, new FaviconReply(browser_id, reply));
+  return 1;
+}
+
+int cmux_shim_profile_fetch(int browser_id, int reply, const char* url, int max_bytes) {
+  CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
+  if (!context || !url || std::strncmp(url, "https://", 8) != 0 || max_bytes <= 0) {
+    return 0;
+  }
+  CefRefPtr<CefRequest> request = CefRequest::Create();
+  request->SetURL(url);
+  request->SetMethod("GET");
+  // First party for its own URL: the profile's cookies for that site, as a
+  // top-level visit would send them; nothing from the tab's page.
+  request->SetFirstPartyForCookies(url);
+  request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_SKIP_CACHE | UR_FLAG_STOP_ON_REDIRECT |
+                    UR_FLAG_NO_RETRY_ON_5XX);
+  CefURLRequest::Create(request, new ProfileFetchReply(browser_id, reply, static_cast<size_t>(max_bytes)), context);
   return 1;
 }
 

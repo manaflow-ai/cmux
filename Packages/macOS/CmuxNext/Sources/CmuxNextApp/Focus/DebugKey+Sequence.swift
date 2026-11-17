@@ -15,7 +15,7 @@ import CmuxNextSettings
 /// (`nextEvent`, local monitors, `sendEvent`, the key window). Never posts
 /// to another process.
 ///
-/// `"key_window": "shell"` or `"page"` (with `pane`, default the focused pane) first makes that
+/// `"key_window": "shell"`, `"page"` (with `pane`, default the focused pane) or a window's identifier first makes that
 /// window the app's key window, without activating the app (as `debug.window.focus` does): the shell
 /// window for a terminal, or the Chromium page window of the pane's selected page, as when a person
 /// clicked into the page, so the keys take the path a key in a focused page takes. Without it the
@@ -50,8 +50,8 @@ extension DebugKey {
                         "duration_ms": .number(sequence.durationSeconds * 1000), "key_window": keyWindow])
     }
 
-    /// Makes the `wanted` window (`shell`, or the `page` window of `params["pane"]` or the focused
-    /// pane) of `params["window"]` (default: the active window) the app's key window without
+    /// Makes the `wanted` window (`shell`, the `page` window of `params["pane"]` or the focused pane, or a window's
+    /// identifier such as `cmux.densityPlayground`) of `params["window"]` (default: the active window) the key window without
     /// activating the app; returns why it could not, or nil.
     @MainActor private static func makeKey(_ wanted: String, _ params: [String: JSONValue], services: AppServices) -> String? {
         let windowID = params["window"]?.stringValue
@@ -59,14 +59,14 @@ extension DebugKey {
         guard let controller, let shell = controller.window else { return "no window" }
         let window: NSWindow
         switch wanted {
-        case "shell":
-            window = shell
+        case "shell": window = shell
         case "page":
             guard let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
                   let page = pageWindow(of: pane, in: controller) else { return "no Chromium page window for pane" }
             window = page
         default:
-            return "key_window must be shell or page"
+            guard let other = NSApp.windows.first(where: { $0.identifier?.rawValue == wanted && $0.isVisible }) else { return "no visible window \(wanted)" }
+            window = other
         }
         shell.orderFrontRegardless()
         window.makeKey()

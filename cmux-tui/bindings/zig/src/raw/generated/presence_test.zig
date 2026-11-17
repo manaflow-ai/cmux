@@ -293,6 +293,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.SurfaceResult, "screen_id");
     try expectExplicitNullRejected(protocol.SurfaceResult, "terminal_resource_id");
+    try expectExplicitNullRejected(protocol.SurfaceResult, "transaction");
     try expectExplicitNullRejected(protocol.SurfaceResult, "workspace_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");

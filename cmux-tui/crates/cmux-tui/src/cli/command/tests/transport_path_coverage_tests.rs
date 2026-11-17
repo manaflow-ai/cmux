@@ -376,6 +376,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
                         | "cloud.owner.github_app"
+                        | "cloud.owner.github_connect"
+                        | "cloud.owner.github_repos"
                         | "cloud.owner.handoff_begin_turn"
                         | "cloud.owner.handoff_open"
                         | "cloud.owner.handoff_wait"
