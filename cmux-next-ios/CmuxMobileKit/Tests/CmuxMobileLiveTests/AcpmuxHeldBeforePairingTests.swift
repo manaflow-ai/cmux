@@ -134,13 +134,13 @@ import Testing
     }
 
     /// `data` in the link's 16 KiB frames.
-    static func split(_ data: Data) -> [Data] {
+    nonisolated static func split(_ data: Data) -> [Data] {
         let chunk = AcpmuxConnection.MessageJoiner.chunk
         return stride(from: 0, to: data.count, by: chunk).map { data.subdata(in: $0..<min($0 + chunk, data.count)) }
     }
 
     /// The mobile host's envelope (`DeflatedMessage`): 0x00, text length, deflate length, raw deflate.
-    static func deflated(_ text: Data) -> Data? {
+    nonisolated static func deflated(_ text: Data) -> Data? {
         var body = Data(count: text.count / 100 + 4096)
         let written = body.withUnsafeMutableBytes { out -> Int in
             text.withUnsafeBytes { input -> Int in
