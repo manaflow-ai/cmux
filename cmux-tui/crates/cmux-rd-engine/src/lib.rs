@@ -16,6 +16,8 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+pub use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
@@ -110,6 +112,11 @@ pub struct EncodeRequest {
     pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+    /// The encoder settings for this frame (`MediaEngine::set_profile`; standard by default).
+    pub profile: EncodeProfile,
+    /// Ultra only: the screen went still, so this frame re-encodes the unchanged picture at a
+    /// low QP (visually lossless) instead of carrying new damage.
+    pub refine: bool,
 }
 
 /// Why the engine asks for a keyframe.
@@ -319,6 +326,11 @@ struct StreamState {
     /// viewer's cumulative acknowledgement round trip on carriers that do
     /// not expose a path probe (the development socket/proxy path).
     sent_at_us: BTreeMap<u32, u64>,
+    /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
+    /// after the newest frame was sent).
+    refine_due_us: Option<u64>,
+    /// The gate's pending damage is a refinement (no new damage joined it).
+    refine_pending: bool,
 }
 
 impl StreamState {
@@ -336,6 +348,8 @@ impl StreamState {
             probe_from_us: None,
             probes: 0,
             sent_at_us: BTreeMap::new(),
+            refine_due_us: None,
+            refine_pending: false,
         }
     }
 
@@ -363,6 +377,8 @@ pub struct MediaEngine {
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
     upstreams: BTreeMap<u16, Upstream>,
+    /// The encoder profile every request carries.
+    profile: EncodeProfile,
 }
 
 impl MediaEngine {
@@ -387,8 +403,24 @@ impl MediaEngine {
             clock: None,
             ack_rtts: VecDeque::new(),
             upstreams: BTreeMap::new(),
+            profile: EncodeProfile::Standard,
             cfg,
         }
+    }
+
+    /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
+    /// that was due.
+    pub fn set_profile(&mut self, profile: EncodeProfile) {
+        self.profile = profile;
+        if !profile.is_ultra() {
+            for state in self.streams.values_mut() {
+                state.refine_due_us = None;
+            }
+        }
+    }
+
+    pub fn profile(&self) -> EncodeProfile {
+        self.profile
     }
 
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
@@ -512,19 +544,51 @@ impl MediaEngine {
         if stream == self.cfg.stream { total.saturating_sub(each * popups) } else { each }
     }
 
-    fn request(&self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
-        let state = self.streams.get(&stream)?;
+    fn request(&mut self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
+        let target_kbps = self.target_kbps(stream);
+        let profile = self.profile;
+        let state = self.streams.get_mut(&stream)?;
         match action {
-            FlowAction::Encode { damage, frame } => Some(EncodeRequest {
-                stream,
-                frame,
-                damage,
-                force_idr: state.force_idr.is_some(),
-                idr_reason: state.force_idr,
-                target_kbps: self.target_kbps(stream),
-            }),
+            FlowAction::Encode { damage, frame } => {
+                // A refinement is only a refinement while no new damage joined it, and never
+                // stands in for a keyframe.
+                let refine = std::mem::take(&mut state.refine_pending)
+                    && profile.is_ultra()
+                    && state.force_idr.is_none();
+                Some(EncodeRequest {
+                    stream,
+                    frame,
+                    damage,
+                    force_idr: state.force_idr.is_some(),
+                    idr_reason: state.force_idr,
+                    target_kbps,
+                    profile,
+                    refine,
+                })
+            }
             FlowAction::Wait => None,
         }
+    }
+
+    /// Ultra: once a stream's refinement is due, its gate gets the whole surface as damage,
+    /// marked as a refinement; the gate releases it now or when its cap and in-flight bound
+    /// allow, as any frame.
+    fn gate_poll(&mut self, stream: u16, now_us: u64) -> Option<FlowAction> {
+        let ultra = self.profile.is_ultra();
+        let state = self.streams.get_mut(&stream)?;
+        let due = state.refine_due_us.is_some_and(|due| now_us >= due);
+        if ultra && due && state.tile_of.is_none() {
+            state.refine_due_us = None;
+            // Damage already waiting in the gate means the screen is not still: that frame
+            // goes first, and its `encoded` schedules the refinement again.
+            if state.gate.has_pending() {
+                return Some(state.gate.poll(now_us));
+            }
+            state.refine_pending = true;
+            let full = state.full();
+            return Some(state.gate.damage(full, now_us));
+        }
+        Some(state.gate.poll(now_us))
     }
 
     /// The main stream's first frame: the whole surface, an IDR.
@@ -538,15 +602,19 @@ impl MediaEngine {
         let state = self.streams.get_mut(&stream)?;
         let rect = if state.started { rect } else { state.full() };
         state.started = true;
+        // New damage: this frame is not a refinement, and the next one waits for stillness.
+        state.refine_pending = false;
+        state.refine_due_us = None;
         let action = state.gate.damage(rect, now_us);
         self.request(stream, action)
     }
 
-    /// Advances time: a frame held by an fps cap may be due (the first one).
+    /// Advances time: a frame held by an fps cap may be due (the first one), or (ultra) a
+    /// still screen's refinement frame.
     pub fn poll(&mut self, now_us: u64) -> Option<EncodeRequest> {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
-            let action = self.streams.get_mut(&stream).map(|s| s.gate.poll(now_us))?;
+            let action = self.gate_poll(stream, now_us)?;
             if let Some(req) = self.request(stream, action) {
                 return Some(req);
             }
@@ -568,6 +636,12 @@ impl MediaEngine {
                     .filter(|_| s.gate.in_flight() > 0)
                     .map(|t| t.saturating_add(TAIL_PROBE_US))
             }))
+            .chain(
+                self.streams
+                    .values()
+                    .filter(|_| self.profile.is_ultra())
+                    .filter_map(|s| s.refine_due_us),
+            )
             .min()
     }
 
@@ -639,6 +713,10 @@ impl MediaEngine {
         }
         state.force_idr = None;
         state.last_frame = req.frame;
+        // Ultra: a frame that carried damage is refined once the screen stays still for one
+        // frame interval; a refinement is the last word until new damage.
+        state.refine_due_us = (self.profile.is_ultra() && !req.refine && !tile)
+            .then(|| now_us.saturating_add(refine_after_us(self.cfg.max_fps)));
         state.probe_from_us = Some(now_us);
         state.probes = 0;
         self.frames += 1;

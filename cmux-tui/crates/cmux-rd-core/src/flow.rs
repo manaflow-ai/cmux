@@ -108,6 +108,11 @@ impl FrameGate {
         self.max_in_flight = max_in_flight.max(1);
     }
 
+    /// Damage waits for the next frame.
+    pub fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Frames sent and not yet acknowledged.
     pub fn in_flight(&self) -> u32 {
         self.last_sent.saturating_sub(self.acked)

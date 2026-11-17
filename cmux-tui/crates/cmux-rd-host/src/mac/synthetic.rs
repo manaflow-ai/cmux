@@ -14,6 +14,7 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use std::ffi::{c_long, c_void};
 use std::io::{Read, Write};
@@ -390,6 +391,15 @@ impl FrameSource for SyntheticFrames {
 
     fn set_bitrate(&mut self, kbps: u32) {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
+    }
+
+    fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+        self.encoder.set_ultra(profile.is_ultra());
+        self.encoder.set_refine(refine);
+    }
+
+    fn set_changed_pixels(&mut self, pixels: u64) {
+        self.encoder.set_changed_pixels(pixels);
     }
 
     fn kbps(&self) -> u32 {
