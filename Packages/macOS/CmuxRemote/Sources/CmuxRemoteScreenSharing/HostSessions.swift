@@ -12,11 +12,11 @@ extension DeviceIdentity: @retroactive ScreenTicketSigner {
     }
 }
 
-/// This Mac's Mac Screen sessions (the app's MacScreenHubHost, moved into
-/// the Screen Sharing worker): each `session.ticket` for the host role is
-/// served by its own `ScreenStreamHost` (View Only passes no input) over the
-/// ticket's signaling; a revocation or end closes it at once. One session at
-/// a time: a newer one replaces the older.
+/// This Mac's Mac Screen sessions, all captured in this worker: with no app attached, each
+/// `session.ticket` for the host role is served by its own `ScreenStreamHost` (View Only passes
+/// no input) over the ticket's signaling; with the app attached, the app's `MacScreenHubHost`
+/// hands each session it serves here (``AttachedScreenSession``). A revocation or end closes it
+/// at once. One session at a time: a newer one replaces the older.
 @MainActor
 final class HostSessions {
     struct Session: Equatable {
@@ -33,6 +33,11 @@ final class HostSessions {
 
     private(set) var session: Session?
     private var host: ScreenStreamHost?
+    /// The session the app serves through this worker, while there is one.
+    private var attached: AttachedScreenSession?
+    /// The app that opened ``attached`` is still there (it shows its own menu bar item and owns
+    /// Stop); false once it left and the session serves on (headless).
+    private(set) var appAttached = false
     private var eventTask: Task<Void, Never>?
     var hub: () -> DeviceHub? = { nil }
     /// Whether this Mac's local consent allows a session of a scope (the app's join consent, as last told).
@@ -82,6 +87,45 @@ final class HostSessions {
         }
         logger.info("serving a device hub session (\(ticket.scope.rawValue, privacy: .public))")
         changed()
+    }
+
+    /// The app's session, served here: it replaces whatever served before (the app already ended
+    /// a replaced session at the hub).
+    func attach(_ served: AttachedScreenSession) {
+        if session != nil { closeLocal() }
+        attached = served
+        appAttached = true
+        session = Session(id: served.info.id, viewerID: served.info.viewerID, viewerName: served.info.viewerName,
+                          scope: served.info.scope, connected: false)
+        changed()
+    }
+
+    /// One event of an attached session; events of a session no longer current are dropped.
+    func attachedEvent(_ served: AttachedScreenSession, _ event: AttachedScreenSession.Event) {
+        guard attached === served else { return }
+        switch event {
+        case .connected:
+            session?.connected = true
+        case .orphaned:
+            appAttached = false
+        case let .ended(reason):
+            logger.info("attached session ended: \(reason, privacy: .public)")
+            attached = nil
+            appAttached = false
+            session = nil
+        }
+        changed()
+    }
+
+    /// Whether the cmux app serves the current session and is still attached (then it, not this
+    /// worker, stops it).
+    var appOwnsSession: Bool { attached != nil && appAttached }
+
+    /// The app attached: a session this worker served alone stops (the app takes host tickets
+    /// from now on); a session the app handed here keeps serving.
+    func closeWorkerOwned() {
+        guard attached == nil else { return }
+        closeLocal()
     }
 
     /// `session.revoked` or `session.ended`.
@@ -141,6 +185,10 @@ final class HostSessions {
     }
 
     private func closeLocal() {
+        let attached = self.attached
+        self.attached = nil
+        appAttached = false
+        attached?.stop()
         let host = self.host
         self.host = nil
         host?.onEvent = nil
@@ -158,7 +206,8 @@ final class HostSessions {
 
     /// The menu bar line for the session, nil while no device is connected.
     var indicatorTitle: String? {
-        guard let session, session.connected else { return nil }
+        // The attached app shows its own.
+        guard let session, session.connected, !appOwnsSession else { return nil }
         return String(format: session.scope == .view
             ? RemoteText.t("macScreen.indicator.viewing", "%@ is viewing this Mac")
             : RemoteText.t("macScreen.indicator.controlling", "%@ is controlling this Mac"), session.viewerName)

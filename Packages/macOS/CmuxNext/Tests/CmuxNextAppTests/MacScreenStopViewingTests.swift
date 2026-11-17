@@ -24,7 +24,7 @@ struct MacScreenStopViewingTests {
     /// Stop Viewing on a device tab ends its session as Disconnect does; any other tab is refused.
     @Test func stopViewingEndsTheTargetedTabsSession() throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "stop-viewing-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         pages.prepare("a", record: MacScreenRecord(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"), byPerson: false)
         _ = pages.makeView(for: "a")
         let pane = try #require(pages.tab("a")?.pane)

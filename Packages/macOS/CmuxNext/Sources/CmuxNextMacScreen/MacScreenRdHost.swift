@@ -1,22 +1,21 @@
 import CmuxNextCompat
-import CmuxNextWakeups
 import CmuxScreenKit
 import CoreGraphics
 import Foundation
 import os
 
-/// This Mac serving one approved device hub session on cmux.rd/1
-/// (plans/cmux-next/remote-desktop-mac-host.md section 7): `cmux rd serve`
-/// captures, encodes and injects input, and holds the secure link; this object
-/// carries its offer, answer and candidates over the session's signaling. The
-/// host runs in the Screen Sharing helper (``MacScreenHelper``), its own
-/// responsible process, so the Screen Recording and Accessibility grants it
-/// uses are the helper's and a grant never relaunches this app.
+/// This Mac serving one approved device hub session (plans/cmux-next/remote-desktop-mac-host.md
+/// section 7). This object holds the session's signaling; the capture, encoding and input run in
+/// cmux Computer Use's Screen Sharing worker (``MacScreenCaptureWorker``), so the Screen Recording
+/// and Accessibility grants are the helper's, macOS never asks for cmux, and a grant never
+/// relaunches this app. This app never captures the screen itself: without the worker a session
+/// fails with ``MacScreenCaptureWorker/unavailable``.
 ///
-/// The viewer chooses the protocol with its offer. A viewer that offers WebRTC
-/// (the iPhone's Screen Sharing viewer, or a Mac from before cmux.rd/1) is served
-/// by `ScreenStreamHost` with that offer and every later signal, so this Mac
-/// stays viewable from every client the hub admits.
+/// The viewer chooses the protocol with its offer. A cmux.rd/1 offer starts
+/// `cmux-screen-sharing serve` in the worker, and this object carries its offer, answer and
+/// candidates. A viewer that offers WebRTC (the iPhone's Screen Sharing viewer, or a Mac from
+/// before cmux.rd/1) is served by the worker's `ScreenStreamHost` with that offer and every later
+/// signal relayed, so this Mac stays viewable from every client the hub admits.
 nonisolated final class MacScreenRdHost: Sendable {
     enum Event: Sendable, Equatable {
         /// The viewer's link is up: it sees (and, in a control session, controls) the screen.
@@ -32,38 +31,43 @@ nonisolated final class MacScreenRdHost: Sendable {
         /// The name a WebRTC viewer shows for this Mac.
         var name: String
         var viewerID: String
+        var viewerName = ""
         var viewOnly: Bool
         var servers: MacScreenRdServers
+        /// The hub's ICE servers for the session, as the worker's WebRTC host takes them.
+        var iceServers: [ICEServerConfig] = []
+
+        /// What the worker hears about the session when its channel opens.
+        var workerParams: Data {
+            let fields: [String: Any] = ["session_id": id, "viewer_id": viewerID, "viewer_name": viewerName,
+                                         "scope": viewOnly ? "view" : "full", "name": name,
+                                         "ice_servers": ScreenSignalWire.fields(iceServers)]
+            return (try? JSONSerialization.data(withJSONObject: fields)) ?? Data("{}".utf8)
+        }
     }
 
     private let session: Session
     private let process = MacScreenRdProcess()
-    /// The WebRTC host when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
-    private let webRTC = Mutex<ScreenStreamHost?>(nil)
+    /// Where the session is captured; nil when cmux Computer Use is not running.
+    private let worker: MacScreenCaptureWorker?
+    /// The worker's WebRTC channel when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
+    private let webRTC = Mutex<MacScreenWorkerChannel?>(nil)
+    /// Stop arrived before the WebRTC channel opened: it stops as soon as it opens.
+    private let stopped = Mutex(false)
     /// Reads the process's lines until it ends; outlives `serve` (a connected session outlives its
     /// signaling), cancelled by `disconnectViewer`.
     private let output = Mutex<Task<Void, Never>?>(nil)
     private let handler = Mutex<(@Sendable (Event) -> Void)?>(nil)
-    /// SECURITY: keeps the rd process's capture leaving out the app's windows only the person at this
-    /// Mac may see (`CaptureExcludedWindows`), from its start until the session ends.
-    private let processExclusions = Mutex<Task<Void, Never>?>(nil)
-    /// The same for the WebRTC capture (`ScreenCaptureBackend.exclusionsChanged()`).
-    private let webRTCExclusions = Mutex<Task<Void, Never>?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd-host")
-    /// How long the started host may take to answer (its key and candidates); tests shorten it.
-    let answerTimeout: Duration
-    /// The pending no-answer deadline, from the host's start to its answer.
-    private let answerDeadline: DemandTimer
 
-    /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
+    /// Serves a WebRTC viewer; nil is the worker's `ScreenStreamHost` (tests replace it: no worker there).
     private let webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)?
 
-    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil,
-         answerTimeout: Duration = .seconds(15), clock: any Clock<Duration> = ContinuousClock()) {
+    init(session: Session, worker: MacScreenCaptureWorker? = nil,
+         webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil) {
         self.session = session
+        self.worker = worker
         self.webRTCServer = webRTCServer
-        self.answerTimeout = answerTimeout
-        answerDeadline = DemandTimer(owner: "mac-screen.rd-host-answer-deadline", clock: clock)
     }
 
     /// Whether the rd process was started (a WebRTC viewer never starts it).
@@ -86,15 +90,11 @@ nonisolated final class MacScreenRdHost: Sendable {
         let process = self.process
         // task-owner: the host's output for this session; ends with the process or disconnectViewer
         let output = Task { [weak self] in
-            // The process ended or this session did: no more exclusion lists for it.
-            defer { self?.processExclusions.withLock { $0 }?.cancel() }
             var answered = false
             var answer: MacScreenRdDocument?
             var connected = false
             for await line in process.lines {
                 guard let self else { return }
-                // Every line's kind, so a session's log shows the stage it reached (cmuxterm-hq#13721).
-                logger.info("cmux rd: host line \(line.kinds, privacy: .public)")
                 if let displays = line.displays {
                     var document = answer ?? MacScreenRdDocument(key: "")
                     document.displays = displays.compactMap { $0.count == 2 ? CGSize(width: Double($0[0]), height: Double($0[1])) : nil }
@@ -116,7 +116,6 @@ nonisolated final class MacScreenRdHost: Sendable {
                 // The answer goes once every candidate this side will find is known.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
-                    answerDeadline.cancel()
                     logger.info("cmux rd: answer sent (\(document.candidates.count, privacy: .public) candidates)")
                     do { try await signaling.send(.answer(document.text)) } catch {
                         logger.error("answer not sent: \(String(describing: error), privacy: .public)")
@@ -172,19 +171,20 @@ nonisolated final class MacScreenRdHost: Sendable {
                 }
                 logger.info("cmux rd: offer received (\(offer.candidates.count, privacy: .public) candidates); starting the host")
                 started = true
-                do { try await process.startServe() } catch {
-                    emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))
+                guard let worker else {
+                    emit(.sourceFailed(MacScreenCaptureWorker.unavailable))
                     return
                 }
-                // The helper answers in under a second; one that has not by now never will.
-                answerDeadline.schedule(after: answerTimeout) { [weak self] in self?.answerTimedOut() }
+                do { process.attach(socket: try await worker.open("session.rd", params: session.workerParams)) } catch {
+                    emit(.sourceFailed("the screen host could not start: \(error)"))
+                    return
+                }
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth))
-                watchExclusions()
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                 process.send(Later(candidate: candidate.candidate))
@@ -199,87 +199,68 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await webRTCServe?.value
     }
 
-    /// Serves a WebRTC viewer with `ScreenStreamHost` over the forwarded signaling.
+    /// Serves a WebRTC viewer with the worker's `ScreenStreamHost`: the viewer's signals go to the
+    /// worker, the worker's go to the viewer, and its state arrives as `session` events. Returns
+    /// when the signaling ends; the worker's channel (a connected link) lives on until the session
+    /// ends or ``disconnectViewer()``.
     private func serveWebRTC(_ signaling: MacScreenForwardedSignaling) async throws {
-        let logger = logger
-        let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
-        // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
-        // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
-        let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
-            let backend = ScreenCaptureBackend(log: log)
-            backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }
-            let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
-            self?.webRTCExclusions.withLock { previous in
-                previous?.cancel()
-                previous = watch
-            }
-            return backend
-        }, log: log)
-        host.onEvent = { [weak self] event in
-            switch event {
-            case .viewerConnected: self?.emit(.viewerConnected)
-            case .viewerEnded: self?.emit(.viewerEnded("the WebRTC viewer left"))
-            case let .sourceFailed(message): self?.emit(.sourceFailed(message))
-            case .waiting, .roomLost: break
-            }
+        guard let worker else {
+            emit(.sourceFailed(MacScreenCaptureWorker.unavailable))
+            return
         }
-        webRTC.withLock { $0 = host }
-        logger.info("serving a WebRTC viewer")
-        defer { webRTCExclusions.withLock { $0 }?.cancel() }
-        try await host.serve(signaling)
-    }
-
-    /// Sends the rd process the windows its capture leaves out now (it applies the list to the running
-    /// capture, or at start), then the whole list again on every change until the session ends.
-    private func watchExclusions() {
-        let process = process
-        let watch = Self.watchExcludedWindows { ids in process.send(ExcludeWindows(excludeWindows: ids.sorted())) }
-        processExclusions.withLock { previous in
-            previous?.cancel()
-            previous = watch
+        var session = self.session
+        session.iceServers = (try? await signaling.iceServers()) ?? []
+        let channel: MacScreenWorkerChannel
+        do { channel = MacScreenWorkerChannel(socket: try await worker.open("session.webrtc", params: session.workerParams)) } catch {
+            emit(.sourceFailed("the screen host could not start: \(error)"))
+            return
         }
-    }
-
-    /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
-    /// cancelled, and calls `changed` with the list at once and on every change, in order.
-    private static func watchExcludedWindows(_ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
-        // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
-        Task {
-            var last: Set<CGWindowID>?
-            // wakeup-allow: runs only while a screen share's capture runs (itself up to 120 frames a second),
-            // never idle; cancelled when the session's capture ends. No event says a window's sharing changed.
-            // concurrency-allow: an unstructured task off the main actor; each pass is one window-list read.
-            while !Task.isCancelled {
-                let ids = CaptureExcludedWindows().windowIDs
-                if ids != last {
-                    changed(ids)
-                    last = ids
+        webRTC.withLock { $0 = channel }
+        if stopped.withLock({ $0 }) { channel.stop() }
+        logger.info("serving a WebRTC viewer through cmux Computer Use")
+        // task-owner: the worker's lines for this session; ends with its channel
+        let output = Task { [weak self] in
+            var connected = false
+            for await line in channel.lines {
+                guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
+                if let fields = object["signal"] as? [String: Any], let signal = ScreenSignalWire.signal(fields) {
+                    try? await signaling.send(signal)
+                } else if object["event"] as? String == "session" {
+                    let reason = object["reason"] as? String ?? ""
+                    switch object["kind"] as? String {
+                    case "connected":
+                        connected = true
+                        self?.emit(.viewerConnected)
+                    case "ended":
+                        self?.emit(.viewerEnded(reason))
+                        return
+                    case "failed":
+                        self?.emit(.sourceFailed(reason))
+                        return
+                    default: break
+                    }
                 }
-                // wakeup-allow: the recheck period of the live capture's exclusion watch above (4 a second).
-                // concurrency-allow: off the main actor; bounded by the cancel at the session's end.
-                try? await Task.sleep(for: CaptureExcludedWindows.recheck)
             }
+            // The worker's channel closed without saying why (the worker or the helper stopped).
+            self?.emit(connected ? .viewerEnded("the screen host stopped") : .sourceFailed("the screen host stopped"))
         }
-    }
-
-    /// No answer went within ``answerTimeout`` of the host's start: the session fails here
-    /// (the hub hears `failed`, so the viewer's card says so) instead of serving nothing.
-    private func answerTimedOut() {
-        logger.error("cmux rd: the screen host gave no answer within \(String(describing: self.answerTimeout), privacy: .public); stopping it")
-        process.stop()
-        output.withLock { $0 }?.cancel()
-        emit(.sourceFailed("the screen host did not answer"))
+        self.output.withLock { $0 = output }
+        do {
+            for try await signal in signaling.messages() {
+                channel.write(["signal": ScreenSignalWire.fields(signal)])
+            }
+        } catch {
+            logger.info("WebRTC signaling ended: \(String(describing: error), privacy: .public)")
+        }
+        channel.write(["signals_done": true])
     }
 
     /// Stop: the host stops its session (the viewer sees the link close) and exits.
     func disconnectViewer() {
-        answerDeadline.cancel()
-        processExclusions.withLock { $0 }?.cancel()
-        webRTCExclusions.withLock { $0 }?.cancel()
         process.stop()
         output.withLock { $0 }?.cancel()
-        // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
-        if let host = webRTC.withLock({ $0 }) { Task.detached(priority: WorkPriority.userVisible.taskPriority) { host.disconnectViewer() } }
+        stopped.withLock { $0 = true }
+        webRTC.withLock { $0 }?.stop()
     }
 
     private struct Setup: Encodable {
@@ -308,15 +289,6 @@ nonisolated final class MacScreenRdHost: Sendable {
 
     private struct Later: Encodable {
         var candidate: String
-    }
-
-    /// `{"exclude_windows":[123,456]}`: the window ids (CGWindowID) the capture leaves out, the whole list.
-    private struct ExcludeWindows: Encodable {
-        var excludeWindows: [CGWindowID]
-
-        enum CodingKeys: String, CodingKey {
-            case excludeWindows = "exclude_windows"
-        }
     }
 }
 

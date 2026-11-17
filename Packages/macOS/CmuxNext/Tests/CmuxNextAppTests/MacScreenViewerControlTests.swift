@@ -17,7 +17,7 @@ struct MacScreenViewerControlTests {
 
     private func pages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "viewer-controls-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file))
     }
 
     private func pane(_ key: String, device: String, in pages: MacScreenPages) throws -> MacScreenPane {

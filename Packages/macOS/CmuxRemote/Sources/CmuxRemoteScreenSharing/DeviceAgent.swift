@@ -158,13 +158,14 @@ final class DeviceAgent {
     }
 
     /// While the app has a channel open it owns host tickets and approvals. The
-    /// worker remains the identity and push relay, but must not race the app host.
+    /// worker remains the identity and push relay, but must not race the app host; it still
+    /// captures every session the app serves (``AttachedScreenSession``).
     func setRelayOnly(_ relayOnly: Bool) {
         guard self.relayOnly != relayOnly else { return }
         ownershipEpoch &+= 1
         self.relayOnly = relayOnly
         if relayOnly {
-            sessions.closeAll()
+            sessions.closeWorkerOwned()
             banner.update([])
         } else if let hub {
             followPending(hub)

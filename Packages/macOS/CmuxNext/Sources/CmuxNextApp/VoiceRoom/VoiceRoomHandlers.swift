@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextComputerUse
 import CmuxNextDaemon
 import CmuxNextDictation
 import Foundation
@@ -10,7 +11,10 @@ enum VoiceRoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         // Keyframes stay on this Mac: ~/Library/Application Support/cmux-next/voice-room/frames (a cache: none moved).
-        let host = VoiceRoomHost(frames: DaemonLauncher.nextSupport().appending(path: "voice-room/frames", directoryHint: .isDirectory))
+        // The screen is read by the cmux Computer Use helper (`display_still`, the host Share Screen with Chief
+        // uses), never by this app, so macOS asks for Screen Recording for the helper only.
+        let host = VoiceRoomHost(frames: DaemonLauncher.nextSupport().appending(path: "voice-room/frames", directoryHint: .isDirectory),
+                                 screen: ComputerUseScreenStills(helper: .shared))
         let off: @MainActor () -> String? = { [weak services] in
             services?.settings?.snapshot.voiceRoom == true ? nil : VoiceRoomStrings.off
         }

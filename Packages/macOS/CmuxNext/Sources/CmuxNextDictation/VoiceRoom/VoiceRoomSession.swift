@@ -13,7 +13,7 @@ public import Observation
 /// let session = VoiceRoomSession(dictation: { DictationSession() },
 ///                                poster: VoiceRoomHTTPPoster(address: address),
 ///                                events: VoiceRoomWebSocketEvents(address: address),
-///                                screen: VoiceRoomScreenReader(frames: framesFolder))
+///                                screen: VoiceRoomScreenReader(host: helper, frames: framesFolder))
 /// session.start()
 /// ```
 @MainActor

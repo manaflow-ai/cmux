@@ -13,7 +13,10 @@ private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "screen-
 /// the cmux Remote host, so macOS checks its Screen Recording and
 /// Accessibility as cmux Remote's. Its stdin and stdout are the host's
 /// control lines; its socket (`w-screen.sock`, only the host may connect)
-/// serves the app's channels, which the host splices through.
+/// serves the app's channels, which the host splices through. Every Mac Screen
+/// capture runs here: a channel whose first request is `session.rd` or
+/// `session.webrtc` is one session the app serves (``AttachedScreenSession``),
+/// so the cmux app itself never captures the screen or injects input.
 @MainActor
 public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     let layout: RemoteHostLayout
@@ -23,12 +26,24 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     private(set) var appChannels = 0
     /// The app's hub subscriptions, by channel.
     private var subscribers: [ObjectIdentifier: LineChannel] = [:]
+    /// `cmux-screen-sharing` (the cmux.rd/1 host) beside this executable, in the same signed
+    /// helper; nil when this helper carries none (cmux.rd/1 viewers are then refused, WebRTC serves).
+    let rdExecutable: String?
 
-    public init(layout: RemoteHostLayout, stateDirectory: String, keychainScope: String, headless: Bool) {
+    public init(layout: RemoteHostLayout, stateDirectory: String, keychainScope: String, headless: Bool,
+                rdExecutable: String? = ScreenSharingWorker.bundledRdExecutable()) {
         self.layout = layout
+        self.rdExecutable = rdExecutable
         agent = DeviceAgent(keychainScope: keychainScope, statePath: stateDirectory + "/screen-sharing.json", headless: headless)
         super.init()
         agent.changed = { [weak self] in self?.queueStatus() }
+    }
+
+    /// `cmux-screen-sharing` in this executable's folder (`Contents/MacOS` of the helper), if any.
+    public nonisolated static func bundledRdExecutable() -> String? {
+        let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "").resolvingSymlinksInPath()
+        let path = executable.deletingLastPathComponent().appendingPathComponent("cmux-screen-sharing").path
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
     }
 
     /// Never returns.
@@ -103,7 +118,9 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             case let .failure(error): return RemoteWire.failure(id: id, code: error.code?.rawValue ?? "failed", message: error.description)
             }
         case "stop_session":
-            guard !agent.relayOnly else {
+            // While the app is attached it stops what it serves; a session that serves on after the
+            // app left (headless) is this worker's to stop.
+            guard !agent.relayOnly || (agent.sessions.session != nil && !agent.sessions.appOwnsSession) else {
                 return RemoteWire.failure(id: id, code: "screen.app_host",
                                           message: "the cmux app owns Mac Screen sharing")
             }
@@ -125,6 +142,16 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
+            guard let object = channel.readObject() else { return channel.close() }
+            let first = WorkerRequest(object)
+            // One session the app serves: this channel is that session's from now on.
+            if AttachedScreenSession.Kind(rawValue: first.method) != nil {
+                Task { @MainActor [weak self] in
+                    guard let self else { return channel.close() }
+                    attach(first, channel: channel)
+                }
+                return
+            }
             // The reader stays off the main actor, while one actor task owns this
             // channel's registration, request order, and teardown. This prevents
             // a queued request from racing appChannelClosed and re-enabling worker
@@ -134,6 +161,9 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 appChannelOpened()
+                if let answer = await handleApp(first.method, first.params, id: first.id, channel: channel) {
+                    channel.write(answer)
+                }
                 for await request in stream.stream {
                     guard !failed.withLock({ $0 }) else { break }
                     if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) {
@@ -158,6 +188,19 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             failed.withLock { $0 = true }
             stream.continuation.finish()
         }
+    }
+
+    /// Serves the session the app's channel opened (`session.rd` or `session.webrtc`).
+    func attach(_ request: WorkerRequest, channel: LineChannel) {
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "CMUX_REMOTE_HUB_URL")
+        let served = AttachedScreenSession.open(
+            request, channel: channel, headless: agent.headless, rdExecutable: rdExecutable,
+            environment: environment, logPath: layout.log,
+            onEvent: { [weak self] event, session in
+                Task { @MainActor [weak self] in self?.agent.sessions.attachedEvent(session, event) }
+            })
+        if let served { agent.sessions.attach(served) }
     }
 
     @MainActor

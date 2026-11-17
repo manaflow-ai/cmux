@@ -52,7 +52,7 @@ struct MacScreenHubHostServedByTests {
     /// A host with a consent gate that allows, logging every consent read, signaling made and /end.
     private func gatedHost() -> (MacScreenHubHost, ServedByCalls) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let identity = DeviceIdentity(deviceID: UUID(), keys: ServedByTestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })

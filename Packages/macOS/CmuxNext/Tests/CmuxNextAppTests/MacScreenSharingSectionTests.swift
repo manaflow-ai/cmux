@@ -27,7 +27,7 @@ struct MacScreenSharingSectionTests {
     private func withHome(configure: (MacScreenPages) -> Void = { _ in },
                           _ body: (MacScreenHomeView) throws -> Void) throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
         configure(pages)
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")

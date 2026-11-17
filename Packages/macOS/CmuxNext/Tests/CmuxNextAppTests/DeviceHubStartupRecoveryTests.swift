@@ -16,7 +16,7 @@ import Testing
 struct DeviceHubStartupRecoveryTests {
     private func pages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "hub-recovery-\(UUID().uuidString)/screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
     }
 
     private func settings() -> SettingsController {

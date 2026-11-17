@@ -16,7 +16,7 @@ struct MacScreenActionRoutingTests {
 
     private func pages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "screen-action-\(UUID().uuidString)/store.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
     }
 
     @Test func thePinnedCatalogCarriesBothNativeActions() throws {
