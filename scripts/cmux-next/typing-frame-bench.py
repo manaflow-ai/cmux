@@ -71,6 +71,9 @@ parser.add_argument("--focus-wait", default="", choices=["", "off", "epoch", "fi
                     help="CMUX_DEBUG_FOCUS_WAIT for the launch (default: the app's own 'field')")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--tunable", action="append", default=[], metavar="KEY=true|false",
+                    help="sets a boolean Debug Settings tunable for the launch (`debug.tunables set`, after `activate`), "
+                         "e.g. browserPage.drawKeysAtOnce=true; repeatable; the report lists them under `tunables`")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -888,6 +891,24 @@ SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_
             "chat": surface_chat}
 
 
+def set_tunables(session):
+    """--tunable: each boolean Debug Settings tunable for this launch. A bench build's tunable store is off until a
+    client asks (`debug.tunables activate`); the answer of each set goes into the report, so a run whose build lacks
+    the key says so instead of measuring the default as the arm."""
+    if not opts.tunable:
+        return
+    rpc("debug.tunables", {"action": "activate"})
+    rows = []
+    for item in opts.tunable:
+        key, _, raw = item.partition("=")
+        value = raw.strip().lower() in ("1", "true", "on", "yes")
+        row = rpc("debug.tunables", {"action": "set", "key": key, "value": value}) or {}
+        rows.append({"session": session, "key": key, "asked": value, "value": row.get("value"), "answer": row})
+        note(f"{session}: tunable {key}={value} -> {row.get('value')!r}")
+    results.setdefault("tunables", []).extend(rows)
+    time.sleep(0.5)  # bench script: a toggle observed by the app applies on its next turn
+
+
 def run_session(session):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
     surface and phase in it, --rounds times."""
@@ -924,6 +945,7 @@ def run_session(session):
                                                               "detail": error.report.get("detail")})
             return
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
+        set_tunables(session)
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
