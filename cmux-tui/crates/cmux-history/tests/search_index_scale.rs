@@ -229,7 +229,7 @@ fn run(n: usize) -> Size {
     let append = time(|| {
         let doc = doc(next, &mut rng);
         next += 1;
-        index.append(&doc.source, std::slice::from_ref(&doc), None).expect("append one")
+        index.append(&doc.source, std::slice::from_ref(&doc), None).expect("append one");
     });
 
     // One backfill step over every chat, the last with one new message. The cursor goes back
