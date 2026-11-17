@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 /// before it ([`Flush::sent`]). The fan-out only sends queued lines (it never waits on a client),
 /// so this bounds a stalled task, never a slow reader.
 const FLUSH_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+const LAGGED_REASON: &str = "lagged";
 
 /// Asks the connection's fan-out to send every hub event already broadcast. A turn's answer goes
 /// on the request's own task, its updates through the fan-out, so under load the answer could
@@ -42,6 +43,15 @@ fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     deliver(hub, conn, ev);
 }
 
+fn lagged_notice(dropped: u64) -> Message {
+    Message::notification("_acpmux/lagged", json!({"dropped": dropped}))
+}
+
+fn send_lagged(conn: &Arc<Conn>, dropped: u64) {
+    conn.controls.resync(conn, LAGGED_REASON);
+    conn.send(&lagged_notice(dropped));
+}
+
 pub(super) fn start(
     hub: Arc<Hub>,
     conn: Arc<Conn>,
@@ -62,9 +72,9 @@ pub(super) fn start(
                     loop {
                         match rx.try_recv() {
                             Ok(ev) => send_event(&hub, &conn, ev),
-                            Err(broadcast::error::TryRecvError::Lagged(n)) => conn.send(
-                                &Message::notification("_acpmux/lagged", json!({"dropped": n})),
-                            ),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                send_lagged(&conn, n);
+                            }
                             Err(_) => break,
                         }
                     }
@@ -135,13 +145,28 @@ pub(super) fn start(
             match ev {
                 Ok(ev) => send_event(&hub, &conn, ev),
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    conn.controls.resync(&conn, "lagged");
-                    conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
+                    send_lagged(&conn, n);
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lagged_notice;
+    use serde_json::Value;
+
+    #[test]
+    fn flush_drain_lagged_notice_carries_the_resync_reason_and_drop_count() {
+        let line = lagged_notice(17).to_line();
+        let value: Value = serde_json::from_str(&line).expect("lagged notice is JSON");
+        assert_eq!(value["method"], "_acpmux/lagged");
+        assert_eq!(value["params"]["dropped"], 17);
+        // `send_lagged` performs the controls resync with this same reason before this notice.
+        assert_eq!(super::LAGGED_REASON, "lagged");
+    }
 }
 
 /// `_acpmux/presence` for a chat of this daemon's that `conn` is attached to (not a peer's chat
