@@ -54,6 +54,33 @@ public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendabl
         return [Self.sm, .md, .lg, .xl].first { disk <= Int64($0.diskMb) * 1_048_576 }
     }
 
+    /// The most disk a Cloud machine has (cmux NEXT Max's largest).
+    public static let maxDiskBytes: Int64 = 256 * 1_073_741_824
+
+    /// The largest disk a plan gives, from its largest size: `lg` (cmux NEXT Pro and the classic plans below Max)
+    /// 128 GiB, `2xl` (Max) ``maxDiskBytes``; nil for any other, a plan whose disk this does not know.
+    public static func largestDiskBytes(planMax: Self) -> Int64? {
+        switch planMax {
+        case .lg: return Int64(128) * 1_073_741_824
+        case .xxl: return maxDiskBytes
+        case .sm, .md, .xl: return nil
+        }
+    }
+
+    /// The size a start asks for `bytes` of folder whose ladder size is `natural` (``needed(bytes:)``, nil past `xl`),
+    /// under a plan whose largest size is `planMax`; nil: too big for a Cloud machine. A folder past the plan's largest
+    /// size whose ``neededDiskBytes(_:)`` the plan's largest disk holds asks that largest size, its disk grown
+    /// (cmux-tui sends `disk_gib`); one past the plan's disk asks its own size (or `2xl`, up to ``maxDiskBytes``),
+    /// which the plan refuses with its upgrade (`cloud.size.locked`). A plan not known (or a disk it does not know)
+    /// keeps `natural`.
+    public static func planned(_ natural: Self?, bytes: Int64, planMax: Self?) -> Self? {
+        guard let planMax, let largest = largestDiskBytes(planMax: planMax) else { return natural }
+        guard let disk = neededDiskBytes(bytes), disk <= maxDiskBytes else { return nil }
+        if let natural, natural <= planMax { return natural }
+        if disk <= largest { return planMax }
+        return natural ?? .xxl
+    }
+
     /// A GitHub repository's size from the repos list (`size_kb`, GitHub's KB): ``needed(bytes:)`` of it, `sm`
     /// when the list named none. A repository past `xl` stays nil: the start says the folder is too big.
     public static func forRepository(sizeKb: Int?) -> Self? {

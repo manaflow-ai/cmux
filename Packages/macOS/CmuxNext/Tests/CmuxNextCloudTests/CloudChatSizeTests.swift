@@ -41,6 +41,30 @@ import Testing
         #expect(CloudChatSize.sm.requested == nil && CloudChatSize.lg.requested == "lg")
     }
 
+    /// Past the plan's largest size but within its largest disk, a start asks that size with its disk grown; past the
+    /// plan's disk it asks its own size (the plan refuses it with its upgrade); past 256 GiB it is too big; a plan not
+    /// known keeps the ladder's size.
+    @Test func aFolderPastThePlansLargestSizeAsksItGrownWithinThePlansDisk() {
+        func planned(_ bytes: Int64, _ planMax: CloudChatSize?) -> CloudChatSize? {
+            CloudChatSize.planned(CloudChatSize.needed(bytes: bytes), bytes: bytes, planMax: planMax)
+        }
+        #expect(CloudChatSize.largestDiskBytes(planMax: .lg) == 128 * gib && CloudChatSize.largestDiskBytes(planMax: .xxl) == 256 * gib)
+        #expect(CloudChatSize.largestDiskBytes(planMax: .md) == nil)
+        // Within the plan's size: the ladder's own.
+        #expect(planned(10 * gib, .lg) == .md && planned(60 * gib, .xxl) == .xl)
+        // cmux NEXT Pro (`lg`, 128 GiB): 60 GiB needs 90 GiB, past `lg`'s 64: `lg` grown.
+        #expect(planned(60 * gib, .lg) == .lg)
+        #expect(planned(85 * gib, .lg) == .lg)
+        // 100 GiB needs 150, past 128: the size the plan locks, `2xl` past `xl`, with its upgrade.
+        #expect(planned(100 * gib, .lg) == .xxl)
+        // cmux NEXT Max (`2xl`, 256 GiB): 100 GiB goes on `2xl` grown; 171 GiB needs past 256: too big.
+        #expect(planned(100 * gib, .xxl) == .xxl)
+        #expect(planned(170 * gib, .xxl) == .xxl)
+        #expect(planned(171 * gib, .xxl) == nil && planned(171 * gib, .lg) == nil)
+        // A plan not known, or a largest size whose disk is not known: the ladder's size, today's rule.
+        #expect(planned(60 * gib, nil) == .xl && planned(100 * gib, nil) == nil && planned(60 * gib, .md) == .xl)
+    }
+
     @Test func aRepositoryIsSizedFromItsListedSize() {
         #expect(CloudChatSize.forRepository(sizeKb: nil) == .sm)
         #expect(CloudChatSize.forRepository(sizeKb: 1_000) == .sm)

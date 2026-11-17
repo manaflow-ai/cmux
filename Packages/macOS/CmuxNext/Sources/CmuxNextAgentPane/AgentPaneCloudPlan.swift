@@ -6,18 +6,24 @@ import Foundation
 /// or repository, the plan the page reads before Send (`cloudMachine.list`'s `plan`), the start's plan and size refusals
 /// (`cloud_plan_required`, `cloud_size_locked`) and the pricing card's Subscribe (`cloud.plan.subscribe`).
 extension AgentPaneCloudStart {
-    /// This start with the size its folder `local` needs (``CloudMoveCLI/StartChatPreflight``) and the bytes its copy
-    /// sends; throws the preflight's refusal, and `cloud_folder_too_big` for a folder past the largest chat size.
+    /// This start with the size its folder `local` needs (``CloudMoveCLI/StartChatPreflight``) under the page's plan
+    /// (``planMax``, ``CloudChatSize/planned(_:bytes:planMax:)``) and the bytes its copy sends; throws the preflight's
+    /// refusal, and `cloud_folder_too_big` for a folder too big for a Cloud machine.
     public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String) throws -> Self {
         var sized = self
+        var preflight = preflight
+        if case .passed(let bytes?, let size) = preflight {
+            preflight = .passed(bytes: bytes, size: CloudChatSize.planned(size, bytes: bytes, planMax: planMax))
+        }
         sized.size = try preflight.size(folder: CloudMoveCLI.shownFolder(local))
         if case .passed(let bytes, _) = preflight { sized.folderBytes = bytes }
         return sized
     }
 
     /// This start with the size its GitHub repository needs, from the size the repos list gave it (`size_kb`,
-    /// `sizes`, the App's ``AgentPaneGitHub/sizes``); `sm` when the list named none (or there is no list). A repository
-    /// past the largest chat size is `cloud_folder_too_big`. A start that names no repository is unchanged.
+    /// `sizes`, the App's ``AgentPaneGitHub/sizes``) under the page's plan (``planMax``, as ``sized(_:local:)``); `sm` when
+    /// the list named none (or there is no list). A repository too big for a Cloud machine is `cloud_folder_too_big`. A
+    /// start that names no repository is unchanged.
     @MainActor public func sizedForRepository(_ sizes: AgentPaneGitHubRepoSizes?) throws -> Self {
         guard let repository else { return self }
         let sizeKb = sizes?.sizeKb(of: repository)
@@ -26,7 +32,8 @@ extension AgentPaneCloudStart {
             let bytes = Int64(max(kb, 0)).multipliedReportingOverflow(by: 1024)
             return bytes.overflow ? nil : bytes.partialValue
         }
-        guard let size = CloudChatSize.forRepository(sizeKb: sizeKb) else {
+        let natural = CloudChatSize.forRepository(sizeKb: sizeKb)
+        guard let size = sized.folderBytes.map({ CloudChatSize.planned(natural, bytes: $0, planMax: planMax) }) ?? natural else {
             throw CloudMoveCLI.StartChatPreflightRefusal(message: "\(repository) is too big for a Cloud machine", folder: repository,
                                                          bytes: sized.folderBytes.map(Double.init))
         }
