@@ -26,6 +26,7 @@ use serde_json::Value;
 
 use crate::profile::Profile;
 use crate::redact::find_secret;
+use crate::store::Kind;
 use crate::tree::{self, MAX_FILE_BYTES, MAX_FILES_PER_PART, Part, SETTINGS, STYLE_SURFACES};
 use crate::{Applied, Customize, Error};
 
@@ -41,6 +42,8 @@ pub const MAX_ACTIONS: usize = 100;
 pub const MAX_EXTENSIONS: usize = 30;
 const MAX_SETUP_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_ACTION_BYTES: usize = 16 * 1024;
+/// What the consent card shows in place of a replaced value that holds a credential.
+pub const HIDDEN: &str = "(hidden: holds a credential)";
 /// The badge image every setup README links to its page with.
 pub const BADGE_URL: &str = "https://cmux.com/extensions/badge.svg";
 
@@ -556,14 +559,22 @@ impl Customize {
             .settings
             .iter()
             .map(|(key, value)| {
-                let now = schema
-                    .row(key)
-                    .and_then(|row| cmux_config::value::value_at(&live, &row.path).cloned());
-                PlannedSetting {
-                    key: key.clone(),
-                    value: value.clone(),
-                    replaces: now.filter(|now| now != value),
-                }
+                let row = schema.row(key);
+                let url = row.is_some_and(|row| matches!(row.kind, cmux_config::schema::Kind::Url));
+                let replaces = row
+                    .and_then(|row| cmux_config::value::value_at(&live, &row.path).cloned())
+                    .filter(|now| now != value)
+                    // The card prints what a setting replaces: never a credential.
+                    .map(|now| {
+                        if crate::redact::sensitive_value(&now, url)
+                            || find_secret(&now.to_string()).is_some()
+                        {
+                            Value::String(HIDDEN.to_owned())
+                        } else {
+                            now
+                        }
+                    });
+                PlannedSetting { key: key.clone(), value: value.clone(), replaces }
             })
             .collect();
         let mut files = Vec::new();
@@ -632,6 +643,65 @@ impl Customize {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
+        match self.install_setup_locked(setup, label, origin, now_ms) {
+            Ok((applied, prior_actions)) => Ok(Installed { applied, before, prior_actions }),
+            Err(error) => {
+                // All or nothing: what was live before comes back (the preview
+                // and a half-written settings file are kept as a discarded
+                // generation, never lost).
+                if let Some(n) = before {
+                    let why = format!("setup {}: install failed", setup.manifest.id);
+                    let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Updates `old` to `setup` as one change: `old` comes off, `setup` goes
+    /// on, and when the second step fails, `old` is put back as it was (its
+    /// library entry, what was live, its receipt).
+    pub fn replace_setup(
+        &self,
+        old: &Receipt,
+        setup: &Setup,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Installed, Error> {
+        self.check_profile(&setup.profile)?;
+        check_actions(setup.actions())?;
+        self.ensure_baseline(now_ms)?;
+        let before = self.current_generation()?;
+        let library = self.library_snapshot()?;
+        let error = match self
+            .remove_setup(old, origin, now_ms)
+            .and_then(|_| self.install_setup(setup, label, origin, now_ms))
+        {
+            Ok(installed) => return Ok(installed),
+            Err(error) => error,
+        };
+        // Back to exactly what was there: the library file, what was live
+        // (what the failed steps wrote stays as a discarded generation), and
+        // the old receipt.
+        if let Ok(_lock) = self.store().lock() {
+            let _ = self.library_write_back(library.as_deref());
+            if let Some(n) = before {
+                let why = format!("setup {}: update failed", old.id);
+                let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
+            }
+        }
+        let _ = self.record_setup(old.clone());
+        Err(error)
+    }
+
+    fn install_setup_locked(
+        &self,
+        setup: &Setup,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<(Option<Applied>, BTreeMap<String, Option<Value>>), Error> {
         self.preview_profile_locked(&setup.profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {
@@ -651,8 +721,7 @@ impl Customize {
             tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
         }
         let applied = self.apply_locked(Some(label), origin, now_ms)?;
-        let applied = applied.recorded.then_some(applied);
-        Ok(Installed { applied, before, prior_actions })
+        Ok((applied.recorded.then_some(applied), prior_actions))
     }
 
     /// Undoes an installed setup: its library entry off and removed (what

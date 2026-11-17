@@ -244,6 +244,77 @@ fn remove_puts_back_the_action_it_replaced_and_keeps_one_you_changed_since() {
 }
 
 #[test]
+fn the_plan_never_shows_a_credential_it_replaces() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        "{ \"browser\": { \"newTabPage\": \"https://me:hunter2@example.com/start\" } }\n",
+    );
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("browser.newTabPage".to_owned(), json!("https://cmux.com"));
+    let plan = home.customize().plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let row = plan.settings.iter().find(|row| row.key == "browser.newTabPage").unwrap();
+    assert_eq!(row.replaces, Some(json!(setup::HIDDEN)));
+    assert!(!serde_json::to_string(&plan).unwrap().contains("hunter2"));
+}
+
+#[test]
+fn an_update_that_fails_puts_the_installed_setup_back() {
+    let home = Home::new();
+    let repo = sample_repo(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    let installed = customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+
+    // The new commit adds a theme where this computer has a folder, so the
+    // install step of the update cannot write it (after the old one came off).
+    let old = customize.setups().unwrap().remove(0);
+    let mut next = read.clone();
+    next.profile.files.insert("themes/later.json".to_owned(), "{ \"name\": \"Later\" }\n".into());
+    fs::create_dir_all(home.config("themes/later.json/inside")).unwrap();
+    let error = customize.replace_setup(&old, &next, "setup v2", "cli", 20);
+    assert!(error.is_err(), "{error:?}");
+
+    let kept = customize.setups().unwrap();
+    assert_eq!(kept.len(), 1, "the old receipt is still there to remove or retry");
+    assert_eq!(kept[0].sha256, old.sha256);
+    assert!(customize.status().unwrap().draft.is_none(), "no preview left open");
+    assert_eq!(home.settings()["appearance"]["themeFile"], json!("sample-dusk"));
+    assert!(home.read("themes/sample-dusk.json").unwrap().contains("Sample Dusk"));
+    let library = old.library.clone().expect("the setup is a library entry");
+    assert!(customize.library().unwrap().entries.iter().any(|entry| entry.name == library));
+    // And it still removes cleanly.
+    customize.remove_setup(&kept[0], "cli", 30).unwrap();
+    assert!(!home.config("themes/sample-dusk.json").exists());
+}
+
+#[test]
+fn a_failed_install_leaves_nothing_live() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    home.write("keybindings.json", "[{ \"key\": \"cmd+k\", \"command\": \"mine\" }]\n");
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    // A theme the setup cannot write (a folder is in its place), sorted after
+    // the files it writes first.
+    read.profile.files.insert("themes/zz.json".to_owned(), "{ \"name\": \"Z\" }\n".into());
+    fs::create_dir_all(home.config("themes/zz.json/inside")).unwrap();
+    let customize = home.customize();
+    let error = customize.install_setup(&read, "setup", "cli", 10);
+    assert!(error.is_err(), "{error:?}");
+    assert!(customize.status().unwrap().draft.is_none());
+    assert!(!home.config("themes/sample-dusk.json").exists());
+    let keys = home.read("keybindings.json").unwrap();
+    assert!(!keys.contains("cmd+shift+h"), "{keys}");
+    let settings = home.settings();
+    assert_eq!(settings["appearance"].get("themeFile"), None);
+    assert_eq!(settings["actions"].get("sample-hello"), None);
+    assert_eq!(settings["actions"]["mine"]["command"], json!("ls"));
+}
+
+#[test]
 fn export_writes_a_setup_repo_that_installs_on_another_machine() {
     let home = Home::new();
     home.write(

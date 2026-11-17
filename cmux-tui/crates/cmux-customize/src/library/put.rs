@@ -79,4 +79,32 @@ impl Customize {
             Ok(())
         })
     }
+
+    /// The library file as it is now (`None`: there is none), to write back
+    /// with [`Customize::library_write_back`] when a change made of several
+    /// steps fails after one of them. Its entries and the base under them
+    /// come back exactly, which removing and adding an entry again would not.
+    pub(crate) fn library_snapshot(&self) -> Result<Option<Vec<u8>>, Error> {
+        match std::fs::read(self.library_path()) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Writes a [`Customize::library_snapshot`] back. The caller makes what
+    /// is live match it (a generation restore).
+    pub(crate) fn library_write_back(&self, snapshot: Option<&[u8]>) -> Result<(), Error> {
+        let path = self.library_path();
+        match snapshot {
+            Some(bytes) => cmux_config::fsio::write_atomic(&path, bytes)?,
+            None => match std::fs::remove_file(&path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            },
+        }
+        Ok(())
+    }
 }

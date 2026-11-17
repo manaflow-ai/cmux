@@ -20,6 +20,12 @@ fn a_reference_takes_every_form_and_refuses_the_rest() {
         "github.com/a/b@-x",
         "github.com/a/b@x..y",
         "local/a/b",
+        // A path that would leave the fetched checkout.
+        "github.com/a/b//tmp",
+        "github.com/a/b/x//etc",
+        "github.com/a/b/x/../../etc",
+        "github.com/a/b/./x",
+        "github.com/a/b/tree/main//tmp",
     ] {
         assert!(Reference::parse(bad).is_err(), "{bad}");
     }

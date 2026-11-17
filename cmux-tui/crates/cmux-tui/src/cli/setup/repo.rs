@@ -197,8 +197,18 @@ impl CliApps<'_> {
     fn cmux(&self, words: &[&str]) -> Result<Value, String> {
         let exe = std::env::current_exe().map_err(|error| error.to_string())?;
         let mut command = Command::new(exe);
+        // The child reaches the daemon and app the setup command was pointed at.
+        if let Some(socket) = &self.global.socket {
+            command.arg("--socket").arg(socket);
+        }
+        if let Some(socket) = &self.global.app_socket {
+            command.arg("--app-socket").arg(socket);
+        }
         if let Some(session) = &self.global.session {
             command.args(["--session", session]);
+        }
+        if let Some(machine) = &self.global.machine {
+            command.args(["--machine", machine]);
         }
         let output =
             command.args(words).arg("--json").output().map_err(|error| error.to_string())?;
@@ -648,9 +658,9 @@ fn apply_update(
     let extensions = extension_rows(apps, &plan);
     let card = card(&plan, &reference, &checkout.commit, &extensions);
     consent(output, &card, "Update", yes)?;
-    customize.remove_setup(&receipt, "cli", now_ms())?;
     let label = format!("setup {} at {}", read.manifest.id, short(&checkout.commit));
-    let installed = customize.install_setup(&read, &label, "cli", now_ms())?;
+    // One change: when the new commit does not go on, the old one is put back.
+    let installed = customize.replace_setup(&receipt, &read, &label, "cli", now_ms())?;
     let (mut extension_receipts, extension_errors) =
         install_extensions(apps, &extensions, &receipt.extensions);
     // An extension the new commit no longer lists, that this setup installed, goes.

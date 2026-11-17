@@ -48,6 +48,12 @@ impl Reference {
             git_ref = pieces.get(1).map(|piece| (*piece).to_owned());
             pieces.drain(..2);
         }
+        // Every path piece names a folder inside the repo: an empty piece
+        // (`a//b`, which `Path::join` reads as absolute), `.` or `..` would
+        // let the path leave the fetched checkout.
+        if pieces.iter().any(|piece| piece.is_empty() || *piece == "." || *piece == "..") {
+            return Err(bad("the path must name folders inside the repo"));
+        }
         let path = pieces.join("/");
         if !host.contains('.')
             || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
