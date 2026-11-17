@@ -1211,7 +1211,9 @@ impl AgentTools {
         else {
             return self;
         };
-        let mut cmux = self.servers[at].clone();
+        let Some(mut cmux) = self.servers.get(at).cloned() else {
+            return self;
+        };
         let tools = gateway.tools_endpoint(session_id);
         let http = json!({"url": tools.url, "headers": {"Authorization": tools.authorization}});
         for (_, value) in cmux.env.iter_mut().filter(|(k, _)| k == UPSTREAMS_ENV) {
@@ -1219,11 +1221,15 @@ impl AgentTools {
                 continue;
             };
             for spec in &mut specs {
-                let args: Vec<String> = spec["args"]
-                    .as_array()
+                let args: Vec<String> = spec
+                    .get("args")
+                    .and_then(Value::as_array)
                     .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                     .unwrap_or_default();
-                if crate::tools_mcp::owns(spec["name"].as_str().unwrap_or_default(), &args) {
+                if crate::tools_mcp::owns(
+                    spec.get("name").and_then(Value::as_str).unwrap_or_default(),
+                    &args,
+                ) {
                     spec.set(HTTP_FIELD, http.clone());
                 }
             }
@@ -1237,7 +1243,9 @@ impl AgentTools {
         };
         // Not registered: the harness's own stdio `cmux` server keeps its stdio upstreams.
         if let Some(endpoint) = gateway.register(session_id, launch) {
-            self.servers[at] = cmux;
+            if let Some(slot) = self.servers.get_mut(at) {
+                *slot = cmux;
+            }
             self.http.insert("cmux".to_owned(), endpoint);
         }
         self

@@ -228,9 +228,11 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             Err(e) => break Err(e.into()),
         };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        if message.get("id").is_some() && message["method"] == "initialize" {
+        if message.get("id").is_some()
+            && message.get("method").and_then(Value::as_str) == Some("initialize")
+        {
             // One client per server process (the daemon's gateway notes none).
-            crate::sender_harness::note_mcp_client(&message["params"]);
+            crate::sender_harness::note_mcp_client(message.get("params").unwrap_or(&Value::Null));
         }
         match answer(&servers, &message) {
             Answer::None => {}

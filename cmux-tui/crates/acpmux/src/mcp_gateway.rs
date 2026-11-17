@@ -894,9 +894,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
         if n == 0 {
             return Err(anyhow!("closed before the head ended"));
         }
-        buf.extend_from_slice(&chunk[..n]);
+        buf.extend_from_slice(chunk.get(..n).unwrap_or_default());
     };
-    let head = std::str::from_utf8(&buf[..head_end]).map_err(|_| anyhow!("head is not UTF-8"))?;
+    let head = std::str::from_utf8(buf.get(..head_end).unwrap_or_default())
+        .map_err(|_| anyhow!("head is not UTF-8"))?;
     let mut lines = head.split("\r\n");
     let first = lines.next().unwrap_or("");
     let mut parts = first.split_whitespace();
@@ -920,14 +921,14 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     if length > MAX_BODY {
         return Err(anyhow!("body too long"));
     }
-    let mut body = buf[head_end + 4..].to_vec();
+    let mut body = buf.get(head_end + 4..).unwrap_or_default().to_vec();
     while body.len() < length {
         let mut chunk = vec![0u8; (length - body.len()).min(64 * 1024)];
         let n = stream.read(&mut chunk).await?;
         if n == 0 {
             return Err(anyhow!("closed before the body ended"));
         }
-        body.extend_from_slice(&chunk[..n]);
+        body.extend_from_slice(chunk.get(..n).unwrap_or_default());
     }
     body.truncate(length);
     Ok(Request { method, path, headers, body })
