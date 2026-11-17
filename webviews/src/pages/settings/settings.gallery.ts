@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -9,12 +10,14 @@ import type {
   HostLists,
   ProviderAccount,
 } from "./ops";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
 import { categories } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
+import { mockDevicesState } from "./mockProvider";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -909,7 +912,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
@@ -1761,6 +1764,19 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
@@ -1783,6 +1799,63 @@ variants["github-connect-confirm"] = variant("accounts", {
   },
 });
 
+const screenSharingDevices = mockDevicesState();
+const localFirstUseDevices = {
+  ...screenSharingDevices,
+  thisDevice: screenSharingDevices.thisDevice ? { ...screenSharingDevices.thisDevice, sharesText: null } : null,
+  sharing: screenSharingDevices.sharing
+    ? {
+        ...screenSharingDevices.sharing,
+        on: false,
+        permissions: screenSharingDevices.sharing.permissions.map((permission) => ({ ...permission, granted: false })),
+      }
+    : null,
+};
+variants["devices-screen-sharing-local"] = variant("devices", {
+  devices: localFirstUseDevices,
+  note: "First use: Share is visible while Mac Screen is off and Screen Recording plus Accessibility still need permission.",
+});
+variants["devices-screen-sharing-remote"] = variant("devices", {
+  devices: {
+    ...localFirstUseDevices,
+    others: localFirstUseDevices.others.map((device) =>
+      device.id === "dev-macbook"
+        ? {
+            ...device,
+            name: "Research MacBook Pro — Office Display",
+            online: true,
+            presence: "Online",
+            sharesText: "Shares Mac Screen",
+            screenAction: { kind: "view", title: "View screen", disabled: false },
+          }
+        : device,
+    ),
+  },
+  note: "An online Mac has a direct View screen action; phones retain their access picker.",
+});
+variants["devices-screen-sharing-offline"] = variant("devices", {
+  devices: screenSharingDevices,
+  note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
+});
+
+for (const { name, scale } of pageDensities) {
+  variants[`density-${name}`] = variant("appearance", {
+    note: `${name}: scaled content, controls and navigation, with centered disclosure content and concentric corners on hover.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+  variants[`density-${name}-disclosure-open`] = variant("appearance", {
+    note: `${name}: centered disclosure content with its rows open.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.click({ selector: ".content .more-options" });
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
@@ -1793,6 +1866,11 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/shared/pageDensity.css",
+    "pages/settings/look.css",
+    "pages/settings/refined.css",
+    "pages/settings/layout.css",
+    "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",

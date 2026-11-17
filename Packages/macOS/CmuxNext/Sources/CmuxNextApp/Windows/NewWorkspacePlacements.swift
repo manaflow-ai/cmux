@@ -38,7 +38,7 @@ enum NewWorkspacePlacements {
     /// Whether window `windowID` lists workspace `id` once its rows catch up: no other window owns it and the
     /// window's space shows it. A cold Cmd-N waits only for such a row.
     static func lists(_ id: String, in windowID: String, windows: WindowManager) -> Bool {
-        if let owner = windows.registry.value.owner(of: id), owner != windowID { return false }
+        if let owner = windows.registry.value.owner(of: id), owner != windowID, !windows.registry.value.isGuest(id, in: windowID) { return false }
         guard let profile = windows.controller(for: windowID)?.state.profileID else { return true }
         let machines = windows.services.machines
         return WindowProfiles.shows(id, profile: profile, machines: machines, membership: WindowProfiles.membership(machines))

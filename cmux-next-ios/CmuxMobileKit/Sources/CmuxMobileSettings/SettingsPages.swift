@@ -517,6 +517,14 @@ struct TransportPage: View {
             } footer: {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
+            Section {
+                Toggle(isOn: $settings.agentCLIHybrid) {
+                    Text("Agent CLI Screen Changes")
+                }
+                .accessibilityIdentifier("settings.transport.agentCLIHybrid")
+            } footer: {
+                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
+            }
             #if !DEBUG
             Section {
                 TransportDetails(store: store)

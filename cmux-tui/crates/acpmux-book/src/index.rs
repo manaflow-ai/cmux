@@ -48,6 +48,7 @@ pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
 pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
+use snapshot::StreamGeneration;
 pub use snapshot::{
     CHECKPOINT_BYTES, DiskSnapshot, FatalSnapshotRead, PAGE_BYTES, SEEK_BYTES, SnapshotMeta,
     SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row, is_fatal_snapshot_read,

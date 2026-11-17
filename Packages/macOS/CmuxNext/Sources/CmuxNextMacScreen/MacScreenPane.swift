@@ -82,6 +82,8 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
+    private var cursorTask: Task<Void, Never>?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -186,6 +188,13 @@ public final class MacScreenPane {
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        }
     }
 
     private func framesShown(_ counter: MacScreenFrameCounter) {
@@ -262,6 +271,7 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         decodeTask?.cancel()
+        cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -310,6 +320,8 @@ public final class MacScreenPaneView: NSView {
     let presenter = RemoteFramePresenters().make(.metal)
     let input = RemoteInputSurface()
     var capture: NSView { input.view }
+    /// One cursor: the local pointer wears the remote shape; the overlay only where they differ.
+    private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
     var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
@@ -359,6 +371,7 @@ public final class MacScreenPaneView: NSView {
         } else {
             video.frame = .zero
         }
+        cursor.update()
         let showsCard = chrome.showsCard
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open

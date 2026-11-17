@@ -1,0 +1,6 @@
+{
+  "about": "push-from-host.sh's fallback registry, read only when CMUX_FLEET_REGISTRY is unset and ~/Projects/leo-workspace/machines/fleet-registry.json does not exist (2026-11-16: no Mac had it, so every push stopped and agents hand-pushed). Fleet Mac builders only; never a personal machine. Same format as the fleet registry.",
+  "machines": {
+    "cmux-lawrence-2": {"roles": ["mac-build"], "approval": "manaflow-fleet"}
+  }
+}

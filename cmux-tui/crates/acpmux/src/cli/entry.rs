@@ -245,10 +245,6 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         other => other,
     });
     match command {
-        #[cfg(unix)]
-        Some(Command::CodexAuthBroker { home, codex }) => {
-            crate::cli::codex_auth_broker::run(home, codex).await
-        }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
@@ -505,7 +501,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
-        Some(Command::ToolsMcp) => crate::tools_mcp::run().await,
+        Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -516,6 +512,21 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
+        Some(Command::MachineAuth) => {
+            // The report is already on stdout; a failed check leaves through the shared
+            // error exit (status 1) like every other command.
+            if crate::cli::machine_auth::run(cli.json) == 0 {
+                Ok(())
+            } else {
+                let app = errors::AppError::new(
+                    errors::Code::Runtime,
+                    "machine_auth_not_ok",
+                    "this machine's agents do not reach models through the Cloud service",
+                )
+                .with_exit(1);
+                errors::exit_with(&anyhow::Error::new(app), cli.json)
             }
         }
         Some(Command::Capabilities) => {

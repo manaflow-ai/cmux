@@ -1597,11 +1597,12 @@
       "type" : "string"
     },
     "appearance.fontSmoothing" : {
-      "default" : "antialiased",
-      "description" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+      "default" : "auto",
+      "description" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
       "enum" : [
+        "auto",
         "antialiased",
-        "system"
+        "subpixel"
       ],
       "title" : "Text Smoothing",
       "type" : "string"
@@ -2517,6 +2518,17 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
+    "browser.verificationAutofill.accounts" : {
+      "default" : [
+
+      ],
+      "description" : "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Email Accounts for Codes",
+      "type" : "array"
+    },
     "browser.verificationAutofill.enabled" : {
       "default" : false,
       "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
@@ -2649,18 +2661,6 @@
       "default" : false,
       "description" : "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
-      "type" : "boolean"
-    },
-    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
-      "default" : false,
-      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
-      "title" : "Use My Claude Login on My Own Cloud Machines",
-      "type" : "boolean"
-    },
-    "cloud.useMyCodexLoginOnMyCloudMachines" : {
-      "default" : false,
-      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
-      "title" : "Use My Codex Login on My Own Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -3914,6 +3914,12 @@
       },
       "title" : "Terminal Size Priority",
       "type" : "array"
+    },
+    "models.spreadUsage" : {
+      "default" : true,
+      "description" : "When one subscription runs out, a thread moves to another of your connections that serves the same model.",
+      "title" : "Spread Usage Across My Subscriptions",
+      "type" : "boolean"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",
@@ -5647,7 +5653,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
       "items" : {
         "enum" : [
           "splitRight",

@@ -178,6 +178,17 @@ def read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def worker_stop(step: dict) -> str:
+    """Why the worker stopped with no receipt, from its step.json (cmuxterm-hq hot_verify_run.py: worker, error,
+    phases), so the run log names the cause, not only that the receipt has no marker (runs 43779426587 and
+    43758485104, 2026-11-16, each a different cause)."""
+    phases = step.get("phases") if isinstance(step.get("phases"), dict) else {}
+    spent = ", ".join(f"{name} {secs}s" for name, secs in phases.items() if isinstance(secs, (int, float)))
+    error = " ".join(str(step.get("error")).split())[:500]
+    return (f"the look stopped on {str(step.get('worker') or 'the worker')[:80]} with no receipt: {error}"
+            + (f" (phases: {spent})" if spent else ""))
+
+
 def check_marker(receipt: dict, head: str) -> re.Match:
     marker = str(receipt.get("marker") or "")
     found = MARKER.fullmatch(marker)
@@ -225,6 +236,8 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     step = read_json(out / "step.json")
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
+    if not receipt.get("marker") and step.get("error"):
+        raise Refused(worker_stop(step))
     check_marker(receipt, head)
     if step and str(step.get("head") or head) != head:
         raise Refused("step.json names another head")
@@ -359,11 +372,40 @@ def render(out: Path, pr: int, head: str, repo: str = REPO, uploaded: list[str] 
 # ---------------------------------------------------------------- posting
 
 
+# A look that finished is posted even when the job's token is out of quota (run 43790108433, cmux#44086,
+# 2026-11-16: "API rate limit exceeded for installation" threw the finished look away): a call refused for its
+# rate limit waits for the reset GitHub's rate_limit endpoint names (which costs no quota) and is tried again, for
+# at most QUOTA_WAIT_SECONDS in all (the publish job's timeout-minutes leaves room for it).
+QUOTA_WAIT_SECONDS = 1800
+QUOTA_RETRY_SECONDS = 60  # a secondary limit, or the reset unreadable: try again after this
+RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
+
+
+def quota_wait() -> float:
+    """Seconds until the core quota resets, plus 5; QUOTA_RETRY_SECONDS when quota remains (a secondary limit)."""
+    done = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core | \"\\(.remaining) \\(.reset)\""],
+                          capture_output=True, text=True, timeout=60)
+    try:
+        remaining, reset = (int(part) for part in done.stdout.split())
+    except ValueError:
+        return QUOTA_RETRY_SECONDS
+    return max(5.0, reset - time.time() + 5) if remaining == 0 else QUOTA_RETRY_SECONDS
+
+
 def gh(*args: str, body: str | None = None) -> str:
-    done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
-    if done.returncode != 0:
-        raise Refused(f"gh {args[0]} {args[1] if len(args) > 1 else ''} failed: {(done.stderr or '').strip()[:300]}")
-    return done.stdout
+    waited = 0.0
+    while True:
+        done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
+        if done.returncode == 0:
+            return done.stdout
+        why = (done.stderr or "").strip()[:300]
+        what = f"gh {args[0]} {args[1] if len(args) > 1 else ''}"
+        wait = quota_wait() if RATE_LIMITED.search(why) else None
+        if wait is None or waited + wait > QUOTA_WAIT_SECONDS:
+            raise Refused(f"{what} failed: {why}" + (f" (after {int(waited)}s waiting for quota)" if waited else ""))
+        print(f"hot-verify-ci: {what} is out of quota; trying again in {int(wait)}s", file=sys.stderr)
+        time.sleep(wait)
+        waited += wait
 
 
 def our_comment(listing: str, login: str = BOT) -> int | None:
@@ -397,8 +439,11 @@ def comment_listing(pr: int, repo: str = REPO) -> str:
 
 
 def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
-    live = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".head.sha").strip()
-    if live != head:
+    # A look at a merged PR's merge commit (cmux-next-hot-verify.yml after the merge) posts too: the PR names that
+    # commit as its merge_commit_sha. Any other head the PR is not at is an older look's.
+    live, _, merge = gh("api", f"repos/{repo}/pulls/{pr}", "--jq",
+                        '.head.sha + " " + (if .merged_at then (.merge_commit_sha // "") else "" end)').strip().partition(" ")
+    if head not in (live, merge.strip()):
         return f"#{pr} moved to {live[:12]}; its own run comments"
     listing = comment_listing(pr, repo)
     existing = our_comment(listing)

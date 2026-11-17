@@ -51,6 +51,24 @@ pub enum Harness {
     Claude,
 }
 
+/// The stable identity a followed native transcript gives a prompt. The actor uses the text for
+/// bounded act/echo matching and keeps the native id for diagnostics and correlation. This is a
+/// parser result only: it does not reserve a row or mutate translator state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromptIdentity {
+    pub id: String,
+    pub text: String,
+}
+
+/// Extract a followed transcript's prompt identity without translating it. A host stream has no
+/// native transcript identity, so callers must use its own protocol's prompt fields.
+pub fn prompt_identity(harness: Harness, bytes: &[u8]) -> Result<Option<PromptIdentity>, Error> {
+    match harness {
+        Harness::V1 => Ok(None),
+        Harness::Claude => claude::prompt_identity(bytes),
+    }
+}
+
 /// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RawRange {

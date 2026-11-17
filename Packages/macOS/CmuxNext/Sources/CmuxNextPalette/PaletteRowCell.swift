@@ -142,6 +142,8 @@ final class PaletteRowCell: NSTableCellView {
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
+        // Its text's right end is the row's right edge, where a key would end.
+        accessory.alignment = .right
         subtitle.lineBreakMode = .byTruncatingMiddle
         [icon, swatch, title, subtitle, accessory, toggleBadge, keycaps].forEach(addSubview)
     }
@@ -230,7 +232,8 @@ final class PaletteRowCell: NSTableCellView {
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
         swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
-        var right = bounds.maxX - padding
+        // Keys and kind labels end on the panel's one right edge, the field's hint's too.
+        var right = bounds.maxX - PaletteLayout.trailingInset
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
@@ -245,9 +248,10 @@ final class PaletteRowCell: NSTableCellView {
         }
         if !accessory.isHidden {
             let width = min(PaletteText.fittingWidth(accessory), bounds.width / 4)
-            right -= width
-            accessory.frame = centered(x: right, width: width, field: accessory)
-            right -= Metrics.space4
+            // The cell draws its text inset from the frame; the frame goes past the edge by that inset.
+            let inset = PaletteText.textInset(accessory)
+            accessory.frame = centered(x: right + inset - width, width: width, field: accessory)
+            right -= width - inset + Metrics.space4
         }
         let left = icon.frame.maxX + Metrics.space4
         let available = max(0, right - left)

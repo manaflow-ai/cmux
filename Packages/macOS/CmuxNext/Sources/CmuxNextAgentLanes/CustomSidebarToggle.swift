@@ -60,7 +60,7 @@ public struct CustomSidebarToggle {
                     return .failure(ActionWorkFailure(log: CustomSidebarStrings.couldNotCreate(String(describing: error)), reason: PlainErrorText.words(error)))
                 }
                 // The daemon watches the folder; a reload shows the new app without waiting for the watch.
-                client.reloadLocalApps()
+                client.remountLocalApps()
                 if let window = window() {
                     _ = CmuxToastCenter.shared.show(CmuxToast(id: "custom-sidebar-created", message: CustomSidebarStrings.created,
                                                               detail: folder.scriptURL.path(percentEncoded: false)), in: window)

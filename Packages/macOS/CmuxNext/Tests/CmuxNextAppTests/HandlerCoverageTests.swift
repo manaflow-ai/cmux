@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import Testing
 
@@ -14,5 +15,38 @@ struct HandlerCoverageTests {
         HandlerCoverage.verify(services.registry)
         let missing = services.registry.unboundActionIDs(in: HandlerCoverage.categories)
         #expect(missing.isEmpty, "catalog actions without App handlers: \(missing.map(\.rawValue).joined(separator: ", "))")
+    }
+
+    /// A same-tree build loads the tree's catalog, which can hold terminal rows the FFI step
+    /// added before the App's handlers (#38590 step A, #43840): they bind unavailable, so the
+    /// Debug app still launches.
+    @Test func terminalRowsAheadOfTheirHandlersStillHaveOne() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let ids: [ActionID] = ["terminal.fixLastCommand", "terminal.sendLastOutputToChat", "terminal.sendSelectionToChat"]
+        services.registry.seed(ids.map { ActionDescriptor(id: $0, title: $0.rawValue, category: .terminal) })
+        AppActions.bind(services)
+
+        let missing = services.registry.unboundActionIDs(in: HandlerCoverage.categories)
+        #expect(missing.isEmpty, "catalog actions without App handlers: \(missing.map(\.rawValue).joined(separator: ", "))")
+    }
+
+    /// A same-tree build can load a catalog that holds the floating pane rows before the App's
+    /// handlers for them (decision 2026-11-17: the catalog rows land first). They bind unavailable
+    /// and stay out of each menu, so the Debug app still launches and no menu offers a row that
+    /// cannot run.
+    @Test func floatingPaneRowsAheadOfTheirHandlersStillHaveOne() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let ids: [ActionID] = ["toggleFloatingPane", "newFloatingPane", "toggleQuickTerminal"]
+        services.registry.seed(ids.map { ActionDescriptor(id: $0, title: $0.rawValue, category: .pane) })
+        AppActions.bind(services)
+
+        let missing = services.registry.unboundActionIDs(in: HandlerCoverage.categories)
+        #expect(missing.isEmpty, "catalog actions without App handlers: \(missing.map(\.rawValue).joined(separator: ", "))")
+        for id in ids {
+            #expect(services.registry.unavailableReason(for: id) != nil, "\(id.rawValue) has no reason")
+            #expect(services.registry.action(for: id)?.targetHidden?(ActionInvocation()) == true, "\(id.rawValue) is not hidden")
+        }
     }
 }

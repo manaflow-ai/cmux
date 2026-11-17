@@ -61,6 +61,9 @@ impl ApiError {
 }
 
 /// Routes an app's catalog op to the daemon's own dispatcher.
+/// How `OpRouter::start_events` hands a change to the supervisor: a stream name and its body.
+pub type StreamPublish = Box<dyn Fn(&str, Value) + Send + Sync>;
+
 pub trait OpRouter: Send + Sync {
     /// Runs `op` for `app`. Ok is the ABI ok body (`{value, ...}`), Err the
     /// ABI error body (`{code, message, details?, retryable}`).
@@ -91,9 +94,17 @@ pub trait OpRouter: Send + Sync {
         Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
     }
     /// Starts delivering daemon change events as stream names
-    /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
-    /// app subscription.
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>);
+    /// (`workspace.changed`, `agent.changed`, …) and their bodies (`{}`, or
+    /// `{"live": bool}` for a stream with a push channel). Called once, on the
+    /// first app subscription.
+    fn start_events(&self, publish: StreamPublish);
+    /// For a stream fed by a push channel outside this machine (`github.changed`, the Cloud's
+    /// webhooks): whether that channel is live now. A new subscriber hears `{"live": bool}` first,
+    /// so a watch knows whether to keep its slow re-read. `None` for every other stream.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        let _ = stream;
+        None
+    }
     /// True when the daemon's own dispatcher owns `op`; other ops go to a
     /// provider.
     fn owns(&self, op: &str) -> bool;
@@ -272,6 +283,9 @@ pub(super) struct Inner {
     /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
     /// is paused. Absent: Normal with nothing counted.
     pub ladders: HashMap<String, super::budget::AppLadder>,
+    /// Open web panes' bridges and their calls waiting for a provider
+    /// (`page_calls.rs`).
+    pub pages: super::page_calls::Pages,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -285,6 +299,13 @@ pub(super) enum Out {
     Broadcast(Value),
     Respond(Responder, Result<Value, ApiError>),
     StartEvents,
+    /// Tell a new subscriber of a pushed stream whether its push channel is live
+    /// (`OpRouter::stream_live`); the router is asked outside the lock.
+    StreamLiveness {
+        key: HostKey,
+        sub: u64,
+        stream: String,
+    },
     /// Keep a local app's loaded files as its last good version
     /// (`rollback.rs`): a file copy, so it runs outside the lock.
     KeepGood {
@@ -300,6 +321,11 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
+    /// `integration.request` for provider `github`, answered here
+    /// (`github_gateway.rs`). Unset, the call goes to the provider.
+    pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -373,6 +399,9 @@ impl Supervisor {
         }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
+            // A refused package is missing from the App Store: say so in the
+            // daemon log too, not only in the apps log nobody opens.
+            eprintln!("cmux-tui: app package {} refused: {issue}", dir.display());
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
                 level: "warn".into(),
                 message: format!("{}: {issue}", dir.display()),
@@ -440,10 +469,13 @@ impl Supervisor {
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
+                pages: Default::default(),
             }),
             config,
             router,
             fetcher,
+            github: OnceLock::new(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
@@ -487,6 +519,7 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
+            inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
@@ -602,7 +635,7 @@ impl Supervisor {
     }
 
     /// Applies a commit already written to disk.
-    fn apply_commit_locked(
+    pub(super) fn apply_commit_locked(
         &self,
         inner: &mut Inner,
         outcome: mirror::Outcome,
@@ -791,11 +824,16 @@ impl Supervisor {
                 }
                 Out::StartEvents => {
                     let me = self.me.clone();
-                    self.router.start_events(Box::new(move |stream| {
+                    self.router.start_events(Box::new(move |stream, body| {
                         if let Some(me) = me.upgrade() {
-                            me.publish(stream, json!({}));
+                            me.publish(stream, body);
                         }
                     }));
+                }
+                Out::StreamLiveness { key, sub, stream } => {
+                    if let Some(live) = self.router.stream_live(&stream) {
+                        self.send_liveness(&key, sub, &stream, live);
+                    }
                 }
             }
         }
@@ -990,5 +1028,18 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(Package::palette_commands).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
+        // The web panes the client may host (`render: web`): each page's
+        // file root inside `bundle_dir` and its entry file, as the manifest
+        // rules accepted them (cmux_app_manifest::web_pages).
+        "web_pages": package.map(|p| web_pages_json(&p.manifest)).unwrap_or_default(),
     })
+}
+
+fn web_pages_json(manifest: &Value) -> Vec<Value> {
+    cmux_app_manifest::web_pages(manifest)
+        .into_iter()
+        .map(|page| {
+            json!({ "interface": page.interface, "root": page.root, "entry": page.entry, "symbol": page.symbol })
+        })
+        .collect()
 }
