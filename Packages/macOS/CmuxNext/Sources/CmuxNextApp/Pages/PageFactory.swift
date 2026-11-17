@@ -130,7 +130,7 @@ struct PageFactory {
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
     /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
-    /// sign-in and sign-out run the app's own account flow after the native sheet.
+    /// sign-in and sign-out run the app's own account flow on the person's click.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
         let cloud = Self.cloudProvider(cloud: services.cloud)
@@ -225,12 +225,12 @@ struct PageFactory {
                 }
             })
         provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
-        provider.environmentsRun = { params, context in
+        provider.environmentsRun = { params, clicked in
             guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
                 throw PageError.invalidParams("unknown environments action")
             }
             // The person's click on Build is the go-ahead; page script alone still gets the sheet.
-            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run, clicked: context.userGesture)))) ?? .object([:])
+            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run, clicked: clicked)))) ?? .object([:])
         }
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }

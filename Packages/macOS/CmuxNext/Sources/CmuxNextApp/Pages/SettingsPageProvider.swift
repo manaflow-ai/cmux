@@ -40,7 +40,8 @@ final class SettingsPageProvider: PageProvider {
     var devicesState: (@MainActor () -> JSONValue)?
     /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
     var environmentsState: (@MainActor () -> JSONValue)?
-    var environmentsRun: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)?
+    /// Runs one environments gesture; the Bool is the person's fresh click (spent once), which runs Build with no sheet.
+    var environmentsRun: (@MainActor (JSONValue, Bool) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -98,6 +99,7 @@ final class SettingsPageProvider: PageProvider {
     let wideningGate: PageWideningGate
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
+    private var clicks = PageGestureSpender()
     private static let replayLimit = 64
     /// Let Themes Set Colors' rounds: a file and the includes before it that set the same color.
     private static let overrideRounds = 4
@@ -222,7 +224,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
-        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params, context)
+        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params, clicks.spend(context))
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":

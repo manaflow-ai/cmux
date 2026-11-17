@@ -2,12 +2,14 @@ public import CmuxNextSettings
 import Foundation
 
 /// Which calls of the React App Store page (`cmux.apps.*`, react-pages.md 3.3) pass a native sheet
-/// before they reach the owner, and what the sheet says (coordinator Q4: page JS cannot prove a
-/// gesture, so the sheet makes the call the user's own). Install, update, Remove, `set` (turn on or
-/// off, the sandbox) and allowing a scope ask. Reads, Hide/Show (`cmux.apps.hidden.set`) and
-/// revoking a scope (`cmux.apps.grant.revoke`) need only the person's gesture (page-router.json
-/// `gesture`); Open is the host action `app.open`. In CmuxNextPages (not the app target) so every
-/// host shares one sheet table.
+/// before they reach the owner, and what the sheet says. Install, update, `set` (turn on or off,
+/// the sandbox on) and allowing a scope go on the person's own click in the page
+/// (``ConfirmingPageProvider``) and ask only without one (the CLI, the palette, MCP, page script).
+/// Remove (it deletes the app's data), turning the sandbox off and an install that deploys (it runs
+/// the app's server on a machine) ask even after the click. Reads, Hide/Show
+/// (`cmux.apps.hidden.set`) and revoking a scope (`cmux.apps.grant.revoke`) need only the person's
+/// gesture (page-router.json `gesture`); Open is the host action `app.open`. In CmuxNextPages (not
+/// the app target) so every host shares one sheet table.
 public nonisolated struct AppsPageConfirmations {
     public init() {}
 
@@ -26,16 +28,17 @@ public nonisolated struct AppsPageConfirmations {
         switch op {
         case "cmux.apps.install":
             let optional = params["grant_optional"]?.boolValue ?? false
+            let target = params["deploy"]?["target"]?.stringValue
             return PageConfirmation(kind: .install, name: name, scopes: scopes.filter { optional || !$0.optional }.map(\.sheet),
-                                    deployTarget: params["deploy"]?["target"]?.stringValue)
+                                    deployTarget: target, asksAfterClick: target != nil)
         case "cmux.apps.update":
             return PageConfirmation(kind: .update, name: name, scopes: scopes.filter { !$0.optional }.map(\.sheet))
         case "cmux.apps.uninstall":
-            return PageConfirmation(kind: .uninstall, name: name)
+            return PageConfirmation(kind: .uninstall, name: name, asksAfterClick: true)
         case "cmux.apps.set":
-            // The daemon takes `set` only with this sheet's confirmation (page-router.json `confirm`).
-            // The sheet names one change, so a call that changes more than one field gets no sheet
-            // (the daemon then refuses it): an approval never covers a change the sheet did not name.
+            // The daemon takes `set` only confirmed (page-router.json `confirm`): the click or this
+            // sheet. The sheet names one change, so a call that changes more than one field gets
+            // neither (the daemon then refuses it): a confirmation never covers a change not named.
             let fields = ["enabled", "sandboxed", "hidden"].filter { params[$0] != nil }
             guard fields.count == 1 else { return nil }
             let title = if let sandboxed = params["sandboxed"]?.boolValue {
@@ -45,7 +48,7 @@ public nonisolated struct AppsPageConfirmations {
             } else {
                 String(format: PageStrings.change, name)
             }
-            return PageConfirmation(kind: .custom, name: title)
+            return PageConfirmation(kind: .custom, name: title, asksAfterClick: params["sandboxed"]?.boolValue == false)
         case "cmux.apps.grant.set":
             guard params["granted"]?.boolValue == true, let wanted = params["scope"]?.stringValue else { return nil }
             let row = scopes.first { $0.sheet.scope == wanted }?.sheet

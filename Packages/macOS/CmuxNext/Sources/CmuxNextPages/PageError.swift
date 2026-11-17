@@ -6,11 +6,12 @@ public nonisolated struct PageCallContext: Sendable, Hashable {
     /// The page id (`cmux.history`).
     public let page: String
     /// `page` for every call a page makes (the host refuses an `origin` the page sends); `user`
-    /// only together with ``confirmed``, after a person approved the call on a native sheet.
+    /// only together with ``confirmed``.
     public let origin: String
-    /// True after a person approved this call on a native confirmation sheet
-    /// (``ConfirmingPageProvider``). Only then may a provider tell an owner the call is the user's
-    /// own gesture (for example top-level `origin: "user"` on an app-supervisor command).
+    /// True when the host confirmed this call as the person's own: their fresh click in the page,
+    /// spent once, or a native confirmation sheet they approved (``ConfirmingPageProvider``). Only
+    /// then may a provider tell an owner the call is the user's own gesture (for example top-level
+    /// `origin: "user"` on an app-supervisor command).
     public let confirmed: Bool
     /// The page's operation id (decision 31, zero-latency.md): the same on a resend after a
     /// reconnect, so an owner can apply the call once. Checked by the router (1-128 characters of
@@ -24,7 +25,7 @@ public nonisolated struct PageCallContext: Sendable, Hashable {
     /// that spends a gesture once (a confirmation token) keys on it. Nil without a gesture.
     public let gestureEvent: TimeInterval?
 
-    /// The user's own call: approved on a native sheet. Nothing a page sends can make this true.
+    /// The user's own call: their click or a native sheet. Nothing a page sends can make this true.
     public var isConfirmedUser: Bool { origin == "user" && confirmed }
 
     public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil, userGesture: Bool = false,

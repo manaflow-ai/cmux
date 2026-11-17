@@ -28,8 +28,9 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
     /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
-    /// host shows the native confirmation of that kind, then runs the op as the user's own
-    /// (deleting data, money, publishing, signing in). The page never calls them directly.
+    /// host runs the op as the user's own on the person's fresh click, or after the native
+    /// confirmation of that kind for a call with no click and for the ops that ask even after one
+    /// (every one not in ``PageConfirmation/clickRunsOps``). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
     /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
     /// another built-in page adds image sources.
@@ -197,7 +198,7 @@ public nonisolated struct PageNativeOp {
 public extension PageDescriptor {
     /// The Cloud app page (`cmux/cloud`, plans/cmux-next/cloud-app.md L7; React page by the Cloud
     /// lead). Deleting, publishing, firewall changes, billing, sign-in/out and connect run only
-    /// through the native confirmation.
+    /// confirmed (``confirmedOps``): the person's click, and the native sheet where it still asks.
     static let cloud = PageDescriptor(
         id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
@@ -239,8 +240,8 @@ public extension PageDescriptor {
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
-    /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
-    /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
+    /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope run
+    /// confirmed (the app's ConfirmingPageProvider: the person's click, or the native sheet); Open
     /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
     /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
@@ -250,7 +251,8 @@ public extension PageDescriptor {
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
     /// the page runs only three account actions. Connect adds a credential, so it is the host op
-    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
+    /// `cmux.coderouter.accounts.connect`, confirmed by the click or the app's native sheet, never a
+    /// plain action.
     static let coderouter = PageDescriptor(
         id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
         actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])

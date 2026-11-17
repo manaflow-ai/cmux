@@ -4,8 +4,9 @@ public import Foundation
 
 /// What a native confirmation sheet asks before a page call that grants or removes something
 /// (install, uninstall, update, grant; delete, billing, firewall, publication for other pages).
-/// Page JS cannot prove a gesture (coordinator Q4), so these calls always pass this sheet; only an
-/// approved call reaches the owner as the user's own.
+/// The person's own fresh click in the page is the confirmation (``ConfirmingPageProvider``), so the
+/// sheet shows for a call with no click (page script alone, the CLI, the palette, MCP), and after a
+/// click only when ``asksAfterClick``.
 public nonisolated struct PageConfirmation: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable {
         case install, uninstall, update, grant, delete, custom
@@ -36,10 +37,15 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     public var detail: String?
     /// For `install` with a deploy: where the app's server runs (`self-hosted:<host>`, `cloud-vm:<machine>`).
     public var deployTarget: String?
+    /// The sheet shows even after the person's click: the call destroys what cannot be brought back
+    /// (a machine's disk, an app's data), opens a machine to the internet, turns a sandbox off, or
+    /// runs a server somewhere.
+    public var asksAfterClick: Bool
 
     public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil,
-                deployTarget: String? = nil) {
+                deployTarget: String? = nil, asksAfterClick: Bool = false) {
         self.deployTarget = deployTarget
+        self.asksAfterClick = asksAfterClick
         self.kind = kind
         self.name = name
         self.scopes = scopes
@@ -129,8 +135,10 @@ public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
 public extension PageConfirmation {
     /// Confirmed ops the person's own click or key in the page runs with no sheet: they sign in or out,
     /// open billing in the browser, connect to the person's own machine, or restore one of their archives
-    /// (a create, as a person's own create is). Page script alone, with no gesture, still gets the sheet;
-    /// the deletes always ask (they remove a disk, a snapshot or a publication for good).
+    /// (a create, as a person's own create is). The click is spent on one call (``PageGestureSpender``);
+    /// page script alone, with no fresh click, still gets the sheet. Every other confirmed op asks even
+    /// after a click (``asksAfterClick``): the deletes remove a disk, a snapshot or a publication, and
+    /// a publication or a firewall rule can open a machine to the internet.
     static let clickRunsOps: Set<String> = [
         "cmux.cloud.auth.sign_in", "cmux.cloud.auth.sign_out", "cmux.cloud.billing.open",
         "cmux.cloud.machine.connect", "cmux.cloud.snapshot.restore",
@@ -142,9 +150,12 @@ public extension PageConfirmation {
     static func forOp(_ op: String, kind: Kind, args: [String: String]) -> PageConfirmation {
         let name = args["displayName"] ?? args["name"] ?? args["machine"] ?? args["snapshot"] ?? args["publication"]
             ?? args["firewall"] ?? args["id"] ?? op
+        let asks = !clickRunsOps.contains(op)
         switch op {
-        case "cmux.cloud.publication.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudPublish, name))
-        case "cmux.cloud.firewall.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudFirewall, name))
+        case "cmux.cloud.publication.create":
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudPublish, name), asksAfterClick: asks)
+        case "cmux.cloud.firewall.create":
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudFirewall, name), asksAfterClick: asks)
         case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
         case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
         case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
@@ -152,9 +163,8 @@ public extension PageConfirmation {
             let displayName = args["displayName"].map { value in
                 value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? PageStrings.cloudMachine : value
             } ?? PageStrings.cloudMachine
-            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, displayName),
-                                    detail: PageStrings.cloudConnectDetail)
-        default: return PageConfirmation(kind: kind, name: name)
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, displayName))
+        default: return PageConfirmation(kind: kind, name: name, asksAfterClick: asks)
         }
     }
 }

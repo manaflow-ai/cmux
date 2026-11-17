@@ -6,8 +6,9 @@ import Foundation
 /// The owner side of the React CodeRouter page (`cmux.coderouter.*`): the same `coderouter.*` ops
 /// the CodeRouter app calls (``CodeRouterAppOps``), so the page and the app read one accounts
 /// service and the same redaction applies. A page call reaches the owner as the user's own only
-/// after the host's native sheet (`context.confirmed`); every other call is `script`. Connect adds
-/// a credential, so `cmux.coderouter.accounts.connect` runs only confirmed. An op this build
+/// when confirmed (`context.confirmed`: the person's click on Connect, or the host's native sheet
+/// for a call with no click); every other call is `script`. Connect adds a credential, so
+/// `cmux.coderouter.accounts.connect` runs only confirmed. An op this build
 /// lacks answers `cmux.operation.unsupported` ("Not available in this build" on the page).
 @MainActor
 final class CodeRouterPageProvider: PageProvider {
@@ -44,13 +45,13 @@ final class CodeRouterPageProvider: PageProvider {
     }
 }
 
-/// The native sheets of the CodeRouter page: Connect sends a local sign-in to CodeRouter.
+/// The native sheet of the CodeRouter page: Connect sends a local sign-in to CodeRouter. The
+/// person's click on Connect needs none (``ConfirmingPageProvider``).
 nonisolated enum CodeRouterPageConfirmations {
     static func confirmation(op: String, params: JSONValue) -> PageConfirmation? {
         guard op == CodeRouterPageProvider.connectOp else { return nil }
         let name = params["name"]?.stringValue ?? params["provider"]?.stringValue ?? ""
-        return PageConfirmation(kind: .custom, name: String(format: CodeRouterPageStrings.connectTitle, name),
-                                detail: CodeRouterPageStrings.connectDetail)
+        return PageConfirmation(kind: .custom, name: String(format: CodeRouterPageStrings.connectTitle, name))
     }
 }
 
@@ -58,10 +59,5 @@ nonisolated enum CodeRouterPageStrings {
     static var title: String { String(localized: "coderouter.page.title", defaultValue: "CodeRouter", table: "Accounts", bundle: .module) }
     static var connectTitle: String {
         String(localized: "coderouter.connect.title", defaultValue: "Connect %@ to CodeRouter?", table: "Accounts", bundle: .module)
-    }
-    static var connectDetail: String {
-        String(localized: "coderouter.connect.detail",
-               defaultValue: "cmux sends this sign-in to CodeRouter. It stays private until you share it with your team.",
-               table: "Accounts", bundle: .module)
     }
 }
