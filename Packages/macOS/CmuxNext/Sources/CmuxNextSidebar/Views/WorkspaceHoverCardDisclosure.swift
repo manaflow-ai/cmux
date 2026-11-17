@@ -18,7 +18,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
     private let chevron = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
     /// The hover and pressed fill, wider than the view by the rows' outset.
-    private let fillLayer = CALayer()
+    let fillLayer = CALayer()
     private var tracking: NSTrackingArea?
     private var isHovered = false { didSet { paint() } }
     private var pressed = false { didSet { paint() } }
