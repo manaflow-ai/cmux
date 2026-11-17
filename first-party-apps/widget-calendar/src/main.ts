@@ -61,7 +61,7 @@ type Load =
 const TYPE = { heading: 11, day: 32, title: 13, detail: 12, label: 11, hour: 11 } as const
 
 /** The large hour grid, in points: an hour's height, the hour labels' gutter, the day label row. */
-const GRID = { hour: 36, gutter: 20, label: 16, hours: 7 } as const
+const GRID = { hour: 36, gutter: 20, label: 24, hours: 7, minBlock: 20 } as const
 
 /** Event blocks per column: what fits a tile at its height with Apple's three-line block. */
 const BLOCKS: Record<Size, { left: number; right: number }> = {
@@ -204,9 +204,11 @@ function gridView(column: GridColumn, twelve: boolean, off: Offset, empty: strin
   if (empty)
     children.push(
       HStack({ spacing: 0 }, [VStack([]).frame({ width: GRID.gutter }), Text(empty).font(TYPE.title).color("secondary").lineLimit(2), Spacer()]).frame({ maxWidth: "infinity" })
+        // Between two hour lines, never on one: the center falls on a line when the hour count is even.
+        .offset({ y: (column.endHour - column.startHour) % 2 === 0 ? GRID.hour / 2 : 0 })
     )
   for (const b of column.blocks) {
-    const h = Math.max(16, (b.to - b.from) * GRID.hour - 2)
+    const h = Math.max(GRID.minBlock, (b.to - b.from) * GRID.hour - 2)
     const lanes: View[] = []
     for (let lane = 0; lane < b.lanes; lane++)
       lanes.push(lane === b.lane ? gridBlock(b.e, h, twelve, off) : VStack([]).frame({ maxWidth: "infinity", height: h }))
@@ -241,7 +243,7 @@ function gridBlock(e: CalendarEvent, height: number, twelve: boolean, off: Offse
     VStack({ spacing: 0, alignment: "leading" }, lines),
     Spacer()
   ])
-    .padding({ top: 3, bottom: 3, leading: 4, trailing: 4 })
+    .padding({ top: height < 30 ? 1 : 3, bottom: height < 30 ? 1 : 3, leading: 4, trailing: 4 })
     .background(tintOf(e.color))
     .cornerRadius(5)
     .frame({ maxWidth: "infinity", height, alignment: "topLeading" })
