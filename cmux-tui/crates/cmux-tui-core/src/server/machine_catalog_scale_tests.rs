@@ -24,7 +24,7 @@ const WHOLE_CATALOG_BUDGET: Duration = Duration::from_millis(20);
 
 fn machine(index: usize, status: &str) -> Value {
     json!({"id":format!("machine_{index:032x}"),"name":format!("remote {index}"),
-           "origin":if index % 2 == 0 { "cloud" } else { "ssh" },"status":status,
+           "origin":if index.is_multiple_of(2) { "cloud" } else { "ssh" },"status":status,
            "platform":{"os":"linux","arch":"x86_64"},"capabilities":["terminal"]})
 }
 
