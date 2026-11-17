@@ -452,21 +452,30 @@ async fn with_the_setting_off_a_chat_handed_to_a_terminal_is_view_only() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Claude Code queues a finished background task's `<task-notification>` mid-turn as it queues a
-/// typed prompt (an `enqueue` line with no origin), then takes it with a `queued_command`
-/// attachment of `commandMode: task-notification` and an `absorbed_mid_turn` remove: the sequence
-/// a real 2.1 transcript holds. On the default path (the setting off) it is no prompt of the
-/// person's: it never shows as one, and the turn it arrived in still ends. The same for an inbox
-/// message, another session's message and a slash command typed mid-turn.
+/// Claude Code queues lines that are no prompt of the person's the way it queues a typed one: a
+/// finished background task's `<task-notification>` (an `enqueue` with no origin, then a
+/// `queued_command` attachment of `commandMode: task-notification` and an `absorbed_mid_turn`
+/// remove), an inbox message (no enqueue text, no origin), another session's (`peer`), a slash
+/// command typed mid-turn (it runs as command echoes) and a scheduled wakeup (its enqueue text
+/// runs as a meta line): the shapes real 2.1 transcripts hold. None shows as a typed prompt but the
+/// wakeup's with the setting on (it runs a turn), and every turn ends: with the setting off the
+/// watch is base's; on, nothing it queued is left waiting to hold a turn end.
 #[tokio::test]
-async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
-    let (hub, sid, file, mut terminal, root, first) = handed_to_terminal_as(1500, false).await;
+async fn queue_lines_that_are_no_typed_prompt_never_show_as_one_nor_hold_a_turn_open() {
+    for writable in [false, true] {
+        queue_lines_that_are_no_typed_prompt(writable).await;
+    }
+}
+
+async fn queue_lines_that_are_no_typed_prompt(writable: bool) {
+    let (hub, sid, file, mut terminal, root, first) = handed_to_terminal_as(1500, writable).await;
     terminal.type_line("start");
     assert_eq!(terminal.until("RUN", 1).await, ["start"]);
     assert_eq!(until_prompts(&hub, &sid, 2).await, [first.as_str(), "start"]);
     let note = "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n\
                 <summary>Background command \"build\" completed (exit code 0)</summary>\n\
                 </task-notification>";
+    let wakeup = "Fallback: check the build";
     let source = uuid::Uuid::now_v7().to_string();
     append(
         &file,
@@ -477,8 +486,6 @@ async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
                 "commandMode": "task-notification"}}),
             json!({"type": "queue-operation", "operation": "remove", "content": note,
                    "reason": "absorbed_mid_turn", "commandUuid": source}),
-            // An inbox message another program sent (no enqueue text, no origin) and another
-            // session's (`peer`): no prompt of the person's either, as on base.
             json!({"type": "queue-operation", "operation": "enqueue"}),
             json!({"type": "attachment", "uuid": uuid::Uuid::now_v7().to_string(), "attachment": {
                 "type": "queued_command", "commandMode": "prompt",
@@ -490,20 +497,38 @@ async fn a_task_notification_claude_code_queues_mid_turn_is_no_typed_prompt() {
                 "source_uuid": uuid::Uuid::now_v7().to_string(),
                 "prompt": "<agent-message from=\"a1\">done</agent-message>",
                 "origin": {"kind": "peer", "from": "a1"}}}),
-            // A slash command typed mid-turn runs as command echoes, never as a prompt line.
             json!({"type": "queue-operation", "operation": "enqueue", "content": "/rename build"}),
             json!({"type": "queue-operation", "operation": "dequeue"}),
             json!({"type": "user", "uuid": uuid::Uuid::now_v7().to_string(), "message": {
                 "role": "user", "content": "<command-name>/rename</command-name>"}}),
+            json!({"type": "queue-operation", "operation": "enqueue", "content": wakeup}),
         ],
     );
     assert_eq!(terminal.until("END", 1).await, ["start"]);
+    // The wakeup runs after the turn: a meta line with its text, then its own turn.
+    append(
+        &file,
+        &[
+            json!({"type": "queue-operation", "operation": "dequeue"}),
+            json!({"type": "user", "uuid": uuid::Uuid::now_v7().to_string(), "isMeta": true,
+                   "promptSource": "system", "wakeupSource": "loop_wakeup",
+                   "message": {"role": "user", "content": wakeup}}),
+            json!({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
+                   "content": [{"type": "text", "text": "checked"}]}}),
+        ],
+    );
     tokio::time::sleep(Duration::from_millis(400)).await;
-    assert_eq!(prompts(&hub, &sid), [first.as_str(), "start"], "the notification showed as typed");
+    let want: Vec<&str> = if writable {
+        vec![first.as_str(), "start", wakeup]
+    } else {
+        vec![first.as_str(), "start"]
+    };
+    assert_eq!(prompts(&hub, &sid), want, "writable {writable}: a queue line showed as typed");
     let k = kinds(&hub, &sid);
     let started = k.iter().filter(|k| *k == "turn_started").count();
     let ended = k.iter().filter(|k| *k == "turn_end").count();
-    assert_eq!(started, ended, "a turn was left open: {k:?}");
+    assert_eq!(started, ended, "writable {writable}: a turn was left open: {k:?}");
+    assert!(hub.resolve(&sid).unwrap().meta().watching.unwrap().queued.is_empty(), "left queued");
     drop(terminal);
     let _ = std::fs::remove_dir_all(&root);
 }
