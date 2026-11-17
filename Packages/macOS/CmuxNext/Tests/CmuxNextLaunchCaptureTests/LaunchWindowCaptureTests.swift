@@ -11,11 +11,13 @@ import Testing
 /// pixels; a publish hands its image to the launch record only while the window has not moved on.
 @MainActor
 struct LaunchWindowCaptureTests {
+    private static func sRGB() throws -> CGColorSpace { try #require(CGColorSpace(name: CGColorSpace.sRGB)) }
+
     /// A `side` x `side` (or `side` x `height`) opaque image of one color.
     private static func solid(_ side: Int, height: Int? = nil, red: Double, green: Double, blue: Double) throws -> CGImage {
         let height = height ?? side
         let context = try #require(CGContext(data: nil, width: side, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                             space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                             space: try Self.sRGB(),
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: side, height: height))
@@ -26,7 +28,7 @@ struct LaunchWindowCaptureTests {
     private static func pixel(_ image: CGImage, x: Int, y: Int) throws -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 4)
         let context = try #require(CGContext(data: &bytes, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                             space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                             space: try Self.sRGB(),
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(image, in: CGRect(x: -x, y: y - image.height + 1, width: image.width, height: image.height))
         return bytes
@@ -91,7 +93,8 @@ struct LaunchWindowCaptureTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "launch-capture-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LaunchImageStore(directory: directory, info: [:])
-        let png = try #require(try Self.solid(4, red: 0, green: 0, blue: 1).pngData())
+        let blue = try Self.solid(4, red: 0, green: 0, blue: 1)
+        let png = try #require(blue.pngData())
         let schedule = LaunchImageSchedule()
         _ = schedule.note(.shown, at: 1)
         _ = schedule.note(.changed, at: 2)
@@ -153,7 +156,8 @@ struct LaunchWindowCaptureTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "launch-capture-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LaunchImageStore(directory: directory, info: ["CFBundleVersion": "4294", "CMUXCommit": "abc123"])
-        let png = try #require(try Self.solid(4, red: 0, green: 0, blue: 1).pngData())
+        let blue = try Self.solid(4, red: 0, green: 0, blue: 1)
+        let png = try #require(blue.pngData())
         var handed: LaunchRecordImage?
         let image = try #require(store.publish(windowID: "w", png: png) { handed = $0 })
         let parts = image.key.split(separator: "/").map(String.init)
