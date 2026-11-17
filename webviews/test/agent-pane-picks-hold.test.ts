@@ -191,7 +191,9 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           expect(String(ran.model)).toContain("gpt-6.1-sol");
           expect(JSON.stringify(ran.options)).toContain("high");
 
-          // A reload of the page on the chat.
+          // A reload of the page on the chat: a new document (a goto that changes only the hash
+          // would keep this one), as the app's relaunch opens the tab.
+          await page.goto("about:blank");
           await page.goto(paneUrl(lane.base, lane.daemon, `session=${sessionId}`));
           await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
@@ -216,6 +218,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           expect(String(restarted.model)).toContain("gpt-6.1-sol");
 
           // A New Tab: Claude Code and back.
+          await page.goto("about:blank");
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));

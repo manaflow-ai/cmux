@@ -5,7 +5,8 @@ import { MODEL_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 
 /** The visible values: the model chip (with its effort), the access chip. */
 export type ChipValues = { model: string; access: string };
-export type ValueFrame = { t: number } & ChipValues;
+/** `pane`: what the pane held on that frame (connection, session, harness, rows), from its debug hook. */
+export type ValueFrame = { t: number; pane?: string } & ChipValues;
 
 declare global {
   interface Window {
@@ -36,7 +37,11 @@ export async function startValueSampler(page: Page): Promise<void> {
         (document.querySelector(selector)?.textContent ?? "").replace(/\s+/g, " ").trim();
       const store = (window.cmuxChipValues = { frames: [], all: [] } as NonNullable<Window["cmuxChipValues"]>);
       store.stop = window.cmuxAfterPaint((t) => {
-        const value = { t, model: text(model), access: text(access) };
+        const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+        const pane = state
+          ? `${state.connection} ${state.sessionId ?? "-"} ${state.harness ?? "-"} rows=${state.rows}`
+          : undefined;
+        const value = { t, model: text(model), access: text(access), ...(pane && { pane }) };
         const last = store.frames.at(-1);
         if (!last || last.model !== value.model || last.access !== value.access) {
           store.frames.push(value);
@@ -142,7 +147,11 @@ export async function timeline(page: Page, from = 0): Promise<string[]> {
   return page.evaluate((from) => {
     const rows: { t: number; line: string }[] = [];
     for (const frame of window.cmuxChipValues?.all ?? [])
-      if (frame.t >= from) rows.push({ t: frame.t, line: `chips: ${frame.model} | ${frame.access}` });
+      if (frame.t >= from)
+        rows.push({
+          t: frame.t,
+          line: `chips: ${frame.model} | ${frame.access}${frame.pane ? ` (pane: ${frame.pane})` : ""}`,
+        });
     for (const event of window.cmuxWire ?? [])
       if (event.t >= from) rows.push({ t: event.t, line: `${event.dir === "out" ? "->" : "<-"} ${event.what}` });
     rows.sort((a, b) => a.t - b.t);
