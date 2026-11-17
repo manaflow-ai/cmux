@@ -145,10 +145,14 @@ func environment(_ homeRoot: URL, fifo: String) -> [String: String] {
         try? FileManager.default.createDirectory(at: home.appendingPathComponent(sub), withIntermediateDirectories: true)
     }
     try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    // The control socket under /tmp: a fleet worker's HOME_ROOT is longer than sun_path's 104 bytes, and an app given a
+    // longer path runs with no control socket at all, unlike a person's launch.
+    let socket = "/tmp/cmux-lp-\(getuid()).sock"
+    unlink(socket)
     var env: [String: String] = [
         "HOME": home.path, "CFFIXED_USER_HOME": home.path, "TMPDIR": tmp.path + "/",
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8", "SHELL": "/bin/zsh",
-        "CMUX_NEXT_SOCKET_PATH": homeRoot.appendingPathComponent("app.sock").path, "CMUX_NEXT_SOCKET_MODE": "allowAll",
+        "CMUX_NEXT_SOCKET_PATH": socket, "CMUX_NEXT_SOCKET_MODE": "allowAll",
         "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
     ]
     if let user = ProcessInfo.processInfo.environment["USER"] { env["USER"] = user; env["LOGNAME"] = user }

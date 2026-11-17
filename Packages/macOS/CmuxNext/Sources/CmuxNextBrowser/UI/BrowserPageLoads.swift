@@ -9,11 +9,15 @@ import Foundation
 final class BrowserPageLoads {
     var history: (any BrowserHistoryStore)?
     var onPageFinished: ((URL) -> Void)?
+    /// Each committed main-frame URL once, as soon as its document replaces the old one (before it
+    /// finishes loading): the host's `browser.siteEngines` check for a page that navigated.
+    var onPageCommitted: ((URL) -> Void)?
     /// A typed https upgrade in flight (Chrome's http fallback).
     var httpsFallback = HTTPSUpgradeFallback()
     private var recordedURL: URL?
     private var recordedTitle: String?
     private var finishedURL: URL?
+    private var committedURL: URL?
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
 
@@ -44,6 +48,10 @@ final class BrowserPageLoads {
         if let http = httpsFallback.observe(state) {
             // task-owner: one load, after this observation (never a load inside the observed read).
             Task { @MainActor [weak tab] in tab?.load(http) }
+        }
+        if let onPageCommitted, state.phase == .committed || state.phase == .finished, let url = state.url, url != committedURL {
+            committedURL = url
+            onPageCommitted(url)
         }
         guard case .finished = state.phase, let url = state.url else { return }
         if let history {
