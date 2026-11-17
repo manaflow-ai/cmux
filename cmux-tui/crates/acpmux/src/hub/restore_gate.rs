@@ -1,10 +1,10 @@
 //! Staged restore: the prompts a restart cut short resume a few at a time, never all at once.
 //!
-//! On 2026-11-16 a lane host came back from a stop and this daemon resumed about 100 chats
-//! together (`resume_queues` gave each restored prompt its own task, and every task started its
-//! agent the moment startup was done). The load went to 240-285 on 32 cores, the tailnet daemon
-//! and the host's GitHub broker stopped answering, `acpmux session info` timed out, and the host
-//! thrashed at 45 live sessions against its cap of 12 for over an hour. A restart is when every
+//! On 2026-11-16 a host came back from a stop and this daemon resumed about 100 chats together
+//! (`resume_queues` gave each restored prompt its own task, and every task started its agent the
+//! moment startup was done). The load went to 240-285 on 32 cores, the host's network and broker
+//! daemons stopped answering, `acpmux session info` timed out, and the host thrashed at 45 live
+//! sessions against its cap of 12 for over an hour. A restart is when every
 //! chat wants its agent back at once and when the host can least afford it.
 //!
 //! So a restored prompt waits here for its turn ([`Hub::admit_restored`]), and one driver
