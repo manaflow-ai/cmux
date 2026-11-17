@@ -468,6 +468,13 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
+    CmuxHomeCore)
+      # PROBE (not for merge): one test at a time names the test the
+      # signal 6/11 crash happens in.
+      swift_test_args+=(--no-parallel)
+      run_swift_test
+      return "$test_status"
+      ;;
     CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
