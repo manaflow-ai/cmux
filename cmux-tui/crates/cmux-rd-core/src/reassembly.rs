@@ -543,6 +543,9 @@ impl Reassembler {
                 let unpaused = Self::give_up_unpaused_at(p, &t);
                 let at = Self::give_up_at(p, &t).saturating_add(1);
                 match last_arrival {
+                    // Inside the current silence: an arrival decides it (the
+                    // push expires the frame then); with none, the silence
+                    // becomes an outage and the clock stands still until the cap.
                     Some(last) if at > last => {
                         unpaused.saturating_add(OUTAGE_FREEZE_MAX_US).saturating_add(1)
                     }

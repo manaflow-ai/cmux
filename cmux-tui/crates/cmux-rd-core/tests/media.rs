@@ -326,6 +326,8 @@ fn next_expiry_names_the_oldest_incomplete_frame() {
     let out = p.packetize(1, flags::KEYFRAME, &body(1, 5000, true), 0).expect("packetize");
     let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
     assert!(r.push(&h, payload, 1_000).is_empty());
+    // Other traffic keeps the link live: a missing shard is loss, not an outage.
+    r.note_datagram(5_000);
     // The frame expires strictly after its deadline.
     assert_eq!(r.next_expiry_us(), Some(1_201));
     assert!(r.tick(1_200).is_empty());
@@ -492,7 +494,7 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     );
     let two = shards(&mut p, 2, 0, &p_frame(2, 1), 0);
     assert!(push_all(&mut r, &two[1..], 1_000).is_empty());
-    keep_alive(&mut r, 1_000, 1_000 + deadline);
+    keep_alive(&mut r, 1_000, 1_000 + deadline + 5_000);
     assert_eq!(r.next_expiry_us(), Some(1_000 + deadline + 1));
     assert!(r.tick(1_000 + deadline).is_empty());
     assert!(r.take_losses().is_empty(), "held through the deadline");

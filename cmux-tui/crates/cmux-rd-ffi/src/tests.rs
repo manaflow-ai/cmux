@@ -324,7 +324,7 @@ fn loss_produces_nacks_then_recovery() {
     assert_eq!(fb.nacks.len(), 1);
     assert_eq!(fb.nacks[0].frame, 2);
     assert_eq!(fb.nacks[0].indexes, vec![0]);
-    for t in (50_000..=201_001).step_by(5_000) {
+    for t in (50_000..=200_000).step_by(5_000).chain([201_001]) {
         push(&r, &sent[0].1[0], t);
     }
     // The deadline (200 ms) names the next wakeup, then the frame is lost.
