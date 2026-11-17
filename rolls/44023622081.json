@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44023622081",
+  "recorded_at": "2026-11-17T05:35:21Z",
+  "reason": "cmux-tui 650d5fecd5dd changes the image's cmux-tui (pinned a39f25955ca2)",
+  "dry_run": false,
+  "cmux_tui": "650d5fecd5ddf519fa3ae809ffcb573e1cdea9a0",
+  "fixes": [
+    {
+      "sha": "3df4a30d4a09b12892bca48d864e677e27e8e1cb",
+      "mergedAt": "2026-11-16T20:55:04-08:00",
+      "subject": "cmux automation: --webhook --on cloud starts an agent on a forked Cloud VM per GitHub event (#45061)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T05:35:21Z",
+    "snapshot_id": "sh-8f5ffaa89ffa4bed83d795b2d2ed20fe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44023622081): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3168b1c00fb856f08321c4b58edd6cf692c7b1cb",
+    "image": "cloud-native-auto-650d5fec-44023622081-1",
+    "revision": "ci-44023622081-1",
+    "at": "2026-11-17T05:35:21Z"
+  },
+  "rolled_back": false
+}
