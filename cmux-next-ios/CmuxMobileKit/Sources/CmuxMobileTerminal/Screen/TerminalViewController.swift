@@ -820,7 +820,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let pending = freezeView != nil || replayGate.isReplaying || !output.isEmpty || feedInFlight
         let final = model.demoFinalColumns?()
         let right = model.isTUI && !pending && final != nil && final == appliedHostColumns
-        if model.isTUI, !right {
+        // A frame at a wrong grid: the full-screen app drawn at columns that
+        // are not the final ones (a replay in flight at the final grid shows
+        // nothing wrong, so it is not one).
+        if model.isTUI, final != nil, final != appliedHostColumns {
             model.unsettledTUIFrames += 1
         }
         guard let start = probe.start else { return }

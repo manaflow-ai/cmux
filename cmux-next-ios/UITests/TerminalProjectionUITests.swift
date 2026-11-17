@@ -172,7 +172,10 @@ final class TerminalProjectionUITests: XCTestCase {
         terminal.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)))
         step("one-finger pan")
         shot("zoomed-panned")
-        app.pinch(withScale: 0.2, velocity: -1.5)
+        // Two half pinches: XCUITest starts a 0.2 pinch with the fingers spread
+        // past the terminal (on the key bar), where the zoom never sees them.
+        app.pinch(withScale: 0.5, velocity: -1)
+        app.pinch(withScale: 0.5, velocity: -1)
         step("pinch in (fit width)")
         shot("fit-width-again")
         guard let gestured = wait(for: "gestured") else { return XCTFail("the demo never left the gestures stage: \(probe.label)") }
