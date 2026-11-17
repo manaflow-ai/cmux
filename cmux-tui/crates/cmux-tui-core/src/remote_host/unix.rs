@@ -1201,4 +1201,60 @@ mod tests {
         assert!(!intent_file.exists(), "an explicit start clears the stop intent");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// F17 fault: the person runs `cmux remote-host restart` while the host they quit is still
+    /// ending its workers. The restart waits for that host to exit and then starts a new one,
+    /// instead of answering from the host that is leaving and leaving cmux Remote stopped.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn fault_a_restart_while_the_quit_host_drains_starts_it_again() {
+        use std::io::Write;
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("cmux-remote-drain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = super::Paths {
+            runtime: dir.join("run"),
+            state: dir.join("state"),
+            scope: "s0".into(),
+            daemon_socket: dir.join("d.sock"),
+        };
+        let started = |inner: &Arc<Inner>| {
+            super::lock(&inner.unavailable).as_deref().is_some_and(|r| r.contains("macOS only"))
+        };
+        let inner = Arc::new(Inner::default());
+        *super::lock(&inner.paths) = Some(paths.clone());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        // The host announces the quit and keeps its link open while it ends its workers.
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(b"{\"type\":\"event\",\"event\":\"quit\"}\n").unwrap();
+        let weak = Arc::downgrade(&inner);
+        let link = Arc::clone(&running);
+        let reading = std::thread::spawn(move || {
+            Inner::read(&weak, &link, std::io::BufReader::new(reader));
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !running.quit.load(std::sync::atomic::Ordering::Relaxed) {
+            assert!(Instant::now() < deadline, "the quit event was never read");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // It exits 300 ms into the restart.
+        let exiting = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(host);
+        });
+
+        let supervisor = super::RemoteHostSupervisor { inner: Arc::clone(&inner) };
+        let _ = supervisor.call("restart", json!({"worker": "computer-use", "force": false}));
+        exiting.join().unwrap();
+        reading.join().unwrap();
+
+        assert!(started(&inner), "a restart during the quit's drain never started a new host");
+        assert!(
+            !paths.state.join("stop-intent.json").exists(),
+            "the restart clears the stop intent"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
