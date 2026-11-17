@@ -1,4 +1,5 @@
-import { errorMessage, isHostRefusal, startCancelled, switchFailedText } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled, startErrorMessage, switchFailedText } from "./transportErrors";
+import { START_CONNECTION_LOST, startFailureCause } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -135,6 +136,8 @@ export type SwitchView = {
     code?: string;
     /// A sign-in refusal (`agent_session.sign_in_required`) for a sign-in that expired, not one never made.
     signInExpired?: true;
+    /// What actually failed, in one line (startFailure.ts `startFailureCause`): the card's Details.
+    cause?: string;
     queued: readonly QueuedSwitchPrompt[];
     config: SwitchConfig;
     cwd?: string;
@@ -174,6 +177,7 @@ type Intent = {
   error?: string;
   code?: string;
   signInExpired?: true;
+  cause?: string;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
   /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
@@ -215,8 +219,6 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => (resolve = done));
   return { resolve, promise };
 }
-
-const errorText = errorMessage;
 
 /// Whether a live pick (`SwitchView` `model` or `config`) has nothing left to draw on `snapshot`,
 /// whose session reports `reported` for it (HarnessSwitch.reconcile). A snapshot with no session
@@ -828,6 +830,7 @@ export class HarnessSwitch {
       intent.error = undefined;
       intent.code = undefined;
       intent.signInExpired = undefined;
+      intent.cause = undefined;
       // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
       const first = intent.queued[0];
       if (first && !first.ticket) this.handlers.holdPrompt?.(first.id);
@@ -841,9 +844,20 @@ export class HarnessSwitch {
     const typed = error as { errorKind?: unknown; recovery?: unknown } | undefined;
     const recovery =
       typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
-    intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
+    intent.error = [startErrorMessage(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
     const code = (error as { code?: unknown } | undefined)?.code;
     intent.code = typeof code === "string" ? code : undefined;
+    // The connection to acpmux went while it started the agent (direct.ts `rejectPending`): its
+    // `native.timed_out` is also a deadline's, so the card reads the dropped line by its own code.
+    if ((error as { interrupted?: unknown } | undefined)?.interrupted === true) intent.code = START_CONNECTION_LOST;
+    // What actually failed stays under Details and goes to the app's log with the chat it was
+    // starting, so a start that fails for every agent at once can be told apart (#44964).
+    intent.cause = startFailureCause(error);
+    console.error(
+      `agent pane: couldn't start ${intent.harness} session=${intent.sessionId ?? "none"} start=${intent.id}: ${
+        intent.cause ?? "no error"
+      }`,
+    );
     // An agent that is not signed in: cmux-tui codes it for another machine; acpmux on this Mac
     // names it in `data.reason` only. Either is the one sign-in code the card reads (hq#11225).
     const signIn = error as { reason?: unknown; errorKind?: unknown } | undefined;
@@ -895,6 +909,7 @@ export class HarnessSwitch {
           error: intent.error,
           code: intent.code,
           ...(intent.signInExpired && { signInExpired: true as const }),
+          ...(intent.cause && { cause: intent.cause }),
           queued: intent.queued.map(({ id, text, at }) => ({ id, text, at })),
           config: intent.config,
           cwd: intent.cwd,
@@ -1021,6 +1036,7 @@ export function applySwitch(
     ...(intent.error && { error: intent.error }),
     ...(intent.code && { code: intent.code }),
     ...(intent.signInExpired && { signInExpired: true as const }),
+    ...(intent.cause && { cause: intent.cause }),
   };
   // A held prompt reads as sent: no start status on it (the Thinking line under it covers the
   // start, conversation/turns.ts), and its footer keeps the room the sent prompt's has.

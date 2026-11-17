@@ -34057,6 +34057,138 @@
         }
       }
     },
+    "switch.serviceUnreachable": {
+      "comment": "Agent pane: a new chat's agent did not start because the page lost or could not open its connection to cmux's agent service (acpmux), for example while it restarts. {agent} is the agent's name (Claude Code).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ {agent} لأن cmux لم يتمكن من الوصول إلى خدمة الوكلاء. حاول مرة أخرى، وإذا تكرر ذلك فأغلق cmux وأعد فتحه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} se nije pokrenuo jer cmux nije mogao doći do svoje usluge agenata. Pokušajte ponovo, a ako se ponavlja, zatvorite i ponovo otvorite cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} startede ikke, fordi cmux ikke kunne nå sin agenttjeneste. Prøv igen, og hvis det bliver ved, så luk og genåbn cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} wurde nicht gestartet, weil cmux seinen Agentendienst nicht erreichen konnte. Versuche es erneut, und wenn es weiter passiert, beende cmux und öffne es neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} didn't start because cmux couldn't reach its agent service. Try again, and if it keeps happening, quit and reopen cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} no se inició porque cmux no pudo conectar con su servicio de agentes. Inténtalo de nuevo y, si sigue pasando, cierra y vuelve a abrir cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} n'a pas démarré, car cmux n'a pas pu joindre son service d'agents. Réessayez, et si cela se reproduit, quittez puis rouvrez cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} non si è avviato perché cmux non è riuscito a raggiungere il suo servizio agenti. Riprova e, se continua a succedere, chiudi e riapri cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がエージェントサービスに接続できなかったため、{agent} を開始できませんでした。もう一度お試しください。繰り返す場合は cmux を終了して開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} មិនបានចាប់ផ្ដើមទេ ព្រោះ cmux មិនអាចភ្ជាប់ទៅសេវាភ្នាក់ងាររបស់វាបាន។ សូមព្យាយាមម្ដងទៀត ហើយបើវានៅតែកើតឡើង សូមបិទ cmux ហើយបើកវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 에이전트 서비스에 연결하지 못해 {agent}을(를) 시작하지 못했습니다. 다시 시도하고, 계속 발생하면 cmux를 종료한 뒤 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} startet ikke fordi cmux ikke nådde agenttjenesten sin. Prøv igjen, og hvis det fortsetter, avslutt og åpne cmux på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} nie uruchomił się, ponieważ cmux nie mógł połączyć się ze swoją usługą agentów. Spróbuj ponownie, a jeśli to się powtarza, zamknij i ponownie otwórz cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} não iniciou porque o cmux não conseguiu acessar seu serviço de agentes. Tente de novo e, se continuar acontecendo, feche e abra o cmux novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не запустился: cmux не смог связаться со своей службой агентов. Попробуйте ещё раз, а если это повторяется, закройте и снова откройте cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ไม่ได้เริ่มทำงาน เพราะ cmux เชื่อมต่อบริการเอเจนต์ของตัวเองไม่ได้ ลองอีกครั้ง และหากยังเกิดขึ้นอีก ให้ปิดแล้วเปิด cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ajan hizmetine ulaşamadığı için {agent} başlamadı. Yeniden deneyin; sürerse cmux'tan çıkıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не запустився: cmux не зміг зв'язатися зі своєю службою агентів. Спробуйте ще раз, а якщо це повторюється, закрийте й знову відкрийте cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} không khởi động được vì cmux không kết nối được với dịch vụ tác tử của nó. Hãy thử lại, và nếu vẫn xảy ra, hãy thoát rồi mở lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法连接到其代理服务，因此 {agent} 未能启动。请重试；如果问题持续出现，请退出并重新打开 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法連線到其代理服務，因此 {agent} 未能啟動。請再試一次；如果問題持續發生，請結束並重新開啟 cmux。"
+          }
+        }
+      }
+    },
     "switch.signInRequired": {
       "comment": "Agent pane: a chat's agent did not start because it is not signed in on the chat's machine. {agent} is the agent's name (Cursor).",
       "extractionState": "manual",

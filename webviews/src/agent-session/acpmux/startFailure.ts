@@ -41,10 +41,69 @@ function writtenForPeople(text: string): boolean {
   return /[.!?]$/.test(text) && !text.includes("\n") && text.split(" ").length >= 4 && !MACHINERY.test(text);
 }
 
-export function startFailureView(
-  t: Translate,
-  switching: { harness: string; name: string; error?: string; code?: string; signInExpired?: true },
-): StartFailureView {
+/// The codes of a start that never reached the agent because the page's line to acpmux was down or
+/// went down: the pane host found no daemon (`transport.connect_failed`, `transport.no_connection`),
+/// closed the socket (`transport.closed`, an overflow), or the page had no open connection
+/// (`native.not_connected`). acpmux restarting reads this way; the agent itself was never asked.
+/// A start whose connection to acpmux dropped before it answered (direct.ts `rejectPending`, an
+/// `interrupted` failure): harnessSwitch.ts gives it this code, since its own (`native.timed_out`) is
+/// also a deadline's.
+export const START_CONNECTION_LOST = "start.connection_lost";
+
+const SERVICE_UNREACHABLE = new Set([
+  START_CONNECTION_LOST,
+  "native.not_connected",
+  "transport.connect_failed",
+  "transport.no_connection",
+  "transport.closed",
+  "transport.stale_connection",
+  "transport.inbound_overflow",
+  "transport.outbound_overflow",
+]);
+
+type StartFailure = {
+  harness: string;
+  name: string;
+  error?: string;
+  code?: string;
+  signInExpired?: true;
+  /// What actually failed, for Details and the log (`startFailureCause`).
+  cause?: string;
+};
+
+/// The card's words, with what actually failed (`cause`) under Details whenever the sentence does
+/// not already say all of it: a start failure never ends at a sentence with nothing behind it (#44964).
+export function startFailureView(t: Translate, switching: StartFailure): StartFailureView {
+  const view = startFailureSentence(t, switching);
+  const cause = switching.cause?.trim();
+  if (view.detail || !cause || view.sentence.includes(cause)) return view;
+  return { ...view, detail: cause };
+}
+
+/// What failed at a start, in one line for Details, Copy error and the log: the failure's own message,
+/// then the fields that tell failures apart (the refusal's code, acpmux's reason and kind, the method
+/// the pane host refused, the host's or acpmux's own detail such as the param it refused). None
+/// without anything beyond an empty message.
+export function startFailureCause(error: unknown): string | undefined {
+  const typed = (typeof error === "object" && error !== null ? error : {}) as Record<string, unknown>;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const field = (key: string) => (typeof typed[key] === "string" && typed[key] ? (typed[key] as string) : undefined);
+  const code = typeof typed.code === "number" ? String(typed.code) : field("code");
+  const facts = [
+    code && `code ${code}`,
+    field("reason") && field("reason") !== code && `reason ${field("reason")}`,
+    field("errorKind") && `kind ${field("errorKind")}`,
+    field("method") && `method ${field("method")}`,
+  ].filter(Boolean);
+  const detail = field("detail");
+  const line = [message.trim(), detail && detail !== message.trim() ? detail : undefined].filter(Boolean).join(": ");
+  const text = [line, facts.length ? `(${facts.join(", ")})` : ""].filter(Boolean).join(" ");
+  return text || undefined;
+}
+
+function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {
+  if (switching.code && SERVICE_UNREACHABLE.has(switching.code))
+    return { sentence: t("switch.serviceUnreachable", { agent: switching.name }) };
   if (switching.code === SIGN_IN_REQUIRED) return signInView(t, switching);
   if (switching.code === HARNESS_MISSING) return missingView(t, switching);
   if (switching.code === ROUTE_UNAVAILABLE) return routeView(t, switching);

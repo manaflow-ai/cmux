@@ -1500,6 +1500,8 @@ export type AcpmuxSnapshot = {
     code?: string;
     /// `agent_session.sign_in_required` for a sign-in that expired (`errorKind` `auth.expired`).
     signInExpired?: true;
+    /// What actually failed, in one line, for the failed card's Details (startFailure.ts).
+    cause?: string;
   };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
