@@ -48,6 +48,7 @@ ab() {
   cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
   here="$(git rev-parse HEAD)"
   [[ -n "$base" ]] || base="$here"
+  [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   for want in "$base" "$headsha"; do
     git cat-file -e "$want^{commit}" 2>/dev/null \
       || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
@@ -61,6 +62,9 @@ ab() {
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || { echo "GAMUT build $side failed (build-$side.log)"; exit "$rc"; }
   done
+  # The builds are a commit's own code: no signing, publishing or GitHub credential reaches them (as launch-ready.sh).
+  source scripts/ci/lib/signing-runtime-guard.sh
+  cmux_signing_runtime_guard || exit 3
   for ((i = 1; i <= rounds; i++)); do
     for side in "${sides[@]}"; do
       python3 scripts/ci/quit_gamut_check.py --dmg "$out/$side.dmg" --out "$out/run-$side-$i" ${extra[@]+"${extra[@]}"} 2>&1 \
