@@ -1,7 +1,8 @@
 import type { PrivacyPolicySection } from "./content";
 
 // DRAFT, legal review needed. The cmux Cloud section of the privacy policy. It is English on every locale until
-// legal review is done; translate it into every locale of web/i18n/routing.ts before merge.
+// legal review is done; translate it into every locale of web/i18n/routing.ts before merge. [LEGAL REVIEW: owner
+// decision: translate before publication, or render this section only on the English route until it is translated.]
 // Slack clip audio deletion and the calendar purge on a Google revoke are shipped (prime-interface main). Items that
 // are not shipped or not decided are marked [LEGAL REVIEW] in the text.
 // The meeting text matches the notice the notetaker posts (manaflow-ai/prime-interface PR 284, merged as 01c808d:
@@ -51,7 +52,7 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
       ],
       afterBullets: [
         "We do not sell cmux Cloud data, and we do not share it for cross-context behavioral advertising. We do not use it for advertising. We do not use your content, Slack data, meeting data, or Google user data to train generalized AI models. The AI models in cmux Cloud are operated by AI model providers under their own terms, as \"AI model providers and other service providers\" below says. When your team uses its own AI model provider keys or endpoints, that provider's terms apply.",
-        "Our staff do not read your content, except when you ask us for help and give permission, when it is necessary for security (for example, to investigate abuse or a security error), when the law requires it, or to carry out a request from you, your team, or a person whose data it is (for example, a deletion request). We keep de-identified usage data in that form and do not try to identify people from it. For Google user data, the stricter rule in \"Google user data\" applies. For content that we process for a team, we act on a request from another person only on the team's instruction.",
+        "Our staff do not read your content, except when you ask us for help and give permission, when it is necessary for security (for example, to investigate abuse or a security error), when the law requires it, or to carry out a request from you, your team, or a person whose data it is (for example, a deletion request). Usage records (counts, sizes, times, models, and costs) keep account and team identifiers for billing, security, and service improvement; they contain no prompts, answers, files, or other content. We do not use aggregated reports to identify people. For Google user data, the stricter rule in \"Google user data\" applies. For content that we process for a team, we act on a request from another person only on the team's instruction.",
       ],
     },
     {
@@ -107,7 +108,7 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "Our staff do not read Google user data unless you give permission for specific data, it is necessary for security (for example, to investigate abuse), it is necessary to comply with the law, or the data is aggregated and anonymized for internal operations.",
       ],
       afterBullets: [
-        "Retention: we delete events that are no longer in your calendar at the next read of your calendar (normally within about 10 minutes), and we delete stored events no later than 4 days after they start. When a notetaker joined an event, the title, time, and link stay with that meeting's record and notes until they are deleted. Event titles that cmux showed in a conversation stay with that conversation. Event titles and times that were sent to an AI model are also in the model call records, which we keep as \"Retention and deletion\" says.",
+        "Retention: we delete events that are no longer in your calendar at the next read of your calendar (normally within about 10 minutes), and we delete stored events no later than 4 days after they start. When a notetaker joined an event, the title, time, and link stay with that meeting's record and notes until they are deleted. Event titles that cmux showed in a conversation stay with that conversation. Event titles and times that were sent to an AI model are also in the model call records, which we keep as \"Retention and deletion\" says. [LEGAL REVIEW: the Google API Services User Data Policy can require deletion of these copies, the account email address, and the rules when access is revoked; owner decision before Google verification.]",
         "Disconnect: ask cmux to disconnect your calendar. We then revoke our access at Google, delete your Google credential, and delete your stored events, your join and skip choices, your rules, and your Google account email address. A disconnect does not delete the copies that \"Retention\" above describes (meeting records, conversations, and model call records); to delete them, delete the conversation or contact [founders@cmux.com](mailto:founders@cmux.com). You can also remove cmux's access on your [Google Account permissions page](https://myaccount.google.com/permissions); when cmux finds that its access was removed, it deletes your stored events, your join and skip choices, and your Google credential. It keeps your Google account email address and the rules you set, so that it can tell you why no meeting is joined and keep your rules if you connect again, until you ask cmux to disconnect your calendar. The audit log keeps a record that you connected and disconnected the calendar, with the Google account email address.",
       ],
     },

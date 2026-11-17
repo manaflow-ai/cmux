@@ -255,6 +255,21 @@ export default async function TermsOfServicePage() {
         is also subject to that tool&rsquo;s own terms.
       </p>
 
+      <h3>Confidential information</h3>
+      <p>
+        Each party can receive non-public business, technical, security, or
+        product information from the other (&ldquo;Confidential
+        Information&rdquo;), including Your Content. The receiving party uses
+        it only to provide or receive cmux Cloud, protects it with reasonable
+        care, and discloses it only to its staff, contractors, and service
+        providers who need it and are bound by confidentiality duties. These
+        duties do not apply to information that is public, already known
+        without restriction, independently developed, or lawfully received from
+        another source. A party that the law requires to disclose Confidential
+        Information gives the other party notice before, where the law allows
+        it, and reasonable help.
+      </p>
+
       <h3>Agents act on your behalf</h3>
       <p>
         cmux Cloud agents can read data from, and take actions in, the tools you

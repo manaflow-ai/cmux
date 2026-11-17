@@ -46,8 +46,11 @@ export default function CmuxCloudDpaPage() {
         messages sent to the notetaker), calendar data, data from connected
         tools, agent work, model call requests and answers, archive copies of
         agent conversations, and memory (&ldquo;Customer Personal Data&rdquo;), Customer
-        is the controller and Company is the processor. For account, billing,
-        security, usage, support, and feedback data that Company needs to run
+        is the controller and Company is the processor. The access credentials
+        that Company stores to reach connected accounts are Company&rsquo;s
+        security data; the content read from or sent through those accounts is
+        Customer Personal Data. For account, billing, security, usage, support,
+        and feedback data that Company needs to run
         its business,
         Company is the controller, as the{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
@@ -101,8 +104,10 @@ export default function CmuxCloudDpaPage() {
         current subprocessors are in the list &ldquo;Subprocessors&rdquo; on
         the{" "}
         <a href="https://cmux.com/cmux-cloud/subprocessors">subprocessor page</a>.
-        Company binds each subprocessor by a written contract with the same
-        data protection duties as this DPA in substance, and Company stays fully
+        Company imposes on each subprocessor, by a written contract, the data
+        protection duties that Article 28(3) and (4) GDPR require, including
+        confidentiality, security, assistance, breach notice, return or
+        deletion, and help with audits, and Company stays fully
         liable to Customer for each subprocessor&rsquo;s performance. [LEGAL
         REVIEW: confirm before publication that a data processing agreement is
         in place with each listed subprocessor.] Company
@@ -166,15 +171,17 @@ export default function CmuxCloudDpaPage() {
 
       <h2>9. Audits</h2>
       <p>
-        Company gives Customer all information necessary to show that Company
-        complies with this DPA, and allows and helps with audits, including
-        inspections, by Customer or an auditor that Customer chooses and that
-        is bound by confidentiality. Customer first uses the reports and
-        written answers that Company gives. If these do not show compliance, or
-        after a personal data breach or an order of a regulator, Customer can
-        audit once in 12 months, with 30 days&rsquo; written notice, in
-        business hours, at Customer&rsquo;s cost, and without access to the
-        data of other customers.
+        Company makes available to Customer all information necessary to show
+        that Company complies with this DPA, and allows and contributes to
+        audits, including inspections, by Customer, an auditor that Customer
+        chooses and that is bound by confidentiality, or a competent
+        authority. Customer can first use the reports and written answers that
+        Company gives, but this does not limit its audit right. An audit
+        normally takes place once in 12 months, with 30 days&rsquo; written
+        notice, in business hours, at Customer&rsquo;s cost, and without
+        access to the data of other customers. These limits do not stop an
+        audit that the law or an authority requires, or an audit after a
+        personal data breach or for a reasonable compliance concern.
       </p>
 
       <h2>10. International transfers</h2>

@@ -24,7 +24,7 @@ type Subprocessor = {
   readonly location: string;
 };
 
-// [confirm]: not yet confirmed against contracts and production configuration.
+// [LEGAL REVIEW: confirm ...]: not yet confirmed against contracts and production configuration.
 const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
@@ -50,23 +50,23 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Analytics database",
-    name: "ClickHouse, Inc. [confirm]",
+    name: "ClickHouse, Inc. [LEGAL REVIEW: confirm]",
     purpose: "Stores usage and cost records.",
-    location: "United States [confirm]",
+    location: "United States [LEGAL REVIEW: confirm]",
   },
   {
     group: "content",
     category: "Cloud machines",
-    name: "Freestyle [confirm legal entity]",
+    name: "Freestyle [LEGAL REVIEW: confirm the legal entity]",
     purpose: "Runs the cloud machines where agents work and the cloud VMs that you create.",
-    location: "United States [confirm]",
+    location: "United States [LEGAL REVIEW: confirm]",
   },
   {
     group: "content",
     category: "Cloud machines",
-    name: "Daytona [confirm legal entity]",
+    name: "Daytona [LEGAL REVIEW: confirm the legal entity]",
     purpose: "Runs Windows cloud machines.",
-    location: "[confirm]",
+    location: "[LEGAL REVIEW: confirm]",
   },
   {
     group: "content",
@@ -92,9 +92,9 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
     category: "AI model providers",
-    name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [confirm list]",
+    name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [LEGAL REVIEW: confirm the list, or say: the provider of the model that your team chooses]",
     purpose: "AI models.",
-    location: "United States [confirm]",
+    location: "United States [LEGAL REVIEW: confirm]",
   },
   {
     group: "content",
@@ -106,9 +106,9 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Sign-in service",
-    name: "Hexclave (Stack Auth) [confirm legal entity]",
+    name: "Hexclave (Stack Auth) [LEGAL REVIEW: confirm the legal entity]",
     purpose: "Sign-in, sessions, and account management.",
-    location: "United States [confirm]",
+    location: "United States [LEGAL REVIEW: confirm]",
   },
   {
     group: "controller",
@@ -136,10 +136,10 @@ const subprocessors: readonly Subprocessor[] = [
     category: "Logs and traces",
     name: "Axiom, Inc.",
     purpose: "Stores service logs and traces of cmux.cloud.",
-    location: "United States [confirm]",
+    location: "United States [LEGAL REVIEW: confirm]",
   },
   {
-    group: "content",
+    group: "controller",
     category: "Secrets vault",
     name: "Microsoft Corporation (Azure)",
     purpose: "Runs the vault that stores encrypted access credentials for connected tools.",
@@ -148,9 +148,9 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Email delivery",
-    name: "[confirm provider]",
+    name: "[LEGAL REVIEW: name the email provider]",
     purpose: "Sends service email.",
-    location: "[confirm]",
+    location: "[LEGAL REVIEW: confirm]",
   },
 ];
 
