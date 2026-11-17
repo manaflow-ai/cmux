@@ -530,12 +530,26 @@ pub(crate) fn rank(
     named.sort_unstable();
     named.dedup();
     if !named.is_empty() {
-        let mut present: HashSet<&str> = scored
+        // Which of the named rows, and of their action ids, the matches already hold: sets as
+        // large as the named rows, not as every match.
+        let named_rows: HashSet<usize> = named.iter().copied().collect();
+        let named_ids: HashSet<&str> = named
             .iter()
-            .filter_map(|item| entries.get(item.index)?.action_id.as_deref())
+            .filter_map(|&index| entries[index].action_id.as_deref())
             .filter(|id| !id.is_empty())
             .collect();
-        let mut present_rows: HashSet<usize> = scored.iter().map(|item| item.index).collect();
+        let mut present: HashSet<&str> = HashSet::new();
+        let mut present_rows: HashSet<usize> = HashSet::new();
+        for item in &scored {
+            if named_rows.contains(&item.index) {
+                present_rows.insert(item.index);
+            }
+            if let Some(id) = entries[item.index].action_id.as_deref()
+                && let Some(&id) = named_ids.get(id)
+            {
+                present.insert(id);
+            }
+        }
         for index in named {
             let entry = &entries[index];
             let id = entry.action_id.as_deref().filter(|id| !id.is_empty());
