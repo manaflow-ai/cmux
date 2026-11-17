@@ -43,11 +43,11 @@ struct CloudWorkerMachineFilesTests {
             }
             // A server without the ssh-endpoint route answers a bare 404 (prod cloud-api, #44823).
             let routeMissing = url.path.hasSuffix("/ssh-endpoint")
-            let body = routeMissing ? "" : body
+            let payload = routeMissing ? "" : body
             guard let response = HTTPURLResponse(url: url, statusCode: routeMissing ? 404 : 200, httpVersion: nil,
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocol(self, didLoad: Data(payload.utf8))
             client?.urlProtocolDidFinishLoading(self)
         }
 
