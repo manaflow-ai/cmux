@@ -244,16 +244,12 @@ impl StackClient {
             if answer.status == 401
                 && !refreshed
                 && known_error.as_deref() == Some("invalid_access_token")
+                && let Some(session) = session.as_deref_mut()
+                && let TokenResolution::Valid(_) = self.force_refresh_access_token(session).await
             {
-                if let Some(session) = session.as_deref_mut() {
-                    if let TokenResolution::Valid(_) =
-                        self.force_refresh_access_token(session).await
-                    {
-                        refreshed = true;
-                        attempt = 0;
-                        continue;
-                    }
-                }
+                refreshed = true;
+                attempt = 0;
+                continue;
             }
             return read_answer(answer, known_error, url.path());
         }
@@ -339,10 +335,10 @@ impl StackClient {
                 _ => TokenResolution::NoSession,
             };
         }
-        if let Some(access) = &session.access_token {
-            if is_token_fresh_enough(Some(access), self.config.refresh_lead, SystemTime::now()) {
-                return TokenResolution::Valid(access.clone());
-            }
+        if let Some(access) = &session.access_token
+            && is_token_fresh_enough(Some(access), self.config.refresh_lead, SystemTime::now())
+        {
+            return TokenResolution::Valid(access.clone());
         }
         self.resolve_refresh(session, true).await
     }
@@ -367,14 +363,13 @@ impl StackClient {
         let observed = session.access_token.clone();
         let mut last = self.refresh_gate.lock().await;
         // A refresh that finished while this one waited minted a token for the same session.
-        if let Some((minted_for, minted)) = last.as_ref() {
-            if *minted_for == refresh
-                && observed.as_ref() != Some(minted)
-                && !is_token_expired(Some(minted), SystemTime::now())
-            {
-                session.access_token = Some(minted.clone());
-                return TokenResolution::Valid(minted.clone());
-            }
+        if let Some((minted_for, minted)) = last.as_ref()
+            && *minted_for == refresh
+            && observed.as_ref() != Some(minted)
+            && !is_token_expired(Some(minted), SystemTime::now())
+        {
+            session.access_token = Some(minted.clone());
+            return TokenResolution::Valid(minted.clone());
         }
         let failure = match self.refresh_respecting_rate_limit(&refresh).await {
             Ok(RefreshOutcome::Success { access_token }) => {

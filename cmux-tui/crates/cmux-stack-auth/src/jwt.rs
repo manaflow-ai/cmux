@@ -61,10 +61,10 @@ pub fn is_token_expired(token: Option<&str>, now: SystemTime) -> bool {
 pub fn is_token_fresh_enough(token: Option<&str>, lead: Duration, now: SystemTime) -> bool {
     let Some(claims) = token.and_then(claims) else { return false };
     let mut lead_ms = lead.as_secs_f64() * 1000.0;
-    if let (Some(exp), Some(iat)) = (claims.exp, claims.iat) {
-        if exp > iat {
-            lead_ms = lead_ms.min((exp - iat) * 1000.0 / 2.0);
-        }
+    if let (Some(exp), Some(iat)) = (claims.exp, claims.iat)
+        && exp > iat
+    {
+        lead_ms = lead_ms.min((exp - iat) * 1000.0 / 2.0);
     }
     lead_ms = lead_ms.max(MINIMUM_REFRESH_LEAD.as_secs_f64() * 1000.0);
     expires_in_ms(claims, now) > lead_ms

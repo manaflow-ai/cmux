@@ -93,10 +93,10 @@ impl AuthError {
     pub fn failure_detail_for(error: &StackError) -> String {
         let mut parts = vec![error.code().to_ascii_uppercase()];
         // The SDK attaches the status only to answers it read the Stack headers of.
-        if !matches!(error, StackError::OAuth { .. }) {
-            if let Some(status) = error.http_status() {
-                parts.push(format!("HTTP {status}"));
-            }
+        if !matches!(error, StackError::OAuth { .. })
+            && let Some(status) = error.http_status()
+        {
+            parts.push(format!("HTTP {status}"));
         }
         if let Some(id) = error.request_id().filter(|id| !id.is_empty()) {
             parts.push(format!("Request ID {id}"));
