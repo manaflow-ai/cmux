@@ -98,5 +98,11 @@
   "files": [
     "dist/",
     "assets/"
+  ],
+  "screenshots": [
+    "assets/screenshots/small-clear-day.png",
+    "assets/screenshots/medium-clear-day.png",
+    "assets/screenshots/medium-rain.png",
+    "assets/screenshots/large-clear-night.png"
   ]
 }
