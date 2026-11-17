@@ -342,3 +342,25 @@ fn keyframe_requests_are_spaced_at_least_250_ms() {
     r.set_path_rtt_us(Some(400_000));
     assert_eq!(r.recovery_request_interval_us(), 800_000);
 }
+
+/// A static page sends no frames for longer than the outage threshold, so the
+/// link reads as away; the app's own keyframe request still goes out at once.
+/// Silence holds only the viewer's automatic recovery asks.
+#[test]
+fn an_app_keyframe_request_is_never_held_by_link_silence() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = receiver();
+    deliver(&mut r, &packets(&mut p, 1, flags::KEYFRAME, REF_NONE, 3000), 0);
+    assert_eq!(ready(&mut r), vec![1]);
+    assert!(r.feedback(0).is_some());
+    // 300 ms with nothing on the link: past max(100 ms, 4 RTT).
+    r.request_keyframe();
+    assert_eq!(r.next_deadline_us(), 0, "the request is due at once");
+    let asked =
+        std::iter::from_fn(|| r.feedback(300_000)).any(|d| decode_feedback(&d).need_recovery);
+    assert!(asked, "the request went out while the link was quiet");
+    // The keyframe it gets ends the request.
+    deliver(&mut r, &packets(&mut p, 2, flags::KEYFRAME, REF_NONE, 3000), 320_000);
+    assert_eq!(ready(&mut r), vec![2]);
+    assert!(!r.need_recovery());
+}
