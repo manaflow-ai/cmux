@@ -105,7 +105,7 @@ struct CloudMachineCreateFlow {
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
         if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
-        let sized = request?.atLeast(cpu: machine.cpu, memoryMb: request?.memoryMb ?? machine.memoryMB, diskMb: machine.diskMB) ?? (machine.cpu, machine.memoryMB, machine.diskMB) // a chat's folder size raises each axis
+        let sized: (cpu: Int, memoryMb: Int, diskMb: Int) = request?.atLeast(cpu: machine.cpu, memoryMb: request?.memoryMb ?? machine.memoryMB, diskMb: machine.diskMB) ?? (cpu: machine.cpu, memoryMb: machine.memoryMB, diskMb: machine.diskMB) // a chat's folder size raises each axis
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(sized.cpu)), "memory_mb": .number(Double(sized.memoryMb)), "disk_mb": .number(Double(sized.diskMb))])]
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
