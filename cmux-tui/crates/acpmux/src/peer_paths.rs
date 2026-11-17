@@ -13,6 +13,7 @@
 //! This file is pure: times are milliseconds the caller passes in, so the rules are tested
 //! without clocks or sockets.
 
+use crate::peer_path_stats::LinkStats;
 use cmux_transport::{
     PathId, PathKind, PathState as SelectorState, ProbeOutcome, Selector, SelectorConfig,
 };
@@ -174,6 +175,8 @@ pub struct Paths {
     /// Remembered from an earlier run (`peer_last_good.rs`): dialed first while no path has
     /// answered yet.
     remembered: Option<Via>,
+    /// What this link's paths did (`peer_path_stats.rs`).
+    stats: LinkStats,
 }
 
 /// The selector's rules with this file's clock: a path is reported lost once, when its trust
@@ -204,7 +207,7 @@ impl Paths {
                 });
             }
         }
-        Self { selector, paths, remembered: None }
+        Self { selector, paths, remembered: None, stats: LinkStats::default() }
     }
 
     /// Add path `via` to a live set (a backup path found after the first dial,
@@ -272,13 +275,15 @@ impl Paths {
 
     /// A pong on `via` after `rtt`. Returns the new active path when this changed it.
     pub fn pong(&mut self, via: Via, rtt: Duration, now: u64) -> Option<Option<Via>> {
+        let answering = self.answering(via)?;
+        let rtt_us = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX).max(1);
+        self.stats.pong(via, rtt_us, answering);
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
         path.dead_at = None;
         path.recoveries = 0;
         path.recover_at = None;
         let id = path.id;
-        let rtt_us = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX).max(1);
         let switch = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us }).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
     }
@@ -287,6 +292,8 @@ impl Paths {
     /// ended): it is dead now, without waiting out its trust. Returns the new active path when
     /// this changed it.
     pub fn failed(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
+        let answering = self.answering(via)?;
+        self.stats.failed(via, answering);
         let path = self.find_mut(via)?;
         let id = path.id;
         if path.dead_at.is_none() {
@@ -296,6 +303,38 @@ impl Paths {
         path.recover_at = Some(now.saturating_add(recovery_gap(path.recoveries)));
         let switch = self.selector.on_probe(id, ProbeOutcome::Lost).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
+    }
+
+    /// Whether `via` answered and is not dead (alive, or alive and since silent); None when it
+    /// is not one of these paths.
+    fn answering(&self, via: Via) -> Option<bool> {
+        let state = self.selector.path(self.find(via)?.id).map(|path| path.state);
+        Some(matches!(state, Some(SelectorState::Alive | SelectorState::Suspect)))
+    }
+
+    /// This link's counters (`peer_path_stats.rs`).
+    pub fn stats(&self) -> &LinkStats {
+        &self.stats
+    }
+
+    /// Count from `now`: the paths were made then.
+    pub fn count_from(&mut self, now: u64) {
+        self.stats.count_from(now);
+    }
+
+    /// A cold connect that started at `started` dialed `order` and opened on `winner` at `now`.
+    pub fn opened(&mut self, order: &[Via], winner: Via, started: u64, now: u64) {
+        self.stats.opened(order, winner, started, now);
+    }
+
+    /// The live link runs on `via` from `now` (None: it ended).
+    pub fn serving(&mut self, via: Option<Via>, now: u64) {
+        self.stats.serving(via, now);
+    }
+
+    /// `linkStats` of `_acpmux/peers` (`LinkStats::view`).
+    pub fn stats_view(&self, now: u64) -> Value {
+        self.stats.view(now)
     }
 
     /// The clock moved: every alive path whose trust ran out is dead. Returns the new active

@@ -726,6 +726,7 @@ impl Peer {
         let observed = self.observed(&link);
         let (health, health_at) = self.health_summary();
         let paths = self.paths_view();
+        let link_stats = self.link_stats_view();
         json!({
             "name": self.name,
             "url": self.url,
@@ -752,6 +753,7 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths,
+            "linkStats": link_stats,
         })
     }
 

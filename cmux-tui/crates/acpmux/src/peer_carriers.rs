@@ -313,6 +313,7 @@ impl Peer {
         let mut paths = self.paths.lock_or_recover();
         let paths = paths.get_or_insert_with(|| {
             let mut paths = Paths::new(&self.path_vias());
+            paths.count_from(crate::store::now_ms());
             let remembered = self.last_good.get().and_then(|book| book.get(&self.name));
             paths.remember(remembered.and_then(|entry| entry.via));
             paths
@@ -328,12 +329,18 @@ impl Peer {
     pub(super) fn set_serving(&self, via: Option<Via>) {
         *self.serving.lock_or_recover() = via;
         self.switch_wanted.store(false, Ordering::SeqCst);
+        self.with_paths(|paths| paths.serving(via, crate::store::now_ms()));
     }
 
     /// `paths` of `_acpmux/peers`: every path's health and round trip (the live link's
     /// carrier is `carrier`, from `peer_carrier.rs`).
     pub(crate) fn paths_view(&self) -> serde_json::Value {
         self.with_paths(|paths| paths.view(crate::store::now_ms()))
+    }
+
+    /// `linkStats` of `_acpmux/peers`: this link's path counters (`peer_path_stats.rs`).
+    pub(crate) fn link_stats_view(&self) -> serde_json::Value {
+        self.with_paths(|paths| paths.stats_view(crate::store::now_ms()))
     }
 
     /// A pong on `via`.
@@ -429,6 +436,7 @@ impl Peer {
     /// Dial this peer's paths (`dial_order`), each `STAGGER` after the one before it or at once
     /// when it failed, and keep the first that opens; the others are marked failed.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
+        let started = crate::store::now_ms();
         let order = self.dial_order();
         let ssh_tokens = self.direct_tokens(&order).await;
         let dials: Vec<_> =
@@ -448,6 +456,7 @@ impl Peer {
                 return Err(failures_line(&failed));
             }
         };
+        self.with_paths(|paths| paths.opened(&order, via, started, crate::store::now_ms()));
         for (via, error) in &failed {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);

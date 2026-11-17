@@ -146,3 +146,35 @@ fn a_suspect_path_is_in_doubt_and_still_held() {
     assert_eq!(paths.active(), None);
     assert!(paths.in_doubt(1_000));
 }
+
+/// The paths feed their link counters (`peer_path_stats.rs`): a link that opened on ssh after a
+/// dead WireGuard path, the direct probes while on ssh, the move once WireGuard answers, and
+/// each path's round trips, all on the caller's clock.
+#[test]
+fn the_paths_count_the_connect_the_upgrade_and_the_time_on_each_path() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Ssh]);
+    paths.count_from(1_000);
+    paths.failed(Via::Wireguard, 1_250);
+    paths.opened(&[Via::Wireguard, Via::Ssh], Via::Ssh, 1_000, 1_600);
+    paths.serving(Some(Via::Ssh), 1_600);
+    paths.pong(Via::Ssh, 40 * MS, 1_600);
+    // A recovery probe of the dead WireGuard path fails, the next answers.
+    paths.failed(Via::Wireguard, 4_250);
+    paths.pong(Via::Wireguard, 4 * MS, 10_250);
+    paths.serving(Some(Via::Wireguard), 11_600);
+    let stats = paths.stats_view(21_600);
+    assert_eq!(stats["since"], 1_000);
+    assert_eq!(stats["firstByteMs"], 600);
+    assert_eq!(stats["winner"], "ssh");
+    assert_eq!(stats["waitedOnDirect"], 1);
+    assert_eq!(stats["switches"], 1);
+    assert_eq!(stats["onPathMs"]["ssh"], 10_000);
+    assert_eq!(stats["onPathMs"]["wireguard"], 10_000);
+    assert_eq!(stats["onCarrierMs"]["direct"], 10_000);
+    assert_eq!(stats["rtt"]["ssh"]["p50Ms"].as_f64(), Some(40.0));
+    assert_eq!(stats["rtt"]["wireguard"]["p95Ms"].as_f64(), Some(4.0));
+    // The failure before the link was serving is no attempt; the probe on ssh is.
+    assert_eq!(stats["directUpgrade"]["attempts"], 2);
+    assert_eq!(stats["directUpgrade"]["failures"], 1);
+    assert_eq!(stats["directUpgrade"]["upgrades"], 1);
+}
