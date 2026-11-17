@@ -74,6 +74,7 @@ import {
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
 import { writeScrollBy, writeScrollTop } from "./conversation/scrollController";
+import { AnchoredTranscript, anchoredListEnabled } from "./conversation/AnchoredTranscript";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
@@ -1541,6 +1542,23 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
   delete stable.sourceRows;
   const references = useTranscriptReferences(source);
+  // The anchored list (clean slate step 4) draws a live chat's transcript behind its flag.
+  if (props.streams && anchoredListEnabled()) {
+    const given = stable as VirtualTranscriptProps;
+    return (
+      <AnchoredTranscript
+        rows={given.rows}
+        sessionId={given.sessionId}
+        expanded={given.expanded}
+        onToggleActivity={given.onToggleActivity}
+        onOpenDiff={given.onOpenDiff}
+        registry={given.registry}
+        githubRepository={given.githubRepository}
+        canLoadOlder={given.canLoadOlder}
+        onLoadOlder={given.onLoadOlder}
+      />
+    );
+  }
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 
