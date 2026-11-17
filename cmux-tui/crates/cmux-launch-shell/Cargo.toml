@@ -10,6 +10,7 @@ description = "The stage-0 launch window's plan (what it shows) and input hold, 
 
 [dependencies]
 cmux-launch-record = { path = "../cmux-launch-record" }
+cmux-window-rules = { path = "../cmux-window-rules" }
 
 [dev-dependencies]
 proptest = "1"

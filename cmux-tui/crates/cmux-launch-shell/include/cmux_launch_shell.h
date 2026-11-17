@@ -27,6 +27,10 @@ typedef struct CmuxLaunchShellNow {
     size_t display_count;
     /* NUL-terminated UTF-8: the app's Application Support folder (launch-times.jsonl). */
     const char *support_dir;
+    /* NUL-terminated UTF-8 or NULL: Library/Application Support and the daemon session name, for
+     * the registry id this home last saw live. NULL: unknown, no session check. */
+    const char *app_support;
+    const char *daemon_session;
 } CmuxLaunchShellNow;
 
 typedef struct CmuxLaunchShellPlan {
@@ -38,11 +42,13 @@ typedef struct CmuxLaunchShellPlan {
     uint8_t bar_rgba[4];
     uint8_t appearance;
     /* 0 image, 1 fresh install, 2 no windows, 3 build, 4 layout, 5 scale, 6 appearance,
-     * 7 image unreadable, 8 image size, 9 full screen, 10 upgrade. */
+     * 7 image unreadable, 8 image size, 9 full screen, 10 upgrade, 11 another session. */
     uint8_t reason;
     bool shows_window;
-    /* Nothing to restore: the app's default frame and the bare launch's content. */
+    /* Nothing of the record is restored: the app's default frame. */
     bool uses_default_frame;
+    /* The bare launch's content (Home); otherwise the plain shell when there is no image. */
+    bool shows_bare;
     char window_id[129];
     /* Absolute; empty unless reason is 0. */
     char image_path[1025];

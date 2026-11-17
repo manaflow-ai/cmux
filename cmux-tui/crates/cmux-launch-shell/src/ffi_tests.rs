@@ -58,14 +58,18 @@ fn plan_in(support: &Support) -> (bool, CmuxLaunchShellPlan) {
         s(support.0.clone()),
     );
     let build = CString::new(BUILD).unwrap();
+    let session = CString::new("cmux-app").unwrap();
     let displays =
         [CmuxLaunchShellDisplay { x: 0.0, y: 0.0, width: 1512.0, height: 982.0, scale: 2.0 }];
+    // The support folder doubles as Application Support: the registry file is under cmux-next/.
     let now = CmuxLaunchShellNow {
         build: build.as_ptr(),
         appearance: 1,
         displays: displays.as_ptr(),
         display_count: displays.len(),
         support_dir: dir.as_ptr(),
+        app_support: dir.as_ptr(),
+        daemon_session: session.as_ptr(),
     };
     let mut out = CmuxLaunchShellPlan::default();
     let ok = unsafe { cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &now, &mut out) };
@@ -84,6 +88,7 @@ fn a_record_with_a_current_image_plans_the_image_at_its_frame() {
         windows: vec![window("w1")],
         sidebar_rows: vec![],
         session_socket_path: String::new(),
+        session_registry_id: String::new(),
     };
     write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
     std::fs::write(support.0.join("launch-images/w1.7.png"), png(2200, 1440)).unwrap();
@@ -102,6 +107,7 @@ fn a_record_whose_image_is_gone_plans_the_plain_shell() {
         windows: vec![window("w1")],
         sidebar_rows: vec![],
         session_socket_path: String::new(),
+        session_registry_id: String::new(),
     };
     write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
     let (_, p) = plan_in(&support);
@@ -133,6 +139,33 @@ fn a_missing_argument_makes_no_window() {
 fn the_plan_struct_has_the_headers_layout() {
     // cmux_launch_shell.h's CmuxLaunchShellPlan; launch_shell_header.rs asserts the same size in C.
     assert_eq!(std::mem::size_of::<CmuxLaunchShellPlan>(), 1200);
-    assert_eq!(std::mem::offset_of!(CmuxLaunchShellPlan, window_id), 44);
-    assert_eq!(std::mem::offset_of!(CmuxLaunchShellPlan, image_path), 173);
+    assert_eq!(std::mem::offset_of!(CmuxLaunchShellPlan, shows_bare), 44);
+    assert_eq!(std::mem::offset_of!(CmuxLaunchShellPlan, window_id), 45);
+    assert_eq!(std::mem::offset_of!(CmuxLaunchShellPlan, image_path), 174);
+}
+
+#[test]
+fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
+    let support = Support::new("session");
+    let data = LaunchRecordData {
+        windows: vec![window("w1")],
+        sidebar_rows: vec![],
+        session_socket_path: String::new(),
+        session_registry_id: "reg-old".into(),
+    };
+    write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
+    std::fs::write(support.0.join("launch-images/w1.7.png"), png(2200, 1440)).unwrap();
+    // No registry file yet: unknown, so the image is drawn as before.
+    assert_eq!(plan_in(&support).1.reason, 0);
+    std::fs::create_dir_all(support.0.join("cmux-next")).unwrap();
+    let registry = support.0.join("cmux-next/launch-snapshot-registry.cmux-app");
+    std::fs::write(&registry, "reg-new").unwrap();
+    let (_, p) = plan_in(&support);
+    assert_eq!(
+        (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
+        (11, true, true, false)
+    );
+    assert_eq!(text(&p.image_path), "");
+    std::fs::write(&registry, "reg-old\n").unwrap();
+    assert_eq!(plan_in(&support).1.reason, 0);
 }

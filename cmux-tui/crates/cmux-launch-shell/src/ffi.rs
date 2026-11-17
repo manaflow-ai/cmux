@@ -28,6 +28,11 @@ pub struct CmuxLaunchShellNow {
     /// NUL-terminated UTF-8: the app's Application Support folder, where an earlier run left
     /// `launch-times.jsonl` (read only when there is no record).
     pub support_dir: *const c_char,
+    /// NUL-terminated UTF-8 or null: the user's `Library/Application Support` and the daemon
+    /// session name, for the registry id this home last saw live (cmux-window-rules
+    /// `launch::current_registry_id`). Null: unknown, so no session check.
+    pub app_support: *const c_char,
+    pub daemon_session: *const c_char,
 }
 
 #[repr(C)]
@@ -41,11 +46,14 @@ pub struct CmuxLaunchShellPlan {
     pub bar_rgba: [u8; 4],
     pub appearance: u8,
     /// `Reason`: 0 image, 1 fresh install, 2 no windows, 3 build, 4 layout, 5 scale,
-    /// 6 appearance, 7 image unreadable, 8 image size, 9 full screen, 10 upgrade.
+    /// 6 appearance, 7 image unreadable, 8 image size, 9 full screen, 10 upgrade,
+    /// 11 another session's windows.
     pub reason: u8,
     pub shows_window: bool,
-    /// Nothing to restore: the app's default frame and the bare launch's content.
+    /// Nothing of the record is restored: the app's default frame.
     pub uses_default_frame: bool,
+    /// The bare launch's content (Home); otherwise the plain shell when there is no image.
+    pub shows_bare: bool,
     pub window_id: [c_char; 129],
     /// Absolute; empty unless `reason` is 0.
     pub image_path: [c_char; 1025],
@@ -64,6 +72,7 @@ impl Default for CmuxLaunchShellPlan {
             reason: Reason::Upgrade as u8,
             shows_window: false,
             uses_default_frame: false,
+            shows_bare: false,
             window_id: [0; 129],
             image_path: [0; 1025],
         }
@@ -126,7 +135,20 @@ pub unsafe extern "C" fn cmux_launch_shell_plan(
             })
             .collect()
     };
-    let now = Now { build, appearance: Appearance::from_u8(now.appearance), displays: &displays };
+    // One small file read, the same reader the launch snapshot's check uses.
+    let registry_id =
+        match (unsafe { c_str(now.app_support) }, unsafe { c_str(now.daemon_session) }) {
+            (Some(app_support), Some(session)) => {
+                cmux_window_rules::launch::current_registry_id(Path::new(app_support), session)
+            }
+            _ => None,
+        };
+    let now = Now {
+        build,
+        appearance: Appearance::from_u8(now.appearance),
+        displays: &displays,
+        registry_id: registry_id.as_deref(),
+    };
     fill(o, record_path, image_dir, support_dir, &now);
     true
 }
@@ -160,6 +182,7 @@ fn fill(
     o.reason = reason as u8;
     o.shows_window = reason.shows_window();
     o.uses_default_frame = reason.uses_default_frame();
+    o.shows_bare = reason.shows_bare();
 }
 
 /// What the stage-0 window does with an event of `kind` (`InputKind`) when `held` events are held:
