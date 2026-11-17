@@ -446,6 +446,9 @@ def main():
             ended = wait(lambda: state().get("isWorking") is False and (state().get("rows") or 0) > 10, 90, 0.5)
             note(f"{chat['name']} history in: {bool(ended)} {short(state(), 300)}")
             if not ended:
+                # Why no session: the page's own ACP log and what it shows, kept in the report.
+                R["acp_log_on_failure"] = short(agent("acp_log", limit=200, timeout=60), 20000)
+                R["query_on_failure"] = short(agent("query", selector="button, [role=button], [role=alert]", timeout=20), 8000)
                 raise RuntimeError(f"chat {chat['name']} never streamed its history: {short(state(), 300)}")
 
         done_up, done_follow = os.path.join(WORK, "done-up.json"), os.path.join(WORK, "done-follow.json")
