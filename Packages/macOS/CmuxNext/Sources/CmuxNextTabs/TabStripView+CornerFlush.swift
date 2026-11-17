@@ -70,8 +70,10 @@ extension TabStripView: TabStripCorner {
         // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
         // The weight follows `appearance.borders` (`Borders.width`), so a change of it redraws.
         let weight = Metrics.lineWidth(Metrics.dividerThickness)
+        // No divider over a toolbar that meets the tabs (``meetsToolbar``): the tabs and the omnibar are one surface.
+        let lined = strength > 0 && !meetsToolbar
         let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength,
-                                ink: ink, weight: weight)
+                                ink: ink, weight: weight, lined: lined)
         guard key != inCardToneDrawn else { return }
         inCardToneDrawn = key
         CATransaction.begin()
@@ -87,7 +89,7 @@ extension TabStripView: TabStripCorner {
         }
         tone.shade.path = shade
         tone.shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
-        tone.divider.path = strength > 0 ? line : nil
+        tone.divider.path = lined ? line : nil
         tone.divider.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 
@@ -147,4 +149,5 @@ struct InCardToneKey: Equatable {
     var strength: CGFloat
     var ink: NSColor
     var weight: CGFloat
+    var lined: Bool
 }

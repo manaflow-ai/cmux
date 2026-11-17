@@ -209,7 +209,8 @@ struct ColumnCloseScrollMotionTests {
         let steps = zip(positions, positions.dropFirst()).map { $1 - $0 }
         let travel = abs(positions.last! - positions.first!)
         #expect(travel > 50, "p2 has to move (\(positions.first!) -> \(positions.last!))")
-        // The split spring (0.085 s) moves about 23% in its biggest 120 Hz frame; a jump is the whole offset.
-        #expect(steps.allSatisfy { abs($0) <= max(travel * 0.25, 1) }, "no step jumps more than a fifth of the travel: \(steps)")
+        // The close spring (`paneClose`, 0.064 s) moves about 29% in its biggest 120 Hz frame (the split spring: 22%, and
+        // the limit was 25%); a jump is the whole offset.
+        #expect(steps.allSatisfy { abs($0) <= max(travel * 0.32, 1) }, "no step jumps more than a third of the travel: \(steps)")
     }
 }

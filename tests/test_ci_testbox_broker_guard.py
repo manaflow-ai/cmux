@@ -32,6 +32,17 @@ WARM_TARGET_DISKS = {
 }
 
 
+def sticky_disk_keys(document: object) -> list:
+    """The `with.key` of every useblacksmith/stickydisk step in a workflow."""
+    keys = []
+    jobs = document.get("jobs") if isinstance(document, dict) else None
+    for job in (jobs or {}).values():
+        for step in (job or {}).get("steps") or []:
+            if isinstance(step, dict) and "useblacksmith/stickydisk" in str(step.get("uses", "")):
+                keys.append((step.get("with") or {}).get("key"))
+    return keys
+
+
 def load_job() -> dict:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     return document, document["jobs"][JOB]
@@ -153,13 +164,37 @@ class TestboxBrokerGuardTests(unittest.TestCase):
                 f"{path.relative_to(ROOT)} must not mount the Testbox warm target disk",
             )
             # A computed key could still resolve to the Testbox key, so any
-            # other sticky disk must use a literal key.
-            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
-                self.assertNotRegex(
-                    match.group(1),
-                    r"key:\s*[^\n]*\$\{\{",
+            # other sticky disk must use a literal key. Read each step's own
+            # key: a text match ran on past the step into the rest of the
+            # file and took a later step's computed key for the disk's.
+            for key in sticky_disk_keys(yaml.safe_load(text)):
+                self.assertNotIn(
+                    "${{",
+                    str(key),
                     f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
                 )
+
+    def test_sticky_disk_keys_are_each_steps_own(self) -> None:
+        document = yaml.safe_load(
+            """
+jobs:
+  build:
+    steps:
+      - uses: useblacksmith/stickydisk@abc
+        with:
+          key: literal-disk
+          path: /home/runner/disk
+      - uses: Swatinem/rust-cache@abc
+        with:
+          key: ${{ matrix.target }}
+  other:
+    steps:
+      - uses: useblacksmith/stickydisk@abc
+        with:
+          key: disk-${{ github.ref }}
+"""
+        )
+        self.assertEqual(sticky_disk_keys(document), ["literal-disk", "disk-${{ github.ref }}"])
 
     def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))

@@ -2,7 +2,7 @@
 // own background border situation instead of just being, you know, good"; Leo 2026-10-31: "AND THE FUCKING
 // BACKGROUND ON THIS FUCKING BUILD ON THESE BUTTONS STILL ISN'T FUCKING REMOVESD"). The pane's toolbar at the
 // tab row's trailing end (PaneToolbarView: the pinned actions, the content-supplied native row tools of
-// chrome.tabs.nativeRowTools, and "…") draws TitlebarBandButton and OverflowButton: borderless, no bezel that
+// chrome.tabs.nativeRowTools) draws TitlebarBandButton and OverflowButton: borderless, no bezel that
 // shows, no resting layer fill, no vibrancy or glass plate and no shadow. A toggled or lit button reads as on
 // by its lit ink (Palette.litGlyph), never the selection fill. The pointer's hover and a press light only the
 // button under it (ChromeHover); that stays. The webview's buttons are checked by chat-header-plain-icons and
@@ -51,8 +51,9 @@ test("the pane header's native icon buttons are borderless with no resting plate
 test("the pane toolbar draws its buttons, toggled or lit, with ink and no plate", () => {
   const source = read(TOOLBAR);
   expect(plates(TOOLBAR, source)).toEqual([]);
-  // Lit (a zoomed pane's zoom button and "…") and toggled (a native row tool whose panel is open) are ink.
+  // Lit (a zoomed pane's zoom button) and toggled (a native row tool whose panel is open) are ink. The bar
+  // has no "…" of its own any more (PaneToolbarView: user 2026-11-13, "get rid of these buttons").
   expect(source).toMatch(/item\.lit\s*\?\s*Palette\.litGlyph/);
   expect(source).toMatch(/item\.toggled\s*\?\s*Palette\.litGlyph/);
-  expect(source).toMatch(/moreButton\.tintOverride\s*=\s*lit\s*\?/);
+  expect(source).not.toMatch(/\bmoreButton\b/);
 });

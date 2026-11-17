@@ -31,7 +31,10 @@ public nonisolated struct SidebarRowTuning {
     public static let outerInset = ComputedTunable(
         "sidebarRows.outerInset", section, "Fill to sidebar edge",
         help: "The gap between a row's fill and the sidebar's left and right edges.",
-        range: 0...24, code: "SidebarRowTuning.outerInset") { SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3 }
+        range: 0...24, code: "SidebarRowTuning.outerInset") {
+            // A density's `sidebarRowInset` (Helium's 6, Chrome's 12 vertical tab strip padding).
+            Metrics.densityToken("sidebarRowInset") ?? (SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3)
+        }
     /// The padding between a row's fill and its content.
     public static let contentInset = ComputedTunable(
         "sidebarRows.contentInset", section, "Fill to content",
@@ -60,7 +63,21 @@ public nonisolated struct SidebarRowTuning {
     public static let glyphSize = ComputedTunable(
         "sidebarRows.glyphSize", section, "Glyph size",
         help: "The size every leading glyph's ink fills along its larger side: Home's house, a pin, a globe, a favicon.",
-        range: 8...28, code: "SidebarRowTuning.glyphSize") { (SidebarStyle.kindGlyphSize * SidebarStyle.workspaceGlyphScale).rounded() }
+        range: 8...28, code: "SidebarRowTuning.glyphSize") {
+            // A tab's icon box at the sidebar's defaults (Compact density, standard text), grown with its text size and
+            // density as the workspace favicon grows (Lucas 2026-11-13: Helium's 16 pt favicon beside 12 pt text).
+            // A density with its own icon column (`sidebarIconColumn`) takes the ink a tab's icon shows in its box
+            // (`Metrics.tabIconSize`): the pack's glyphs fill 11 of 16 of it, so a sidebar item's icon is its tab's size
+            // (Lucas 2026-11-14: sidebar items and tabs match 1:1), grown with the sidebar's text size. A density's
+            // `sidebarGlyphInk` sets it exactly. Compact and Ultra-compact keep the grid's size.
+            guard Metrics.densityToken("sidebarIconColumn") != nil else {
+                let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.body.pointSize)
+                return (Metrics.iconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults)).rounded()
+            }
+            let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
+            let ink = Metrics.densityToken("sidebarGlyphInk") ?? Metrics.tabIconSize * 11 / 16
+            return (ink * SidebarStyle.workspaceFaviconSide / max(1, atDefaults) * 2).rounded() / 2
+        }
     /// The leading icon column's width: a title after a glyph starts one gap after it.
     public static let iconColumn = ComputedTunable(
         "sidebarRows.iconColumn", section, "Icon column width",
@@ -72,7 +89,11 @@ public nonisolated struct SidebarRowTuning {
     public static let glyphGap = ComputedTunable(
         "sidebarRows.glyphGap", section, "Glyph to title gap",
         help: "The gap between the leading icon column and the title after it.",
-        range: 0...20, code: "SidebarRowTuning.glyphGap") { LayoutGrid.gap }
+        range: 0...20, code: "SidebarRowTuning.glyphGap") {
+            // A browser density's `sidebarIconGap`: its tab's gap from icon to title, so the row's title starts where its
+            // tab's does. The compact densities keep the grid's gap.
+            Metrics.densityToken("sidebarIconGap") ?? LayoutGrid.gap
+        }
     /// How strong a leading glyph draws.
     public static let glyphOpacity = Tunable<Double>.number(
         "sidebarRows.glyphOpacity", section, "Glyph opacity",

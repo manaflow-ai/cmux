@@ -48,6 +48,7 @@ import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
+import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
@@ -59,6 +60,10 @@ if (arm || liveTurnWork)
     ...(arm ? { "follow-motion": arm } : {}),
     ...(liveTurnWork ? { "live-turn-work": liveTurnWork } : {}),
   };
+// The page measures the motion itself: a loaded runner's frames never turn the chat's minimal motion
+// on under it (frameBudget.ts FULL_MOTION), unless `?budget=on` asks for the product's budget.
+if (query.get("budget") !== "on") document.documentElement.setAttribute("data-chat-motion", "full");
+else Object.assign(window, { cmuxFrameBudget: "on" });
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";
@@ -209,7 +214,7 @@ function rowSamples(scroller: HTMLElement, thread: HTMLElement): RowSample[] {
     if (finite(animation)) moving.add(row);
   }
   const out: RowSample[] = [];
-  for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+  for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
     const box = row.getBoundingClientRect();
     if (box.height === 0) continue;
     const style = getComputedStyle(row);
@@ -636,7 +641,7 @@ async function heldFold({ settleMs = 450 }: { settleMs?: number } = {}): Promise
       bottom: view.bottom,
       composer: document.querySelector<HTMLElement>(".acpmux-composer-box")?.getBoundingClientRect().top ?? 0,
     },
-    rows: [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+    rows: [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)]
       .map((row) => ({ row, at: row.getBoundingClientRect() }))
       .sort((a, b) => a.at.top - b.at.top)
       .slice(-8)

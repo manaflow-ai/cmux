@@ -556,7 +556,7 @@ pub(crate) fn keyed_restart_reason(status: Option<&Value>) -> Value {
 }
 
 /// Ok when `surface` is an unbound agent tab whose record names this store.
-fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
+pub(super) fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
     let runtime = mux.surface(surface).ok_or(Refusal::UnknownTab)?;
     match mux.conversation_tab_of(&runtime) {
         Some(ConversationTabRecord::AgentSession { host, session, .. })
@@ -589,7 +589,7 @@ fn run(
     let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
-            .map_err(|r| (r, None))
+            .map_err(|StartRefused(refusal, data)| (refusal, data))
     });
     link.close();
     result
@@ -674,6 +674,74 @@ pub(in crate::server) fn restart_with(
     AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
+/// A start's refusal with its typed facts for `data`, when it has any.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct StartRefused(Refusal, Option<Value>);
+
+/// acpmux's `data.reason` for a route that cannot serve a spawn (`routes::RouteError::reason`).
+const ROUTE_REASONS: [&str; 3] = ["route.unavailable", "route.not_found", "route.invalid"];
+
+impl From<Refusal> for StartRefused {
+    fn from(refusal: Refusal) -> Self {
+        Self(refusal, None)
+    }
+}
+
+impl StartRefused {
+    /// acpmux's answer to `session/new`. An agent that said it is not signed in (acpmux's
+    /// `agent.sign_in_required`) is `sign_in_required` with the harness and the kind of sign-in
+    /// failure, so the app names the agent and offers its sign-in (hq#11225); never the agent's
+    /// own message text. Anything else is [`Refusal::of`].
+    pub(super) fn of_session_new(error: LinkError) -> Self {
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("agent.sign_in_required")
+        {
+            // A profile such as `providers/deepseek` by its last part, as the tab's brand mark.
+            let harness = data
+                .pointer("/details/harness")
+                .and_then(Value::as_str)
+                .and_then(|harness| harness.rsplit('/').next())
+                .filter(|harness| validate_harness(harness).is_ok());
+            let kind = data
+                .get("errorKind")
+                .and_then(Value::as_str)
+                .filter(|kind| matches!(*kind, "auth.signed_out" | "auth.expired"));
+            let mut facts = json!({"reason": "agent.sign_in_required"});
+            if let Some(harness) = harness {
+                facts.insert("harness", json!(harness));
+            }
+            if let Some(kind) = kind {
+                facts.insert("errorKind", json!(kind));
+            }
+            return Self(Refusal::SignInRequired, Some(facts));
+        }
+        // A route the agent's profile binds that cannot serve it here (acpmux `route.*` from
+        // `apply_route`): the cmux router harness on a Cloud machine, which runs no signed-in
+        // local router. The route's reason only, never acpmux's message (hq#11225).
+        if let LinkError::Rpc(_, data) = &error
+            && let Some(reason) = data
+                .get("reason")
+                .and_then(Value::as_str)
+                .filter(|reason| ROUTE_REASONS.contains(reason))
+        {
+            return Self(Refusal::RouteUnavailable, Some(json!({"reason": reason})));
+        }
+        Refusal::of(error).into()
+    }
+
+    /// The start's refusal with `harness`, the agent the start asked for, named in its facts:
+    /// a route refusal, whose acpmux error does not name it. A valid harness id only.
+    pub(super) fn naming(mut self, harness: Option<&str>) -> Self {
+        if let (Refusal::RouteUnavailable, Some(facts), Some(harness)) =
+            (self.0, self.1.as_mut(), harness.filter(|h| validate_harness(h).is_ok()))
+            && facts.get("harness").is_none()
+        {
+            facts.insert("harness", json!(harness));
+        }
+        self
+    }
+}
+
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
 /// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
@@ -689,7 +757,7 @@ fn start_and_bind(
     checks: Instant,
     until: Instant,
     timings: &mut StartTimings,
-) -> Result<Value, Refusal> {
+) -> Result<Value, StartRefused> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -701,20 +769,20 @@ fn start_and_bind(
     // the start answers.
     let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    let family = start_family(catalog, params.harness.as_deref())?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
     if !owner_cloud && !phone && refused_family(&table, &family) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     if phone && phone_modes(&family).is_empty() {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
@@ -727,7 +795,7 @@ fn start_and_bind(
         trust,
     );
     if !folder_trusted(&trust, params.harness.as_deref()) {
-        return Err(Refusal::UntrustedFolder);
+        return Err(Refusal::UntrustedFolder.into());
     }
     // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
     // another host's.
@@ -770,7 +838,7 @@ fn start_and_bind(
                 }
             },
         )
-        .map_err(Refusal::of);
+        .map_err(|error| StartRefused::of_session_new(error).naming(params.harness.as_deref()));
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -794,7 +862,7 @@ fn start_and_bind(
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
-        return Err(end(Refusal::UntrustedFolder));
+        return Err(end(Refusal::UntrustedFolder).into());
     }
     // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
     // of `session/new`; a profile such as `providers/deepseek` by its last
@@ -854,6 +922,20 @@ fn catalog_family(catalog: &Value, harness: Option<&str>) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
+}
+
+/// The family a start resolves to ([`catalog_family`]). An agent the catalog does not have is
+/// not installed on this machine: `harness_missing` naming it (a valid harness id only), never
+/// `not_asking`, which says the agent has no mode that asks first (hq#11225: pi on a Cloud
+/// machine, whose image ships `pi` but not the `pi-acp` adapter acpmux runs it through).
+fn start_family(catalog: &Value, harness: Option<&str>) -> Result<String, StartRefused> {
+    catalog_family(catalog, harness).ok_or_else(|| {
+        let mut facts = json!({"reason": "agent.not_installed"});
+        if let Some(harness) = harness.filter(|harness| validate_harness(harness).is_ok()) {
+            facts.insert("harness", json!(harness));
+        }
+        StartRefused(Refusal::HarnessMissing, Some(facts))
+    })
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
@@ -1105,5 +1187,112 @@ mod tests {
             assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
             assert!(!starts.owner_cloud(false), "{host:?}");
         }
+    }
+
+    /// An agent that answered `session/new` it is not signed in (acpmux typed it
+    /// `agent.sign_in_required`) refuses the start as `sign_in_required` naming the harness,
+    /// never the bare `refused`; only acpmux's typed facts pass, never its message or a harness
+    /// name that is not one (hq#11225). Any other acpmux error stays `refused`.
+    #[test]
+    fn a_start_whose_agent_is_signed_out_names_the_harness() {
+        let typed = LinkError::Rpc(
+            "Authentication required".into(),
+            json!({
+                "reason": "agent.sign_in_required",
+                "errorKind": "auth.signed_out",
+                "recovery": "cursor is not signed in on this machine.",
+                "details": {"harness": "cursor"},
+            }),
+        );
+        let StartRefused(refusal, data) = StartRefused::of_session_new(typed);
+        assert_eq!(refusal, Refusal::SignInRequired);
+        assert_eq!(refusal.code(), "agent_session.sign_in_required");
+        assert_eq!(
+            data,
+            Some(json!({
+                "reason": "agent.sign_in_required",
+                "harness": "cursor",
+                "errorKind": "auth.signed_out",
+            }))
+        );
+        let odd = LinkError::Rpc(
+            "x".into(),
+            json!({
+                "reason": "agent.sign_in_required",
+                "errorKind": "anything",
+                "details": {"harness": "not a harness!"},
+            }),
+        );
+        let StartRefused(refusal, data) = StartRefused::of_session_new(odd);
+        assert_eq!(refusal, Refusal::SignInRequired);
+        assert_eq!(data, Some(json!({"reason": "agent.sign_in_required"})));
+        for other in [
+            LinkError::Rpc("Authentication required".into(), Value::Null),
+            LinkError::Rpc("x".into(), json!({"reason": "remote.local_claude_session"})),
+        ] {
+            assert_eq!(StartRefused::of_session_new(other), StartRefused(Refusal::Refused, None));
+        }
+        assert_eq!(
+            StartRefused::of_session_new(LinkError::Timeout),
+            StartRefused(Refusal::Timeout, None)
+        );
+    }
+
+    /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
+    /// ships `pi` but not the `pi-acp` adapter acpmux runs it through) is refused as
+    /// `harness_missing` naming it, never `not_asking`, which said the agent cannot ask first
+    /// (hq#11225). A harness the catalog has resolves to its family as before.
+    #[test]
+    fn a_start_of_an_agent_the_machine_lacks_names_it() {
+        let catalog = json!({
+            "harnesses": {"claude": {"family": "claude"}, "cmux": {"family": "claude"}},
+            "families": {"claude": ["claude", "cmux"]},
+            "defaultHarness": "claude",
+        });
+        assert_eq!(start_family(&catalog, Some("cmux")), Ok("claude".to_owned()));
+        assert_eq!(start_family(&catalog, None), Ok("claude".to_owned()));
+        let StartRefused(refusal, data) = start_family(&catalog, Some("pi")).unwrap_err();
+        assert_eq!(refusal.code(), "agent_session.harness_missing");
+        assert_eq!(data, Some(json!({"reason": "agent.not_installed", "harness": "pi"})));
+        // A name that is no harness id is never echoed back.
+        let StartRefused(refusal, data) = start_family(&catalog, Some("no such!")).unwrap_err();
+        assert_eq!(refusal, Refusal::HarnessMissing);
+        assert_eq!(data, Some(json!({"reason": "agent.not_installed"})));
+        // No harness named and no default: still the missing agent, not a mode refusal.
+        let bare = json!({"harnesses": {}, "families": {}});
+        assert_eq!(start_family(&bare, None).unwrap_err().0, Refusal::HarnessMissing);
+    }
+
+    /// A start whose agent's model route cannot serve it on the machine (acpmux `route.*`: the
+    /// cmux router harness on a Cloud machine, which runs no signed-in local router) is refused
+    /// as `route_unavailable` naming the route's reason and the harness asked for, never the
+    /// bare `refused` (hq#11225). acpmux's message never passes.
+    #[test]
+    fn a_start_whose_route_cannot_serve_it_names_the_route() {
+        for reason in ["route.unavailable", "route.not_found", "route.invalid"] {
+            let down = LinkError::Rpc(
+                "the local CodeRouter is not running (No such file or directory)".into(),
+                json!({"reason": reason}),
+            );
+            let StartRefused(refusal, data) =
+                StartRefused::of_session_new(down).naming(Some("cmux"));
+            assert_eq!(refusal.code(), "agent_session.route_unavailable", "{reason}");
+            assert_eq!(data, Some(json!({"reason": reason, "harness": "cmux"})), "{reason}");
+        }
+        let down = LinkError::Rpc("x".into(), json!({"reason": "route.unavailable"}));
+        let StartRefused(refusal, data) = StartRefused::of_session_new(down).naming(None);
+        assert_eq!(refusal, Refusal::RouteUnavailable);
+        assert_eq!(data, Some(json!({"reason": "route.unavailable"})));
+        // Naming leaves every other refusal as it was, and a sign-in's own harness stays.
+        assert_eq!(
+            StartRefused::from(Refusal::Refused).naming(Some("cmux")),
+            StartRefused(Refusal::Refused, None)
+        );
+        let signed_out = LinkError::Rpc(
+            "Authentication required".into(),
+            json!({"reason": "agent.sign_in_required", "details": {"harness": "cursor"}}),
+        );
+        let StartRefused(_, data) = StartRefused::of_session_new(signed_out).naming(Some("grok"));
+        assert_eq!(data.unwrap()["harness"], "cursor");
     }
 }

@@ -3260,3 +3260,33 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
     }
     assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
 }
+
+/// Production local storage is a [`JournalStore`] over a [`LocalStore`], so a [`Store`] method
+/// the local store overrides and the journal store does not answers with the trait's default
+/// there: a restore point's fold rescanned the log instead of the kind copies (review of #42837,
+/// P2-F1), and a search read every record instead of the text copies. Each override of the local
+/// store is forwarded, or named here with why the default stands.
+#[test]
+fn journal_store_forwards_every_local_store_override() {
+    const DEFAULT_STANDS: &[&str] = &[];
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let fns = |text: &str, from: &str| -> Vec<String> {
+        let body = text.split(from).nth(1).unwrap_or_default();
+        let body = body.split("\n}\n").next().unwrap_or_default();
+        let names = body.lines().filter_map(|l| l.strip_prefix("    fn "));
+        names.filter_map(|l| l.split(['(', '<']).next()).map(str::to_owned).collect()
+    };
+    let store = std::fs::read_to_string(format!("{root}/store.rs")).unwrap();
+    let journal = std::fs::read_to_string(format!("{root}/store/journal_store.rs")).unwrap();
+    let local = fns(&store, "impl Store for LocalStore {");
+    let forwarded = fns(&journal, "impl Store for JournalStore {");
+    assert!(local.len() > 20 && forwarded.len() > 20, "the scan read no methods");
+    let missing: Vec<&String> = local
+        .iter()
+        .filter(|m| !forwarded.contains(m) && !DEFAULT_STANDS.contains(&m.as_str()))
+        .collect();
+    assert!(missing.is_empty(), "JournalStore does not forward: {missing:?}");
+    let stale: Vec<&&str> =
+        DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
+    assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}

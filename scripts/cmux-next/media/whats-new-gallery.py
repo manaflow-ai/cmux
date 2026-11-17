@@ -2,7 +2,8 @@
 """Render each What's New highlight's gallery state, and its before, and put them on pr-media.
 
     whats-new-gallery.py plan [--days N] [--all] --out PLAN.json     the states to render
-    whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--notes NOTES.json] [--parent SHA] --out MANIFEST.json
+    whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--notes NOTES.json] [--covers COVERS.json]
+                          [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
@@ -19,9 +20,9 @@ whats-new-gallery.yml runs this on each push to feat-cmux-next that changes a hi
 
 - `plan` lists the highlights added in the last DAYS (default 7) and each picture (after, before)
   not on pr-media yet (`--all`: every one): the states a `gallery:` or `before:` line names, else
-  for a New or Improved highlight the state to pick from the gallery files its commit changed, and
-  for an Improved one with no `before:` the same state at the commit before it (release-notes.py
-  gallery_urls);
+  for a New or Improved highlight the state to pick from the gallery files its commit changed (none
+  changed: from the entries whose `covers` hold the webview files it changed), and for an Improved one
+  with no `before:` the same state at the commit before it (release-notes.py gallery_urls);
 - `manifest` picks those states (infer: the first variant the commit added, of the first entry it
   added one to, else the first entry's first variant), writes them back to the plan, and keeps, from
   webviews/scripts/gallery/manifest.ts's cases (default dark theme, normal width, component frame),
@@ -92,6 +93,13 @@ def show(rev: str, path: str) -> str | None:
     return run.stdout if run.returncode == 0 else None
 
 
+def webview_sources(commit: str) -> list[str]:
+    """The webview source files a commit changed, as gallery entries' `covers` name them (under webviews/src/)."""
+    names = git("show", "--format=", "--name-only", "--diff-filter=AM", commit).split()
+    return [n.removeprefix("webviews/src/") for n in names
+            if n.startswith("webviews/src/") and not re.search(r"\.(gallery|test)\.tsx?$", n)]
+
+
 def gallery_sources(commit: str) -> list[str]:
     """The gallery files a commit changed, as manifest.ts's cases name them (under webviews/)."""
     names = git("show", "--format=", "--name-only", "--diff-filter=AM", commit).split()
@@ -129,7 +137,11 @@ def plan(days: int, everything: bool, exists=published) -> list[dict]:
                     row["sources"] = gallery_sources(commit)
                     row["commit"] = commit
                     if not row["sources"]:
-                        continue
+                        # No gallery file changed: the entries that cover the sources it changed (model-picker-min-width,
+                        # 2026-11-14, changed QuickModelColumns.tsx, which agent-pane.model-picker-any-model covers).
+                        row["covered"] = webview_sources(commit)
+                        if not row["covered"]:
+                            continue
                 if role == "before":
                     row["parent"] = git("rev-parse", f"{commit}^").strip()
             if row["state"]:
@@ -173,6 +185,27 @@ def changed_lines(commit: str, path: str) -> set[int]:
     for start, count in re.findall(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", run.stdout, re.M):
         lines.update(range(int(start), int(start) + int(count or 1)))
     return lines
+
+
+def covered_state(row: dict, cases: list[dict], covers: dict, notes: dict | None = None) -> str | None:
+    """For a commit that changed no gallery file, the state of the entry covering the most of what it changed, as a
+    share of what that entry covers (the entry about that file, not one that lists it among many), more files first,
+    then the first; its variant whose note says "Selected", else its first that is not named for an old look. Its
+    before is the same state at the commit before, where the gallery file is unchanged and draws the old code."""
+    changed = set(row.get("covered") or ())
+    order = list(dict.fromkeys(c["params"]["entry"] for c in _dark(cases)))
+    scored = []
+    for position, entry in enumerate(order):
+        paths = set(covers.get(entry) or ())
+        hits = len(paths & changed)
+        if hits:
+            scored.append((-hits / len(paths), -hits, position, entry))
+    if not scored:
+        return None
+    entry = min(scored)[3]
+    variants = list(dict.fromkeys(c["params"]["variant"] for c in _dark(cases) if c["params"].get("entry") == entry))
+    variants.sort(key=lambda v: (not SELECTED_NOTE.match(_note(notes or {}, entry, v)), bool(OLD_LOOK.search(v))))
+    return f"{entry}/{variants[0]}" if variants else None
 
 
 def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines, notes: dict | None = None) -> str | None:
@@ -244,7 +277,8 @@ def _source(state: str, cases: list[dict]) -> str | None:
     return next((c["params"].get("source") for c in _dark(cases) if c["params"].get("entry") == entry), None)
 
 
-def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | None = None) -> tuple[list[dict], list[str]]:
+def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | None = None,
+            covers: dict | None = None) -> tuple[list[dict], list[str]]:
     """The rows with their inferred states filled in, and the highlights none could be picked for. A before
     with no `before:` line takes the old look its entry marks (``marked_before``), rendered now beside the
     after; only an entry that marks none renders the after's state at the commit before the highlight's, and only
@@ -253,9 +287,13 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
     out, missing = [], []
     for row in rows:
         if not row.get("state"):
-            state = infer(row, cases, text_at, notes=notes)
+            if row["sources"]:
+                state = infer(row, cases, text_at, notes=notes)
+            else:
+                state = covered_state(row, cases, covers or {}, notes)
             if state is None:
-                missing.append(f"{row['id']}: no gallery state in {', '.join(row['sources'])}")
+                where = row["sources"] or [f"no gallery entry covering {', '.join(row.get('covered') or [])}"]
+                missing.append(f"{row['id']}: no gallery state in {', '.join(where)}")
                 continue
             row = {**row, "state": state}
         if row["role"] == "before" and row.get("parent"):
@@ -438,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--cases", type=Path, required=True)
     m.add_argument("--parent")
     m.add_argument("--notes", type=Path, help="each variant's note (webviews/scripts/gallery/notes.ts)")
+    m.add_argument("--covers", type=Path, help="each entry's covered sources (notes.ts --covers)")
     m.add_argument("--out", type=Path, required=True)
     a = sub.add_parser("parents")
     a.add_argument("--plan", type=Path, required=True)
@@ -465,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         missing = []
         if args.parent is None:
             notes = json.loads(args.notes.read_text()) if args.notes else {}
-            rows, missing = resolve(rows, cases, notes=notes)
+            covers = json.loads(args.covers.read_text()) if args.covers else {}
+            rows, missing = resolve(rows, cases, notes=notes, covers=covers)
             args.plan.write_text(json.dumps(rows, indent=2) + "\n")
         out, unmatched = manifest(rows, cases, args.parent)
         args.out.write_text(json.dumps(out, indent=2) + "\n")

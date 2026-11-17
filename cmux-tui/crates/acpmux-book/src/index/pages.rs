@@ -1,55 +1,8 @@
-use super::{FolderKey, RowKey, SortKey, Summary, SummaryIndex};
-use serde::{Deserialize, Serialize};
+use super::{SortKey, Summary, SummaryIndex};
 use std::io;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ListFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-    /// Select descendants rooted at this row key; `cold` chooses the snapshot part.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub family: Option<RowKey>,
-    /// Select one origin/folder; `cold` chooses the snapshot part.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folder: Option<FolderKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub forks: Option<RowKey>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cold: bool,
-}
-
-impl ListFilter {
-    pub fn family(root: RowKey) -> Self {
-        Self { family: Some(root), ..Self::default() }
-    }
-
-    pub fn folder(folder: FolderKey) -> Self {
-        Self { folder: Some(folder), ..Self::default() }
-    }
-
-    pub fn forks(root: RowKey) -> Self {
-        Self { forks: Some(root), ..Self::default() }
-    }
-
-    pub(super) fn matches(&self, summary: &Summary) -> bool {
-        self.workspace.as_ref().is_none_or(|value| summary.workspace.as_ref() == Some(value))
-            && self.origin.as_ref().is_none_or(|value| &summary.origin == value)
-            && self.state.as_ref().is_none_or(|value| &summary.state == value)
-            && self
-                .folder
-                .as_ref()
-                .is_none_or(|value| FolderKey::of(summary).as_ref() == Some(value))
-            && self
-                .forks
-                .as_ref()
-                .is_none_or(|value| summary.fork_of.as_ref().is_some_and(|fork| &fork.key == value))
-    }
-}
+pub use acpmux_list_types::ListFilter;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadSide {
@@ -70,9 +23,66 @@ pub struct IndexPage {
     pub rows_read: usize,
     /// Hot ancestor rows loaded while placing a cursor or matching cold kin.
     pub parent_steps: usize,
+    /// Table and row lookups performed by the hot pager (family is bounded by
+    /// two per candidate plus its cursor climb).
+    pub lookups: usize,
+    /// Family rows at the depth bound that have hot children.
+    pub deeper: Vec<SortKey>,
 }
 
 impl SummaryIndex {
+    /// Bounded page over the published live set. Unlike a state filter this
+    /// starts from the live ordered tree, so closed rows are never scanned.
+    pub fn read_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        // Persistent roots are shared. The common selector reads only this
+        // tree and never scans closed rows or touches the disk snapshot.
+        let mut view = self.clone();
+        view.ordered = self.live_ordered.clone();
+        view.disk = None;
+        // The common inclusive selector can also retrieve the anchor by id.
+        // Exclude a closed anchor from that lookup without changing this index.
+        if let Some(anchor) = anchor
+            && view.get_row(&anchor.row).is_some_and(|row| !row.is_live())
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
+    }
+
+    /// A bounded page over the live rows of origin `local` only. Every row,
+    /// flag and continuation key comes from that set, so a page for a peer
+    /// never names a row of another origin, and a run of remote rows costs
+    /// nothing to skip. An anchor of another origin is refused.
+    pub fn read_local_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+    ) -> io::Result<IndexPage> {
+        if anchor.is_some_and(|anchor| anchor.row.origin.as_ref() != "local") {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "anchor is not a local row"));
+        }
+        let mut view = self.clone();
+        view.ordered = self.local_live.clone();
+        view.disk = None;
+        if let Some(anchor) = anchor
+            && !view.local_live.contains_key(anchor)
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, None)
+    }
+
     /// One bounded part: a hot table range or a physical snapshot piece.
     /// Flags and continuation name candidates, including hidden rows (decision 93).
     pub fn read_page(
@@ -82,6 +92,36 @@ impl SummaryIndex {
         inclusive: bool,
         limit: usize,
         max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        self.read_page_in(anchor, side, inclusive, limit, max_bytes, false, filter)
+    }
+
+    /// [`read_page`](Self::read_page) whose snapshot piece is the full physical piece
+    /// (`snapshot::PAGE_BYTES`, `limit` rows) whatever `max_bytes` is: a peer's `all` page
+    /// reads one after a piece that held none of its rows (decision 291). The rows are still
+    /// cut to `max_bytes` by the same selection, so the reply's size is the asker's.
+    pub fn read_page_full_piece(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        self.read_page_in(anchor, side, inclusive, limit, max_bytes, true, filter)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn read_page_in(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        full_piece: bool,
         filter: Option<&ListFilter>,
     ) -> io::Result<IndexPage> {
         if limit == 0 || limit > 400 || max_bytes == 0 || max_bytes > super::snapshot::PAGE_BYTES {
@@ -122,15 +162,21 @@ impl SummaryIndex {
         let mut bytes_read = 0;
         let mut rows_read = 0;
         let mut parent_steps = 0;
+        let lookups = 0;
         if let Some(disk) = self.disk() {
             // `max_bytes` is the encoded response budget, while a disk record
             // also carries index framing and a trailer. Read one bounded
             // physical piece with enough room to decode a record whose
             // summary itself fits the response budget; selection below still
-            // enforces `max_bytes` on returned rows.
-            let physical_bytes = max_bytes
-                .saturating_add(super::MAX_INDEX_RECORD_BYTES)
-                .min(super::snapshot::PAGE_BYTES);
+            // enforces `max_bytes` on returned rows. A full piece reads the
+            // most one piece may, whatever the response budget.
+            let physical_bytes = if full_piece {
+                super::snapshot::PAGE_BYTES
+            } else {
+                max_bytes
+                    .saturating_add(super::MAX_INDEX_RECORD_BYTES)
+                    .min(super::snapshot::PAGE_BYTES)
+            };
             let piece = disk.read_piece(anchor, side, inclusive, limit, physical_bytes)?;
             bytes_read = piece.bytes_read;
             disk_before = piece.has_before;
@@ -138,7 +184,10 @@ impl SummaryIndex {
             rows_read += piece.rows.len();
             for row in piece.rows {
                 let key = SortKey::of(&row);
-                let visible = !self.is_shadowed(&row.key())
+                let visible = SummaryIndex::contributes_to_index(&row)
+                    && !self.is_shadowed(&row.key())
+                    && !self.is_origin_removed(row.origin.as_str())
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str())
                     && self.get_row(&row.key()).is_none()
                     && filter.is_none_or(|filter| {
                         filter
@@ -149,16 +198,16 @@ impl SummaryIndex {
                 candidates.push((key, visible.then_some(row)));
             }
         }
-        let mut hot = if cold {
+        let mut hot: Vec<(SortKey, Option<Arc<Summary>>)> = if cold {
             Vec::new()
         } else {
             match (anchor, side) {
-                (None, _) => self.after(None, limit + 1),
-                (Some(key), ReadSide::After) => self.after(Some(key), limit + 1),
-                (Some(key), ReadSide::Before) => self.before(key, limit + 1),
+                (None, _) => self.after_candidates(None, limit + 1),
+                (Some(key), ReadSide::After) => self.after_candidates(Some(key), limit + 1),
+                (Some(key), ReadSide::Before) => self.before_candidates(key, limit + 1),
                 (Some(key), ReadSide::Around) => {
-                    let mut rows = self.before(key, limit + 1);
-                    rows.extend(self.after(Some(key), limit + 1));
+                    let mut rows = self.before_candidates(key, limit + 1);
+                    rows.extend(self.after_candidates(Some(key), limit + 1));
                     rows
                 }
             }
@@ -169,7 +218,7 @@ impl SummaryIndex {
             && let Some(row) = self.get_row(&anchor.row)
             && SortKey::of(&row) == *anchor
         {
-            hot.push(row);
+            hot.push((SortKey::of(&row), Some(row)));
         }
         rows_read += hot.len();
         let disk_first = candidates.first().map(|(key, _)| {
@@ -186,8 +235,7 @@ impl SummaryIndex {
                 key.clone()
             }
         });
-        for row in hot {
-            let key = SortKey::of(&row);
+        for (key, row) in hot {
             if side != ReadSide::Before
                 && disk_after
                 && disk_last.as_ref().is_some_and(|last| &key > last)
@@ -200,7 +248,7 @@ impl SummaryIndex {
             {
                 continue;
             }
-            candidates.push((key, Some(row)));
+            candidates.push((key, row));
         }
         candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.is_some().cmp(&a.1.is_some())));
         candidates.dedup_by(|a, b| a.0 == b.0);
@@ -275,7 +323,7 @@ impl SummaryIndex {
             || (!cold
                 && side == ReadSide::After
                 && anchor.is_some_and(|key| {
-                    !self.before(key, 1).is_empty()
+                    !self.before_candidates(key, 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));
@@ -284,7 +332,7 @@ impl SummaryIndex {
             || (!cold
                 && side == ReadSide::Before
                 && anchor.is_some_and(|key| {
-                    !self.after(Some(key), 1).is_empty()
+                    !self.after_candidates(Some(key), 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));
@@ -298,6 +346,8 @@ impl SummaryIndex {
             cold_unread: false,
             rows_read,
             parent_steps,
+            lookups,
+            deeper: Vec::new(),
         })
     }
 }

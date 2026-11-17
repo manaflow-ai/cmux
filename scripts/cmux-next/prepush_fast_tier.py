@@ -219,8 +219,12 @@ def main(argv=None) -> int:
                 out, err = proc.communicate(refs, timeout=WORK_SECONDS)
                 receipt.update(json.loads(out))
             except (subprocess.TimeoutExpired, ValueError):
-                if proc.poll() is None:
+                # The group, whatever the worker's state: a worker that exited with no result can leave a child
+                # running in it (cmux#41767 review F1).
+                try:
                     os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
                 proc.communicate()
                 receipt["checks"] = [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}]
     receipt["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)

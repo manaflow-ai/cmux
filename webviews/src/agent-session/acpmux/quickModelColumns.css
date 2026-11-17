@@ -45,12 +45,14 @@
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
-  padding-right: var(--ds-space-3);
+  padding-right: var(--ds-space-2);
 }
 .acpmux-cols-search > svg {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
   align-self: center;
   flex: 0 0 auto;
-  margin: 0 8px 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
+  margin: 0 var(--ds-space-1) 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
   /* The same ink as the field's placeholder (standup 2026-11-12: "make the colors consistent"). */
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
 }
@@ -58,6 +60,8 @@
   align-self: center;
   flex: 1;
   min-width: 0;
+  appearance: none;
+  margin: 0;
   border: 0;
   background: transparent;
   color: var(--agent-text);
@@ -66,9 +70,10 @@
   outline: none;
   box-sizing: content-box;
   height: max(calc(var(--ds-control-primary) * var(--cmux-interface-scale, 1)), 1.4em);
-  padding-block: 0.3077em;
+  padding: 0.3077em 0;
 }
 .acpmux-cols-search > input::placeholder { color: var(--acpmux-composer-placeholder, var(--agent-muted)); }
+.acpmux-cols-search > input::-webkit-search-decoration { display: none; }
 .acpmux-cols-search > input::-webkit-search-cancel-button { display: none; }
 .acpmux-cols-corner {
   position: relative;
@@ -132,7 +137,9 @@
   top: calc(100% + 4px);
   left: var(--ds-space-1);
   z-index: var(--layer-raised);
-  width: 250px;
+  /* Its frame follows Text Size as the names in it do (--ui-px, ui/popupSurface.css). */
+  width: calc(250 * var(--ui-px, 1px));
+  max-width: var(--available-width, calc(100vw - 24px));
   overflow: hidden;
   border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
   background: color-mix(in srgb, var(--agent-text) 5%, var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)));
@@ -141,6 +148,7 @@
 .acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }
+.acpmux-cols-card-who > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-cols-card-who .acpmux-cols-detail { font-size: var(--text-caption); }
 .acpmux-cols-card-list { padding: var(--ds-space-1); }
 /* The other accounts scroll inside the card: a long list never runs past the window. */
@@ -609,6 +617,35 @@
 }
 .acpmux-cols-resize-y:hover::after,
 .acpmux-cols-resize-y[data-dragging]::after { opacity: 1; }
+
+/* The outer corner resizes both dimensions; it shares the edges' hover treatment. */
+.acpmux-cols-resize-corner {
+  position: absolute;
+  z-index: var(--layer-raised);
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.acpmux-cols-resize-corner[data-edge="end"] { right: -4px; }
+.acpmux-cols-resize-corner[data-edge="start"] { left: -4px; }
+.acpmux-cols-resize-corner[data-side="bottom"] { bottom: -4px; }
+.acpmux-cols-resize-corner[data-side="top"] { top: -4px; }
+.acpmux-cols-resize-corner[data-edge="start"][data-side="bottom"],
+.acpmux-cols-resize-corner[data-edge="end"][data-side="top"] { cursor: nesw-resize; }
+.acpmux-cols-resize-corner::after {
+  content: "";
+  position: absolute;
+  inset: var(--ds-space-1);
+  border-right: 1.5px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
+  opacity: 0;
+}
+.acpmux-cols-resize-corner[data-edge="start"]::after { transform: scaleX(-1); }
+.acpmux-cols-resize-corner[data-side="top"]::after { transform: scaleY(-1); }
+.acpmux-cols-resize-corner[data-edge="start"][data-side="top"]::after { transform: scale(-1, -1); }
+.acpmux-cols-resize-corner:hover::after,
+.acpmux-cols-resize-corner[data-dragging]::after { opacity: 1; }
 
 /* The level and Fast a search named (QuickModelColumns `named`): lit as a highlighted row, so the path
    Enter lands reads at a glance. */

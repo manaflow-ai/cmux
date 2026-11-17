@@ -5,12 +5,17 @@
 // row fades in on the same clock. `reveal` is the product's: the bubble opens leftward from its right
 // edge, its text never scaled. The others are for comparison: `grow` scales it from its right edge,
 // `slide` moves it in from the right, and `fade` is the entrance before (opacity only).
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import { componentEntry } from "../../../gallery/format";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
 import { THINKING } from "./turns";
+
+// The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just
+// do it."), so the product's send is instant. This gallery compares the send's styles on their old
+// 180 ms clock, set on its shell (the send code reads the token from the rows' ancestors).
+const COMPARE_SEND_CLOCK = { "--agent-motion-send": "180ms", "--agent-motion-send-fade": "180ms" } as CSSProperties;
 
 type Variant = "reveal" | "grow" | "slide" | "fade";
 
@@ -60,7 +65,7 @@ function SendEntranceGallery({ variant, sent: initiallySent }: { variant: Varian
         </button>
       </header>
       <div className="message-entrance-gallery__transcript">
-        <div className="acpmux-shell" style={{ height: "100%" }}>
+        <div className="acpmux-shell" style={{ ...COMPARE_SEND_CLOCK, height: "100%" }}>
           <VirtualTranscript
             rows={rows}
             sessionId={`send-entrance-${variant}`}

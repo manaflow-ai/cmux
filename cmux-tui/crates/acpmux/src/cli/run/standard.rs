@@ -35,7 +35,9 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::ShareHost(..)
             | Command::Attach { .. }
+            | Command::ResumeHere { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
     )
@@ -208,62 +210,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Pending => {
             let client = connect(true).await?;
-            let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
-            let mut out = Vec::new();
-            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
-            // Other sessions' messages a chat's Claude Code holds (`hub/native_messaging.rs`).
-            let held = held_messages(&sessions);
-            for s in sessions {
-                if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
-                    continue;
-                }
-                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-                let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-                let d = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-                for p in d.get("pending").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    let req = p.get("request").cloned().unwrap_or(Value::Null);
-                    let title = req
-                        .pointer("/toolCall/title")
-                        .and_then(Value::as_str)
-                        .unwrap_or("permission")
-                        .to_owned();
-                    let kind = req
-                        .pointer("/toolCall/kind")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned();
-                    let options: Vec<Value> =
-                        req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-                    let hint = crate::question_answer::pending_hint(&req, &name);
-                    let is_question = crate::question_answer::question(&req).is_some();
-                    // The ask's Needs you link: an agent writes it in a reply instead of restating
-                    // the ask, and the pane draws it as a chip that opens the list on this ask.
-                    let needs_you = p
-                        .get("permissionId")
-                        .and_then(Value::as_str)
-                        .map(|pid| format!("cmux://needs-you/{pid}"));
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
-                }
-            }
-            if json_out {
-                print_json(&json!({"pending": out, "heldMessages": held}));
-            } else if out.is_empty() && held.is_empty() {
-                println!("no pending permissions");
-            } else {
-                for p in &out {
-                    let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                    println!(
-                        "{:<24} {} [{}]  answer: {}",
-                        g("session"),
-                        g("title"),
-                        g("kind"),
-                        g("answer")
-                    );
-                }
-                for h in &held {
-                    println!("{}", held_message_line(h));
-                }
-            }
+            let via = crate::cli::list_read::Via::daemon();
+            print!("{}", pending_output(&client, via, json_out).await?);
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
@@ -745,6 +693,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .filter(|_| relay.relay.is_some())
                 .map(crate::prompt_provenance::relayed_label)
                 .filter(|label| !label.is_empty());
+            // A Claude Code chat acpmux did not start, sending as no one: nothing can reply to it
+            // until it registers, so the send starts that (`cli/reply_address.rs`).
+            let auto_register =
+                crate::cli::reply_address::of_this_process(from.is_some() || relayed.is_some());
             // The harness or app it runs in says where it came from: provenance beside the prompt,
             // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
             // from...").
@@ -760,6 +712,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
+            // Clap already validated the explicit class. Keep it separate from inferred defaults.
+            let relay_class = class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
             prompt_id.class = class;
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
@@ -841,8 +795,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             });
             // The Claude Code subagent this shell runs for (the Bash hook's mark), a label only.
             let relay_sub = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
-            let relay_from =
-                crate::cli::send_relay::RelaySender::new(relay_from, relay_sub.as_ref());
+            let relay_from = crate::cli::send_relay::RelayMetadata::new(
+                relay_from,
+                relay_sub.as_ref(),
+                relay_class,
+            );
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
@@ -861,6 +818,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     if announce && let Some(shown) = sender.shown {
                         eprintln!("sending as {shown}");
                     }
+                }
+                if let Some(want) = &auto_register {
+                    crate::cli::reply_address::start(&client, want, deadline).await;
                 }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
@@ -1114,6 +1074,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -1125,6 +1086,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return plain_attach(client, &id).await;
             }
             crate::tui::run(client, id).await
+        }
+        Command::ResumeHere { session, print } => {
+            crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
@@ -1477,6 +1441,80 @@ fn new_requires_tty(
     stdout_terminal: bool,
 ) -> bool {
     !json_out && new_without_prompt_requires_tty(no_prompt, detach, stdin_terminal, stdout_terminal)
+}
+
+/// What `acpmux pending` prints: each pending permission of a listed session (read with one
+/// `_acpmux/info` a session that has one) and the messages a listed session's Claude Code holds.
+/// `via` the v2 list it reads every live row, fetched as the list writes it; else the v1 list.
+pub(crate) async fn pending_output(
+    client: &Arc<Client>,
+    via: crate::cli::list_read::Via,
+    json_out: bool,
+) -> Result<String> {
+    let source = via.open(client).await?;
+    let sessions = match source {
+        Some(mut source) => source.rows(acpmux_client::wire::ListView::Live, &|_| true).await?,
+        None => {
+            let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()
+        }
+    };
+    let mut out = Vec::new();
+    // Other sessions' messages a chat's Claude Code holds (`hub/native_messaging.rs`).
+    let held = held_messages(&sessions);
+    for s in sessions {
+        if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
+            continue;
+        }
+        let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+        let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+        let d = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+        for p in d.get("pending").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let req = p.get("request").cloned().unwrap_or(Value::Null);
+            let title = req
+                .pointer("/toolCall/title")
+                .and_then(Value::as_str)
+                .unwrap_or("permission")
+                .to_owned();
+            let kind =
+                req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
+            let options: Vec<Value> =
+                req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+            let hint = crate::question_answer::pending_hint(&req, &name);
+            let is_question = crate::question_answer::question(&req).is_some();
+            // The ask's Needs you link: an agent writes it in a reply instead of restating
+            // the ask, and the pane draws it as a chip that opens the list on this ask.
+            let needs_you = p
+                .get("permissionId")
+                .and_then(Value::as_str)
+                .map(|pid| format!("cmux://needs-you/{pid}"));
+            out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
+        }
+    }
+    let mut text = String::new();
+    if json_out {
+        let v = json!({"pending": out, "heldMessages": held});
+        text.push_str(&serde_json::to_string_pretty(&v).unwrap_or_default());
+        text.push('\n');
+    } else if out.is_empty() && held.is_empty() {
+        text.push_str("no pending permissions\n");
+    } else {
+        for p in &out {
+            let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            text.push_str(&format!(
+                "{:<24} {} [{}]  answer: {}\n",
+                g("session"),
+                g("title"),
+                g("kind"),
+                g("answer")
+            ));
+        }
+        for h in &held {
+            text.push_str(&held_message_line(h));
+            text.push('\n');
+        }
+    }
+    Ok(text)
 }
 
 /// The messages each listed session's Claude Code holds (`heldMessages` of its row), as

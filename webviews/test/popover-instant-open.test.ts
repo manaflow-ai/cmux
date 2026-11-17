@@ -237,6 +237,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
   "src/pages/settings/components/ReadOnlyBanner.tsx": { count: 1, what: "a banner at the top of Settings" },
+  "src/pages/settings/components/TryOnBar.tsx": { count: 1, what: "the try-on bar at the top of Settings" },
   "src/ui/presence.ts": { count: 3, what: "usePresence itself (its declaration, props type and value)" },
 };
 
@@ -299,8 +300,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
-    count: 1,
-    what: "Session Info Show more / Show less grow and close in place",
+    count: 2,
+    what: "Session Info Show more / Show less grow and close in place; a scrolled list's first row slides to its place on close",
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {

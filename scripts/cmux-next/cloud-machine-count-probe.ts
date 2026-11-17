@@ -11,12 +11,12 @@
  * It signs in as the staging agent test account (CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, whose
  * `pro` operator plan cloud-capture-provision.yml grants), acts in its personal scope (no team header), reads the
  * plan (`cloud.plan.get`) and the machines it already holds, then creates --count machines (default 6, at most 10)
- * one after another, recording each create's answer and how many machines the account held right before it. It
+ * one after another, recording each create's answer and how many active (running or starting) machines the account held right before it. It
  * stops at the first refusal. First it deletes machines an earlier probe left behind (its exact name, over an hour
  * old). Every machine it made is then deleted by its exact id, pass or fail (also on SIGINT or SIGTERM), and read
  * back until the list no longer has it live.
  *
- * Pass: a create was accepted while the account already held five or more machines, and every machine this run made
+ * Pass: a create was accepted while the account already held five or more active machines, and every machine this run made
  * is gone. Production is refused: its ledger is off, so the old counts apply there by design.
  *
  * --out DIR gets probe.json (plan, machines held before, each create's answer, each delete's read back) and
@@ -38,15 +38,19 @@ export type CreateRecord = { n: number; held_before: number; status: number; ok:
 /** The verdict over the creates: the first one accepted while OLD_PAID_MAX or more machines were held, or why not. */
 export function countVerdict(creates: CreateRecord[]): { pass: boolean; why: string; proof: CreateRecord | null } {
   const proof = creates.find((c) => c.ok && c.machine && c.held_before >= OLD_PAID_MAX) ?? null;
-  if (proof) return { pass: true, why: `create ${proof.n} accepted with ${proof.held_before} machines already held (${proof.machine})`, proof };
+  if (proof) return { pass: true, why: `create ${proof.n} accepted with ${proof.held_before} active machines already held (${proof.machine})`, proof };
   const refused = creates.find((c) => !c.ok);
-  if (refused) return { pass: false, why: `create ${refused.n} refused with ${refused.held_before} held: HTTP ${refused.status} ${refused.error?.code ?? "?"} ${refused.error?.message ?? ""}`.trim(), proof: null };
+  if (refused) return { pass: false, why: `create ${refused.n} refused with ${refused.held_before} active: HTTP ${refused.status} ${refused.error?.code ?? "?"} ${refused.error?.message ?? ""}`.trim(), proof: null };
   const most = Math.max(0, ...creates.map((c) => c.held_before));
-  return { pass: false, why: `no create ran with ${OLD_PAID_MAX} or more held (at most ${most}); raise --count`, proof: null };
+  return { pass: false, why: `no create ran with ${OLD_PAID_MAX} or more active (at most ${most}); raise --count`, proof: null };
 }
 
-/** Machines that count against a team's machine cap: every row the list shows that is not deleted or deleting. */
+/** Machines the cleanup still has to see gone: every row the list shows that is not deleted or deleting. */
 export const liveMachines = (rows: any[]) => rows.filter((m) => m && m.status !== "deleted" && m.status !== "deleting");
+
+/** Machines that hold the active-machine limit (pausing frees it): running or still starting, not paused or failed. */
+export const ACTIVE_STATUSES = new Set(["running", "starting", "provisioning", "creating"]);
+export const activeMachines = (rows: any[]) => rows.filter((m) => m && ACTIVE_STATUSES.has(m.status));
 
 async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 60_000): Promise<Answer> {
   try {
@@ -112,7 +116,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const before = await list();
   report.held_before = before.map((m) => ({ id: m.id, name: m.name ?? null, status: m.status ?? null }));
-  say(JSON.stringify({ held_before: before.length, machines: report.held_before }));
+  say(JSON.stringify({ held_before: before.length, active_before: activeMachines(before).length, machines: report.held_before }));
 
   const creates: CreateRecord[] = [];
   const made: string[] = [];
@@ -161,14 +165,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   report.swept = stale.map((m) => m.id);
 
   let cleaning: Promise<void> | null = null;
+  // Every known id whose delete has not gone out yet, sent at once.
+  const removeRest = (budgetMs: number) => Promise.all(made.filter((id) => !removed.has(id)).map((id) => remove(id, budgetMs)));
   // One cleanup, awaited by both the end of the run and a signal. `fast` (a signal: the runner kills the job seconds
   // later) sends every delete at once and reads back for 20 s; otherwise up to 3 min per delete and 5 min of read back.
-  const cleanup = (fast: boolean) => (cleaning ??= (async () => {
+  // A signal during the ordinary cleanup, which deletes one at a time, sends every remaining delete at once.
+  const cleanup = (fast: boolean): Promise<unknown> => fast && cleaning ? removeRest(10_000) : (cleaning ??= (async () => {
     stopping = true;
     // A signal leaves seconds: the known ids' deletes go out before any list read.
-    if (fast) { await Promise.all(made.map((id) => remove(id, 10_000))); write(); }
+    if (fast) { await removeRest(10_000); write(); }
     adopt(await list().catch(() => [] as any[]));
-    if (fast) await Promise.all(made.filter((id) => !removed.has(id)).map((id) => remove(id, 5_000)));
+    if (fast) await removeRest(5_000);
     else for (const id of made) if (!removed.has(id)) await remove(id, 180_000);
     // Read back: gone when the live list no longer has it (deleted or deleting do not count). Each pass also adopts a
     // machine whose create answer was lost and whose row has only now appeared (or a create that answered after a
@@ -201,9 +208,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       "",
       `Verdict: **${v?.pass && !notGone.length ? "PASS" : "FAIL"}**: ${v?.why ?? "did not finish"}`,
       "",
-      `Held before: ${before.length}. Backend commit: ${String((report.health as any)?.commit ?? "?")}.`,
+      `Held before: ${before.length} (${activeMachines(before).length} active). Backend commit: ${String((report.health as any)?.commit ?? "?")}.`,
       "",
-      "| create | held before | HTTP | answer | machine | detail |",
+      "| create | active before | HTTP | answer | machine | detail |",
       "|---|---|---|---|---|---|",
       ...rows,
       "",
@@ -222,10 +229,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   try {
     for (let n = 1; n <= count && !stopping; n++) {
-      // The live count right before the create: the account is shared with other staging runs.
+      // The active count right before the create: the account is shared with other staging runs. Every live row is
+      // adopted for cleanup; only the ones that hold the limit count toward the proof.
       const live = await list();
       adopt(live);
-      const held = live.length;
+      const held = activeMachines(live).length;
       let a: Answer = { status: 0, body: {} };
       for (let attempt = 1; attempt <= 3; attempt++) {
         a = await op("cloud.machine.create", { name: names[n - 1], size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create-${n}`);

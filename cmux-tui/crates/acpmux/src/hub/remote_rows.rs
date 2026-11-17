@@ -170,6 +170,13 @@ impl RemoteRows {
         keys.iter().find_map(|key| self.rows.get_key_value(key))
     }
 
+    /// The row a peer last listed for `mux`, restoring the pre-stale copy when
+    /// the current row only reflects a dropped link.
+    pub(crate) fn find_live_mux(&self, peer: &str, mux: &str) -> Option<&RemoteSession> {
+        let (key, row) = self.find_mux(peer, mux)?;
+        Some(self.stale_from.get(key).map_or(&**row, |live| &**live))
+    }
+
     /// Removes peer `peer`'s rows, answering them with their keys.
     pub(crate) fn take_peer(&mut self, peer: &str) -> Vec<(String, Arc<RemoteSession>)> {
         let keys: Vec<String> = self.of_peer(peer).map(|(key, _)| key.clone()).collect();

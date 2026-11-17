@@ -37,6 +37,7 @@ pub mod files;
 pub mod history;
 pub mod notifications;
 pub mod remote;
+pub mod screen_share;
 pub mod tabs;
 pub mod targets;
 pub mod workspaces;

@@ -109,3 +109,19 @@ extension CloudMoveCLI.StartChatPlan {
         }
     }
 }
+
+extension CloudMoveCLI {
+    /// `body`, a start's steps between its machine being chosen and the start owning it (the pin, the attach). When one
+    /// strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``), `made` (the machine made for send `key`, or nil for
+    /// one the start found) is still in the account it began in (`sameAccount`), and no other send took it
+    /// (``strandThenDelete(key:account:machine:delete:)``), `delete` deletes it. The error goes on.
+    @MainActor public func releasing<T>(made: String?, key: String, account: String, sameAccount: @MainActor () -> Bool,
+                                        delete: @MainActor (String) async throws -> Void, _ body: @MainActor () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch {
+            if let made, StartChatPlan.strands(error), sameAccount() { try? await strandThenDelete(key: key, account: account, machine: made, delete: delete) }
+            throw error
+        }
+    }
+}

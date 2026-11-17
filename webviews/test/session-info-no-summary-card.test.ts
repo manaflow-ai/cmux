@@ -13,6 +13,7 @@ import { agentPaneTheme } from "../src/gallery/theme/web";
 import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -65,7 +66,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
       if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
       await page.locator(".acpmux-summary-card").first().waitFor({ timeout: 10_000 });
       expect(await visible(page, SUMMARY)).toBeGreaterThan(0);
-      expect(await page.locator("button.acpmux-session-info-toggle").count()).toBe(0);
+      expect(await page.locator(SESSION_INFO_TOGGLE).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -74,11 +75,11 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
   test("on: no summary card or subagent rows anywhere, and Session Info opens on Environment", async () => {
     const page = await open(true);
     try {
-      const toggle = page.locator("button.acpmux-session-info-toggle");
+      const toggle = page.locator(SESSION_INFO_TOGGLE);
       await toggle.waitFor({ timeout: 10_000 });
       expect(await visible(page, SUMMARY)).toBe(0);
       if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
-      const panel = page.locator("aside.acpmux-session-info");
+      const panel = page.locator(SESSION_INFO);
       await panel.locator("[data-section]").first().waitFor({ timeout: 10_000 });
       expect(await panel.locator("[data-section]").first().getAttribute("data-section")).toBe("environment");
       // Nothing of the card's sits above the first section, in the panel or over it.
@@ -107,9 +108,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
         for (const sessionInfo of [false, true]) {
           const page = await open(sessionInfo, dark, 2);
           try {
-            const control = page.locator(
-              sessionInfo ? "button.acpmux-session-info-toggle" : "button.acpmux-summary-button",
-            );
+            const control = page.locator(sessionInfo ? SESSION_INFO_TOGGLE : "button.acpmux-summary-button");
             await control.waitFor({ timeout: 10_000 });
             if ((await control.getAttribute("aria-pressed")) !== "true") await control.click();
             await page

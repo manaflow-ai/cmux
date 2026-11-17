@@ -28,8 +28,14 @@ function boot(): void {
     if (value === null || value === undefined) globals[SNAPSHOT_MISS_GLOBAL] = "none served";
     else if (!isChatSnapshot(value)) globals[SNAPSHOT_MISS_GLOBAL] = "not a snapshot of this version";
     else if (live?.drawn) globals[SNAPSHOT_MISS_GLOBAL] = "late: the page drew the chat first";
-    else if (!paintSnapshot(document, value)) globals[SNAPSHOT_MISS_GLOBAL] = misfit(value, document) ?? "engine";
-    else live?.painted?.();
+    else if (
+      !paintSnapshot(document, value, {
+        // The live side as it is when the copy's sheet loaded: the bundle may have started since.
+        wanted: () => !(globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.drawn,
+        shown: () => (globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.painted?.(),
+      })
+    )
+      globals[SNAPSHOT_MISS_GLOBAL] = misfit(value, document) ?? "engine";
   } catch (error) {
     // A copy that cannot draw leaves the page to open as it does with none.
     globals[SNAPSHOT_MISS_GLOBAL] = `error: ${String(error)}`;

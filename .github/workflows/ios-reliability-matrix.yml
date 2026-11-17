@@ -62,10 +62,11 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
-  # Pick an idle owned Mac with an iOS simulator with the kit's lane of
-  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac), then fall
-  # back to Blacksmith on retries. The markers let the pool charge this run's
-  # simulator while it holds one.
+  # Pick an idle owned Mac with an iOS simulator with the phone-cells lane of
+  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac; when the
+  # pool's simulator runners are full, a mini's sim-first runner with a free
+  # simulator), then fall back to Blacksmith on retries. The markers let the
+  # pool charge this run's simulator while it holds one.
   runner:
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
@@ -133,7 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/ios_runner_pool.py \
-            --lane kit --fork "$FORK_PULL_REQUEST" --requested auto \
+            --lane phone-cells --fork "$FORK_PULL_REQUEST" --requested auto \
             --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
@@ -228,10 +229,35 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
+      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
+      # about 3 minutes of a Mac (run 43652999096). A pull request only
+      # reads the cache; other events save what they built.
+      - name: The framework's inputs
+        id: ffi-key
+        run: |
+          set -euo pipefail
+          # A ref from before the key script, or a key that fails, builds as before.
+          if [ -f .github/scripts/ios_link_ffi_key.py ]; then
+            python3 -I .github/scripts/ios_link_ffi_key.py --repo . --explain \
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          fi
+      - name: Restore the framework built from the same inputs
+        id: ffi
+        if: steps.ffi-key.outputs.key != ''
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Set up pinned Rust
+        if: steps.ffi.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo
+        if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -239,9 +265,20 @@ jobs:
           key: ios-reliability-matrix-apple
 
       - name: Build CmuxMobileLinkFFI.xcframework
+        if: steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "4"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      - name: Save the framework for later runs
+        if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        # Another job saving the same key first is not a failure.
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
 
       - name: xcodebuild test (matrix cells)
         working-directory: cmux-next-ios/CmuxMobileKit

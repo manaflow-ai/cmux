@@ -16,8 +16,17 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import bench_power as bp  # noqa: E402
-import idle_cost_load as load  # noqa: E402
+# bench_power loads /usr/lib/libproc.dylib when imported: these tests run only on a Mac.
+MAC = sys.platform == "darwin"
+NOT_A_MAC = "bench_power loads macOS /usr/lib/libproc.dylib; this test runs on a Mac"
+if MAC:
+    import bench_power as bp  # noqa: E402
+    import idle_cost_load as load  # noqa: E402
+
+
+def setUpModule():
+    if not MAC:
+        raise unittest.SkipTest(NOT_A_MAC)
 
 
 class FakeClock:

@@ -102,3 +102,21 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     assert_eq!(row("sidebar.item.remove")["paletteTarget"], "sidebar-item");
     assert_eq!(row("sidebar.section.rename")["paletteTarget"], "sidebar-section");
 }
+
+/// Check, Rotate Credential and Revoke… on a joined machine are palette rows that ask which machine
+/// joined through the hub (`joined`, the app's joined-machine list), not a connected one, and stay
+/// rows of the joined machine's "…" menu.
+#[test]
+fn joined_machine_actions_are_palette_rows_that_pick_a_joined_machine() {
+    let catalog = catalog("");
+    let actions = catalog["actions"].as_array().expect("actions");
+    for id in ["machine.joined.check", "machine.joined.rotate", "machine.joined.revoke"] {
+        let row = actions.iter().find(|a| a["id"] == id).expect("action");
+        assert!(cmux_action_catalog::find(id).expect("action").is_palette_visible(), "{id}");
+        assert_eq!(row["paletteTarget"], "machine", "{id}");
+        assert_eq!(row["paletteTargetSource"], "joined", "{id}");
+        assert_eq!(row["surfaces"], serde_json::json!(["palette", "contextMenu"]), "{id}");
+        assert_eq!(row["surfacePlan"]["contextMenus"][0]["context"], "joinedMachine", "{id}");
+        assert_eq!(row["surfacePlan"]["cli"], serde_json::json!({ "exempt": "guiOnly" }), "{id}");
+    }
+}

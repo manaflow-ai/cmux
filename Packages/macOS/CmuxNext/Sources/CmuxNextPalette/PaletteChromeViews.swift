@@ -16,7 +16,7 @@ final class PaletteClickView: NSView {
         guard fillsBackground else { return }
         performWithTheme {
             Palette.selectionFill.setFill()
-            let radius = bounds.height / 2
+            let radius = Metrics.buttonCornerRadius(fitting: bounds.size)
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
         }
     }

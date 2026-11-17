@@ -143,6 +143,15 @@ impl Skips {
         }
     }
 
+    /// `count` files of a copy past its limits stayed on this Mac after its first pass
+    /// ([`super::size_cap`]): counted as `left_on_mac`, never named (there may be thousands).
+    pub(super) fn left_on_mac(&mut self, count: u64) {
+        if count > 0 {
+            self.total += count;
+            *self.counts.entry("left_on_mac").or_default() += count;
+        }
+    }
+
     pub(super) fn total(&self) -> u64 {
         self.total
     }

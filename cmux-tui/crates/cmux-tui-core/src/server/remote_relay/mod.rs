@@ -325,7 +325,7 @@ pub(super) fn intercept(
         | Command::ConversationHistory(_)
         | Command::ConversationOp(_)
         | Command::ConversationTyping(_) => return None,
-        Command::ListWorkspaces if mux.cloud_mobile_client(client) => return None,
+        Command::ListWorkspaces { .. } if mux.cloud_mobile_client(client) => return None,
         _ => Err(denied()),
     })
 }

@@ -3,7 +3,14 @@
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
-  --ui-popup-radius: 8px;
+  /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
+     popover's or card's width, a chip's height, a gap a clamp reckons with) is
+     `calc(N * var(--ui-px, 1px))`, never a bare px: the type tokens grow with Text Size, and a frame
+     that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
+     test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
+  --ui-px: calc(1px * var(--cmux-interface-scale, 1));
+  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
+  --ui-popup-radius: var(--ds-radius-popup, 8px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
@@ -158,12 +165,17 @@
    glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
+/* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+   inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
+   same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
+  --ui-dialog-padding: var(--ds-space-5);
   --glass-tint: var(--surface-sheet-veil);
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: var(--surface-sheet-radius);
+  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
 

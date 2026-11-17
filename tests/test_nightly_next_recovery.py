@@ -594,6 +594,8 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
     recheck = step(workflow()["jobs"]["publish-nightly"], "Recheck the recovered build against both feeds")
     condition = recheck["if"].replace("steps.source.outputs.source", repr(source))
     condition = condition.replace("needs.decide.outputs.track", repr(track)).replace("||", "or")
+    # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT, unset here).
+    condition = condition.replace(" && !env.LEFT_SLOT", "")
     script = recheck["run"] if eval(condition, {"__builtins__": {}}, {}) else ":"
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)

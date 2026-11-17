@@ -38,6 +38,25 @@ private final class CallLog {
 
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
+nonisolated private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let body = url.path == "/v1/auth/stack"
+            ? #"{"session":"hub-session","userId":"u","expiresAt":4102444800000}"#
+            : request.value(forHTTPHeaderField: "X-Test-Devices") ?? #"{"devices":[]}"#
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])
+        if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @MainActor
 private func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
@@ -85,6 +104,55 @@ struct MacScreenDeviceRecordTests {
         #expect(MacScreenPages.record(route: route) == record)
         #expect(MacScreenPages.record(route: "device:nope") == nil)
         #expect(MacScreenPages.route(of: MacScreenRecord(macID: nil)) == "home")
+    }
+
+    @MainActor
+    @Test func screenRecordsRequireDeviceIDsInsteadOfMachineNames() async throws {
+        let deviceID = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Test Studio","platform":"macos","online":true}]}"#
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        #expect(pages.record(forDevice: deviceID.uppercased()) == MacScreenRecord(deviceID: deviceID))
+        pages.hub = hub
+        #expect(pages.record(forDevice: deviceID) == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forDevice: "joined:\(deviceID)").isHome)
+        #expect(pages.record(forDevice: "Test Studio").isHome)
+        #expect(pages.record(forDevice: "missing-machine").isHome)
+        #expect(pages.pendingScopes.isEmpty)
+        let requested = pages.record(forDevice: deviceID, requesting: .view)
+        // Automation/restoration does not consume a person's pending connection choice.
+        pages.prepare("restored", record: requested, byPerson: false)
+        _ = pages.makeView(for: "restored")
+        #expect(pages.tab("restored")?.pane?.model.hub?.resumeScope == nil)
+        pages.prepare("view", record: requested, byPerson: true)
+        _ = pages.makeView(for: "view")
+        #expect(pages.tab("view")?.pane?.model.hub?.resumeScope == .view)
+        #expect(pages.pendingScopes.isEmpty)
+        pages.tabClosed("restored")
+        pages.tabClosed("view")
+        pages.hub = nil
+    }
+
+    @MainActor
+    @Test func explicitDeviceRecordNormalizesUUIDAndCarriesRequestedScope() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-record-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let record = pages.record(forDevice: hostID.uppercased(), requesting: .view)
+
+        #expect(record == MacScreenRecord(deviceID: hostID))
+        #expect(pages.pendingScopes[hostID] == .view)
+        #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
+        #expect(pages.pendingScopes[hostID] == .view)
     }
 }
 
@@ -512,6 +580,49 @@ struct MacScreenHubPushTests {
         return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
     }
 
+    /// A viewer's session starting marks that this Mac has viewed another; a ticket for no tab marks nothing.
+    @Test func aStartedViewerEndsTheFirstUseGuide() throws {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        pages.handle(.sessionTicket(ticket("s9")))
+        #expect(!pages.store.hasViewedBefore)
+        viewer.phase = .waitingForApproval(sessionID: "s1", scope: .view)
+        pages.handle(.sessionTicket(ticket("s1", scope: .view)))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        #expect(pages.store.hasViewedBefore)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// Every path to streaming marks it, also a ticket the viewer takes itself (the hub's answer found it held).
+    @Test func aViewerThatAcceptsOnItsOwnAlsoEndsTheFirstUseGuide() throws {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        viewer.phase = .waitingForApproval(sessionID: "s1", scope: .view)
+        viewer.accept(ticket("s1", scope: .view))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        #expect(pages.store.hasViewedBefore)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// The hub's sharing bit for this Mac marks the first share, wherever it was turned on; drawing the page does not.
+    @Test func sharingOnMarksTheFirstShare() {
+        let pages = makePages()
+        pages.hostSharingChanged(false)
+        #expect(!pages.store.hasSharedBefore)
+        pages.hostSharingChanged(true)
+        #expect(pages.store.hasSharedBefore)
+    }
+
     @Test func pushesReachTheTabOfTheirSession() throws {
         let pages = makePages()
         pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
@@ -675,6 +786,91 @@ struct MacScreenDevicesSettingsTests {
         pages.hubConfigured = false
         #expect(!settings.state.available)
         pages.hub = nil
+    }
+}
+
+@MainActor
+struct MacScreenDeviceActionTests {
+    @Test func settingsActionsUseVerifiedMacDevicesAndTheGuidedShareCallback() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let remote = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let offline = "7f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(remote)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(offline)","name":"Offline Mac","platform":"macos","online":false},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        var shares = 0
+        settings.openScreen = { opened = $0 }
+        settings.shareThisMac = { shares += 1 }
+        func run(_ action: String, id: String? = nil, on: Bool? = nil) -> MacScreenDevicesSettings.Run {
+            .init(action: action, id: id, name: nil, scope: nil, on: on, relay: nil)
+        }
+
+        #expect((await settings.run(run("openScreen", id: remote))).error == nil)
+        #expect(opened == remote)
+        #expect((await settings.run(run("openScreen", id: identity.id))).error != nil)
+        #expect((await settings.run(run("openScreen", id: offline))).error != nil)
+        #expect((await settings.run(run("openScreen", id: phone))).error != nil)
+        #expect((await settings.run(run("openScreen", id: "unknown"))).error != nil)
+        #expect((await settings.run(run("shareThisMac", id: identity.id))).error == nil)
+        #expect(shares == 1)
+        #expect((await settings.run(run("setSharing", on: true))).error == nil)
+        #expect(shares == 2, "enabling from Settings uses the guided Share callback")
+        #expect((await settings.run(run("shareThisMac", id: remote))).error != nil)
+        #expect(shares == 2)
+    }
+
+    /// A Linux desktop (`cmux-rd linux-host`) is a screen this Mac views: Settings > Devices offers View screen and
+    /// opens it, and the sidebar's screen actions know it. An iPhone is neither.
+    @Test func aLinuxDesktopIsViewableFromSettingsAndTheSidebar() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let linux = "9a1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let mac = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(linux)","name":"Desktop","platform":"linux","macScreenShared":1,"online":true},{"id":"\#(mac)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hubConfigured = true
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        settings.openScreen = { opened = $0 }
+
+        let rows = Dictionary(uniqueKeysWithValues: settings.state.others.map { ($0.id, $0) })
+        #expect(rows[linux]?.screenAction?.kind == "view", "a Linux desktop row offers View screen")
+        #expect(rows[linux]?.screenAction?.disabled == false)
+        #expect(rows[mac]?.screenAction?.kind == "view")
+        #expect(rows[phone]?.screenAction == nil, "an iPhone hosts no screen this Mac views")
+
+        let result = await settings.run(.init(action: "openScreen", id: linux, name: nil, scope: nil, on: nil, relay: nil))
+        #expect(result.error == nil)
+        #expect(opened == linux)
+
+        let availability = hub.macScreenAvailability
+        #expect(availability[linux] == true, "the sidebar's screen action reaches a Linux desktop")
+        #expect(availability[mac] == true)
+        #expect(availability[phone] == nil)
     }
 }
 

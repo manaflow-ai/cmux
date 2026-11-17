@@ -96,13 +96,14 @@ final class SidebarIconView: NSView {
             imageView.isHidden = false
         case .pagePlaceholder?:
             // The favicon's slot and size, as a symbol draws (`SidebarFaviconRenditions` has no image to treat yet).
-            let name = WorkspaceIcon.pagePlaceholderSymbol
-            imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(SidebarStyle.glyphConfig)
-            inkKey = "symbol|\(name)|\(pointSize)"
+            // The browser tab's own globe (`WorkspaceIcon.pagePlaceholderIcon`), as its tab draws it.
+            let name = WorkspaceIcon.pagePlaceholderIcon
+            imageView.image = NSImage.icon(name, size: Self.packSide)
+            inkKey = "icon|\(name.rawValue)|\(pointSize)"
             imageView.isHidden = false
         case let .page(name)?:
             // A cmux page's own pack icon (a Cloud desktop's cloud) in the same slot and ink as the site globe.
-            imageView.image = NSImage.icon(name, size: SidebarStyle.kindGlyphSize)
+            imageView.image = NSImage.icon(name, size: Self.packSide)
             inkKey = "icon|\(name.rawValue)|\(pointSize)"
             imageView.isHidden = false
         case .swatch?, nil:
@@ -202,9 +203,14 @@ final class SidebarIconView: NSView {
     private var shownFavicon: SidebarFavicon? { if case let .favicon(favicon)? = icon { favicon } else { nil } }
     private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
     private func snap(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
-    /// The favicon's drawn side, on the pixel grid: made a third larger than the optical size, so a favicon whose ink
-    /// fills only part of its square (an app icon's margin) is scaled down, never up, to the optical size.
-    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.workspaceFaviconSide * 4 / 3)) }
+    /// A pack icon's raster side: the tab's icon box the row draws it at (`SidebarStyle.rowGlyphOptics`), so the row
+    /// shows the tab's very image at the tab's size (Lucas 2026-11-14).
+    static var packSide: CGFloat { SidebarStyle.rowGlyphOptics.box ?? SidebarStyle.kindGlyphSize }
+    /// The favicon's bitmap side: the tab's icon box the row draws it at (`SidebarStyle.rowGlyphOptics`), so it renders
+    /// at its drawn size and stays sharp.
+    private var faviconSide: CGFloat {
+        max(1 / backingScale, snap(SidebarStyle.rowGlyphOptics.box ?? SidebarStyle.rowGlyphOpticalSide * 4 / 3))
+    }
     /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
     private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
 
@@ -235,7 +241,7 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = SidebarStyle.workspaceFaviconSide
+        let side = SidebarStyle.rowGlyphOpticalSide
         // Leading with ink, `leadingImageFrame` already sized it to the optical size.
         if !leadsWithInk {
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)

@@ -114,8 +114,8 @@ build.rs change until the graph is regenerated on a Testbox for the new commit;
 its error gives the commands.
 
 The bundle check scans every Mach-O whose entries (and `copy_of` source) need
-no `rust-std` for rustc std paths (Release merges Iroh's Rust code into the app
-binary). A change to that code adds a red test first as its own commit, as the
+no `rust-std` for rustc std paths (a static Rust library can land in a binary
+the map does not expect, as Iroh.framework's code once did in the app binary). A change to that code adds a red test first as its own commit, as the
 `copy_of` change did (sign run 43387981953).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector

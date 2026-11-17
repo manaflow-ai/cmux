@@ -569,6 +569,10 @@ fn joined_home(home: &Path, origin: &str) {
     let key = home.join("node.wg.key");
     std::fs::write(&key, [7u8; 32]).unwrap();
     std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // The join made that key (`leave::NODE_KEY_MADE`), so its leave deletes it.
+    let made = home.join("machine-join.node-key-made.json");
+    std::fs::write(&made, b"{}").unwrap();
+    std::fs::set_permissions(&made, std::fs::Permissions::from_mode(0o600)).unwrap();
     let config = home.join("config.json");
     std::fs::write(
         &config,

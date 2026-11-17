@@ -23,13 +23,7 @@ extension SessionSettings {
 }
 
 extension SessionSettings {
-    /// `phone.allowConnections`: Off: the phone listener does not run and no phone reaches this Mac. Off on a fresh install; a Mac that already served phones keeps it on (PhoneAccessMigration).
-    public nonisolated static let allowConnectionsPath = ["phone", "allowConnections"]
-    public nonisolated static let allowConnectionsDefault = false
-    /// `phone.startSessions`: Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).
-    public nonisolated static let startSessionsPath = ["phone", "startSessions"]
-    public nonisolated static let startSessionsDefault = true
-    /// `phone.keepAwake`: Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
+    /// `phone.keepAwake`: Idle system sleep stays off while iPhone connections are on for a signed-in account (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
     public nonisolated static let phoneKeepAwakePath = ["phone", "keepAwake"]
     public nonisolated static let phoneKeepAwakeDefault: PhoneKeepAwakeSetting = .pluggedIn
     /// `phone.cloudReplica`: On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).
@@ -113,30 +107,10 @@ nonisolated enum SessionSettingsSchema {
         ]
     }
 
-    /// Settings > Accounts > Phone Access: whether phones signed in to your cmux account reach this Mac and what they may do (PhoneAccessGate, MobileHostService). The transport (Iroh today) is not part of any key.
+    /// Settings > Accounts > Phone Access: what this Mac does for cmux on iPhone, which connects through the iPhone host (IPhoneHostService, mobile.allowIPhoneConnections).
     static var phoneDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.phone", "Phone Access")
         return [
-            SettingDescriptor(
-                SessionSettings.allowConnectionsPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.phone.allowConnections", "Let Your Phone Use This Mac"),
-                help: SettingsText.keyed("settings.phone.allowConnections.help", "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."),
-                kind: .toggle,
-                default: .bool(SessionSettings.allowConnectionsDefault),
-                keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
-            ),
-            SettingDescriptor(
-                SessionSettings.startSessionsPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.phone.startSessions", "Let Your Phone Start New Workspaces"),
-                help: SettingsText.keyed("settings.phone.startSessions.help", "Off, your phone can still follow, type into and answer what's already running."),
-                kind: .toggle,
-                default: .bool(SessionSettings.startSessionsDefault),
-                keywords: ["iphone", "mobile", "remote", "workspace", "terminal", "start"]
-            ),
             SettingDescriptor(
                 SessionSettings.phoneKeepAwakePath,
                 section: .machines,

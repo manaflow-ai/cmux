@@ -112,8 +112,8 @@ extension AgentTabStore {
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machineName ?? machine, folder: fallback, detail: error.message,
-                                          keyedRestartSafe: error.keyedRestartSafe)
+            throw AgentRemoteStartRefusal.refused(error, code: code, machine: machineName ?? machine, folder: fallback, harness: harness,
+                                                  name: \String.chiefHarnessName) // an agent not signed in there, by name (hq#11225)
         case .failure(let error):
             throw error
         }

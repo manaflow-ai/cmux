@@ -236,9 +236,8 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         0,
       );
 
-      // A send while scrolled up: the view rides down to the bottom on Jump to latest's ride (Leo,
-      // 2026-11-04: "SMOOTH non-jolty ... state transitions"), not one cut, and the prompt's row and
-      // its reply arrive there.
+      // A send while scrolled up cuts to the bottom at once (Leo, 2026-11-11: "that slow settle
+      // animation is just so bad. Like, just do it."), and the prompt's row and its reply arrive there.
       await sample(page);
       await page.evaluate(() => (window as unknown as { __send(): void }).__send());
       await painted(page);
@@ -252,10 +251,10 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       ]);
       await painted(page, 30);
       const sent = await samples(page);
-      const start = sent[0]!.fromEnd;
-      // Frames on the way down (some part of the way, neither where the reader was nor at the end),
-      // then the end, where it stays.
-      expect(sent.some((frame) => frame.fromEnd > 1 && frame.fromEnd < start - 1)).toBe(true);
+      // The first frame may still be the one before the send; from the next on the view is at the
+      // end, with no frame on the way down, and it stays there.
+      expect(sent.length).toBeGreaterThan(10);
+      expect(sent.slice(1).filter((frame) => frame.fromEnd > 1)).toEqual([]);
       expect(sent.slice(-10).filter((frame) => frame.fromEnd > 1)).toEqual([]);
       await page.close();
     });

@@ -24,11 +24,14 @@ pub(super) fn handle_connection_with_permit(
 /// read will not block ([`transport::Stream::wait_readable`]).
 pub(super) struct LineSocket {
     stream: Box<dyn transport::Stream>,
+    /// What the waits keep between reads (a kqueue on macOS), closed with
+    /// the reader.
+    waiter: transport::ReadWaiter,
 }
 
 impl LineSocket {
     pub(super) fn new(stream: Box<dyn transport::Stream>) -> Self {
-        Self { stream }
+        Self { stream, waiter: transport::ReadWaiter::new() }
     }
 
     pub(super) fn stream(&self) -> &dyn transport::Stream {
@@ -38,7 +41,7 @@ impl LineSocket {
 
 impl Read for LineSocket {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        self.stream.wait_readable()?;
+        self.stream.wait_readable(&mut self.waiter)?;
         self.stream.read(buffer)
     }
 }

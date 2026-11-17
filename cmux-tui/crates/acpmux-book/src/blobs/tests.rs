@@ -166,3 +166,19 @@ fn missing_named_field_is_damage_and_size_arithmetic_is_bounded() -> TestResult 
     assert!(matches!(blobs.recover(&[body], 1), Err(Error::Corrupt(_))));
     Ok(())
 }
+
+#[test]
+fn repeated_large_settles_leave_no_staging_suffix_after_checkpoint_recovery() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let mut blobs = Blobs::open(home.path())?;
+    for row in [10_u64, 1_000] {
+        let mut body = Body::new(row)?;
+        let large = format!("\"{}\"", "x".repeat(1 << 20));
+        blobs.set(&mut body, "text", &large, true)?;
+        blobs.sync([&body])?;
+        assert!(blobs.settle(&body)?.is_none());
+        blobs.recover(&[], row)?;
+        assert_eq!(fs::read_dir(home.path().join("blobs/open"))?.count(), 0, "row {row}");
+    }
+    Ok(())
+}

@@ -121,6 +121,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
                 cd.session
             ),
         )),
+        // HOST/NAME: a chat on a joined machine, in that machine's own folders.
+        Ok(Place::Acp(target)) => Err(refusal(
+            "chat_cd.not_cloud",
+            format!("chat {target} runs on a joined machine, not a Cloud VM"),
+            &format!(
+                "start a chat in the folder there with `cmux chat --on {} --cwd DIR`",
+                target.split_once('/').map_or(target.as_str(), |(host, _)| host)
+            ),
+        )),
         Err(error) => Err(error),
     };
     Some(report(&outcome, global.output))

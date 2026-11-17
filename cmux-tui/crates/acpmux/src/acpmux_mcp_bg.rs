@@ -17,6 +17,12 @@
 //! --watch` under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
 //! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//!
+//! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
+//! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
+//! subagent's, or the lead's own) unless `all` is true, and says how many it left out;
+//! `bg_stop` refuses a task another caller started, naming who, unless `force_other_owner` is
+//! true. The caller is the one `acpmux_mcp.rs` reads from the call (`subagent_call.rs`).
 
 use super::{error_result, ok, refusal};
 use crate::client::Client;
@@ -39,15 +45,18 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "This chat's background tasks, oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output.",
-            "inputSchema": {"type": "object", "properties": {"description": description}}}),
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+            "inputSchema": {"type": "object", "properties": {"description": description,
+                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."}}}}),
         json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended.",
-            "inputSchema": {"type": "object", "properties": {"id": id, "description": description}, "required": ["id"]}}),
+        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it.",
+            "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
+                "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
+                "required": ["id"]}}),
         json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
@@ -149,12 +158,27 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
     let count =
         |status: &str| tasks.iter().filter(|t| crate::bg_run::outcome(t).1 == status).count();
     let (running, ok, failed) = (count("running"), count("ok"), count("failed"));
+    // Tasks the list left out: other callers' (`hub::BgScope`).
+    let others = r.get("otherOwners").and_then(Value::as_u64).unwrap_or(0);
+    let others = match others {
+        0 => String::new(),
+        1 => "; 1 more started by another subagent or the lead (not yours; all: true lists it)"
+            .to_owned(),
+        n => format!(
+            "; {n} more started by other subagents or the lead (not yours; all: true lists them)"
+        ),
+    };
     if tasks.is_empty() {
-        return ("No background tasks.".to_owned(), "ok");
+        let line = if others.is_empty() {
+            "No background tasks.".to_owned()
+        } else {
+            format!("No background tasks of yours{others}")
+        };
+        return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed",
+        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -180,7 +204,10 @@ fn task_line(t: &Value) -> String {
         "" => s("command").to_owned(),
         d => format!("{d}: {}", s("command")),
     };
-    format!("{}  [{}{end}]  {what}\n{}", s("id"), s("state"), s("tail").trim_end())
+    let by = t.get("startedBy").filter(|v| v.is_object()).map_or(String::new(), |sub| {
+        format!("  (started by {})", crate::hub::bg_owner_words(Some(sub)))
+    });
+    format!("{}  [{}{end}]  {what}{by}\n{}", s("id"), s("state"), s("tail").trim_end())
 }
 
 fn summary(name: &str, r: &Value) -> String {
@@ -221,6 +248,13 @@ mod tests {
             outcome("bg_list", &json!({"tasks": []})),
             ("No background tasks.".to_owned(), "ok")
         );
+        // Tasks of other callers are counted, never listed as the caller's.
+        let others = json!({"tasks": [task("running", 0)], "otherOwners": 9});
+        assert!(outcome("bg_list", &others).0.ends_with(
+            "1 running, 0 ok, 0 failed; 9 more started by other subagents or the lead (not yours; all: true lists them)"
+        ));
+        let none = json!({"tasks": [], "otherOwners": 1});
+        assert!(outcome("bg_list", &none).0.starts_with("No background tasks of yours; 1 more"));
     }
 
     /// A call names a repo and a run or a pull request (with an optional sha); anything else is

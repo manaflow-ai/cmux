@@ -20,6 +20,8 @@ cmux-json.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
+# The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -39,7 +41,10 @@ cmux-conversation.workspace = true
 cmux-git.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
+# Another browser's files for the app's browser import (resource_router/browser_import.rs).
+cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
+cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
@@ -56,9 +61,12 @@ cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
+# This machine's device kind for `identify` (`machine_device`, `machine_symbol`).
+cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
 serde_json.workspace = true
+uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
 base64.workspace = true
@@ -79,6 +87,8 @@ parking_lot = { workspace = true, features = ["arc_lock"] }
 arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+# cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
+cmux-signed-bundle.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true
@@ -98,6 +108,9 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
+acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
+acpmux-list-types = { path = "../acpmux-list-types" }
 # The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
 cmux-cloud-api.workspace = true
 reqwest.workspace = true
@@ -111,6 +124,9 @@ futures-util.workspace = true
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
+# An agent service in the test's process that serves the v2 list (acpmux's `test-support`
+# module, never in a shipped build): the list callers' recorded runs and v2.pr07c gates.
+acpmux = { path = "../acpmux", default-features = false, features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

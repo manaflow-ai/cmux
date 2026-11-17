@@ -328,12 +328,7 @@ impl Peer {
     pub(super) fn set_serving(&self, via: Option<Via>) {
         *self.serving.lock_or_recover() = via;
         self.switch_wanted.store(false, Ordering::SeqCst);
-    }
-
-    /// `paths` of `_acpmux/peers`: every path's health and round trip (the live link's
-    /// carrier is `carrier`, from `peer_carrier.rs`).
-    pub(crate) fn paths_view(&self) -> serde_json::Value {
-        self.with_paths(|paths| paths.view(crate::store::now_ms()))
+        self.with_paths(|paths| paths.serving(via, crate::store::now_ms()));
     }
 
     /// A pong on `via`.
@@ -392,20 +387,6 @@ impl Peer {
         self.with_paths(|paths| paths.active().is_some_and(|via| via != failed))
     }
 
-    /// Remember the path the link is ready on, for the next run.
-    pub(super) fn note_ready_path(&self) {
-        let (Some(via), Some(book)) = (self.serving(), self.last_good.get()) else { return };
-        let endpoints = crate::peer_last_good::Endpoints {
-            url: Some(super::lift_query_token(&self.url).0),
-            link: self.link_host.get().cloned(),
-            wireguard: self.wireguard.get().map(|(_, address)| address.to_string()),
-        };
-        let entry = self.with_paths(|paths| {
-            crate::peer_last_good::Entry::of(paths, via, endpoints, crate::store::now_ms())
-        });
-        book.record(&self.name, entry);
-    }
-
     /// The order a cold connect dials this peer's paths in (`Paths::dial_order`).
     pub(super) fn dial_order(&self) -> Vec<Via> {
         self.with_paths(|paths| paths.dial_order(crate::store::now_ms()))
@@ -429,6 +410,7 @@ impl Peer {
     /// Dial this peer's paths (`dial_order`), each `STAGGER` after the one before it or at once
     /// when it failed, and keep the first that opens; the others are marked failed.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
+        let started = crate::store::now_ms();
         let order = self.dial_order();
         let ssh_tokens = self.direct_tokens(&order).await;
         let dials: Vec<_> =
@@ -448,6 +430,7 @@ impl Peer {
                 return Err(failures_line(&failed));
             }
         };
+        self.with_paths(|paths| paths.opened(&order, via, started, crate::store::now_ms()));
         for (via, error) in &failed {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
@@ -684,10 +667,10 @@ impl Peer {
             };
             // End the owned SSH process now, including when its next attempt is an hour away.
             self.end_tunnel().await;
-            // A client asked while this attempt, sent while the network may have been down, was
-            // still connecting: once per connect, a new attempt with the same tokens, now.
+            // A client asked mid-connect (the network was down): one new attempt, same tokens, now.
             if restart && !self.stop.load(Ordering::SeqCst) {
                 tracing::info!(peer = %self.name, "a client asked while the connect was pending; connecting again");
+                self.with_silence(crate::peer_link::SilenceBudget::dial_struggled);
                 restarted = true;
                 ssh_tokens = Some(((token, peer_token), kept));
                 continue;
@@ -992,6 +975,9 @@ impl Drop for AnsweringGuard {
         self.set.lock_or_recover().until.remove(&self.id);
     }
 }
+
+#[path = "peer_path_book.rs"]
+mod book;
 
 #[cfg(test)]
 #[path = "peer_carriers_tests.rs"]

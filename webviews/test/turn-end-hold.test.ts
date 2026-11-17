@@ -67,6 +67,21 @@ test("the turn's Worked for closes at its end, even over work in view (Lucas, 20
   expect(ids(shown)).toContain("answer");
 });
 
+test("over work in view, the Worked for to close is named for the pane to defer (cmux#24569)", () => {
+  // The pane keeps it open only until the view follows the latest row again (App.tsx `heldWorked`):
+  // a reader scrolled up into the run sees no row fold away under them.
+  const worked = new Set<string>();
+  const held = foldsToHold(ended, turnView(ended, new Set()), runningView(), undefined, ["t1"], new Set(), worked);
+  expect(held).toEqual([]);
+  expect([...worked]).toEqual(["worked-u"]);
+  const shown = turnView(ended, withHeldFolds(new Set(), worked));
+  expect(ids(shown)).toContain("t1");
+  // Only the prompt and the reply in view: nothing folds away under the reader, nothing deferred.
+  const none = new Set<string>();
+  foldsToHold(ended, turnView(ended, new Set()), runningView(), undefined, ["u", "answer"], new Set(), none);
+  expect([...none]).toEqual([]);
+});
+
 test("a reader in older turns, or only on the prompt and the reply, holds nothing open", () => {
   expect(hold(["old", "old-reply"])).toEqual([]);
   expect(hold(["u", "answer"])).toEqual([]);

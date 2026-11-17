@@ -1,23 +1,21 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const launcher = readFileSync(new URL("../../scripts/mobile-dev-launch.sh", import.meta.url), "utf8");
-const start = launcher.indexOf('if [[ "$TARGET" == "simulator" ]]');
+const launcherPath = new URL("../../scripts/mobile-dev-launch.sh", import.meta.url).pathname;
+const launcher = readFileSync(launcherPath, "utf8");
+const start = launcher.indexOf('\nif [[ "$TARGET" == "simulator" ]]') + 1;
 const simulatorBranch = launcher.slice(start, launcher.indexOf("\nelse\n", start)) + "\nfi\n";
 
-test("cached simulator relaunch cannot inject a password or pairing URL", () => {
+test("simulator launch signs in but cannot inject a pairing URL", () => {
   const result = spawnSync("bash", ["-c", `
     set -euo pipefail
-    ONBOARDING_MARKER="$(mktemp)"
     xcrun() {
-      if [[ "$2" == spawn ]]; then
-        [[ "$4" == defaults && "$5" == write ]] || exit 42
-        printf '%s' "$8" > "$ONBOARDING_MARKER"
-      fi
       if [[ "$2" == launch ]]; then
-        printf '%s\\n' "onboarding=$(cat "$ONBOARDING_MARKER")" \
+        printf '%s\\n' "argv=$*" \
           "email=$SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL" \
           "password=$SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD" \
           "attach=$SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL" \
@@ -29,21 +27,47 @@ test("cached simulator relaunch cannot inject a password or pairing URL", () => 
     cmux_attach_dogfood_client_id() { echo test-client; }
     cmux_attach_seed_simulator_device_id() { echo retained-device; }
     TARGET=simulator; SIMULATOR_ID=owned-simulator; BUNDLE_ID=dev.cmux.ios.gate
-    DETACH=1; RESTORE_PAIRING=1; IROH_RELEASE_GATE_MODE=relayOnly
-    CMUX_UITEST_STACK_EMAIL=unexpected-email
-    CMUX_UITEST_STACK_PASSWORD=unexpected-password
+    CMUX_UITEST_STACK_EMAIL=agent@example.com
+    CMUX_UITEST_STACK_PASSWORD=agent-password
     ATTACH_URL=unexpected-pairing-url
     SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL=ambient-pairing-url
+    SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL=ambient-dogfood-url
     eval "$SIMULATOR_BRANCH"
   `], { encoding: "utf8", env: { ...process.env, SIMULATOR_BRANCH: simulatorBranch,
-    CMUX_IROH_SOAK_PROFILE: "", CMUX_DEV_AUTH_REPLACE_SESSION: "1" } });
+    CMUX_DEV_AUTH_REPLACE_SESSION: "1" } });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "onboarding=complete\nemail=\npassword=\nattach=\ntest_attach=\nreplace=0\ndevice=retained-device\n");
+  assert.equal(result.stdout, [
+    "argv=simctl launch owned-simulator dev.cmux.ios.gate",
+    "email=agent@example.com",
+    "password=agent-password",
+    "attach=",
+    "test_attach=",
+    "replace=1",
+    "device=retained-device",
+    "",
+  ].join("\n"));
 });
 
-test("cached launch is restricted to a simulator release gate", () => {
-  const result = spawnSync("bash", [new URL("../../scripts/mobile-dev-launch.sh", import.meta.url).pathname,
-    "--tag", "cacheg", "--restore-pairing", "--device"], { encoding: "utf8" });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /restore-pairing requires a simulator release gate/);
-});
+for (const args of [
+  ["--restore-pairing"],
+  ["--restore-pairing", "--device"],
+  ["--iroh-release-gate", "relayOnly", "--simulator", "iPhone 17"],
+]) {
+  test(`${args.join(" ")} is refused before credentials or a target`, () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-refused-launch-"));
+    try {
+      const result = spawnSync("bash", [launcherPath, "--tag", "cacheg", ...args], {
+        encoding: "utf8",
+        // An empty HOME has no credential file and no xcrun log, so any work
+        // past the refusal would fail with a different message.
+        env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin" },
+      });
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stderr, new RegExp(`${args[0]} has no target`));
+      assert.match(result.stderr, /no longer runs the iroh phone listener \(mobile\.attach_ticket\.create \/ mobile\.rpc\.ready\)/);
+      assert.equal(result.stdout, "");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+}

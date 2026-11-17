@@ -17,6 +17,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
@@ -26,11 +27,11 @@ pub use agent_pairs::PairGuard;
 mod aside;
 mod asks_below;
 mod atomic_json;
-mod build;
-pub use build::{build, install_build, version_line};
+pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
 mod workflow_activity;
@@ -45,7 +46,7 @@ pub(crate) mod session_auth;
 pub(crate) mod settled_view;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
-pub(crate) mod turn_errors;
+pub(crate) use crate::turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
@@ -76,9 +77,13 @@ mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod long_chat_tests;
+#[cfg(test)]
 mod owned_scope_bench_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
+#[cfg(test)]
+mod phone_floor_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
@@ -93,6 +98,8 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
+#[cfg(test)]
+mod steer_on_start_tests;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
@@ -118,15 +125,17 @@ pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
-#[cfg(unix)]
-pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
+pub(crate) mod book_tee;
 mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+pub(crate) mod list_tee;
+// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
+// chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -137,6 +146,8 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 mod peer_row;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod row_log;
@@ -223,6 +234,7 @@ pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod live_name;
 mod profile_respawn;
+mod rediscover;
 pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
@@ -267,8 +279,8 @@ pub use session::{Session, live_tags};
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
     HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
+pub(crate) use crate::shell_readonly;
 pub(super) use session::{newest_first, prompt_text, short_text};
-pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
@@ -291,7 +303,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) mod time_breakdown;
+pub(crate) use crate::time_breakdown;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -355,7 +367,7 @@ pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod purge_tombstones;
-pub(crate) mod questions;
+pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
@@ -382,6 +394,10 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
+pub(crate) mod release_to_watch;
+mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
@@ -393,6 +409,8 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
@@ -401,6 +419,8 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]
@@ -499,7 +519,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub use crate::build_info::VERSION;
 
 /// How long a session's harness may sit unused (no turn, nothing queued, no
 /// question waiting, no activity) before it hibernates: it exits and the
@@ -618,6 +638,11 @@ pub struct TurnInfo {
     /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
     /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
     pub accepted: bool,
+    /// The paired device that sent this Web turn, while every Web prompt and steer in it came
+    /// from that one device (`Hub::owner_phone_full_access` reads it again); None for a Local
+    /// turn, one another client touched and one recovered after a restart. Set with the turn
+    /// and narrowed beside `control`, under the turn lock (review of cmux#43251, P1-F1).
+    pub device: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -703,9 +728,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
-    /// The paired machine whose Full-access setting covered the request that sent it
-    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
-    /// (`Hub::full_access_hold`).
+    /// The paired machine that sent it (`server/remote_guard.rs` `sending_device`). It grants
+    /// nothing by itself: each rule reads the pairing store again at dispatch, its Full-access
+    /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+    /// `Hub::local_claude_refusal`).
     pub full_access_device: Option<String>,
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
@@ -781,6 +807,17 @@ pub struct Hub {
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
     pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// The carrier's registration the daemon's start made from the join config
+    /// (`hub_carrier::start_kept`); a sign-out's leave drops it, which unregisters.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_serve: std::sync::Mutex<Option<crate::hub_carrier::HubServe>>,
+    /// The loopback WebSocket address the start gave the carrier, so an enroll that replaces the
+    /// join starts it again on the new join (`server/machine_enroll.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
+    /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) machine_routes: crate::machine_routes::Routes,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -798,6 +835,9 @@ pub struct Hub {
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
+    /// as it was.
+    pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
     /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
     pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
@@ -822,6 +862,9 @@ pub struct Hub {
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
+    /// The v2 list stream on peer links: the v2 handle when `peers` is on, and the counters
+    /// (`link_v2.rs`).
+    pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
@@ -981,6 +1024,8 @@ pub struct Hub {
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
+    /// One chat's adoption ended (`log_load.rs` `chat_adopted`): its waiting prompts look again.
+    pub(crate) chat_adopted_wake: Notify,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
@@ -1193,9 +1238,20 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
-    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
-    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
-    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
+    /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
+    /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
+    /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
+    pub mesh: crate::mesh::MeshSlot,
+    /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
+    /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
+    pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
+    /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
+    /// reads the join's state on disk once it holds it, so none acts on what another changed.
+    pub join_transition: Arc<tokio::sync::Mutex<()>>,
+    /// The daemon start's join task (a leave the last run did not finish, then the relay), while
+    /// it may run: shutdown ends it before it stops the relay.
+    pub join_start: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
@@ -1317,6 +1373,12 @@ impl Hub {
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_serve: Default::default(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_websocket: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            machine_routes: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
@@ -1325,6 +1387,7 @@ impl Hub {
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
+            book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
@@ -1338,6 +1401,7 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            link_v2: Arc::default(),
             list_guard: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
@@ -1408,6 +1472,7 @@ impl Hub {
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
+            chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -1522,6 +1587,9 @@ impl Hub {
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
+            mesh_relay: Default::default(),
+            join_transition: Default::default(),
+            join_start: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
@@ -1550,6 +1618,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats made before it read their inboxes through it from now on (`Session::inbox`).
+            for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
+                let _ = session.hub_ref.set(Arc::downgrade(&hub));
+            }
             // A copy's write tells the records of prompts it put on disk: their deliveries keep
             // them as proof (`open_delivery.rs`). Only a runtime-backed hub has peers to copy;
             // one built outside Tokio keeps a unique Arc, so a test can set fields first.
@@ -1751,7 +1823,7 @@ impl Hub {
         // A session read from the store may be another row's parent: every closed row is built
         // again, and no cursor from before it is followed (`Events::changed`), which costs one
         // barrier, not a walk of every session per session read at start.
-        self.events.changed();
+        self.events.changed(Some(&session));
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1868,7 +1940,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
-        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
+        // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
@@ -1885,6 +1958,9 @@ impl Hub {
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
+            book_hint: Arc::new(AtomicU64::new(meta.last_seq)),
+            found_at_start: meta.last_seq,
+            book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
@@ -1907,6 +1983,7 @@ impl Hub {
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
             restoring: AtomicBool::new(false),
@@ -1977,6 +2054,7 @@ impl Hub {
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
+            purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
@@ -2024,7 +2102,10 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
-            inbox: StdMutex::new(inbox::Inbox::default()),
+            inbox_state: StdMutex::new(inbox::Inbox::default()),
+            inbox_loaded: AtomicBool::new(false),
+            inbox_load: StdMutex::new(()),
+            hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -2044,6 +2125,9 @@ impl Hub {
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
+        if let Some(hub) = self.hub_ref.get() {
+            let _ = session.hub_ref.set(hub.clone());
+        }
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         // Its pull requests wait for a review verdict (`review_queue.rs`).
@@ -2059,7 +2143,7 @@ impl Hub {
         self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
@@ -2110,6 +2194,14 @@ impl Hub {
         ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
     }
 
+    /// How many sessions the map holds, and how many of them are not closed, each read under
+    /// its own lock (never both at once, as [`Hub::live_session_handles`]): not one snapshot.
+    pub(super) fn session_counts(&self) -> (usize, usize) {
+        let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        (all, live)
+    }
+
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
@@ -2119,6 +2211,18 @@ impl Hub {
     /// Every session, in no order and with no metadata read.
     pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+    }
+
+    /// Connect the optional v2 list tee. The v1 event path remains unchanged when no tee is
+    /// installed, which is the default for an empty `acpmux.v2` setting.
+    pub(crate) fn install_v2_tee(&self, tee: Arc<list_tee::TeeHandle>) {
+        self.events.install_tee(tee);
+    }
+
+    /// The v2 list holds the hub machines' rows: `initialize` names
+    /// [`list_tee::HUB_ROWS_FEATURE`] on every connection.
+    pub(crate) fn v2_lists_hub_rows(&self) -> bool {
+        self.events.tee_lists_hub_rows()
     }
 
     pub(crate) fn session_count(&self) -> usize {
@@ -2660,6 +2764,15 @@ impl Hub {
         if !stored {
             return (record, false);
         }
+        // The line is in the store: v2's book tee marks the chat, whatever `notify` says (a mark
+        // and an atomic store, no I/O, never a wait; nothing with no tee installed).
+        if let Some(tee) = self.book_tee.get() {
+            #[cfg(test)]
+            let started = std::time::Instant::now();
+            tee.mark(session, seq);
+            #[cfg(test)]
+            book_tee::note_hook(started.elapsed());
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;
@@ -2984,6 +3097,10 @@ impl Hub {
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
     pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        // A chat being deleted stays closed (`Session::purging`).
+        if session.purging.load(Ordering::SeqCst) {
+            return false;
+        }
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));
@@ -3106,24 +3223,7 @@ impl Hub {
     }
 }
 
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
+pub(crate) use crate::protocol::merge_mux_meta;
 
 /// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
 /// leaves the daemon on the session list and whatever the load finished before the panic

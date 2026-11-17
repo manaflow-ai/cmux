@@ -1098,6 +1098,19 @@
         "additionalProperties": false,
         "description": "Machine details used to redeem a single-use join credential.",
         "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
           "hostname": {
             "description": "The joining machine's reported hostname.",
             "maxLength": 256,
@@ -1191,6 +1204,15 @@
             "description": "The owning team identifier.",
             "examples": [
               "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "description": "The person who minted the join credential (mintedBy). The machine acts as them on the team mesh, so a mesh message whose from.user equals this came from one of the same person's machines or sessions.",
+            "examples": [
+              "user_abc"
             ],
             "maxLength": 256,
             "minLength": 1,
@@ -1727,6 +1749,33 @@
         "required": [
           "machines"
         ],
+        "type": "object"
+      },
+      "MachineCredentialRotate": {
+        "additionalProperties": false,
+        "description": "Options for a rotation. Without `capabilities` the recorded list is kept; a rotation by anyone but the minter in person records none.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "MachineCredentialRow": {
@@ -2568,6 +2617,87 @@
           "snapshot",
           "size",
           "change"
+        ],
+        "type": "object"
+      },
+      "MachineSelfCapabilities": {
+        "additionalProperties": false,
+        "description": "What the calling machine states it can do. It may set a list when none is recorded (it joined before capabilities were recorded) or narrow the recorded one; it can never widen it.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "The calling machine's capabilities. Only `vault.proxy.v1` is accepted today (its acpmux runs the vault's egress proxy); any other name is refused with 400 machine.capability_unknown. Order and repeats do not matter.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "MachineSelfCapabilitiesSet": {
+        "additionalProperties": false,
+        "description": "The calling machine's recorded capabilities after the call.",
+        "properties": {
+          "capabilities": {
+            "description": "The capabilities now recorded with the credential, de-duplicated and sorted.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changed": {
+            "description": "Whether this call changed the recorded list; false when it was already the same.",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "machineId": {
+            "description": "The calling machine's identifier.",
+            "examples": [
+              "machine_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The owning team identifier.",
+            "examples": [
+              "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "machineId",
+          "teamId",
+          "capabilities",
+          "changed"
         ],
         "type": "object"
       },
@@ -6855,6 +6985,84 @@
         ]
       }
     },
+    "/v1/machines/credentials/self/capabilities": {
+      "put": {
+        "description": "Record what the calling machine's client can do, using the machine's own bearer; the machine is the one the credential belongs to, never one named in the request. Only allowlisted names (vault.proxy.v1). It may set a list when none is recorded (the credential joined before capabilities were recorded) or narrow the recorded list; widening answers 409 machine.capabilities_widen, since a list a person set (for example [] after a delegated rotation) is theirs to widen by re-joining or rotating. Changes nothing but the list. Idempotent: the same list again answers 200 with changed false. An unknown, rotated-out or expired bearer answers 401 machine.unknown, a revoked one 401 machine.revoked.",
+        "operationId": "machineRedeem.selfCapabilities",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineSelfCapabilities"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineSelfCapabilitiesSet"
+                }
+              }
+            },
+            "description": "The calling machine's recorded capabilities after the call."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinBadRequestEncoded"
+                }
+              }
+            },
+            "description": "join.malformed: the join request is malformed; correct the fields and retry. machine.capability_unknown: a machine may state only the allowlisted capabilities (vault.proxy.v1); drop the others."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "machine.unknown: the machine credential is unknown. machine.revoked: the machine credential is revoked. machine.unauthorized: the replacement proof is invalid."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinConflictEncoded"
+                }
+              }
+            },
+            "description": "join.used: the join credential was already used; mint another one. machine.capabilities_widen: a machine credential cannot widen its recorded capabilities; a person must re-join the machine or rotate its credential."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnavailableEncoded"
+                }
+              }
+            },
+            "description": "machine.join.unavailable: machine onboarding is unavailable; retry later."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "State the calling machine's capabilities",
+        "tags": [
+          "Machine join redemption"
+        ]
+      }
+    },
     "/v1/machines/credentials/self/revoke": {
       "post": {
         "description": "Revoke the calling machine credential using its own bearer, and drop the machine's rows from the mesh address book. Repeating it answers 401 machine.revoked. A hub that does not offer it answers 404; revoke the machine from a signed-in device instead.",
@@ -7001,7 +7209,7 @@
     },
     "/v1/machines/credentials/{machineId}/rotate": {
       "post": {
-        "description": "Issue a new credential for an enrolled machine and retire its previous credential. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
+        "description": "Issue a new credential for an enrolled machine and retire its previous credential. The body is optional. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
         "operationId": "machineJoin.rotate",
         "parameters": [
           {
@@ -7019,6 +7227,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineCredentialRotate"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {

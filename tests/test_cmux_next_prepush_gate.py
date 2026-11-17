@@ -962,6 +962,81 @@ class PrePushGateTests(unittest.TestCase):
         for name in ("stale-b", "stale-c"):
             self.assertFalse(self.remote_has(f"refs/heads/{name}"), name)
 
+    def bare_mirror(self):
+        """(the git dir, its worktree) of a wt mirror: a bare clone of the remote with a linked worktree, whose
+        hooks the installer run there puts in the bare clone (its common dir), as repo_publish's mirror has them."""
+        mirror, tree = self.root / "mirror.git", self.root / "mirror-tree"
+        git_fixture_env.clone_repo(self.origin, mirror, "--bare", env=self.env)
+        for args in (("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+                     ("fetch", "--quiet", "origin"),
+                     ("worktree", "add", "--quiet", str(tree), "feat-cmux-next")):
+            subprocess.run(["git", "-C", str(mirror), *args], env=self.env, check=True, capture_output=True)
+        installed = subprocess.run(["bash", INSTALLER], cwd=tree, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        return mirror, tree
+
+    def test_a_push_from_a_clone_without_a_work_tree_runs_every_check_on_the_pushed_objects(self):
+        # 2026-11-15: repo_publish pushes from the bare wt mirror, and the hook died in `git rev-parse
+        # --show-toplevel` ("fatal: this operation must be run in a work tree", exit 128) before any check ran. The
+        # checks read the pushed commits from git objects, so a clone with no work tree is judged like any other:
+        # a try! is refused, a clean commit passes every phase. Both layouts: a bare mirror with a linked worktree
+        # (the commits are made there, the push from the mirror), and a clone root with core.bare set.
+        mirror, tree = self.bare_mirror()
+        layouts = (("bare mirror", mirror, tree), ("core.bare clone", self.repo / ".git", self.repo))
+        for label, git_dir, work in layouts:
+            core_bare = work == self.repo
+
+            def run(*args, where=work):
+                if core_bare:
+                    self.git("config", "core.bare", "false")
+                done = subprocess.run(["git", "-C", str(where), *args], env=self.env, text=True, capture_output=True)
+                if core_bare:
+                    self.git("config", "core.bare", "true")
+                return done
+
+            def push():
+                done = subprocess.run(["git", "-C", str(git_dir), "push", "origin", "feat-cmux-next"],
+                                      env=self.env, text=True, capture_output=True)
+                return done, done.stdout + done.stderr
+
+            def commit(name, text):
+                path = work / f"{PKG}/Sources/CmuxNextKit/{name}.swift"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text.replace("Fresh", name))
+                for args in (("add", "-A"), ("commit", "--quiet", "--no-verify", "-m", name)):
+                    self.assertEqual(run(*args).returncode, 0, f"{label}: git {args[0]}")
+
+            for args in (("fetch", "--quiet", "origin"), ("reset", "--quiet", "--hard", "origin/feat-cmux-next")):
+                self.assertEqual(run(*args).returncode, 0, f"{label}: git {args[0]}")
+            if core_bare:
+                self.git("config", "core.bare", "true")
+            self.assertEqual(subprocess.run(["git", "-C", str(git_dir), "rev-parse", "--is-inside-work-tree"],
+                                            env=self.env, text=True, capture_output=True).stdout.strip(), "false",
+                             label)
+            before = self.remote_head()
+            stem = label.split()[0].replace(".", "").title()
+
+            commit(f"{stem}Try", NEW_WITH_TRY)
+            refused, output = push()
+            self.assertNotEqual(refused.returncode, 0, f"{label}: {output}")
+            self.assertNotIn("must be run in a work tree", output, label)
+            self.assertIn(f"{stem}Try.swift", output, label)
+            self.assertIn("try!", output, label)
+            self.assertEqual(self.remote_head(), before, label)
+
+            # Drop the refused commit; a clean one passes every phase and lands.
+            self.assertEqual(run("reset", "--quiet", "--hard", "HEAD~1").returncode, 0, label)
+            commit(f"{stem}Clean", NEW_CLEAN)
+            passed, output = push()
+            self.assertEqual(passed.returncode, 0, f"{label}: {output}")
+            self.assertNotIn("must be run in a work tree", output, label)
+            self.assertIn("pre-push: passed", output, label)
+            for phase in ("web-lint", "cmux-next-gate"):
+                self.assertIn(phase, output, f"{label}: the {phase} phase ran")
+            self.assertNotEqual(self.remote_head(), before, label)
+            if core_bare:
+                self.git("config", "core.bare", "false")
+
     def test_a_push_with_any_real_ref_still_runs_every_check(self):
         # The delete-only pass must not reach a push that also sends commits: a delete next to a real ref, or a
         # real ref alone, still runs the gate and is refused for the try! it adds.
@@ -2096,6 +2171,29 @@ pub fn twice(value: u32) -> u32 {
         self.assertNotIn("CmuxNextApp.swift", output)
         self.assertNotIn("did not run cleanly", output)
 
+    def test_a_main_based_push_touching_a_shared_package_is_judged_without_the_cmux_next_package(self):
+        # main has no Packages/macOS/CmuxNext at all. A main push touching Packages/Shared/ (2026-11-17, a CmuxHomeCore
+        # test) ran "Main-thread concurrency", whose check-concurrency.sh opened the missing Package.swift, died with
+        # FileNotFoundError in package_targets, and the hook refused the push without a verdict.
+        self.main_branch()
+        self.git("rm", "-r", "--quiet", PKG)
+        self.commit("main: no CmuxNext package")
+        self.assertEqual(self.push_ref("HEAD:main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("reset", "--quiet", "--hard", "origin/main")
+        self.write("Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/FixtureTests.swift",
+                   "import Testing\n\n@Test func fixture() {\n    #expect(1 + 1 == 2)\n}\n")
+        self.commit("main-based: a shared package test")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("did not run cleanly", output)
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
     def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
         self.write(self.CRATE_FILE, self.RUST_CLEAN)
         self.commit("base: a clean crate file")
@@ -2249,7 +2347,7 @@ mod tests {
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
-            "swift-type-scale-baseline.tsv"})
+            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv"})
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -2909,6 +3007,19 @@ class ToolDownloadFallbackTests(unittest.TestCase):
                         sys.modules[name] = module
             self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
         self.assertEqual(asked, [url])
+
+
+class SideWorkersTests(unittest.TestCase):
+    def test_the_job_cpu_share_caps_the_scanner_pool(self):
+        # On a CI mini the runner hook grants the checks job 5 of 14 cores (CMUX_CI_CPU_BUDGET); every gate this suite
+        # runs started one scanner per core of the whole mini beside the job's other checks (job 131984422217).
+        gate = load_gate_tools()
+        self.assertEqual(gate.side_workers({}, cpus=14), 14)
+        self.assertEqual(gate.side_workers({}, cpus=32), 16)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "5"}, cpus=14), 5)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
+        for malformed in ("", "0", "-3", "five"):
+            self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
 
 
 class StaleInstallTests(unittest.TestCase):

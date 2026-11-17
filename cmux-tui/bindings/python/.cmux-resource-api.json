@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "410246dc1512a7f8bdc9b80623cdbc7b6e26bdcaaa2478f97cfdba9928760443",
+  "catalog_sha256": "b7de957f80c552e979202a6f8615e2b76b3c6deb9472f8976ff71abf35be1482",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,18 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"
@@ -383,6 +395,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {
@@ -977,6 +992,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

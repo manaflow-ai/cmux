@@ -61,4 +61,11 @@ pub struct ServerConnectionSnapshot {
     pub resume_lease_remaining_ms: Option<u64>,
     pub lane_bindings: Vec<Vec<Lane>>,
     pub physical_link_count: usize,
+    /// How long since the client last sent a frame the session delivered
+    /// (anything but connection control), or since the connection opened.
+    /// The session supervisor replaces an old-build session host under a
+    /// session idle this long (cmux-host `machine.rs`). Absent from an older
+    /// session host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_idle_ms: Option<u64>,
 }
