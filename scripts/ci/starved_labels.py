@@ -29,6 +29,19 @@ cmux-bot App token the janitor already mints with issues: write; without it a
 starved label fails this step instead. The heal itself runs on the minis:
 glaeda-mini-health kickstarts a stopped runner LaunchAgent (runner_stopped),
 and a listener its gate holds off for a root-only fault is reported there.
+
+The alert also acts (rescue_plan()). A label starved past RESCUE_AFTER (30
+minutes) has each run stuck on it that long get its rescue started: one
+ci-owned-pool-rescue.yml dispatch with that run_id, the per-run watch, which
+moves a job waiting past owned_pool_rescue.OWNED_WAIT_BOUND_SECONDS to
+Blacksmith by that script's own rules (what it keeps on the owned pool, it
+keeps). On 2026-11-17 cmux#45115 (glaeda-ios-sim+glaeda-std-xcode-26.6) stayed
+open 539 minutes with 16 jobs queued and every carrier held off by its mini's
+gate (fleet-build host locks, capacity units, a fleet lease), and the alert
+only paged. Each run is dispatched once per RESCUE_REPEAT, recorded in the
+issue body (RESCUE_MARK), since a second dispatch for the same run cancels its
+watch (the rescue's per-run concurrency group), and RESCUE_RUNS_PER_SWEEP a
+sweep at most.
 """
 
 from __future__ import annotations
@@ -38,6 +51,7 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import re
 import sys
 import urllib.parse
 from collections.abc import Iterable, Mapping, Sequence
@@ -55,6 +69,15 @@ FLEET_PREFIX = "glaeda-"
 FLEET_LINUX = "cmux-fleet-linux-x64"
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
+# A run stuck this long on a starved label gets its rescue started (rescue_plan()).
+RESCUE_AFTER = dt.timedelta(minutes=30)
+# A run's watch lasts at most 150 minutes plus 40 to settle (ci-owned-pool-rescue.yml); a dispatch sooner would
+# cancel it, since one run's watches share a concurrency group with cancel-in-progress.
+RESCUE_REPEAT = dt.timedelta(minutes=200)
+RESCUE_RUNS_PER_SWEEP = 6
+RESCUE_WORKFLOW = "ci-owned-pool-rescue.yml"
+# The runs whose rescue this alert started, and when, in the issue body: <!-- starved-rescue: RUN@ISO ... -->.
+RESCUE_MARK = re.compile(r"<!-- starved-rescue:([^>]*)-->")
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -73,6 +96,18 @@ def fleet_key(job: Mapping[str, Any]) -> str:
 def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bool:
     started = parse_time(job.get("started_at"))
     return job.get("status") == "in_progress" or bool(job.get("runner_name") and started and now - started <= after)
+
+
+def run_of(job: Mapping[str, Any]) -> tuple[int, int] | None:
+    """(run id, attempt) of a job: the jobs API's run_id and run_attempt, or the run in its html_url."""
+    run = job.get("run_id")
+    if not isinstance(run, int) or isinstance(run, bool):
+        match = re.search(r"/runs/(\d+)/", str(job.get("html_url") or ""))
+        run = int(match.group(1)) if match else None
+    if not run:
+        return None
+    attempt = job.get("run_attempt")
+    return run, attempt if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0 else 1
 
 
 def stuck(job: Mapping[str, Any]) -> bool:
@@ -167,8 +202,15 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
             continue
         oldest, since = min(ready, key=lambda entry: entry[1])
         age = now - since
+        # The runs stuck past RESCUE_AFTER, oldest wait first: the ones rescue_plan() may start a rescue for.
+        runs: list[list[int]] = []
+        for job, at in sorted(ready, key=lambda entry: entry[1]):
+            got = run_of(job)
+            if got and list(got) not in runs and now - at >= RESCUE_AFTER:
+                runs.append(list(got))
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
-                      "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or "")})
+                      "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or ""),
+                      "runs": runs})
     return found
 
 
@@ -186,13 +228,65 @@ def describe(entry: Mapping[str, Any]) -> str:
             f"and no job on it running or started in the last {int(STARVED_AFTER.total_seconds() // 60)} minutes")
 
 
-def issue_body(entry: Mapping[str, Any], generated_at: str) -> str:
+def rescued_runs(body: object) -> dict[int, dt.datetime]:
+    """Run id -> when this alert last started its rescue, from an issue body's RESCUE_MARK."""
+    out: dict[int, dt.datetime] = {}
+    for mark in RESCUE_MARK.findall(str(body or "")):
+        for item in mark.split():
+            run, _, at = item.partition("@")
+            when = parse_time(at)
+            if run.isdigit() and when is not None:
+                out[int(run)] = max(when, out.get(int(run), when))
+    return out
+
+
+def rescue_plan(entry: Mapping[str, Any], rescued: Mapping[int, dt.datetime], now: dt.datetime,
+                room: int = RESCUE_RUNS_PER_SWEEP) -> list[tuple[int, int]]:
+    """The (run, attempt) pairs to start a rescue for: the entry's runs stuck past RESCUE_AFTER (starved()), oldest
+    first, each at most once per RESCUE_REPEAT, `room` at most."""
+    plan: list[tuple[int, int]] = []
+    for pair in entry.get("runs") or ():
+        if len(plan) >= room:
+            break
+        run, attempt = int(pair[0]), int(pair[1])
+        last = rescued.get(run)
+        if last is None or now - last >= RESCUE_REPEAT:
+            plan.append((run, attempt))
+    return plan
+
+
+def start_rescues(github: Any, entry: Mapping[str, Any], rescued: dict[int, dt.datetime], now: dt.datetime,
+                  room: int, lines: list[str]) -> int:
+    """Dispatch rescue_plan()'s runs on main, recording each in `rescued`; returns how many started. Best effort:
+    a refused dispatch is a line, never a failed alert."""
+    started = 0
+    for run, attempt in rescue_plan(entry, rescued, now, room):
+        try:
+            github.request("POST", f"/repos/{github.repo}/actions/workflows/{RESCUE_WORKFLOW}/dispatches",
+                           {"ref": "main", "inputs": {"run_id": str(run), "run_attempt": str(attempt)}})
+        except RuntimeError as error:
+            lines.append(f"could not start run {run}'s rescue for `{entry['label']}`: {error}")
+            continue
+        rescued[run] = now
+        started += 1
+        lines.append(f"started run {run}'s rescue ({RESCUE_WORKFLOW}) for `{entry['label']}`")
+    return started
+
+
+def issue_body(entry: Mapping[str, Any], generated_at: str, rescued: Mapping[int, dt.datetime] | None = None) -> str:
+    rescued = dict(rescued or {})
+    acted = (f"A run stuck here {int(RESCUE_AFTER.total_seconds() // 60)} minutes gets its rescue started "
+             f"(`{RESCUE_WORKFLOW}` with its run_id), which moves a job waiting past the owned bound to Blacksmith"
+             + (f"; started for run(s) {', '.join(str(run) for run in sorted(rescued))}. " if rescued else ". "))
+    mark = " ".join(f"{run}@{at.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                    for run, at in sorted(rescued.items()))
     return (f"The CI queue janitor's sweep at {generated_at} found {describe(entry)}.\n\n"
             "No runner with this label is taking jobs. On the minis, `glaeda-mini-health` reports why "
             "(`runner_stopped` is kickstarted there; a listener held off for `toolchain_mismatch` or "
-            "`node_ineligible` needs its operator). This issue is updated every sweep while the label stays "
-            "starved and closed by the first sweep that finds it served.\n\n"
-            "Source: `scripts/ci/starved_labels.py` (ci-queue-janitor.yml).")
+            "`node_ineligible` needs its operator). " + acted + "This issue is updated every sweep while the "
+            "label stays starved and closed by the first sweep that finds it served.\n\n"
+            "Source: `scripts/ci/starved_labels.py` (ci-queue-janitor.yml)."
+            + (f"\n\n<!-- starved-rescue: {mark} -->" if mark else ""))
 
 
 @dataclasses.dataclass
@@ -249,8 +343,10 @@ def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mappin
 
 
 def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: str, *,
-                unserved: Iterable[str] = (), incomplete: bool = False) -> list[str]:
-    """Open, update and close the per-label issues; returns one line per action."""
+                unserved: Iterable[str] = (), incomplete: bool = False,
+                now: dt.datetime | None = None) -> list[str]:
+    """Open, update and close the per-label issues, and start the stuck runs' rescues (rescue_plan()); returns one
+    line per action."""
     repo = github.repo
     # Found by title, not by ISSUE_LABEL: GitHub drops a label that does not exist yet when the token
     # cannot create it, and a lookup by label would then open a new issue every sweep.
@@ -258,7 +354,9 @@ def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: s
                                     "per_page": 100})
     open_issues = (github.request("GET", f"/search/issues?{query}") or {}).get("items") or []
     plan = plan_issues(found, open_issues, unserved=unserved, generated_at=generated_at, incomplete=incomplete)
-    lines = []
+    lines: list[str] = []
+    now = now or parse_time(generated_at) or dt.datetime.now(dt.timezone.utc)
+    room = RESCUE_RUNS_PER_SWEEP
     for issue, keeper in plan.duplicates:
         github.request("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
                        {"body": f"Duplicate of #{keeper['number']}, which tracks this label."})
@@ -266,11 +364,17 @@ def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: s
                        {"state": "closed", "state_reason": "not_planned"})
         lines.append(f"closed #{issue['number']} as a duplicate of #{keeper['number']}")
     for entry in plan.open:
+        rescued: dict[int, dt.datetime] = {}
+        room -= start_rescues(github, entry, rescued, now, room, lines)
         created = github.request("POST", f"/repos/{repo}/issues", {
-            "title": issue_title(entry["label"]), "body": issue_body(entry, generated_at), "labels": [ISSUE_LABEL]})
+            "title": issue_title(entry["label"]), "body": issue_body(entry, generated_at, rescued),
+            "labels": [ISSUE_LABEL]})
         lines.append(f"opened #{created.get('number')} for `{entry['label']}`")
     for issue, entry in plan.update:
-        github.request("PATCH", f"/repos/{repo}/issues/{issue['number']}", {"body": issue_body(entry, generated_at)})
+        rescued = rescued_runs(issue.get("body"))
+        room -= start_rescues(github, entry, rescued, now, room, lines)
+        github.request("PATCH", f"/repos/{repo}/issues/{issue['number']}",
+                       {"body": issue_body(entry, generated_at, rescued)})
         lines.append(f"updated #{issue['number']} for `{entry['label']}`")
     for issue in plan.close:
         github.request("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
