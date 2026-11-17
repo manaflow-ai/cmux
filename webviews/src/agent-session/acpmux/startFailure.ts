@@ -1,4 +1,6 @@
+import { agentName } from "./agents";
 import { failureCopy, failureKind } from "./failureCopy";
+import { startErrorMessage } from "./transportErrors";
 import type { Translate } from "./i18n";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import {
@@ -124,6 +126,29 @@ export function startFailureCode(error: unknown): string | undefined {
 /// ConsoleErrorCapture), with the chat it was starting: `none` before acpmux made one.
 export function logStartFailure(harness: string, sessionId: string | undefined, cause: string | undefined): void {
   console.error(`agent pane: couldn't start ${harness} session=${sessionId ?? "none"}: ${cause ?? "no error"}`);
+}
+
+/// The codes of a start that waited for acpmux and gave up: the pane's host line already says the
+/// agent service is away, so a sessionless send's start says nothing more there (sendFailure.ts
+/// `host-away`, Leo 2026-11-12); the log still has it.
+const HOST_AWAY = new Set(["native.not_connected", "native.timed_out", START_CONNECTION_LOST]);
+
+/// A chat's first send that started its session itself (direct.ts `ensureSession`, no HarnessSwitch)
+/// and failed: logs the cause, and returns the line the pane's notice says, or nothing for a start
+/// that waited for acpmux (`HOST_AWAY`) or was cancelled. Before, that start put the prompt back with
+/// no word of why (#44964). `harness`: the chat's agent, when the pane knows it.
+export function startFailureNotice(t: Translate, harness: string | undefined, error: unknown): string | undefined {
+  const cause = startFailureCause(error);
+  logStartFailure(harness ?? "agent", undefined, cause);
+  const code = startFailureCode(error);
+  if (code && HOST_AWAY.has(code)) return undefined;
+  return startFailureView(t, {
+    harness: harness ?? "",
+    name: harness ? agentName(harness) : t("turn.failure.theAgent"),
+    error: startErrorMessage(error) || t("switch.unknownError"),
+    ...(code ? { code } : {}),
+    ...(cause ? { cause } : {}),
+  }).sentence;
 }
 
 function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {

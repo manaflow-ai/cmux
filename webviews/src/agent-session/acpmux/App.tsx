@@ -243,6 +243,7 @@ import {
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
+import { startFailureNotice } from "./startFailure";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
@@ -8717,6 +8718,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // A refused start (a chat on another machine, cx-k21v) says why in this page's own
               // view: the host's typed refusal, already localized, under the localized "Not sent".
               if (isStartRefusal(error)) client.notice(failedSendText(error, false));
+              // Any other failed start says why too, and its cause goes to the log (#44964); a trust
+              // refusal has its own question, a cancelled start is no failure.
+              else if (!isTrustRefusal(error) && !isStartCancelled(error)) {
+                const line = startFailureNotice(translate, client.shownSession()?.harness, error);
+                if (line) client.notice(line);
+              }
               return refused(error, Boolean(accepted));
             });
 
