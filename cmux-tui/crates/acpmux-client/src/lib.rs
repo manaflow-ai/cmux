@@ -3752,6 +3752,10 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "500 held rows of safe code, over 10 minutes under Miri; no FFI call"
+    )]
     fn mirror_parent_refresh_batches_only_its_held_children() {
         for total in [20, 500] {
             let mut client = Client::<Value>::connected_v2();
@@ -3813,6 +3817,7 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "4,096 keys of safe code, over 10 minutes under Miri; no FFI call")]
     fn caller_wanted_keys_have_priority_over_internal_parents() {
         let mut client = ready_mirror();
         {

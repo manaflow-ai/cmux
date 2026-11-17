@@ -916,7 +916,11 @@ def ci_helper_areas(
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a

@@ -618,9 +618,11 @@ public final class TerminalHostView: NSView {
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
     /// terminal's own theme differs from theirs: its background then lies over
-    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
-    /// background (`appearance.surfaces.terminal`) replaces all of these;
-    /// the surfaces then draw a transparent default background.
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). Over a
+    /// background picture a terminal whose Ghostty config is opaque paints its
+    /// own background solid, as Ghostty draws it (``keepsGhosttyBackground(over:in:)``).
+    /// The user's terminal background (`appearance.surfaces.terminal`) replaces
+    /// all of these; the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
         sizeHatch?.ground = hatchGround
         let (scope, tokens) = (themeScope, themeTokens)
@@ -628,20 +630,23 @@ public final class TerminalHostView: NSView {
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
-        // Under an App Theme, a terminal on the terminal theme draws on the App Theme's one veil
-        // (sidebar and panes alike), its colors raised to read on it; on an opaque window or with
-        // its own theme it keeps its own background.
-        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
+        let keepsOwn = Self.keepsGhosttyBackground(over: backdrop, in: scope)
+        // Under an App Theme, a terminal on the terminal theme that shows the window through draws on the App Theme's
+        // one veil (sidebar and panes alike), its colors raised to read on it; on an opaque window, on its own solid
+        // background over a picture, or with its own theme it keeps its own background and colors.
+        let veil = !backdrop.panesPaintBackground && !keepsOwn && theme == nil && scope.store.appTheme != nil
         onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        guard !backdrop.panesPaintBackground else {
+        guard !backdrop.panesPaintBackground, !keepsOwn else {
             // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
-            // the colour of its empty cells.
-            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
+            // the colour of its empty cells. Over a picture the surfaces draw a transparent default background
+            // (`GhosttyRuntimeSurfacePolicy`), so this is the background under every cell.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor
+                ?? (keepsOwn ? Self.solidGround(theme) : Self.opaqueGround(theme))
             return
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)

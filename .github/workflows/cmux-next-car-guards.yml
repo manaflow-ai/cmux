@@ -292,7 +292,7 @@ jobs:
       status: ${{ steps.guards.outputs.status }}
     # Blacksmith 6 vCPU: the fast-tier seed's pool (cmux-next-fast-tier-seed.yml), so a car's
     # Swift build restores a warm seed and rebuilds only what the car changed.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
     timeout-minutes: 45
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
