@@ -10,8 +10,9 @@
 //!   [`load_verified`] after its SHA-256 matches [`CiscoBinary`] for the
 //!   platform. Mac hosts encode with VideoToolbox instead.
 //!
-//! The encoder settings: baseline, bitrate rate control with frame skip,
-//! infinite GOP, one reference, screen or camera usage.
+//! The encoder settings: baseline, bitrate rate control, infinite GOP, one
+//! reference, screen or camera usage; frames are dropped to hold the rate by
+//! [`Pacer`], not by OpenH264's own frame skipping.
 
 use std::os::raw::{c_int, c_void};
 #[cfg(feature = "openh264-runtime")]
@@ -185,6 +186,7 @@ pub struct OpenH264 {
     /// The instance codes with screen usage now (else camera usage).
     screen: bool,
     motion: MotionGuard,
+    pacer: Pacer,
 }
 
 /// Screen usage turns OpenH264's scene-change detection on whatever the settings say
@@ -244,6 +246,7 @@ fn ok(rc: c_int, what: &str) -> Res<()> {
 /// (`frameskip=0,threads=8,complexity=1,minqp=18,maxqp=40,aq=1,bgd=1`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenH264Options {
+    /// Drop pictures to hold the target rate ([`Pacer`]); off, every picture is coded.
     pub frame_skip: bool,
     /// Worker threads and slices; `None` is the config's.
     pub threads: Option<u16>,
@@ -387,6 +390,7 @@ impl OpenH264 {
             opts: opts.clone(),
             screen: cfg.screen_content && opts.usage != Usage::Camera,
             motion: MotionGuard::default(),
+            pacer: Pacer::default(),
         };
         this.rebuild(this.screen)?;
         Ok(this)
@@ -473,16 +477,6 @@ impl OpenH264 {
         }
     }
 
-    /// Turns OpenH264's frame skipping on or off on the live instance.
-    fn set_frame_skip(&self, on: bool) {
-        let Some(set) = self.vtbl().SetOption else { return };
-        let mut value = on;
-        // SAFETY: a live encoder; the option's payload is a bool.
-        unsafe {
-            set(self.enc, ENCODER_OPTION_RC_FRAME_SKIP, (&mut value as *mut bool).cast::<c_void>());
-        }
-    }
-
     fn vtbl(&self) -> &ISVCEncoderVtbl {
         // SAFETY: `enc` points at a live encoder whose first field is its vtable pointer.
         unsafe { &**self.enc }
@@ -530,9 +524,8 @@ unsafe fn init(
     p.bPrefixNalAddingCtrl = false;
     p.bEnableSSEI = false;
     p.iEntropyCodingModeFlag = 0;
-    // Frame skipping lets the rate controller hold the target (measured: without it the
-    // target overshot 6x); a skipped frame sends nothing and the next damage retries.
-    p.bEnableFrameSkip = opts.frame_skip;
+    // OpenH264's frame skipping stays off: [`Pacer`] drops frames to hold the rate instead.
+    p.bEnableFrameSkip = false;
     p.bEnableLongTermReference = opts.ltr > 0;
     p.iMultipleThreadIdc = threads;
     p.bUseLoadBalancing = opts.load_balancing;
@@ -584,27 +577,75 @@ unsafe fn init(
     Ok(())
 }
 
-/// A new instance's first frame (the share's start keyframe, or the one after a usage move)
-/// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
-/// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
-/// whatever it costs: a dense 1080p desktop at the 8 Mbit/s start rate came to ~760 KB, 0.77 s
-/// of the rate. The skip buffer holds half a second of the rate (SKIP_RATIO), so it dropped
-/// every frame after that keyframe until the excess drained: 16 frames, ~270 ms in which a new
-/// share's first key presses showed nothing. A smaller keyframe does not fix it: coded at an eighth of the rate, the table's QP reaches 35, the top of screen
-/// usage's range, and screen text shrank only 22 %; a session-wide QP floor capped steady
-/// quality. The keyframe's bits still count against the rate controller's eight-frame budget,
-/// which carries the overshoot, so it repays them by coding every other frame for a while
-/// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
-/// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
-/// comes on a lossy link, where frames skipped after it are bits the link can't carry.
-fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
-    opts.frame_skip && fresh
+/// Seconds of the target rate a quiet share banks for the next burst (a press after
+/// idle codes at once, and so does the first frame of motion).
+const PACER_CREDIT_S: f64 = 0.1;
+
+/// Drops pictures so the coded bits hold the target rate: a token bucket filled at the
+/// current rate by the pictures' timestamps, holding at most [`PACER_CREDIT_S`]; a picture
+/// is dropped while the bucket is in debt, and a coded frame's bits are its debt. A dropped
+/// picture sends nothing and the next damage retries.
+///
+/// OpenH264's own frame skipping did this before, and its state is what held a new share
+/// with motion at 30 fps for seconds. v2.6.0 (`bFixRCOverShoot`, on by default and not
+/// settable after init) carries an eight-frame budget's overshoot forward with no bound
+/// (`RcInitVGop`); the start keyframe of a moving 1080p desktop (5.4 Mbit, 0.7 s of the
+/// 8 Mbit/s start rate) puts it 4.4 Mbit in deficit, and each rise of the rate scales the
+/// deficit by the rise (`RcUpdateBitrateFps`): 69 Mbit once the rate is 50 Mbit/s. While
+/// it lasts, every coded frame trips the budget check (`RcVBufferCalculationSkip`, 10 %
+/// over) and the next is skipped: exactly every other frame, 30 fps and 36.7 Mbit/s at a
+/// 50 Mbit/s target, for 5 s. No option resets that state on a running instance (only a
+/// new instance does, and that costs a keyframe). With skipping off, OpenH264 sets QP
+/// alone and the deficit only keeps QP at its ceiling until it is repaid, where moving
+/// pictures code anyway; the frame rate is the pacer's.
+///
+/// A new instance's first keyframe (the share's start, or a usage move) is free: it is
+/// the cost of starting, and counted, its 0.7 s of debt would drop every frame after it.
+/// A keyframe forced on a running instance (the viewer's recovery after loss) is
+/// counted: it comes on a lossy link, where frames sent after it are bits the link
+/// can't carry.
+#[derive(Default)]
+struct Pacer {
+    /// Bits coded beyond the rate so far; below zero, credit.
+    debt_bits: f64,
+    last_pts: Option<i64>,
+    /// A forced keyframe was dropped; the next coded picture is one.
+    idr_pending: bool,
+}
+
+impl Pacer {
+    /// Pays out the time since the last picture at `kbps`; true when the picture at
+    /// `pts` (microseconds) is to be dropped.
+    fn over(&mut self, pts: i64, kbps: u32) -> bool {
+        let rate = f64::from(kbps) * 1000.0;
+        if let Some(last) = self.last_pts {
+            let secs = ((pts - last) as f64 / 1e6).clamp(0.0, 1.0);
+            self.debt_bits -= rate * secs;
+        }
+        self.last_pts = Some(pts);
+        self.debt_bits = self.debt_bits.max(-rate * PACER_CREDIT_S);
+        self.debt_bits > 0.0
+    }
+
+    fn coded(&mut self, bytes: usize) {
+        self.debt_bits += bytes as f64 * 8.0;
+    }
 }
 
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
         self.pick_usage(pic);
+        let force_idr = force_idr || self.pacer.idr_pending;
+        let fresh = self.motion.fresh;
+        if self.opts.frame_skip && !fresh && self.pacer.over(pts, self.kbps) {
+            self.pacer.idr_pending = force_idr;
+            return Ok(false);
+        }
+        if fresh {
+            // Its first picture starts the clock.
+            self.pacer.over(pts, self.kbps);
+        }
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
         let encode = vt.EncodeFrame.ok_or("no EncodeFrame")?;
@@ -624,19 +665,14 @@ impl H264Encoder for OpenH264 {
             bPsnrU: false,
             bPsnrV: false,
         };
-        let skip_off = keyframe_codes_with_skip_off(&self.opts, self.motion.fresh);
-        if skip_off {
-            self.set_frame_skip(false);
-        }
         // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
-        let coded = unsafe {
-            if force_idr { ok(force(self.enc, true), "force idr") } else { Ok(()) }
-                .and_then(|()| ok(encode(self.enc, &src, &mut *self.info), "encode"))
-        };
-        if skip_off {
-            self.set_frame_skip(true);
+        unsafe {
+            if force_idr {
+                ok(force(self.enc, true), "force idr")?;
+            }
+            ok(encode(self.enc, &src, &mut *self.info), "encode")?;
         }
-        coded?;
+        self.pacer.idr_pending = false;
         let info = &*self.info;
         if info.eFrameType == videoFrameTypeSkip {
             return Ok(false);
@@ -651,6 +687,9 @@ impl H264Encoder for OpenH264 {
                 out.extend_from_slice(nal);
                 offset += len;
             }
+        }
+        if !fresh {
+            self.pacer.coded(out.len());
         }
         let idr = info.eFrameType == videoFrameTypeIDR;
         // A new instance's first IDR is the move's, not a scene change's.
