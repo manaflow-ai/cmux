@@ -33,8 +33,8 @@ final class AgentCardOpenShiftUITests: XCTestCase {
             // The grid rests: its agent cards are drawn as pictures.
             pause(3.0)
             attach(app, "\(round)-a-grid")
-            let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Claude' AND label ENDSWITH ', tab'")).firstMatch
-            XCTAssertTrue(card.waitForExistence(timeout: 10), "the Claude card\n\(app.debugDescription)")
+            let card = app.buttons.matching(NSPredicate(format: "label == 'Refactor transport layer, tab'")).firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 10), "the agent tab's card (Refactor transport layer)\n\(app.debugDescription)")
             card.tap()
             // The zoom and the first frames of the page, then at rest.
             for index in 0 ..< 8 {
@@ -43,7 +43,7 @@ final class AgentCardOpenShiftUITests: XCTestCase {
             }
             pause(1.5)
             attach(app, "\(round)-c-rest")
-            XCTAssertTrue(app.buttons["Reply to Claude"].firstMatch.waitForExistence(timeout: 10), "the Claude page's composer")
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch.waitForExistence(timeout: 10), "the agent page's composer")
         }
     }
 
