@@ -3,6 +3,7 @@
 //! then runs the turn that is due: the measurement of the terminals whose history grew
 //! (`memory_budget.rs`), the snapshot and tail pass (`snapshot.rs`), or both.
 
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -82,9 +83,10 @@ impl Writer {
     /// Stop the writer and wait for its thread's end, with the bound that
     /// each join of a stop has (`mux/stop_join.rs`; decision of 2026-11-17).
     /// A thread that does not end in that time (a pass that waits for a lock
-    /// or for the disk) is left alive: it goes with its name into the list
-    /// that the owner's release reads, and each later stop finds it here.
-    pub(super) fn stop(&self) -> WriterStop {
+    /// or for the disk) is left alive: it goes with its name and with
+    /// `owner`, the session folder of the store's owner, into the list that
+    /// the owner's release reads, and each later stop finds it here.
+    pub(super) fn stop(&self, owner: Option<&Path>) -> WriterStop {
         {
             let (lock, changed) = &*self.state;
             lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true;
@@ -109,7 +111,7 @@ impl Writer {
         }
         let thread = Arc::new(thread);
         *left = Some(Arc::clone(&thread));
-        stop_join::left(OUTPUT_STORE_WRITER, move || thread.is_finished());
+        stop_join::left(owner, OUTPUT_STORE_WRITER, move || thread.is_finished());
         WriterStop::LeftNow
     }
 }
@@ -136,7 +138,7 @@ impl OutputStore {
         if self.directory.is_none() {
             return;
         }
-        match self.writer.stop() {
+        match self.writer.stop(self.directory().and_then(Path::parent)) {
             WriterStop::Ended => {}
             WriterStop::LeftBefore => return,
             WriterStop::LeftNow => {
@@ -318,7 +320,7 @@ mod worker_tests {
             pass: impl FnOnce() + Send + 'static,
         ) -> std::sync::mpsc::Receiver<()> {
             let writer = &mux.output_store.writer;
-            writer.stop();
+            writer.stop(mux.stop_owner());
             let (ends, ended) = std::sync::mpsc::channel();
             let owner = Arc::clone(mux);
             let thread = std::thread::spawn(move || {

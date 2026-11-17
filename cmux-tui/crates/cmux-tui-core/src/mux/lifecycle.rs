@@ -275,8 +275,9 @@ impl Mux {
         if !self.output_cleanup_ended_by(deadline) {
             alive.push(OUTPUT_CLEANUP_WORKER);
         }
-        // Each thread that a bounded join of the stop left alive, by name.
-        alive.extend(stop_join::alive_at(deadline));
+        // Each thread that a bounded join left alive and that keeps this
+        // owner, by name: its own threads, and the threads with no owner.
+        alive.extend(stop_join::alive_at(self.stop_owner(), deadline));
         // A join of the journal writer that ran out, in this shutdown or
         // before it: stderr is often lost, the record is not.
         let writer_join = self.journal_ingress.late_writer_join();

@@ -1146,11 +1146,11 @@ fn a_bounded_join_leaves_a_thread_that_does_not_end_and_lists_it_until_its_end()
     });
     // No wait: the thread cannot end before the channel closes.
     let end = stop_join::join_for(NAME, thread, Duration::ZERO);
-    let listed = stop_join::alive_at(Instant::now());
+    let listed = stop_join::alive_at(None, Instant::now());
     drop(end_the_thread);
     // The bound is for a list that does not let the thread go: a thread
     // that ended leaves the list at once.
-    let listed_after = stop_join::alive_at(Instant::now() + OWNER_CALL_WAIT);
+    let listed_after = stop_join::alive_at(None, Instant::now() + OWNER_CALL_WAIT);
     let ended = stop_join::join_for(NAME, std::thread::spawn(|| 7), OWNER_CALL_WAIT);
     assert!(end.is_none(), "the join gave an end for a thread that had not ended");
     assert!(
@@ -1167,10 +1167,10 @@ fn a_bounded_join_leaves_a_thread_that_does_not_end_and_lists_it_until_its_end()
     );
 }
 
-/// The names that a release of `_owner` reads, at this moment, from the list
+/// The names that a release of `owner` reads, at this moment, from the list
 /// of the threads that a stop left alive. The read has no wait.
-fn left_for(_owner: &Mux) -> Vec<&'static str> {
-    stop_join::alive_at(Instant::now())
+fn left_for(owner: &Mux) -> Vec<&'static str> {
+    stop_join::alive_at(owner.stop_owner(), Instant::now())
 }
 
 /// Two owners in one process, each with its own session folder. The stop of

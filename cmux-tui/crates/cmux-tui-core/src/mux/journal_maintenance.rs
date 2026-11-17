@@ -208,13 +208,13 @@ impl JournalMaintenance {
         Ok(Self { control, thread: Some(thread) })
     }
 
-    pub(super) fn stop(mut self) {
+    pub(super) fn stop(mut self, owner: &Mux) {
         self.control.stop();
         if let Some(thread) = self.thread.take() {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = Mux::join_within_stop("journal maintenance worker", thread);
+                let _ = owner.join_within_own_stop("journal maintenance worker", thread);
             }
         }
     }
@@ -248,7 +248,7 @@ impl Mux {
         let maintenance =
             self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(maintenance) = maintenance {
-            maintenance.stop();
+            maintenance.stop(self);
         }
     }
 
