@@ -112,12 +112,21 @@ def _hit(hits: list[dict], pattern: str, line: int, source: str, lines: list[str
         hits.append({"pattern": pattern, "line": line, "source": source.strip()})
 
 
+def _rust_test_file(rel: str) -> bool:
+    """A `foo_tests.rs` module, or a file of its `foo_tests/` directory (its submodules, test code too)."""
+
+    if not rel.endswith(".rs"):
+        return False
+    parts = rel.split("/")
+    return parts[-1].endswith("_tests.rs") or any(part.endswith("_tests") for part in parts[:-1])
+
+
 def scan_source(text: str, rel: str) -> list[dict]:
     """Return short-timeout hits for one repository-relative source file."""
 
     if Path(rel).suffix not in SOURCE_SUFFIXES or not any(rel.startswith(p) for p in PATH_PREFIXES):
         return []
-    if rel.endswith("_tests.rs"):
+    if _rust_test_file(rel):
         return []
     raw_lines = text.splitlines()
     masked = _mask(text)
@@ -183,7 +192,7 @@ def source_files(root: Path) -> Iterable[tuple[str, Path]]:
             if not raw:
                 continue
             path = root / raw
-            if path.suffix in SOURCE_SUFFIXES and not raw.endswith("_tests.rs"):
+            if path.suffix in SOURCE_SUFFIXES and not _rust_test_file(raw):
                 yield raw, path
         return
     for prefix in PATH_PREFIXES:
@@ -194,7 +203,7 @@ def source_files(root: Path) -> Iterable[tuple[str, Path]]:
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue
             rel = path.relative_to(root).as_posix()
-            if rel.endswith("_tests.rs"):
+            if _rust_test_file(rel):
                 continue
             yield rel, path
 

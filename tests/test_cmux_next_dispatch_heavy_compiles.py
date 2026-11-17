@@ -35,7 +35,8 @@ check(bool(full_input) and "default: false" in full_input.group(1) and "type: bo
       "`full` must be a boolean that defaults to false, so a plain dispatch skips the heavy compiles")
 
 route = re.search(r"- name: Classify pull request paths\n        id: route\n(.*?)(?=\n      - name: )", WORKFLOW, re.DOTALL)
-route_text = route.group(1) if route else ""
+# The step's env is in the workflow; its run is scripts/ci/cmux-next-route-step.sh (the workflow file size limit).
+route_text = (route.group(1) if route else "") + "\n" + (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text()
 check("FULL_DISPATCH: ${{ inputs.full || false }}" in route_text, "the route step must read inputs.full")
 block = re.search(r"\n( +)if \[\[ \"\$EVENT_NAME\" == workflow_dispatch && -z \"\$SAME_TREE_SHA\" && \"\$FULL_DISPATCH\" != true(.*?)\n\1fi\n",
                   route_text, re.DOTALL)

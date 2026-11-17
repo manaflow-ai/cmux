@@ -76,6 +76,8 @@ OWN_REPOSITORY = {
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "fetches each dependency pin into its own temporary `git init` directory",
+    "scripts/ci/cmux_next_base_merge_carry.py":
+        "clean_merge_tree fetches only into its own `git init --bare` scratch repository, deleted when it returns",
     "scripts/ci/base_red_excuse.py": "git_text fetches only into its own `git init --bare` cache repository under source_cache(), never the caller's clone",
     "scripts/ci/cmux_next_base_merge_carry.py":
         "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",

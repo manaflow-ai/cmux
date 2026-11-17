@@ -883,7 +883,9 @@ class PathRoutingStructure(unittest.TestCase):
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
         route_step = next(step for step in route["steps"] if step.get("id") == "route")
-        self.assertIn("scripts/ci/cmux_next_route.py", route_step["run"])
+        # The step runs scripts/ci/cmux-next-route-step.sh (out of the workflow for its 500 KB file limit).
+        self.assertEqual(route_step["run"].strip(), "bash scripts/ci/cmux-next-route-step.sh")
+        self.assertIn("scripts/ci/cmux_next_route.py", (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text(encoding="utf-8"))
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])

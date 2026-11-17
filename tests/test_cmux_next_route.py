@@ -1718,6 +1718,9 @@ class RouteLabels(unittest.TestCase):
             (repo / "scripts/ci").mkdir(parents=True)
             (repo / "scripts/cmux-next").mkdir(parents=True)
             bin_dir.mkdir()
+            # The step runs this script (moved out of the workflow for its 500 KB file limit).
+            (repo / "scripts/ci/cmux-next-route-step.sh").write_text(
+                (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text(encoding="utf-8"))
             (repo / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys, pathlib\n"
                 "args = sys.argv[1:]\n"

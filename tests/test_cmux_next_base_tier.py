@@ -1104,6 +1104,7 @@ class RouteStep(unittest.TestCase):
             root = Path(tmp)
             (root / "scripts/ci").mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/cmux_next_base_tier.py", root / "scripts/ci/")
+            shutil.copy(ROOT / "scripts/ci/cmux-next-route-step.sh", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
@@ -1237,7 +1238,9 @@ class Workflows(unittest.TestCase):
         # Only the three base tier outputs are rewritten; nightly-next's Release compile (native), the DEV
         # landing compile (its own job) and the fast tier keep their push routing.
         self.assertEqual(tier.TIERS, ("daemon", "scheme", "generated"))
-        text = route_step()["run"]
+        # The step runs scripts/ci/cmux-next-route-step.sh (out of the workflow for its 500 KB file limit).
+        self.assertEqual(route_step()["run"].strip(), "bash scripts/ci/cmux-next-route-step.sh")
+        text = (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text(encoding="utf-8")
         self.assertTrue(re.search(r'"\$EVENT_NAME" == push && "\$GITHUB_REF" == refs/heads/feat-cmux-next && '
                                   r'"\$BASE_TIER_COALESCE" == true', text))
 

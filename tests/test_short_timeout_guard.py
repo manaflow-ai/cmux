@@ -106,6 +106,10 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             [hit["pattern"] for hit in guard.scan_source(rust, "cmux-tui/crates/acpmux/src/hub/start.rs")],
             ["rust-duration", "rust-duration", "rust-duration"],
         )
+        # A `foo_tests.rs` module's own directory holds its submodules (`mod flood_bulk;` inside it), test code too.
+        for test_file in ("cmux-tui/crates/acpmux/src/server/outbound_queue_tests.rs",
+                          "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/flood_bulk.rs"):
+            self.assertEqual(guard.scan_source(rust, test_file), [], test_file)
 
         ts = (
             "const deadline = performance.now() + 2_000;\n"

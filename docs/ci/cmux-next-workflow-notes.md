@@ -3630,3 +3630,113 @@ success, and the PR has no `full-ci`, the fast tier, generated files, daemon tes
 and Swift canary outputs are set false (appended after the router's: the last value wins) and the summary names
 H and its run. The native tier stays as routed. Anything unread is no carry. `CMUX_NEXT_BASE_MERGE_CARRY=0`
 turns it off. tests/test_cmux_next_base_merge_carry.py is the detector.
+
+## note-389
+
+Above the header, above `on:` in `.github/workflows/cmux-next.yml`.
+
+Package tests and merge-gate checks for the cmux-next app package
+(Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
+suites in-process; it never builds or launches a cmux DEV app. The checks
+are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
+string tables (the CmuxNext catalogs and InfoPlist).
+
+A pull request runs only the tiers its change can break
+(scripts/ci/cmux_next_route.py, docs/ci/cmux-next-tiers.md):
+  checks     always (Linux)
+  generated  generated action contracts, the CI target graph and the settings exports are fresh;
+             a stale file gets a bot fix commit on a same-repository PR
+  native     the Release compile, for Swift and app sources
+  scheme     the Debug app scheme compile, for the app host, Xcode project,
+             webviews and local packages
+  swift      the CmuxNext test targets the SwiftPM target graph says the
+             change reaches (Packages/macOS/CmuxNext/ci-target-graph.json)
+  daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
+             Rust core, FFI and control paths
+A same-repository pull request runs every tier the router picks on its own
+branch, with no label (#22303), except the two heavy app compiles (native and
+scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
+deep), and the swift tier, which needs full-ci too (2026-11-05: of 78 PR
+swift-test check runs, 37 were cancelled by a merge, a newer push or a re-run
+and none passed; the tip suite dispatch gives the base its verdict); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
+native tier compiles the PR's head on the build fleet instead
+(app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
+that changes an input only that xcodebuild sees: path_route's mac_release,
+cmux_next_route.MAC_RELEASE_INPUTS). A fork pull
+request runs the fast tier and,
+for a CmuxNext .swift change, the Release compile, and the other Mac tiers
+only with the full-ci label, on its hosted fallback. full-ci also makes the router
+pick every tier. A feat-cmux-next push runs the Mac compiles but not swift
+test (see the jobs comment below); a red push run names the pull requests in
+its range.
+
+## note-391
+
+Above the `failed` push comparison (`EVENT_NAME == push && BEFORE`) in the checks job's red-checks step in `.github/workflows/cmux-next.yml`.
+
+A push names which reds it added and which the previous tip already had, but every
+red keeps the job red. Turning inherited reds into warnings (0150fc73e3e) made the
+tip's checks job green while its checks were red: base_red_checks.py excused every red
+while the previous tip was still pending, which on a branch with ~100 merges a day is
+nearly always, so new reds landed unseen; and the PR-side comparisons
+(pr_red_checks_comment.py, base_red_excuse.py, next-autoland) read the green tip as
+"green on the base" and charged the base's reds to every open pull request
+(2026-10-30: 252 of 660 open PRs red on four base reds, no autoland merge in 24 h).
+
+## note-392
+
+Above `tree_path=` in the swift test job's broad pass step in `.github/workflows/cmux-next.yml`.
+
+The selected targets as several test processes at once, split by
+target and suite prefix (scripts/cmux-next/swift-test-shards.py), as
+many at a time as the runner's cores and memory hold. One process ran
+them all before: ~6,300 tests queued on its one main thread and the
+windows they left open piled up (3 -> 428), so throughput fell from
+~2,000 to ~100 tests a minute and the pass hit its limit with 466
+tests unfinished (#26809, run 40705037968).
+The same-tree cmux-tui as it is when the broad pass starts, the same
+for every shard. In the one shared process the base runs, the
+live-daemon suites read the tree once, early, before any
+CmuxNextDaemonTests suite could fetch it (RealBinary.sameTree), so
+they ran only when the tree was already here (after the
+changed-suites pass fetched it, say) and skipped otherwise. As
+shards, those that started after a fetch ran them and the rest
+skipped (run 40932106119: 87 skipped, 315 on the base). Resolved
+once here, a missing tree is a path that is never a file: no shard
+fetches it, and every live-daemon suite skips as on the base. The
+daemon tests job fetches the tree and runs the daemon suites.
+
+## note-393
+
+Above `gui=` (the gui_runner/gui_overflow read) in the `Place the macOS jobs` step in `.github/workflows/cmux-next.yml`.
+
+An empty gui_runner is meaningful: no online runner carries the
+GUI label, so preserve the picker/placement fallback instead of
+synthesizing a label that may not exist in the fleet.
+A placement that names neither a GUI route nor a GUI overflow (a
+trusted base that predates the sized gui_overflow, or one whose
+runner read failed closed) vouches for no owned GUI queue: the GUI
+jobs take Blacksmith 6 vCPU, the last resort, as the synthesized
+runner above sent them before, never the owned GUI queue unmeasured.
+
+## note-394
+
+Above `submit()` in the daemon tests job's fleet step in `.github/workflows/cmux-next.yml`.
+
+submit N PACKAGE SUITES: one fleet step that builds PACKAGE once and runs SUITES at REF.
+CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 keeps the Mac fast tier's 60-second limit per entry
+(package-test-lane.sh's suite default is 900 s); the build before the suites has no such limit.
+--no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
+--queue-timeout 1200: the light class's measured queue p90 (cmux-ci's warning: 746 s on
+2026-11-08 12:07Z, 1314 s at 14:28Z), bounded at 20 minutes; past it the tier runs itself.
+
+## note-395
+
+Above the `hybrid_ref_capture.py have` call in `.github/workflows/cmux-next.yml`.
+
+Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
+packs 14 days). A rate limit is waited out; a lookup that still fails captures anyway and
+fails this step, so the run shows it (40428066457 lost its capture to a silent rate limit).
+compile=true skips the product reuse so there is a build to capture, unless a capture of
+this key came out incomplete in the last day (then only a build that compiles anyway
+captures, and a key that never captures whole cannot turn reuse off for every landing).

@@ -242,7 +242,9 @@ class Workflow(unittest.TestCase):
         cls.step = next(step for step in cls.route_job["steps"] if step.get("id") == "route")
 
     def test_route_step_asks_the_carry_after_the_router(self):
-        run = self.step["run"]
+        # The step runs scripts/ci/cmux-next-route-step.sh (out of the workflow for its 500 KB file limit).
+        self.assertEqual(self.step["run"].strip(), "bash scripts/ci/cmux-next-route-step.sh")
+        run = (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text(encoding="utf-8")
         router = run.index("scripts/ci/cmux_next_route.py")
         asked = run.index("scripts/ci/cmux_next_base_merge_carry.py")
         self.assertLess(router, asked)
