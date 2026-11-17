@@ -346,8 +346,10 @@ async fn turn(app: &mut Client, host: &Host, id: &str, text: &str, seen: &mut Se
             } else if v["result"]["stopReason"] != "end_turn" {
                 seen.problems.push(format!("{text:?} ended {}", v["result"]));
             }
-            // A peer chat's text is read where it runs: its relayed updates may reach this
-            // connection after the turn's answer.
+            // A local chat's text reached the pane before the turn's answer, or the pane drew
+            // the turn ended and then its words (`server/fanout.rs` `Flush`). A peer chat's
+            // text is read where it runs: its relayed updates may reach this connection after
+            // the turn's answer.
             return match peer {
                 Some(o) => logged_text(o, raw, skip),
                 None => said,
