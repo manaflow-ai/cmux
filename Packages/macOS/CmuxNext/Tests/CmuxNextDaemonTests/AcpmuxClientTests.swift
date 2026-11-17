@@ -110,9 +110,9 @@ private func replay(_ bytes: Data, steps: [RecordedStep], chunkSize: Int) throws
 
 @Suite("AcpmuxClientTests")
 struct AcpmuxClientTests {
-    @Test("the wrapper requires the ABI-3 header")
+    @Test("the wrapper requires the ABI-4 header")
     func abiVersionIsPinned() {
-        #expect(AcpmuxClient.expectedABIVersion == 3)
+        #expect(AcpmuxClient.expectedABIVersion == 4)
     }
 
     @Test("the byte driver cap is one MiB")

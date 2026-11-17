@@ -525,6 +525,7 @@ impl CongestionController {
             self.target_bps = self.config.lan_start_bps;
             self.clamp();
         }
+        self.outage.on_rtt(rtt_us);
     }
 
     fn unwrap_arrival(&mut self, raw: u32) -> i64 {

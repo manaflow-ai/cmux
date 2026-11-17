@@ -195,6 +195,7 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
     try:
         try:
             env = smoke.fresh_env(home_root, socket_path, marks_write)
+            smoke.login_keychain(env)  # a person's home has one: no Safe Storage Keychain dialog (cmuxterm-hq#11994)
             with open(home_root / f"app-{name}.log", "wb") as app_log:
                 process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
                                             "-ApplePersistenceIgnoreState", "YES"],

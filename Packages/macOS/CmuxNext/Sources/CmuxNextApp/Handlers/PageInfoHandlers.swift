@@ -37,7 +37,7 @@ enum PageInfoHandlers {
     /// Bubble controls run their registry action, targeted at the bubble's own tab (it may not be
     /// the focused pane's). Set on the chrome: the bubble is made when it first opens.
     static func installRouter(on entry: BrowserEntry, registry: ActionRegistry) {
-        let tabID = entry.tab.id.rawValue
+        let tabID = entry.key
         entry.state.pageInfoCommandRouter = { [weak registry] command in
             guard let registry, let action = command.action else { return false }
             let invocation = ActionInvocation(
