@@ -6,9 +6,10 @@ import Testing
 /// The motion and the order of the views of a screen with floating panes.
 ///
 /// A floating pane shows at its place at once: it has no spring of its own. It also stops no spring of a tiled
-/// pane: a tiled pane on a spring (a ratio change) goes on when a floating pane moves or comes to the front. A
-/// zoom and an unzoom show as on each other screen, in one pass. The views are in one order: the tiled panes, the
-/// docked columns and the scroll bar, then each floating pane's card with its pane above it, back to front.
+/// pane: a tiled pane on a spring (a ratio change) goes on when a floating pane moves or comes to the front, by
+/// the model or by the pointer. A zoom and an unzoom show as on each other screen, in one pass. The views are in
+/// one order: the tiled panes, the docked columns and the scroll bar, then each floating pane's card with its pane
+/// above it, back to front.
 /// Frames step at a fixed 120 Hz dt, so each assert is about a frame, not about wall time.
 @MainActor @Suite(.closesItsWindows) struct FloatingPaneMotionTests {
     final class Panes: LayoutPaneContentProvider {
@@ -79,6 +80,18 @@ import Testing
             let frame = try #require(screen.paneFrames["p1"])
             return frame.rect == frame.targetRect
         }
+
+        /// A pointer event at `point` (the window's coordinates).
+        func pointer(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+
+        /// A point on the bar of `pane`'s card (the window's coordinates).
+        func bar(of pane: PaneID) throws -> CGPoint {
+            let card = try #require(screen.geometry.floatingCards[pane])
+            return screen.convert(CGPoint(x: card.midX, y: card.minY + 4), to: nil)
+        }
     }
 
     /// A floating pane that moves: it is at its new place at once, and the tiled pane on a spring goes on.
@@ -120,6 +133,50 @@ import Testing
         #expect(try fixture.leftPaneIsAtRest(), "the ratio change lands")
         let landed = try views.map { try fixture.order(of: $0) }
         #expect(landed == landed.sorted(), "the order stays after the landing: \(landed)")
+    }
+
+    /// A pointer's drag of a floating pane by its bar: the pane follows the pointer at once, and the tiled pane on a
+    /// spring goes on, during the drag and after the release.
+    @Test func aDragOfAFloatingPaneSnapsNoTiledSpring() throws {
+        let fixture = Screen(.splits(Self.two), floating: [Self.floating("f")])
+        defer { fixture.window.closeAfterTest() }
+        let screen = fixture.screen
+        let card = try #require(screen.geometry.floatingCards["f"])
+        try fixture.startARatioSpring(floating: [Self.floating("f")])
+
+        let press = try fixture.bar(of: "f"), release = CGPoint(x: press.x + 120, y: press.y)
+        try screen.handleFloatingDrag("f", .began(.move), event: fixture.pointer(.leftMouseDown, at: press))
+        try screen.handleFloatingDrag("f", .moved, event: fixture.pointer(.leftMouseDragged, at: release))
+        #expect(try !fixture.leftPaneIsAtRest(), "the tiled pane is still on its spring during the drag")
+        let dragged = try #require(screen.geometry.floatingCards["f"])
+        #expect(abs(dragged.minX - card.minX - 120) < 1, "the card follows the pointer: \(card) to \(dragged)")
+        let pane = try #require(screen.paneFrames["f"])
+        #expect(pane.rect == pane.targetRect, "the floating pane follows the pointer at once: \(pane.rect) to \(pane.targetRect)")
+
+        try screen.handleFloatingDrag("f", .ended, event: fixture.pointer(.leftMouseUp, at: release))
+        fixture.root.syncWithModel()
+        #expect(try !fixture.leftPaneIsAtRest(), "the tiled pane is still on its spring after the release")
+        fixture.settle()
+        #expect(try fixture.leftPaneIsAtRest(), "the ratio change lands")
+        let landed = try #require(screen.geometry.floatingCards["f"])
+        #expect(abs(landed.minX - card.minX - 120) < 1, "the card stays where the pointer left it: \(card) to \(landed)")
+    }
+
+    /// A press and a release on the bar of a floating pane with no move between them: the tiled pane on a spring
+    /// goes on.
+    @Test func aPressOnTheBarOfAFloatingPaneSnapsNoTiledSpring() throws {
+        let fixture = Screen(.splits(Self.two), floating: [Self.floating("f")])
+        defer { fixture.window.closeAfterTest() }
+        try fixture.startARatioSpring(floating: [Self.floating("f")])
+
+        let press = try fixture.bar(of: "f")
+        try fixture.screen.handleFloatingDrag("f", .began(.move), event: fixture.pointer(.leftMouseDown, at: press))
+        try fixture.screen.handleFloatingDrag("f", .ended, event: fixture.pointer(.leftMouseUp, at: press))
+        #expect(try !fixture.leftPaneIsAtRest(), "the tiled pane is still on its spring after the release")
+        fixture.root.syncWithModel()
+        #expect(try !fixture.leftPaneIsAtRest(), "the tiled pane is still on its spring after the model's update")
+        fixture.settle()
+        #expect(try fixture.leftPaneIsAtRest(), "the ratio change lands")
     }
 
     /// A zoom and an unzoom on a screen with a floating pane show as on each other screen, in one pass: no card
