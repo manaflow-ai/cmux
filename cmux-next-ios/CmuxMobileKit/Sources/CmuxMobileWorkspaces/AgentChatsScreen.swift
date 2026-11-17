@@ -23,6 +23,8 @@ public final class AgentChatsModel {
     public private(set) var chats: [AgentChatListing] = []
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
+    /// The last older page failed (the list's edge offers Try Again).
+    public private(set) var moreFailure: String?
     /// The first page is being read again over the rows shown (the ones this run kept): the
     /// list shows that it is updating. A pull to refresh shows its own progress instead.
     public private(set) var refreshing = false
@@ -88,6 +90,7 @@ public final class AgentChatsModel {
             guard generation == listGeneration else { return }
             chats = page.chats
             nextCursor = page.nextCursor
+            moreFailure = nil
             phase = .loaded
             remember()
         } catch {
@@ -101,6 +104,7 @@ public final class AgentChatsModel {
     public func loadMore() async {
         guard let backend, let cursor = nextCursor, !loadingMore, !loadingFirstPage else { return }
         loadingMore = true
+        moreFailure = nil
         defer { loadingMore = false }
         let generation = listGeneration
         do {
@@ -112,8 +116,15 @@ public final class AgentChatsModel {
             remember()
         } catch {
             guard generation == listGeneration else { return }
-            failure = Self.message(error)
+            moreFailure = Self.message(error)
         }
+    }
+
+    /// The list's paging edge: older chats are read as the reader scrolls near the end.
+    public var edge: PagedListEdge {
+        if loadingMore { return .loading }
+        if let moreFailure { return .failed(moreFailure) }
+        return nextCursor == nil ? .end : .more
     }
 
     /// The chats working now (Stop All Agents' count).
@@ -209,7 +220,6 @@ struct AgentChatsScreen: View {
                     .accessibilityIdentifier("agentChats.filter")
                 }
             }
-            .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
@@ -253,10 +263,30 @@ struct AgentChatsScreen: View {
         }
     }
 
+    /// The chats on the shared infinite-scroll list (``PagedList``): older chats are read as the
+    /// reader nears the end (no Show Older Chats button), and a page that lands never moves the row
+    /// being read.
     private var list: some View {
-        let rows = model.visible
-        return List {
-            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
+        let busyID = model.busyID
+        let rows = model.visible.map { AgentChatsListItem(chat: $0, busy: busyID == $0.id, locked: busyID != nil) }
+        return PagedList(direction: .down, items: rows, phase: .loaded, edge: model.edge,
+                         loadMore: { Task { await model.loadMore() } },
+                         retry: { await model.loadMore() }) { item in
+            row(item)
+        } empty: {
+            emptyState
+        }
+        .pagedSwipeActions { item in
+            let chat = item.chat
+            return [PagedListAction(chat.archived ? "Unarchive" : "Archive", systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                                    tint: chat.archived ? .blue : .indigo) {
+                Task { await model.setArchived(chat, !chat.archived) }
+            }]
+        }
+        .pagedRefresh { await model.load(pulled: true) }
+        .pagedIdentifier("agentChats.list")
+        // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
+        .safeAreaInset(edge: .top, spacing: 0) {
             if model.refreshing {
                 HStack(spacing: 8) {
                     CmuxSpinner().controlSize(.small)
@@ -265,38 +295,11 @@ struct AgentChatsScreen: View {
                         .foregroundStyle(theme.colors.label2.color)
                 }
                 .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
+                .padding(.vertical, 6)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("agentChats.updating")
             }
-            ForEach(rows) { chat in
-                row(chat)
-            }
-            if model.nextCursor != nil {
-                Section {
-                    Button {
-                        Task { await model.loadMore() }
-                    } label: {
-                        HStack {
-                            Text("Show Older Chats")
-                            Spacer()
-                            if model.loadingMore { CmuxSpinner() }
-                        }
-                    }
-                    .disabled(model.loadingMore)
-                    .accessibilityIdentifier("agentChats.more")
-                } footer: {
-                    if !model.query.isEmpty { Text("Search covers the chats shown so far.") }
-                }
-            }
         }
-        .listStyle(.insetGrouped)
-        .overlay {
-            if rows.isEmpty, model.nextCursor == nil {
-                emptyState
-            }
-        }
-        .accessibilityIdentifier("agentChats.list")
     }
 
     @ViewBuilder
@@ -312,13 +315,20 @@ struct AgentChatsScreen: View {
         }
     }
 
-    private func row(_ chat: AgentChatListing) -> some View {
-        Button {
+    private func row(_ item: AgentChatsListItem) -> some View {
+        let chat = item.chat
+        return Button {
             Task { await model.run(chat) { await openHere(chat) } }
         } label: {
-            AgentChatRow(chat: chat, busy: model.busyID == chat.id)
+            AgentChatRow(chat: chat, busy: item.busy)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color(uiColor: .separator)).frame(height: 1 / 3).padding(.leading, 60)
+                }
         }
-        .disabled(model.busyID != nil)
+        .buttonStyle(.cmuxPressFill)
+        .disabled(item.locked)
         .contextMenu {
             Button("Open in This Workspace", systemImage: "plus.square.on.square") {
                 Task { await model.run(chat) { await openHere(chat) } }
@@ -328,9 +338,6 @@ struct AgentChatsScreen: View {
             }
             Divider()
             archiveButton(chat)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            archiveButton(chat).tint(chat.archived ? .blue : .indigo)
         }
         .accessibilityIdentifier("agentChats.row.\(chat.id)")
     }
@@ -347,6 +354,16 @@ struct AgentChatsScreen: View {
         if refusal == nil { source.showsAgentChats = false }
         return refusal
     }
+}
+
+/// One row of the Chats list: the chat and whether a row's work (open, archive) runs now.
+struct AgentChatsListItem: Identifiable, Equatable {
+    let chat: AgentChatListing
+    /// This row's chat is being opened or archived (its row shows progress).
+    let busy: Bool
+    /// Another row's work runs: rows wait.
+    let locked: Bool
+    var id: String { chat.id }
 }
 
 /// One chat: its agent's mark, title, folder and age, and whether it works or waits now.

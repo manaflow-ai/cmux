@@ -666,10 +666,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// card, which holds its transcript.
     private func readAheadIfNear() {
         guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
-        let screen = collectionView.bounds.height
-        guard screen > 0 else { return }
-        let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        store.readAhead(screensAbove: max(above, 0) / screen)
+        // The shared paged-list measure (`PagedList`'s `.up` edge): screens of history above the reader.
+        let screensAbove = collectionView.pagedScreensToEdge(.up)
+        guard screensAbove.isFinite else { return }
+        store.readAhead(screensAbove: screensAbove)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollDelegate?.scrollViewWillBeginDragging?(scrollView) }
