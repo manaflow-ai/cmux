@@ -281,7 +281,12 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     let hub = durable_hub(&dir);
     let mut c = Client::open(&hub);
     let ends = c.records(&session, "turn_result").await;
-    assert!(ends.is_empty(), "the handed-off turn wrote an end: {ends:?}");
+    assert_eq!(ends.len(), 1, "the handed-off turn wrote unexpected ends: {ends:?}");
+    // The next daemon's `outcome_unknown` settlement (`log_load.rs`, `settle_open_turn`) exists
+    // only because the old daemon left this turn open; it is the one recovery record, not its end.
+    assert_eq!(ends[0]["_acpmuxRecovery"], true, "old daemon wrote an end: {ends:?}");
+    assert_eq!(ends[0]["detail"], "outcome_unknown", "old daemon wrote an end: {ends:?}");
+    assert_eq!(ends[0]["promptId"], "p-run", "old daemon wrote an end: {ends:?}");
     let queued = c.records(&session, "queued").await;
     assert!(
         queued.iter().any(|m| m["promptId"] == "p-run~resume-1"),
