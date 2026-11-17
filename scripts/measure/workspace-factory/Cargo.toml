@@ -1,0 +1,15 @@
+[package]
+name = "workspace-factory"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Fresh throwaway CI workspaces cloned from a read-only seed"
+
+# Its own workspace, so it never joins a parent one and builds alone in a CI step.
+[workspace]
+
+[[bin]]
+name = "wsfactory"
+path = "src/main.rs"
+
+[dependencies]
