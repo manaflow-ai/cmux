@@ -116,7 +116,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Meeting recording service",
     name: "Recall.ai, Inc.",
-    purpose: "Joins meetings as the notetaker, records their audio and shared screens, makes the transcript, sends the live transcript, chat messages, and join and leave events to cmux during the meeting, and posts the notices and answers in the meeting chat.",
+    purpose: "Joins meetings as the notetaker, records their audio, sends images of the participants' video to cmux during the meeting, makes the transcript, sends the live transcript, chat messages, and join and leave events to cmux during the meeting, and posts the notices and answers in the meeting chat.",
     location: "United States",
   },
   {
