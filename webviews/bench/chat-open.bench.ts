@@ -386,6 +386,32 @@ try {
             trace.push(`${performance.now().toFixed(0)} fetch ${what}`);
             return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
           }, fetched);
+          // Transcript rows mounted and unmounted, per DOM mutation batch (about one per commit), and the
+          // frames: which rows each commit built, and whether a frame painted between them.
+          const rowsIn = (nodes: NodeList) => {
+            let count = 0;
+            for (const node of nodes)
+              if (node instanceof Element)
+                count += (node.matches("[data-row-id]") ? 1 : 0) + node.querySelectorAll("[data-row-id]").length;
+            return count;
+          };
+          new MutationObserver((records) => {
+            let added = 0;
+            let removed = 0;
+            for (const record of records) {
+              added += rowsIn(record.addedNodes);
+              removed += rowsIn(record.removedNodes);
+            }
+            if (added || removed) trace.push(`${performance.now().toFixed(1)} rows +${added} -${removed}`);
+          }).observe(document, { childList: true, subtree: true });
+          let frames = 0;
+          const frame = () => {
+            if (frames++ < 120) {
+              trace.push(`${performance.now().toFixed(1)} frame`);
+              requestAnimationFrame(frame);
+            }
+          };
+          requestAnimationFrame(frame);
         }
         const state = {
           firstRow: 0,
