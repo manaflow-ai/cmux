@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
+// cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3074,6 +3074,8 @@ pub type RemoteHostCallResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RemoteHostConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_permissions: Optional<T::RemoteHostAppPermissions>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub computer_use: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
