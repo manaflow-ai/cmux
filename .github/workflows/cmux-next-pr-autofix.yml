@@ -237,7 +237,8 @@ jobs:
       hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.hit == 'true' && steps.upload.outcome == 'success' && 'true' || 'false' }}
       # The lookup waited: action-areas' idle gui runner pick is old by now, so the Mac job leaves it.
-      stale_pick: ${{ steps.lookup.outputs.stale_pick }}
+      # Also after a lookup that did not finish (killed at its limit, or a crash).
+      stale_pick: ${{ steps.lookup.outputs.stale_pick == 'true' || steps.lookup.outcome == 'failure' || steps.lookup.outcome == 'cancelled' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         id: checkout
@@ -310,6 +311,7 @@ jobs:
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
@@ -539,6 +541,7 @@ jobs:
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
       # The next job on this runner starts from the git seed at its own depth, not from
       # this job's all-branch partial clone (a later job's missing blob would be fetched

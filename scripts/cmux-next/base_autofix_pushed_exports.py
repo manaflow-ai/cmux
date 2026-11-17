@@ -266,6 +266,8 @@ def unpack_verified(bundle: Path, tree: str, run: dict, commit: str, names: list
                 raise Miss("the pack does not hold exactly the exports this checkout lists")
             staged = {}
             for rel in names:
+                if archive.getinfo(rel).file_size > MAX_PACK_BYTES:
+                    raise Miss(f"{rel} unpacks past {MAX_PACK_BYTES} bytes")
                 data = archive.read(rel)
                 if sha256(data) != files[rel]:
                     raise Miss(f"{rel} does not match the pack's digest (corrupt or replaced)")
@@ -496,29 +498,40 @@ def pr_lookup(api: Api, sha: str, tree: str, head_sha: str, pr: int, env: dict[s
         raise Miss("GITHUB_REPOSITORY is not set, so no run can be trusted")
     budget = api.left()
     reasons: list[str] = []
-    tried: set[int] = set()
+    # A pack is looked up at most twice once its producer is done (an upload can list a moment late).
+    tried: dict[int, int] = {}
     while True:
         query = urllib.parse.urlencode({"event": "pull_request", "head_sha": head_sha, "per_page": 10})
-        runs = []
-        for run in api.json(f"actions/workflows/{WORKFLOW_FILE}/runs?{query}").get("workflow_runs", []):
+        runs, pending = [], []
+        try:
+            listed = api.json(f"actions/workflows/{WORKFLOW_FILE}/runs?{query}").get("workflow_runs", [])
+        except Miss as why:
+            # One failed read does not end the wait: the next poll reads again.
+            listed, pending = [], [f"the runs could not be read ({why})"]
+        for run in listed:
             try:
                 check_pr_run(run, repo, head_sha, pr)
             except Miss:
                 continue
             runs.append(run)
-        pending = []
         for run in runs[:RUNS_WATCHED]:
             run_id = int(run["id"])
-            jobs = api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", [])
+            try:
+                jobs = api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", [])
+            except Miss as why:
+                pending.append(f"run {run_id}: its jobs could not be read ({why})")
+                continue
             state = pr_job_state(jobs)
             if state == "done":
-                if run_id in tried:
+                if tried.get(run_id, 0) >= 2:
                     continue
-                tried.add(run_id)
+                tried[run_id] = tried.get(run_id, 0) + 1
                 try:
                     manifest = take_pr_pack(api, run, tree, sha, names, into)
                 except (Miss, KeyError, TypeError, ValueError) as why:
                     reasons.append(f"run {run_id}: {why}")
+                    if tried[run_id] < 2:
+                        pending.append(f"run {run_id}: its pack is looked up again")
                     continue
                 return {"hit": "true", "source_run_id": str(manifest["run_id"]), "source_sha": manifest["source_sha"],
                         "waited": str(int(max(0.0, budget - api.left())))}
@@ -682,7 +695,7 @@ def pr_main(args: argparse.Namespace, env: dict[str, str], root: Path) -> int:
     except Miss as why:
         outputs = {"hit": "false", "reason": " ".join(str(why).split())[:500]}
     except Exception as error:  # noqa: BLE001 - a lookup bug must never fail the run: the Mac job regenerates
-        outputs = {"hit": "false", "reason": f"lookup error: {type(error).__name__}: {error}"[:500]}
+        outputs = {"hit": "false", "reason": " ".join(f"lookup error: {type(error).__name__}: {error}".split())[:500]}
     if args.summary:
         server, repo = env.get("GITHUB_SERVER_URL", "https://github.com"), env.get("GITHUB_REPOSITORY", "")
         if outputs.get("hit") == "true":

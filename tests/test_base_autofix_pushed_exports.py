@@ -943,6 +943,21 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(hit["hit"], "true")
         self.assertEqual(hit["waited"], "240")
 
+    def test_a_failed_read_does_not_end_the_wait(self):
+        api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
+        listing = FakePrApi.json
+        failures = []
+
+        def flaky(self_, path):
+            if path.startswith("actions/workflows/") and not failures:
+                failures.append(path)
+                raise px.Miss("GET runs failed: HTTP 502")
+            return listing(self_, path)
+        with mock.patch.object(FakePrApi, "json", flaky):
+            hit = self.lookup(api)
+        self.assertEqual(hit["hit"], "true")
+        self.assertEqual(api.now, 60)
+
     def test_a_skipped_job_or_a_finished_run_without_it_is_a_miss_at_once(self):
         for jobs, status in (([generated_job("completed", "skipped")], "in_progress"), ([], "completed")):
             with self.subTest(status=status):
