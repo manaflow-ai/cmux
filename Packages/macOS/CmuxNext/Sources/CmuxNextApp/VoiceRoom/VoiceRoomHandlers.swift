@@ -10,14 +10,9 @@ import Foundation
 enum VoiceRoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        // Keyframes stay on this Mac: ~/Library/Application Support/cmux-next/voice-room/frames (a cache: none moved).
-        // The screen is read by the cmux Computer Use helper (`display_still`, the host Share Screen with Chief
-        // uses), never by this app, so macOS asks for Screen Recording for the helper only.
-        let host = VoiceRoomHost(frames: DaemonLauncher.nextSupport().appending(path: "voice-room/frames", directoryHint: .isDirectory),
-                                 screen: ComputerUseScreenStills(helper: .shared))
-        let off: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.voiceRoom == true ? nil : VoiceRoomStrings.off
-        }
+        // Keyframes stay on this Mac (voice-room/frames, a cache); the Computer Use helper reads the screen, never this app.
+        let host = VoiceRoomHost(frames: DaemonLauncher.nextSupport().appending(path: "voice-room/frames", directoryHint: .isDirectory), screen: ComputerUseScreenStills(helper: .shared))
+        let off: @MainActor () -> String? = { [weak services] in services?.settings?.snapshot.voiceRoom == true ? nil : VoiceRoomStrings.off }
         registry.bindEffect("voiceRoom.open", unavailable: off) { [weak services] _ in
             guard let services else { return .done }
             guard let address = VoiceRoomAddress(setting: services.settings?.snapshot.voiceRoomURL ?? "") else {

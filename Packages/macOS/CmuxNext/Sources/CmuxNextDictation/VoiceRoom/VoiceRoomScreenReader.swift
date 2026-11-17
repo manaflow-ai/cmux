@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// ``VoiceRoomScreenReading`` on this Mac, through the cmux Computer Use helper
@@ -36,10 +37,10 @@ public struct VoiceRoomScreenReader: VoiceRoomScreenReading {
 
     private func saveKeyframe(_ jpeg: Data) {
         guard let frames else { return }
-        let files = FileManager.default
+        let files = FileManager.checked
         try? files.createDirectory(at: frames, withIntermediateDirectories: true)
         let name = "\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
-        guard (try? jpeg.write(to: frames.appending(path: name), options: .atomic)) != nil else { return }
+        guard (try? jpeg.blockingWrite(to: frames.appending(path: name), options: .atomic)) != nil else { return }
         let saved = ((try? files.contentsOfDirectory(atPath: frames.path)) ?? []).filter { $0.hasSuffix(".jpg") }.sorted()
         for old in saved.dropLast(keepFrames) { try? files.removeItem(at: frames.appending(path: old)) }
     }
