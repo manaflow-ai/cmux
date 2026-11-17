@@ -700,14 +700,35 @@ class Workflow(unittest.TestCase):
                 f"  echo 'cmux-ci: step {new} (light, key y)'; exit 0\n"
                 "fi\n"
                 f"if [[ $1 == artifact && $2 == {new} ]]; then echo tar > \"$3\"; exit 0; fi\n"
-                "exit 1\n")
+                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
         env, calls = self.look_env(scratch, body, "99", "")
         done = subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
-        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        made = calls.read_text().splitlines()
+        runs = [c for c in made if c.startswith("run ")]
         self.assertEqual(len(runs), 2, runs)
         self.assertIn(f"--key hv-7-{HEAD[:12]}-99-1 ", runs[1])
         self.assertIn("result=ok", (scratch / "out").read_text())
+        # The first step is cancelled before the fresh one: a client that stopped early may have left it queued.
+        cancels = [i for i, c in enumerate(made) if c.startswith(f"cancel {old}")]
+        self.assertTrue(cancels and cancels[0] < made.index(runs[1]), made)
+
+    def test_a_look_at_a_new_head_cancels_the_prs_steps_at_other_heads(self) -> None:
+        # A look that stopped waiting leaves its head's step queued for `look again`; when the author pushes meanwhile,
+        # that retry never looks (the PR moved), so the new head's look retires the old step. Other PRs' are not touched.
+        mine = f"hv-7-{HEAD[:12]}"
+        queued = [("cccccccccccccccccccccccc", "hv-7-0123456789ab"), ("dddddddddddddddddddddddd", "hv-70-0123456789ab"),
+                  ("eeeeeeeeeeeeeeeeeeeeeeee", mine), ("ffffffffffffffffffffffff", "build-thing")]
+        status = json.dumps({"queued": [{"id": i, "step_key": k} for i, k in queued], "running": []})
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-moved-")))
+        (scratch / "status.json").write_text(status)
+        body = (f"if [[ $1 == status ]]; then cat '{scratch / 'status.json'}'; exit 0; fi\n"
+                "if [[ $1 == run ]]; then echo 'cmux-ci: step eeeeeeeeeeeeeeeeeeeeeeee (light, key x)'; exit 75; fi\n"
+                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        env, calls = self.look_env(scratch, body, "99", "")
+        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        cancelled = {c.split()[1] for c in calls.read_text().splitlines() if c.startswith("cancel ")}
+        self.assertEqual(cancelled, {"cccccccccccccccccccccccc"})
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
