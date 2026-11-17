@@ -42,6 +42,25 @@ import Testing
         #expect(await base.writeCount == 1)
         #expect(await fenced.getStoredRefreshToken() == nil)
     }
+
+    /// cmux NEXT macOS wraps its keychain store in the fence: a failed read
+    /// behind it must still count, or launch restore takes it for "signed out".
+    @Test func fenceForwardsFailedReadCount() async {
+        let fenced = CaptureFencedTokenStore(base: FailedReadCountStore(failures: 3))
+        #expect(await fenced.tokenReadFailureCount() == 3)
+    }
+}
+
+private actor FailedReadCountStore: StackAuthTokenStoreProtocol {
+    private let failures: UInt64
+    init(failures: UInt64) { self.failures = failures }
+    func tokenReadFailureCount() async -> UInt64 { failures }
+    func getStoredAccessToken() async -> String? { nil }
+    func getStoredRefreshToken() async -> String? { nil }
+    func setTokens(accessToken: String?, refreshToken: String?) async {}
+    func clearTokens() async {}
+    func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {}
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool { false }
 }
 
 private actor MigrationReadStore: StackAuthTokenStoreProtocol {
