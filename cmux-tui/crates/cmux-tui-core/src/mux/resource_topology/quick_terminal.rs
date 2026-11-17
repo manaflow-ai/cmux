@@ -219,6 +219,7 @@ impl Mux {
             // Another request was first. Both wanted the quick terminal in
             // `screen`: this one shows it, and does not toggle it away.
             Err(error) if is_lost(&error) => {
+                self.wait_for_creations_and_closes();
                 let plan = self.with_state(|state| planned_act(state, screen, QuickMode::Show))?;
                 self.act_on_plan(actor, screen, plan, frame, spawn, size).map_err(lost_again)
             }
@@ -226,9 +227,23 @@ impl Mux {
         }
     }
 
+    /// Waits for the end of each creation and each close that runs now. Each
+    /// holds the creation fence until its commit is done, or until a commit
+    /// that failed is settled. A request that lost its plan plans again after
+    /// this wait. With no wait, its second plan can read the pane of a
+    /// creation that has no commit yet and name that pane in its answer: a
+    /// commit that the store refuses 2 times closes that pane.
+    fn wait_for_creations_and_closes(&self) {
+        self.run_creation_before_fence_hook();
+        drop(self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner));
+    }
+
     /// Does `plan`, the act that [`planned_act`] gave for `screen`. The state
-    /// can change after the plan: a make, a bring and a show that are not
-    /// true any more fail with [`PlanLost`], and change nothing.
+    /// can change after the plan: a make and a bring that are not true any
+    /// more, and a show whose quick terminal closed, fail with [`PlanLost`],
+    /// and change nothing. A show of a quick terminal that another request
+    /// brought to another screen after the plan does not fail: the pane gets
+    /// the focus in the screen where it is.
     fn act_on_plan(
         self: &Arc<Self>,
         actor: &Actor,
