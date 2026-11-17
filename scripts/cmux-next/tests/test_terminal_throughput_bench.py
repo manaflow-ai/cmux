@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """terminal-throughput-bench.py's pure parts: the payload is the same every run, and the rows the perf cron stores.
 Run: python3 -I scripts/cmux-next/tests/test_terminal_throughput_bench.py (not a CI job)."""
-import importlib.util, os, tempfile, unittest
+import importlib.util, os, tempfile, time, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("tput", os.path.join(HERE, "..", "terminal-throughput-bench.py"))
@@ -168,6 +168,40 @@ class Trace(unittest.TestCase):
     def test_thread_names(self):
         self.assertEqual(trace.thread_process(READER_T), "cmux DEV x")
         self.assertEqual(trace.thread_pid(READER_T), 60)
+
+
+class RecordingBound(unittest.TestCase):
+    """A hung xctrace must end the traced run with a failure, not silence (the step's 45 min silence limit hit a run
+    whose recorder never stopped). Real children in their own sessions, as the Recorder starts xctrace."""
+
+    def spawn(self, code):
+        import subprocess, sys
+        proc = subprocess.Popen([sys.executable, "-I", "-c", code], start_new_session=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        return proc
+
+    def test_a_recorder_that_stops_on_sigint_is_graceful(self):
+        proc = self.spawn("import time; time.sleep(60)")
+        time.sleep(0.5)  # test: let the child reach its sleep
+        self.assertTrue(trace.end_recording(proc, 10))
+        self.assertIsNotNone(proc.poll())
+
+    def test_a_recorder_that_ignores_sigint_is_killed_after_the_grace(self):
+        proc = self.spawn("import signal, time; signal.signal(signal.SIGINT, signal.SIG_IGN); print('up', flush=True); time.sleep(60)")
+        time.sleep(1.0)  # test: let the child install its handler
+        started = time.monotonic()
+        self.assertFalse(trace.end_recording(proc, 1))
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertIsNotNone(proc.poll())
+
+    def test_the_export_budget_shrinks_and_never_reaches_zero(self):
+        now = [100.0]
+        budget = trace.Budget(30, clock=lambda: now[0])
+        self.assertEqual(budget.left(), 30)
+        now[0] += 25
+        self.assertEqual(budget.left(), 5)
+        now[0] += 500
+        self.assertEqual(budget.left(), 1.0)
 
 
 if __name__ == "__main__":
