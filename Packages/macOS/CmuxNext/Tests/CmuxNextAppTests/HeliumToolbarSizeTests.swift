@@ -36,4 +36,31 @@ import Testing
         #expect(abs(search.height - 12 * scale) <= tolerance, "\(preset): the search glyph is \(search.height) tall, want \(12 * scale)")
         #expect(abs(caps - 10 * scale) <= 0.25, "\(preset): the URL's capitals are \(caps) tall, want \(10 * scale)")
     }
+
+    /// Lucas 2026-11-17: the URL's H at Compact (and Default, which shares its omnibar) is exactly 10 pt, 20 rows at 2x,
+    /// with no lit row above it. macOS font smoothing grows each glyph edge by about 0.31 pt, so the font's own capitals
+    /// are that much under 10 pt; at 14.01 pt a 21st row lit 39% above the H and it read taller than 10 pt.
+    @Test(arguments: [DensityPreset.compact, .cozy])
+    func theURLsCapitalsFillTenPointsWithSmoothing(preset: DensityPreset) throws {
+        let font = NSFont.systemFont(ofSize: OmnibarMetrics(tokens: preset.tokens).fontSize)
+        let side = 48
+        let ctx = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        ctx.scaleBy(x: 2, y: 2)
+        ctx.setShouldSmoothFonts(true)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: "H", attributes: [.font: font, .foregroundColor: NSColor.white]))
+        ctx.textPosition = CGPoint(x: 3, y: 2)
+        CTLineDraw(line, ctx)
+        let pixels = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
+        func lit(_ x: Int, _ y: Int) -> Double { Double(pixels[(y * side + x) * 4]) / 255 }
+        // The left stem: the column with the most ink.
+        let stem = try #require((0..<side / 2).max { a, b in (0..<side).reduce(0) { $0 + lit(a, $1) } < (0..<side).reduce(0) { $0 + lit(b, $1) } })
+        let column = (0..<side).map { lit(stem, $0) }
+        let full = column.filter { $0 > 0.97 }.count
+        let first = try #require(column.firstIndex { $0 > 0.03 })
+        #expect(full == 20, "\(preset): the H fills \(full) rows at 2x, want 20 (10 pt)")
+        #expect(column[first] > 0.97, "\(preset): a row lit \(column[first]) above the H's capitals")
+    }
 }
