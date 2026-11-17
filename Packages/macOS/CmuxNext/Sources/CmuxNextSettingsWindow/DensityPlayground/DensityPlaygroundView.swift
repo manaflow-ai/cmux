@@ -158,6 +158,8 @@ struct DensityPlaygroundView: View {
     private var groupShortcuts: some View {
         ForEach(Array(DensityTokenCatalog.Group.allCases.enumerated()), id: \.offset) { index, item in
             Button("") {
+                // A new group's fields replace the shown ones: the keys go to its first value.
+                guard group != item else { return }
                 group = item
                 focusedValue = model.entries.first { $0.group == item }?.key
             }

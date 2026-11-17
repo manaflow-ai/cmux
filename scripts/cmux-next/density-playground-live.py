@@ -201,9 +201,7 @@ try:
     type_text("Roomy")
     keys("return")
     frame("named Roomy")
-    keys((("cmd",), "1"))  # the group's first value takes the keys, its text selected
-    type_text("38")
-    keys("return")
+    field("38")  # Vertical tabs is shown: Tab from the name reaches its first value
     frame("sidebar row height 38")
     field("6")
     frame("sidebar row gap 6")
