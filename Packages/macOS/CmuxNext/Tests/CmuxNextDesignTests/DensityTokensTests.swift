@@ -21,14 +21,35 @@ import Testing
     }
 
     /// Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them exactly".
-    /// Every `omnibar*` size of Default is Compact's, and the bar, its text, icons and buttons resolve alike.
+    /// Every `omnibar*` size of Default is Compact's, and its text, icons and glyphs resolve alike. Only the bar's
+    /// height and its corner are Chrome's (`defaultsOmnibarIsChromes`).
     @Test func defaultsOmnibarIsCompacts() {
         let cozy = DensityPreset.cozy.tokens, compact = DensityPreset.compact.tokens
-        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") } + ["toolbarGlyphSize"]
+        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") && !["omnibarHeight", "omnibarCornerRadius"].contains($0) }
+            + ["toolbarGlyphSize"]
         #expect(keys.count > 10)
         for key in keys { #expect(cozy.tokens[key] == compact.tokens[key], "omnibar token \(key)") }
         #expect(cozy.fontToken("omnibarFontSize") == compact.fontToken("omnibarFontSize"))
-        #expect(cozy.toolbarButtonSize == compact.toolbarButtonSize && cozy.toolbarGlyphSize == compact.toolbarGlyphSize)
+        #expect(cozy.toolbarGlyphSize == compact.toolbarGlyphSize)
+    }
+
+    /// Lucas 2026-11-17: "for chrome the omnibar should be 34px tall (chrome = default, but still same font size)".
+    /// Default's bar is Chrome's 34 pt with Helium's roundness (8 on 28: 9.5 pt), and the toolbar buttons are as tall.
+    @Test func defaultsOmnibarIsChromes() {
+        let tokens = DensityPreset.cozy.tokens
+        #expect(tokens.tokens["omnibarHeight"] == 34)
+        #expect(tokens.tokens["omnibarCornerRadius"] == 9.5)
+        #expect(tokens.toolbarButtonSize == 34)
+        #expect(tokens.fontToken("omnibarFontSize") == DensityPreset.compact.tokens.fontToken("omnibarFontSize"))
+    }
+
+    /// Lucas 2026-11-17: Helium's location bar is 28 pt tall and ours was 26. Compact's bar is Helium's 28 pt with its
+    /// 8 pt corners, and the toolbar buttons beside it are as tall.
+    @Test func compactsOmnibarIsHeliums() {
+        let tokens = DensityPreset.compact.tokens
+        #expect(tokens.tokens["omnibarHeight"] == 28)
+        #expect(tokens.tokens["omnibarCornerRadius"] == 8)
+        #expect(tokens.toolbarButtonSize == 28)
     }
 
     @Test func theInitialDensityIsCompact() {
@@ -55,9 +76,11 @@ import Testing
         // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
         let omnibarT = preset.omnibarScaleFactor
         func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }
+        // Default's bar is Chrome's 34 pt, its corner Helium's ratio on it (`defaultsOmnibarIsChromes`).
+        let chromeBar: [String: Double] = preset == .cozy ? ["omnibarHeight": 34, "omnibarCornerRadius": 9.5] : [:]
         for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {
             let value = try #require(tokens.tokens[key])
-            let expected = fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key))
+            let expected = chromeBar[key] ?? (fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key)))
             #expect(value == expected, "\(preset): \(key)")
             if !fonts.contains(key) { #expect(value * 2 == (value * 2).rounded()) }
         }
@@ -81,7 +104,7 @@ import Testing
             #expect(Metrics.tabIconSize == CGFloat(half(16.5 * t)))
             let omnibarHeight = try #require(tokens.tokens["omnibarHeight"])
             let omnibarFont = try #require(tokens.tokens["omnibarFontSize"])
-            #expect(omnibarHeight == half(29 * omnibarT))
+            #expect(omnibarHeight == (chromeBar["omnibarHeight"] ?? half(28 / 0.9 * omnibarT)))
             #expect(abs(omnibarFont / ((10 - 0.31) / 0.70459 / 0.9) - omnibarT) < 0.0001) // Helium's 10 px capitals at Compact
             for key in ["tabIconTitleGap", "sidebarIconGap", "omnibarTextGap"] {
                 let value = try #require(tokens.tokens[key])

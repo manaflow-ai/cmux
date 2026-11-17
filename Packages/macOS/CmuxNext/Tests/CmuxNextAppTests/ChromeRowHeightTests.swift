@@ -96,8 +96,9 @@ import Testing
         return inkSpan(rep, pointWidth: size.width)
     }
 
-    /// Tabs follow the visible sidebar row, including sidebar settings. The omnibar and its buttons scale
-    /// Default's separate 29 pt location bar, independent of the specified row-height exceptions.
+    /// Tabs follow the visible sidebar row, including sidebar settings. The omnibar and its buttons are their own
+    /// location bar, independent of the specified row-height exceptions: Helium's 28 pt at Compact, scaled by each
+    /// density, and Chrome's 34 pt at Default.
     @Test(arguments: DensityPreset.allCases, SidebarDensity.allCases)
     func tabNavigationAndOmnibarTakeTheDensitysHeights(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
@@ -117,8 +118,8 @@ import Testing
         #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
         #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
         #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
-        let expectedBar = (29 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
-        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar scales Default's 29 pt reference (Compact's at Default)")
+        let expectedBar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
+        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar is Helium's 28 pt at Compact, Chrome's 34 at Default")
     }
 
     @Test(arguments: DensityPreset.allCases)

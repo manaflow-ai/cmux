@@ -37,6 +37,7 @@ import Testing
         #expect(derived(.closeTrailing) == half(6.5 * preset.scaleFactor))
         let o = preset.omnibarScaleFactor // Default's omnibar is Compact's
         #expect(derived(.chipLeading) == half(2 * o))
-        #expect(derived(.textOrigin) == half(2 * o) + min(half(25 * o), half(29 * o) - 2 * half(2 * o)) + half(5 * o))
+        let bar = preset == .cozy ? 34 : half(28 / 0.9 * o) // Default: Chrome's 34 pt bar
+        #expect(derived(.textOrigin) == half(2 * o) + min(half(25 * o), bar - 2 * half(2 * o)) + half(5 * o))
     }
 }

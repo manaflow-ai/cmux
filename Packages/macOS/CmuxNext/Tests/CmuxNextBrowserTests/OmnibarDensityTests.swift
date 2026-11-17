@@ -36,20 +36,26 @@ import Testing
 
     @Test(arguments: DensityPreset.allCases)
     func builtInsScaleDefaultsOmnibar(preset: DensityPreset) {
-        // Default's reference: the 29 pt bar and buttons, the 14 pt chip glyph, Helium's glyphs and 18 pt trailing icons.
+        // Default's reference: Helium's 28 pt bar and buttons over Compact's 0.9, the 14 pt chip glyph, Helium's glyphs and 18 pt trailing icons.
         // Each density scales it by its omnibar factor, Compact's at Default.
         let metrics = OmnibarMetrics(tokens: preset.tokens)
         let t = CGFloat(preset.omnibarScaleFactor)
-        for (size, base) in [(metrics.barHeight, 29), (metrics.buttonSize, 29), (metrics.iconPointSize, 14),
+        for (size, base) in [(metrics.iconPointSize, 14),
                              (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, 18)] as [(CGFloat, CGFloat)] {
             #expect(size == (base * t * 2).rounded() / 2, "\(preset)")
         }
+        // The bar and buttons: Helium's 28 pt at Compact, Chrome's 34 at Default (Lucas 2026-11-17).
+        let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
+        #expect(metrics.barHeight == bar && metrics.buttonSize == bar, "\(preset)")
         #expect(abs(metrics.fontSize - CGFloat((10 - 0.31) / 0.70459 / 0.9) * t) < 0.000_001)
     }
 
-    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws.
+    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar and buttons.
     @Test func defaultsOmnibarIsCompacts() {
-        #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == OmnibarMetrics(tokens: DensityPreset.compact.tokens))
+        var compact = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
+        compact.barHeight = 34
+        compact.buttonSize = 34
+        #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == compact)
     }
 
     @Test func levelOneIsTheComfortableRow() {
@@ -70,10 +76,10 @@ import Testing
         #expect(short.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: short.fontSize), "\(short)")
     }
 
-    /// Ultra-compact is tighter than today, Spacious roomier, and every size grows with the density.
+    /// Ultra-compact is tighter than Compact's 28 pt, Spacious roomier, and every size grows with the density.
     @Test func everyDensitySitsOnOneLine() {
         let all = DensityPreset.allCases.map { OmnibarMetrics(tokens: $0.tokens) }
-        #expect(all.first!.barHeight < 24, "Ultra-compact is \(all.first!.barHeight) pt")
+        #expect(all.first!.barHeight < 28, "Ultra-compact is \(all.first!.barHeight) pt")
         for (denser, roomier) in zip(all, all.dropFirst()) {
             #expect(denser.barHeight <= roomier.barHeight && denser.fontSize <= roomier.fontSize && denser.buttonSize <= roomier.buttonSize)
         }

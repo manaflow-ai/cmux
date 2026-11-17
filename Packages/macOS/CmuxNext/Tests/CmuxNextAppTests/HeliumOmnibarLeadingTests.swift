@@ -9,7 +9,7 @@ import Testing
         DensityTokens.$scoped.withValue(preset.tokens) {
             let t = CGFloat(preset.omnibarScaleFactor) // Default's omnibar is Compact's
             func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
-            let bar = half(29 * t), edge = half(2 * t)
+            let bar = preset == .cozy ? 34 : half(28 / 0.9 * t), edge = half(2 * t)
             let chip = min(half(25 * t), bar - 2 * edge)
             #expect(OmnibarStyle.barHeight == bar)
             #expect(OmnibarStyle.chipLeading == half(2 * t))

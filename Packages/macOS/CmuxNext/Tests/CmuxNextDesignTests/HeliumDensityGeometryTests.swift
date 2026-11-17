@@ -16,7 +16,7 @@ import Testing
 
     nonisolated static let cases: [Expected] = zip(DensityPreset.allCases, [24.0, 28, 30, 32, 36]).map { preset, row in
         Expected(preset: preset, row: row, gap: (3 * preset.scaleFactor * 2).rounded() / 2,
-                 omnibar: (29 * preset.omnibarScaleFactor * 2).rounded() / 2, title: 14 * preset.scaleFactor)
+                 omnibar: preset == .cozy ? 34 : (28 / 0.9 * preset.omnibarScaleFactor * 2).rounded() / 2, title: 14 * preset.scaleFactor)
     }
 
     private func withDensity(_ preset: DensityPreset, _ body: () -> Void) {
