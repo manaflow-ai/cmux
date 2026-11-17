@@ -19,22 +19,25 @@
 //! join's install runs where it is, checked against cmux's Developer ID requirement (the
 //! floor). A helper inside an app bundle is never run from there: it is copied to this daemon's
 //! own slot, `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/daemon/<digest>/`
-//! (the app stages its own beside it, never here), and the copy is checked: the Computer Use
-//! helper against its pinned Developer ID requirement (`agent_tools::cua_helper::REQUIREMENT`),
-//! a separate helper against the source bundle's own designated requirement (so a DEV build's
-//! helper runs too).
+//! (the app stages its own beside it, never here), and the copy is checked. The Computer Use
+//! helper is staged by `cmux_signed_bundle::computer_use::stage`, the very copy the daemon's
+//! supervisor (`cmux-tui-core` `remote_host`, `Contents/MacOS/cmux-remote` of the same helper)
+//! runs from: one root, one digest over the helper's executables, seal and Info.plist, one
+//! stager at a time, checked against the Release helper's pinned Developer ID requirement (or
+//! the DEV helper's identifier and cmux's team). A separate helper is checked against the
+//! source bundle's own designated requirement (so a DEV build's helper runs too).
 
-use crate::agent_tools::cua_helper;
+use cmux_signed_bundle::computer_use;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// The helper's executable inside its bundle (the Computer Use helper's too, beside its
 /// `CFBundleExecutable` `cmux-cua`).
-pub(crate) const EXECUTABLE: &str = "cmux-screen-sharing";
+pub(crate) const EXECUTABLE: &str = computer_use::SCREEN_SHARING;
 /// Every channel's separate helper bundle ends with this (`cmux DEV Screen Sharing.app`).
 pub(crate) const BUNDLE_SUFFIX: &str = " Screen Sharing.app";
 /// cmux's signing team, the floor the join's install must carry.
-const TEAM: &str = "7WLXT3NR37";
+const TEAM: &str = computer_use::TEAM;
 /// The apps whose helper a share runs, after the app holding this binary.
 const APPS: [&str; 2] = ["/Applications/cmux NIGHTLY.app", "/Applications/cmux.app"];
 /// The join's folder under the acpmux home (`screen_share::DIR`) and its files.
@@ -85,31 +88,17 @@ pub(crate) fn is_helper_bundle_id(id: &str) -> bool {
         .strip_suffix(".screen-sharing")
         .is_some_and(|app| app == "com.cmuxterm.app" || app.starts_with("com.cmuxterm.app."))
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
-    id == cua_helper::BUNDLE_ID || separate
+    computer_use::is_bundle_id(id) || separate
 }
 
 /// What a copy of the helper bundle `id` (at `bundle`) must satisfy: the Computer Use helper's
-/// pinned Developer ID requirement, or `fallback` for a separate helper.
+/// (`computer_use::requirement`, pinned for Release), or `fallback` for a separate helper.
 pub(crate) fn requirement_for(
     id: &str,
     bundle: &Path,
     fallback: impl FnOnce(&Path) -> Result<String, String>,
 ) -> Result<String, String> {
-    if id == cua_helper::BUNDLE_ID {
-        Ok(cua_helper::REQUIREMENT.to_owned())
-    } else {
-        fallback(bundle)
-    }
-}
-
-/// The parts whose bytes make a staged copy's digest. The Computer Use helper's main executable
-/// is in it too: it is what macOS names for the grants the Screen Sharing executable uses.
-pub(crate) fn digest_parts_for(id: &str) -> Vec<String> {
-    let mut parts = cmux_signed_bundle::digest_parts(EXECUTABLE).to_vec();
-    if id == cua_helper::BUNDLE_ID {
-        parts.push(cua_helper::HELPER_BINARY.to_owned());
-    }
-    parts
+    computer_use::requirement(id).map_or_else(|| fallback(bundle), Ok)
 }
 
 /// Where a helper comes from.
@@ -138,8 +127,7 @@ impl Source {
 pub(crate) fn helpers_in(app: &Path) -> Vec<PathBuf> {
     let library = app.join("Contents/Library");
     let carries = |p: &Path| p.join("Contents/MacOS").join(EXECUTABLE).is_file();
-    let mut found: Vec<PathBuf> =
-        Some(library.join(cua_helper::HELPER_APP)).filter(|p| carries(p)).into_iter().collect();
+    let mut found = computer_use::bundles_in(app, EXECUTABLE);
     let Ok(entries) = std::fs::read_dir(&library) else { return found };
     let mut separate: Vec<PathBuf> = entries
         .filter_map(Result::ok)
@@ -185,10 +173,7 @@ pub(crate) fn sources(
 /// TODO(ss-helper-land): `<scope>` is the helper's bundle id until SignedHelperLaunch (#44069)
 /// names its scope folder; use the same name then.
 pub(crate) fn staging_root(user_home: &Path, bundle_id: &str) -> PathBuf {
-    user_home
-        .join("Library/Application Support/cmux-next/screen-sharing")
-        .join(bundle_id)
-        .join("daemon")
+    computer_use::staging_root(user_home, bundle_id)
 }
 
 /// The helper a share runs, how it was found, the digest of its staged copy, and the bundle id
@@ -258,15 +243,18 @@ fn resolve_one(source: &Source, user_home: &Path) -> Result<Resolved, String> {
             if !is_helper_bundle_id(&id) {
                 return Err(format!("{id} is not a cmux Screen Sharing helper"));
             }
-            // The copy must be the Computer Use helper cmux signed, or the source's own code,
-            // signed as the source is.
-            let requirement =
-                requirement_for(&id, bundle, cmux_signed_bundle::designated_requirement)?;
-            let parts = digest_parts_for(&id);
-            let root = staging_root(user_home, &id);
-            let staged = cmux_signed_bundle::stage(bundle, &root, &parts, |copy| {
-                cmux_signed_bundle::verify(copy, &requirement)
-            })?;
+            // The copy must be the Computer Use helper cmux signed (the supervisor's copy too),
+            // or the source's own code, signed as the source is.
+            let staged = if computer_use::is_bundle_id(&id) {
+                computer_use::stage(bundle, user_home)?
+            } else {
+                let requirement = cmux_signed_bundle::designated_requirement(bundle)?;
+                let parts = cmux_signed_bundle::digest_parts(EXECUTABLE);
+                let root = staging_root(user_home, &id);
+                cmux_signed_bundle::stage(bundle, &root, &parts, |copy| {
+                    cmux_signed_bundle::verify(copy, &requirement)
+                })?
+            };
             Ok(Resolved {
                 executable: staged.executable(EXECUTABLE),
                 source: source.name(),

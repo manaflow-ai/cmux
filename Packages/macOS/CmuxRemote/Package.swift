@@ -11,7 +11,7 @@ import PackageDescription
 //   CmuxRemoteHost           -> Wire, AppKit (supervisor link, worker supervision, permissions, app socket)
 //   CmuxRemoteComputerUse    -> Wire, CmuxCuaHelperCore (the Computer Use worker: upstream Cua Driver)
 //   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner)
-//   cmux-remote              -> all of them (the executable in "cmux Remote.app")
+//   cmux-remote              -> all of them (Contents/MacOS/cmux-remote of "cmux Computer Use.app")
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("ExistentialAny"),

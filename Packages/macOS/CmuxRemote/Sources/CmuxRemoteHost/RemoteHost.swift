@@ -5,6 +5,7 @@ import CmuxDeviceHub
 import Darwin
 import Foundation
 import os
+import Security
 
 private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "host")
 
@@ -39,11 +40,27 @@ public struct HostBootstrap: Sendable {
 /// supervisor socket, the app's socket, the grants and the two workers.
 @MainActor
 public final class RemoteHost: NSObject, NSApplicationDelegate {
-    public nonisolated static let build: String = {
-        let info = Bundle.main.infoDictionary
-        return [info?["CFBundleVersion"] as? String, info?["CmuxRemoteSourceTree"] as? String]
-            .compactMap { $0 }.joined(separator: "+")
-    }()
+    /// This build, for status and the log (adoption compares the daemon's staged digest, never
+    /// this). Bundle.main is the Computer Use helper, whose Info.plist names no source tree of
+    /// this executable: the executable's own code hash tells its builds apart.
+    public nonisolated static let build: String = buildStamp(info: Bundle.main.infoDictionary, codeHash: ownCodeHash())
+
+    nonisolated static func buildStamp(info: [String: Any]?, codeHash: String?) -> String {
+        let source = info?["CmuxRemoteSourceTree"] as? String ?? codeHash.map { "cdhash-\($0)" }
+        return [info?["CFBundleVersion"] as? String, source].compactMap { $0 }.joined(separator: "+")
+    }
+
+    /// The first 12 hex digits of this process's code directory hash, or nil when unsigned.
+    nonisolated static func ownCodeHash() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, [], &information) == errSecSuccess,
+              let hash = (information as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
+        return hash.prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
 
     let layout: RemoteHostLayout
     let permissions: PermissionAuthority
@@ -62,9 +79,9 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         self.layout = layout
         let children = RemoteChildLifetime()
         self.children = children
-        let namespace = DeviceCaptureNamespace(bundleIdentifier: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope)
+        let namespace = DeviceCaptureNamespace(bundleIdentifier: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev") + "." + scope)
         captureLease = RemoteCaptureLease(stateDirectory: stateDirectory,
-                                         keychainScope: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope,
+                                         keychainScope: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev") + "." + scope,
                                          home: ProcessInfo.processInfo.environment["HOME"] ?? "",
                                          empty: { try namespace.isEmpty() }, remove: { try namespace.remove() })
         let workerEnvironment = Self.workerEnvironment(hubURL: bootstrap.hubURL, headless: bootstrap.headless,

@@ -2,6 +2,7 @@
 //! responsibility-disclaimed spawn, and process identity checks.
 
 use cmux_process::{Command, Stdio};
+use cmux_signed_bundle::computer_use;
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -11,69 +12,40 @@ use serde_json::Value;
 
 use super::Paths;
 
-/// cmux's signing team: the staged copy must carry it (Developer ID in
-/// Release, the pinned Apple Development signature in DEV builds), so its
-/// grants hold across builds and an ad-hoc copy never runs.
-const TEAM: &str = "7WLXT3NR37";
-const BUNDLE_IDS: [&str; 2] = ["com.cmuxterm.remote", "com.cmuxterm.remote.dev"];
-const BUNDLE_NAMES: [&str; 2] = ["cmux Remote.app", "cmux Remote (dev).app"];
-const EXECUTABLE: &str = "cmux-remote";
 const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
 pub(super) struct Staged {
     pub(super) executable: PathBuf,
-    /// Content digest of the signed bundle (its executable and seal).
+    /// Content digest of the signed bundle (its executables, seal and Info.plist).
     pub(super) digest: String,
 }
 
-/// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
-/// of the app whose `Contents/Resources/bin` holds this daemon.
+/// The Computer Use helper that carries the supervisor (`find_helper`).
 pub(super) fn embedded() -> Result<PathBuf, String> {
-    if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
-        return path
-            .is_dir()
-            .then_some(path)
-            .ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
-    }
-    // The file itself, never the link it was started by (`~/.local/bin/acpmux`).
-    let exe = cmux_link::app_caller::own_executable()?;
-    let contents = exe
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .ok_or("the daemon is not inside an app bundle")?;
-    BUNDLE_NAMES
-        .iter()
-        .map(|name| contents.join("Library").join(name))
-        .find(|path| path.join("Contents/MacOS").join(EXECUTABLE).is_file())
-        .ok_or_else(|| "this cmux build has no cmux Remote".into())
+    let env = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from);
+    let own = cmux_link::app_caller::own_executable();
+    super::find_helper(env, own.as_deref().ok())
 }
 
 pub(super) fn bundle_id(app: &Path) -> Option<String> {
     cmux_signed_bundle::bundle_id(app)
 }
 
-/// Whether `app` is a valid, sealed cmux Remote of cmux's team.
-fn verify(app: &Path) -> Result<(), String> {
-    let id = bundle_id(app).ok_or("the bundle has no identifier")?;
-    if !BUNDLE_IDS.contains(&id.as_str()) {
-        return Err(format!("{id} is not cmux Remote"));
-    }
-    cmux_signed_bundle::verify(app, &cmux_signed_bundle::team_requirement(&id, TEAM))
-}
-
-/// A verified copy of the embedded bundle under `state/app/<digest>/`,
-/// reused while the embedded bundle is the same; never followed through a
-/// symlink. The two newest copies are kept (a host of the previous build may
-/// still run from one until it drains). The staging itself is
-/// `cmux-signed-bundle`'s, shared with the acpmux share host's helper.
-pub(super) fn stage(state: &Path) -> Result<Staged, String> {
+/// A verified copy of the Computer Use helper, the one the acpmux share host
+/// runs too (`cmux_signed_bundle::computer_use::stage`: one root per helper id
+/// under `~/Library/Application Support/cmux-next/screen-sharing/<id>/daemon`,
+/// one digest over its executables, seal and Info.plist, one stager at a
+/// time). Checked against the Release helper's pinned Developer ID
+/// requirement, or the DEV helper's identifier and cmux's team, so its grants
+/// hold across builds and an ad-hoc copy never runs. Reused while the helper
+/// is the same; never followed through a symlink; the copies used last are
+/// kept (a host of the previous build may still run from one until it drains).
+pub(super) fn stage() -> Result<Staged, String> {
     let source = embedded()?;
-    cmux_signed_bundle::private_dir(state)?;
-    let parts = cmux_signed_bundle::digest_parts(EXECUTABLE);
-    let staged = cmux_signed_bundle::stage(&source, &state.join("app"), &parts, verify)?;
-    let executable = staged.executable(EXECUTABLE);
+    let home = crate::platform::home_dir().ok_or("no home folder")?;
+    let staged = computer_use::stage(&source, &home)?;
+    let executable = staged.executable(computer_use::SUPERVISOR);
     Ok(Staged { executable, digest: staged.digest })
 }
 

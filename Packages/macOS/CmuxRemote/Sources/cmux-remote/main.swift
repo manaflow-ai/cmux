@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // cmux Remote (docs/cmux-remote.md). The cmux-tui daemon starts this
-// executable (in "cmux Remote.app") with macOS responsibility disclaimed, so
-// Accessibility and Screen Recording belong to cmux Remote, never to cmux or
-// its shells. Modes:
+// executable (Contents/MacOS/cmux-remote of "cmux Computer Use.app", signed
+// with the helper's identifier, beside its main executable cmux-cua) from a
+// verified copy with macOS responsibility disclaimed, so Accessibility and
+// Screen Recording belong to the Computer Use helper, never to cmux or its
+// shells. Bundle.main is that helper (its id, Info.plist and Frameworks); its
+// executablePath is cmux-cua, so this process's own path is OwnExecutable's.
+// Modes:
 //   cmux-remote host --layout-dir D --state-dir S --scope ID   (bootstrap line on fd 3)
 //   cmux-remote worker computer-use|screen-sharing --layout-dir D ...
 //   cmux-remote probe       (prints this process's grants and exits)
@@ -16,7 +20,7 @@ import Foundation
 
 signal(SIGPIPE, SIG_IGN)
 let arguments = Array(CommandLine.arguments.dropFirst())
-let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev"
+let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev"
 
 func option(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
@@ -65,7 +69,7 @@ case "host":
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let host = RemoteHost(layout: RemoteHostLayout(directory: layoutDirectory), bootstrap: bootstrap,
-                              executable: Bundle.main.executablePath ?? CommandLine.arguments[0],
+                              executable: OwnExecutable.path(),
                               stateDirectory: state, scope: scope)
         app.delegate = host
         do { try host.start() } catch { fail("cannot serve: \(error)") }

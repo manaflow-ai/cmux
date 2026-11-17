@@ -2143,6 +2143,7 @@ dependencies = [
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
  "sha2 0.10.9",
  "tempfile",
