@@ -109,7 +109,11 @@ public final class ParkedTyping<Router: ParkedTypingRouter> {
         let epoch = page.focusEpoch
         // task-owner: one parked insertion into its page; the router's flush for the page runs after it
         Task { [weak self] in
-            let typed = await page.insert(text, expectedEpoch: epoch)
+            var typed = await page.insert(text, expectedEpoch: epoch)
+            // The page moved its focus while the text was on its way, and refused it for the old focus count (a
+            // New Tab page whose host failed shows its chat view, and the composer takes the focus): one more
+            // time, for the field that has the focus now.
+            if !typed, page.focusEpoch != epoch { typed = await page.insert(text, expectedEpoch: page.focusEpoch) }
             guard let self else { return }
             self.park.landed(in: page, typed: typed)
             guard let router = self.router else { return }
