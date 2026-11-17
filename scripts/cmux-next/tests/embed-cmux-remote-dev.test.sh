@@ -10,7 +10,9 @@
 # line and embeds nothing; a failed download and a sha256 mismatch stay errors, and
 # CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 is stronger than the opt-in. A DEV build and a bench build (a
 # Release configuration with -DCMUX_BENCH_HOOKS in OTHER_SWIFT_FLAGS) warn and embed nothing.
-# The last section reads the project file: each variable is an input of the Xcode phase.
+# Section 7 reads the project file: each variable is an input of the Xcode phase. Section 8 checks
+# that nightly-next asks for it, and that thinning, the architecture check and signing keep its
+# pinned bytes (stand-in file and lipo).
 # No signing, network, or real credentials. Each case prints `ok:` or `FAIL:`; all cases run.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -75,7 +77,8 @@ run() { # <configuration> [NAME=VALUE ...] -> output, result
 warnings() { printf '%s\n' "$output" | grep -c '^warning: ' || true; }
 stamp="$scratch/temp/embed-cmux-remote-dev.stamp"
 not_embedded="warning: cmux-remote-dev: NOT EMBEDDED (this Mac has no cached zip and no read credentials)"
-# A Release build embeds the asset only with this variable (decision of 2026-11-16). No track sets it.
+# A Release build embeds the asset only with this variable (decision of 2026-11-16). The nightly-next
+# build sets it, with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 (decision of 2026-11-17; section 8).
 embed=(CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1)
 # The opt-in of a Release build that is asked and may go out with no cmux Remote. No track sets it.
 allow=(CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1)
@@ -331,8 +334,133 @@ for variable in CMUX_NEXT_CMUX_REMOTE_PIN CMUX_NEXT_SKIP_CMUX_REMOTE CMUX_NEXT_R
   if grep -q -F -- "\"\$($variable)\"," <<< "$inputs"; then pass "$name"; else fail "$name"; fi
 done
 
+# 8. The nightly-next build asks for cmux Remote and requires it (decision of 2026-11-17: the person
+# grants Screen Recording and Accessibility to cmux Remote only), and the published-build steps
+# keep its pinned bytes: the variables are set in the nightly-next branch of the Release build step
+# only, thinning leaves the bundle alone, the architecture check requires it with its arm64 slices,
+# and signing reads its signature but never makes one.
+release_step="$root/scripts/ci/nightly-steps/app-build-release.sh"
+asks="$(awk '
+  /^if \[ "\$\{BUILD_TRACK:-\}" = nightly-next \]; then$/ { track = 1; next }
+  track && /^fi$/ { track = 0 }
+  track && /^  export CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 CMUX_NEXT_REQUIRE_CMUX_REMOTE=1$/ { print "in-track" }
+  !track && /CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE|CMUX_NEXT_REQUIRE_CMUX_REMOTE/ { print "outside" }
+' "$release_step")"
+name="the nightly-next Release build sets both variables, and no other track does"
+output="$asks"
+if [[ "$asks" == "in-track" ]]; then pass "$name"; else fail "$name"; fi
+# A stand-in macOS toolchain for the two Mach-O steps: `file` and `lipo` read the first bytes and a
+# tag of a stand-in Mach-O ("x86only" marks a file with no arm64 slice).
+tools="$scratch/macho-tools"
+mkdir -p "$tools"
+cat > "$tools/file" <<'STUB'
+#!/usr/bin/env python3
+import sys
+data = open(sys.argv[-1], "rb").read()
+if data[:4] == b"\xca\xfe\xba\xbe":
+    print("Mach-O universal binary with 2 architectures: [x86_64] [arm64]")
+elif data[:4] == b"\xcf\xfa\xed\xfe":
+    print("Mach-O 64-bit executable " + ("x86_64" if b"x86only" in data else "arm64"))
+else:
+    print("data")
+STUB
+cat > "$tools/lipo" <<'STUB'
+#!/usr/bin/env python3
+import sys
+args = sys.argv[1:]
+if args[0] == "-archs":
+    data = open(args[1], "rb").read()
+    print("x86_64 arm64" if data[:4] == b"\xca\xfe\xba\xbe" else "x86_64" if b"x86only" in data else "arm64")
+elif "-verify_arch" in args:
+    sys.exit(0)
+elif "-thin" in args:
+    data = open(args[0], "rb").read()
+    open(args[args.index("-output") + 1], "wb").write(b"\xcf\xfa\xed\xfe" + data[8:] + b" thinned")
+else:
+    sys.exit("unexpected lipo " + " ".join(args))
+STUB
+chmod +x "$tools/file" "$tools/lipo"
+thin_macho() { printf '\xcf\xfa\xed\xfe%s' "$2" > "$1"; chmod 755 "$1"; }
+fat_macho() { printf '\xca\xfe\xba\xbe\x00\x00\x00\x02%s' "$2" > "$1"; chmod 755 "$1"; }
+# A nightly-next app as the prepare job has it after the build, with the pinned cmux Remote.
+make_nightly_app() { # <root>
+  local app="$1/build-universal/Build/Products/Release/cmux.app" bin remote
+  rm -rf "$1"
+  bin="$app/Contents/Resources/bin"
+  remote="$app/Contents/Library/cmux Remote (dev).app/Contents"
+  mkdir -p "$app/Contents/MacOS" "$bin" "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS" \
+    "$app/Contents/Library/cmux NIGHTLY Screen Sharing.app/Contents/MacOS" "$remote/MacOS" "$remote/Frameworks"
+  for f in "$app/Contents/MacOS/cmux" "$bin/cmux" "$bin/ghostty" "$bin/cmux-diff-sidecar" "$bin/optchat-chief" \
+    "$bin/cmux-mobile-host" "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" \
+    "$app/Contents/Library/cmux NIGHTLY Screen Sharing.app/Contents/MacOS/cmux-screen-sharing"; do
+    thin_macho "$f" app
+  done
+  ln -s cmux "$bin/cmux-tui"
+  ln -s cmux "$bin/acpmux"
+  thin_macho "$remote/MacOS/cmux-remote" pinned-remote
+  fat_macho "$remote/Frameworks/libWebRTC.dylib" pinned-webrtc
+  thin_macho "$remote/Frameworks/libcua_driver_sdk.dylib" pinned-sdk
+  printf 'pinned seal\n' > "$remote/CodeResources"
+  ln -s "$root/scripts" "$1/scripts"
+}
+remote_digest() { (cd "$1/build-universal/Build/Products/Release/cmux.app/Contents/Library/cmux Remote (dev).app" && find . -type f -exec cat {} + | shasum -a 256); }
+verify_archs() { # <root> <variant> -> output, result
+  set +e
+  output="$(cd "$1" && env -i PATH="$tools:/usr/bin:/bin" NIGHTLY_VARIANT="$2" CHANNEL_RELEASE_TAG=nightly-next RUNNER_OS=test \
+    /bin/bash "$root/scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh" 2>&1)"
+  result=$?
+  set -e
+}
+nightly="$scratch/nightly"
+make_nightly_app "$nightly"
+fat_macho "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty" fat-ghostty
+before="$(remote_digest "$nightly")"
+name="thinning thins the app's fat Mach-O files and leaves the pinned cmux Remote byte for byte"
+set +e
+output="$(env PATH="$tools:$PATH" CMUX_FILE_TOOL="$tools/file" CMUX_LIPO_TOOL="$tools/lipo" \
+  /bin/bash "$root/scripts/thin-app-bundle.sh" "$nightly/build-universal/Build/Products/Release/cmux.app" arm64 2>&1)"
+result=$?
+set -e
+if [[ "$result" == 0 && "$(remote_digest "$nightly")" == "$before" && "$output" == "thinned 1 fat Mach-O files"* &&
+  "$(head -c 4 "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty" | od -An -tx1 | tr -d ' \n')" == cffaedfe ]]; then
+  pass "$name"; else fail "$name"; fi
+name="the arm64 architecture check passes a nightly-next app with the pinned cmux Remote and its fat libWebRTC.dylib"
+verify_archs "$nightly" arm64
+if [[ "$result" == 0 && "$output" == *"cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib: x86_64 arm64"* ]]; then pass "$name"; else fail "$name"; fi
+name="the arm64 architecture check still fails a fat Mach-O outside cmux Remote"
+fat_macho "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Resources/stray.dylib" stray
+verify_archs "$nightly" arm64
+if [[ "$result" != 0 && "$output" == *"Fat Mach-O files remain"*"stray.dylib"* && "${output#*Fat Mach-O files remain}" != *libWebRTC* ]]; then pass "$name"; else fail "$name"; fi
+name="the architecture check fails a nightly-next app without cmux Remote"
+make_nightly_app "$nightly"
+rm -rf "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Library/cmux Remote (dev).app"
+verify_archs "$nightly" arm64
+if [[ "$result" != 0 && "$output" == *"nightly-next is missing Contents/Library/cmux Remote (dev).app"* ]]; then pass "$name"; else fail "$name"; fi
+name="the architecture check fails a cmux Remote Mach-O with no arm64 slice"
+make_nightly_app "$nightly"
+thin_macho "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib" x86only
+verify_archs "$nightly" arm64
+if [[ "$result" != 0 && "$output" == *"libcua_driver_sdk.dylib has no arm64 slice"* ]]; then pass "$name"; else fail "$name"; fi
+name="an x86_64 variant drops the arm64-only cmux Remote before thinning"
+make_nightly_app "$nightly"
+set +e
+output="$(cd "$nightly" && env PATH="$tools:$PATH" NIGHTLY_VARIANT=x86_64 /bin/bash -c '
+  source /dev/stdin' < <(sed -n '/^# cmux Remote/,/^fi$/p' "$root/scripts/ci/nightly-steps/prepare-thin-bundle.sh") 2>&1)"
+result=$?
+set -e
+if [[ "$result" == 0 && ! -e "$nightly/build-universal/Build/Products/Release/cmux.app/Contents/Library/cmux Remote (dev).app" &&
+  "$output" == *"No cmux Remote for x86_64"* ]]; then pass "$name"; else fail "$name"; fi
+# Signing (macOS codesign, not run here): sign-cmux-bundle.sh reads cmux Remote's signature (-dvvv,
+# --verify) and makes none; it compares the CDHash before and after.
+name="sign-cmux-bundle.sh reads cmux Remote's signature, signs nothing in it, and compares its CDHash"
+sign_script="$root/scripts/sign-cmux-bundle.sh"
+output="$(grep -n -E 'remote_app|CMUX_REMOTE' "$sign_script")"
+if ! grep -E 'codesign' <<< "$output" | grep -v -E -- '-dvvv|--verify' | grep -q . &&
+  grep -q -F '"$(cmux_remote_cdhashes)" != "$CMUX_REMOTE_CDHASHES_BEFORE"' "$sign_script" &&
+  ! grep -n -E 'codesign-retry.sh.*(Remote|remote)' "$sign_script" | grep -q .; then pass "$name"; else fail "$name"; fi
+
 if [[ "$failed" != 0 ]]; then
   echo "embed-cmux-remote-dev.test.sh: $failed failed" >&2
   exit 1
 fi
-echo "embed-cmux-remote-dev.test.sh: passed (Release embeds the asset only when asked; asked = required; the opt-in and no source = NOT EMBEDDED; DEV and bench stay optional)"
+echo "embed-cmux-remote-dev.test.sh: passed (Release embeds the asset only when asked; asked = required; the opt-in and no source = NOT EMBEDDED; DEV and bench stay optional; nightly-next asks, and thinning, the architecture check and signing keep the pinned bytes)"

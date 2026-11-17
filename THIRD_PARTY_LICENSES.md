@@ -261,6 +261,12 @@ This software is based in part on the work of the FreeType Team (FreeType 2.13.2
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.
 - **Source:** https://github.com/manaflow-ai/cmux-cua
 
+`Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib` is the
+upstream Cua Driver SDK (https://github.com/trycua/cua, tag cua-driver-rs-v0.38.0,
+pinned in `scripts/cmux-next/cua-driver-sdk.pin.json`), under the same license and
+copyright. Its license and the notices of the projects and Rust crates it uses ship
+in that app's `Contents/Resources/Licenses`.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -1080,7 +1086,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   `Packages/Shared/CmuxVNCWebRTC/Package.swift`); the text below is that archive's `LICENSE`
 
 `Contents/Frameworks/WebRTC.framework` carries Mac Screen streams (CmuxScreenKit and
-CmuxVNCWebRTC). libwebrtc links third-party code from Chromium's tree: BoringSSL, Opus,
+CmuxVNCWebRTC), and `Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib`
+is the same library for cmux Remote's Screen Sharing worker. libwebrtc links third-party code from Chromium's tree: BoringSSL, Opus,
 libvpx, libsrtp, Abseil, dav1d, the Alliance for Open Media Video Codec (libaom), libyuv,
 Protocol Buffers [Lite] and PFFFT. Their notices are in Chromium's `CREDITS.html` for the
 same milestone (Chromium 154), bundled at

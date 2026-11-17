@@ -3,13 +3,19 @@
 # Embeds the pinned, team-signed "cmux Remote (dev).app"
 # (cmux-remote-dev.pin.json; docs/cmux-remote.md) at
 #   Contents/Library/cmux Remote (dev).app
-# of a DEV build, where its cmux-tui daemon finds it, copies it outside the app
+# of a DEV or nightly-next build, where its cmux-tui daemon finds it, copies it outside the app
 # and starts it. Run from the "Embed Computer Use helper (dev)" phase
 # (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
-# A Release build embeds it only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 (decision of
-# 2026-11-16: the third-party notices and the load-command check of a published build do not cover
-# the embedded bundle yet). Without the variable a Release build prints one note line and embeds
+# A Release build embeds it only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1. The nightly-next
+# build sets it, with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 (app-build-release.sh; decision of 2026-11-17:
+# Screen Recording and Accessibility are granted to cmux Remote, in its own process). The published-build
+# checks cover the embedded bundle: its three Mach-O files have notices (bundle-map.json), their
+# load commands pass verify-bundle-load-commands.sh, the thin step leaves its bytes alone
+# (thin-app-bundle.sh), the architecture check requires its arm64 slices
+# (prepare-verify-binary-architectures.sh), and signing keeps its signature (sign-cmux-bundle.sh
+# checks its CDHash before and after). Main's nightly, RC and stable do not set the variable.
+# Without the variable a Release build prints one note line and embeds
 # nothing, and with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 and not the variable it fails: a build that
 # requires the asset does not go out with none. With the variable, Release requires the asset.
 # CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1 is the opt-in of such a Release build that may go out with no cmux

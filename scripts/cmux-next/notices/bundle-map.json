@@ -59,7 +59,7 @@
     },
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote",
-      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the Cua Driver SDK are the two dylibs beside it, not linked in",
+      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that DEV and nightly-next builds embed (Packages/macOS/CmuxRemote and the first-party Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the Cua Driver SDK are the two dylibs beside it, not linked in. These three entries are every Mach-O file in the pinned zip (sha256 2cbf2461, read 2026-11-17: no other code; the two SwiftPM resource bundles hold none)",
       "notices": ["first-party", "section:manual-swift-package-dependencies", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
     },
     {

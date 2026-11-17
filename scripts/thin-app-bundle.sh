@@ -10,10 +10,15 @@
 # architecture fail, since that bundle could never launch on the target machine.
 # Contents/Resources/bin/cmux-tui-ssh/ is skipped: it holds cmux-tui builds for
 # SSH hosts of every platform, which the app uploads rather than runs.
+# Contents/Library/cmux Remote*.app is skipped too: the pinned, team-signed cmux
+# Remote (embed-cmux-remote-dev.sh), whose bytes no step may change (its code
+# identity holds the person's Screen Recording and Accessibility grants). It is
+# arm64 only, with a fat libWebRTC.dylib; prepare-verify-binary-architectures.sh
+# checks its slices.
 # Run before code signing: thinning invalidates existing signatures.
 set -euo pipefail
 
-usage() { sed -n '2,13p' "$0"; }
+usage() { sed -n '2,19p' "$0"; }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then usage; exit 0; fi
 if [ "$#" -ne 2 ]; then usage >&2; exit 2; fi
@@ -38,9 +43,11 @@ FILE_TOOL="${CMUX_FILE_TOOL:-file}"
 # substitute CMUX_FILE_TOOL (tests) sees every file, as before.
 list_files() {
   if [ -n "${CMUX_FILE_TOOL:-}" ]; then
-    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0
+    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o \
+      -path "$APP_PATH/Contents/Library/cmux Remote*.app" -prune -o -type f -print0
   else
-    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0 \
+    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o \
+      -path "$APP_PATH/Contents/Library/cmux Remote*.app" -prune -o -type f -print0 \
       | python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/list-macho-candidates.py"
   fi
 }

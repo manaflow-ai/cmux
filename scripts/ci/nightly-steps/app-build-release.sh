@@ -77,6 +77,11 @@ fi
 # roots come from the job's HOME so the bytes match a Blacksmith build
 # (build 74986f8b recorded /Users/cmux paths).
 if [ "${BUILD_TRACK:-}" = nightly-next ]; then
+  # cmux Remote (docs/cmux-remote.md) is the one app the person grants Screen Recording and
+  # Accessibility to, in its own process, so a grant never restarts cmux. The nightly-next build
+  # embeds the pinned bundle and fails without it (embed-cmux-remote-dev.sh); "Fetch the Chromium
+  # engine" put it in the cache this build reads (app-fetch-chromium-engine.sh).
+  export CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 CMUX_NEXT_REQUIRE_CMUX_REMOTE=1
   export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
   export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
   CMUX_CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$(scripts/cmux-next/cef-cache-root.sh)}"

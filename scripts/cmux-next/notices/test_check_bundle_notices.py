@@ -478,6 +478,58 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertIn("rust-std", sdk["notices"])
         self.assertIn(self.STD_SECTION, sdk["notices"])
 
+    # Every file of the pinned zip (cmux-remote-dev.pin.json sha256 2cbf2461, read on 2026-11-17):
+    # three Mach-O files (libWebRTC.dylib fat x86_64 + arm64, the others arm64) and the rest data.
+    REMOTE_FILES = {
+        "Contents/Info.plist": b"<plist/>",
+        "Contents/_CodeSignature/CodeResources": b"<plist/>",
+        "Contents/Resources/AppIcon.icns": b"icns",
+        "Contents/Resources/Licenses/LICENSE-cua.md": b"MIT License\n",
+        "Contents/Resources/Licenses/README.txt": b"cmux Remote (dev) is free software\n",
+        "Contents/Resources/Licenses/THIRD_PARTY_NOTICES-rust.md": b"# Third-party notices\n",
+        "Contents/Resources/Licenses/cargo-dependencies.txt": b"crates\n",
+        "Contents/Resources/CmuxComputerUseHelper_CmuxCuaHelperCore.bundle/Info.plist": b"<plist/>",
+        "Contents/Resources/CmuxComputerUseHelper_CmuxCuaHelperCore.bundle/Localizable.xcstrings": b"{}",
+        "Contents/Resources/CmuxRemote_CmuxRemoteScreenSharing.bundle/Info.plist": b"<plist/>",
+        "Contents/Resources/CmuxRemote_CmuxRemoteScreenSharing.bundle/Localizable.xcstrings": b"{}",
+        "Contents/MacOS/cmux-remote": THIN,
+        "Contents/Frameworks/libWebRTC.dylib": FAT,
+        "Contents/Frameworks/libcua_driver_sdk.dylib": THIN + f"/rustc/{REMOTE_SDK_RUSTC}/library/std/src/lib.rs".encode(),
+    }
+
+    def remote_app(self) -> dict:
+        """The fake bundle: the pinned cmux Remote's files, CEF's notice files, the reviewed toolchain
+        texts and the committed THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        for rel, data in self.REMOTE_FILES.items():
+            (self.app / self.REMOTE / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.app / self.REMOTE / rel).write_bytes(data)
+        cef = self.app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+        cef.mkdir(parents=True)
+        (cef / "CREDITS.html").write_text("<html></html>\n")
+        (cef / "LICENSE.txt").write_text("BSD\n")
+        (self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md").write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_the_pinned_cmux_remote_passes_with_the_committed_map_and_notices(self) -> None:
+        bundle_map = self.remote_app()
+        self.assertEqual(sorted(checker.macho_files(self.app)),
+                         sorted(f"{self.REMOTE}/{rel}" for rel in ("Contents/MacOS/cmux-remote",
+                                                                   "Contents/Frameworks/libWebRTC.dylib",
+                                                                   "Contents/Frameworks/libcua_driver_sdk.dylib")))
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+
+    def test_the_pinned_cmux_remote_fails_without_its_bundled_license_readme(self) -> None:
+        bundle_map = self.remote_app()
+        (self.app / self.REMOTE / "Contents/Resources/Licenses/README.txt").unlink()
+        errors = checker.check(self.app, bundle_map)
+        readme = f"file:{self.REMOTE}/Contents/Resources/Licenses/README.txt"
+        self.assertIn(f"{self.REMOTE}/Contents/MacOS/cmux-remote: missing notice {readme}", errors)
+        self.assertIn(f"{self.REMOTE}/Contents/Frameworks/libcua_driver_sdk.dylib: missing notice {readme}", errors)
+
     def test_the_rustc_of_the_remote_sdk_is_reviewed(self) -> None:
         manifest = json.loads((ROOT / "cmux-tui/build-support/notices/toolchains/toolchains.json").read_text())
         self.assertIn(self.REMOTE_SDK_RUSTC, {r["rustc_commit"] for r in manifest["rust"]})

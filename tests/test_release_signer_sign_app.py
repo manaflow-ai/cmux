@@ -55,6 +55,10 @@ if argv[0] == "sign":
         record["manifest"] = json.load(open(manifest)) if os.path.exists(manifest) else None
         import plistlib
         record["nonce"] = "CMUXNotarizationSubmission" in plistlib.load(open(target + "/Contents/Info.plist", "rb"))
+        # A signer that re-signs a file the script told it to leave alone.
+        touched = os.path.join(target, os.environ.get("FAKE_TOUCH") or "\0")
+        if os.path.isfile(touched):
+            open(touched, "ab").write(b"\nRESIGNED")
     else:
         open(target, "ab").write(b"\nSIGNED")
 # Only openssl may see the certificate secrets: the signer unsets them after the PEM exists.
@@ -126,6 +130,7 @@ CEF = FW + "Chromium Embedded Framework.framework/Versions/A/"
 RBH = "Contents/Helpers/cmux-remote-browser-host.app/Contents/"
 PAYLOAD = "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-aarch64-apple-darwin"
 LINUX_PAYLOAD = "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-x86_64-unknown-linux-musl"
+REMOTE = "Contents/Library/cmux Remote (dev).app"
 
 
 def helper_exe(root: str, name: str) -> str:
@@ -284,6 +289,36 @@ class SignAppTest(unittest.TestCase):
                          ["Contents/Resources/bin/cmux-tui-ssh/**", "Contents/Resources/cmux_Resources.bundle"])
         verified = {c["argv"][-1] for c in self.calls("signer", "verify")}
         self.assertEqual(verified, {str(self.app / rel) for rel in MACHOS | {PAYLOAD}})
+
+    def add_cmux_remote(self) -> dict[str, bytes]:
+        """The pinned cmux Remote's layout (cmux-remote-dev.pin.json): three Mach-O files, a fat
+        libWebRTC.dylib among them, and its own seal."""
+        files = {
+            REMOTE + "/Contents/Info.plist": plistlib.dumps({"CFBundleExecutable": "cmux-remote",
+                                                            "CFBundleIdentifier": "com.cmuxterm.remote.dev"}),
+            REMOTE + "/Contents/MacOS/cmux-remote": b"\xcf\xfa\xed\xfepinned-remote",
+            REMOTE + "/Contents/Frameworks/libWebRTC.dylib": b"\xca\xfe\xba\xbe\x00\x00\x00\x02pinned-webrtc",
+            REMOTE + "/Contents/Frameworks/libcua_driver_sdk.dylib": b"\xcf\xfa\xed\xfepinned-sdk",
+            REMOTE + "/Contents/_CodeSignature/CodeResources": b"pinned seal",
+        }
+        for rel, data in files.items():
+            write(self.app / rel, data)
+        return files
+
+    def test_the_pinned_cmux_remote_is_sealed_as_it_is(self) -> None:
+        """cmux Remote keeps the signature it was pinned with: the person's grants live under it."""
+        files = self.add_cmux_remote()
+        self.run_script()
+        [sign] = self.signs(self.app)
+        self.assertLessEqual({REMOTE, REMOTE + "/**"}, set(options(sign["argv"], "--exclude")))
+        self.assertEqual([f for f in options(sign["argv"], "--code-signature-flags") if f.startswith(REMOTE)], [])
+        self.assertFalse([rel for rel in sign["entitlements"] if rel.startswith(REMOTE)])
+        self.assertEqual({rel: (self.app / rel).read_bytes() for rel in files}, files)
+
+    def test_a_signer_that_changes_the_pinned_cmux_remote_fails(self) -> None:
+        self.add_cmux_remote()
+        result = self.run_script(ok=False, FAKE_TOUCH=REMOTE + "/Contents/MacOS/cmux-remote")
+        self.assertIn("signing changed the pinned cmux Remote", result.stderr)
 
     def test_bundle_is_prepared_before_it_is_signed(self) -> None:
         self.run_script()

@@ -23,18 +23,29 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
 ```
 
 - **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV builds, and a NIGHTLY build that is asked to embed it, currently use the
-  pinned `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the cmux
-  icon on a remote-screen badge. Its designated requirement (bundle id + team)
-  stays the same across builds, so a grant survives every update. A Release
-  build embeds the pinned asset from
+  DEV and NIGHTLY builds currently use the pinned `cmux Remote (dev).app`,
+  `com.cmuxterm.remote.dev`), with the cmux icon on a remote-screen badge. Its
+  designated requirement (bundle id + team) stays the same across builds, so a
+  grant survives every update. A Release build embeds the pinned asset from
   `scripts/cmux-next/cmux-remote-dev.pin.json` only with
-  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
-  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
-  notices and the load-command check of a published build do not cover the
-  embedded bundle yet. Without the variable a Release build prints one note
-  line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
-  variable it fails. With the variable a Release build fails without the
+  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1`. The nightly-next build sets it
+  with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` (decision of 2026-11-17), so every
+  NIGHTLY carries cmux Remote and its workers' Screen Recording and
+  Accessibility grants (the attached app capture above still checks the app's
+  own); main's nightly, RC and stable do not set it. The
+  published-build checks cover the embedded bundle: its three Mach-O files
+  (`MacOS/cmux-remote`, `Frameworks/libWebRTC.dylib` and
+  `Frameworks/libcua_driver_sdk.dylib`) map to their notices
+  (`scripts/cmux-next/notices/bundle-map.json`), their load commands pass
+  `verify-bundle-load-commands.sh`, the thin step leaves its bytes alone
+  (`thin-app-bundle.sh`; libWebRTC.dylib keeps its x86_64 slice), the
+  architecture check requires it with arm64 slices, and the signing scripts
+  never sign it: `sign-cmux-bundle.sh` compares its CDHash before and after,
+  and the app's notarization covers it as nested code (Developer ID, hardened
+  runtime, secure timestamp). An x86_64 variant drops it, as it drops the
+  arm64-only Chromium engine. Without the variable a Release build prints one
+  note line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not
+  the variable it fails. With the variable a Release build fails without the
   asset, and a mismatched asset fails each build that embeds. Only with
   `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1` added, a Release build on a Mac with no
   source for the asset prints one `NOT EMBEDDED` warning line and has no cmux

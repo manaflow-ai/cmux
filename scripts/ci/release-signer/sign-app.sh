@@ -399,6 +399,36 @@ PY
   echo "==> signed and re-pinned ${#signed[@]} cmux-tui SSH payload(s)"
 fi
 
+# cmux Remote ("Contents/Library/cmux Remote (dev).app", embed-cmux-remote-dev.sh): pinned and
+# team-signed; macOS keeps the person's Screen Recording and Accessibility grants under its code
+# identity, so the signer seals it as it is and signs nothing in it (sign-cmux-bundle.sh keeps it
+# the same way). Its files' digests before and after the pass prove it.
+remote_rels=()
+for remote_app in "$APP_PATH/Contents/Library/cmux Remote"*.app; do
+  [[ -d "$remote_app" ]] || continue
+  remote_rels+=("${remote_app#"$APP_PATH/"}")
+  excludes+=(--exclude "${remote_app#"$APP_PATH/"}" --exclude "${remote_app#"$APP_PATH/"}/**")
+done
+is_remote() { # <rel>: inside the pinned cmux Remote
+  local rrel
+  for rrel in ${remote_rels[@]+"${remote_rels[@]}"}; do [[ "$1" == "$rrel/"* ]] && return 0; done
+  return 1
+}
+remote_digest() {
+  python3 -I - "$APP_PATH" ${remote_rels[@]+"${remote_rels[@]}"} <<'PY'
+import hashlib, os, sys
+app, rels = sys.argv[1], sys.argv[2:]
+for rel in rels:
+    for directory, dirs, files in sorted(os.walk(os.path.join(app, rel))):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(directory, name)
+            data = os.readlink(path).encode() if os.path.islink(path) else open(path, "rb").read()
+            print(hashlib.sha256(data).hexdigest(), os.path.relpath(path, app))
+PY
+}
+remote_before="$(remote_digest)"
+
 # 2. The Computer Use helper app: its executable gets the helper entitlements;
 # the Screen Sharing helper app's gets none.
 # helper-first keeps the notarized helpers as they are, tickets included, and seals them.
@@ -471,7 +501,7 @@ is_first_helper() { # <rel>: inside a helper notarized first
   return 1
 }
 for rel in "${machos[@]}"; do
-  [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || is_first_helper "$rel" ||
+  [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || is_first_helper "$rel" || is_remote "$rel" ||
     args+=(--code-signature-flags "$rel:runtime")
 done
 echo "==> signing ${APP_PATH##*/}: ${#machos[@]} Mach-O files, ${#ent[@]} with scoped entitlements"
@@ -485,6 +515,8 @@ for rel in "${machos[@]}"; do
 done
 echo "==> signature check: $(( ${#machos[@]} - bad ))/${#machos[@]} Mach-O files OK"
 (( bad == 0 ))
+[[ "$(remote_digest)" == "$remote_before" ]] ||
+  { echo "error: signing changed the pinned cmux Remote; its grants would not survive the update" >&2; exit 1; }
 if [[ "$MODE" == helper-first ]]; then
   # The app seal kept the exact helpers Apple notarized, and their tickets.
   for i in "${!first_helpers[@]}"; do

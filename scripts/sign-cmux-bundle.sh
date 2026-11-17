@@ -134,6 +134,23 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
   exit 1
 fi
 
+# cmux Remote ("Contents/Library/cmux Remote (dev).app", embed-cmux-remote-dev.sh) is the pinned,
+# team-signed bundle the person grants Screen Recording and Accessibility to; macOS keeps those
+# grants under its code identity, so no step here signs it: step 2 names only the Computer Use and
+# Screen Sharing helpers, step 4 only Contents/Frameworks, and step 5 seals the app without --deep.
+# Its CDHash before and after signing proves its bytes kept their signature.
+CMUX_REMOTE_APPS=()
+for remote_app in "$APP_PATH/Contents/Library/cmux Remote"*.app; do
+  [[ -d "$remote_app" ]] && CMUX_REMOTE_APPS+=("$remote_app")
+done
+cmux_remote_cdhashes() {
+  local remote_app
+  for remote_app in ${CMUX_REMOTE_APPS[@]+"${CMUX_REMOTE_APPS[@]}"}; do
+    printf '%s %s\n' "$(basename "$remote_app")" "$(/usr/bin/codesign -dvvv "$remote_app" 2>&1 | sed -n 's/^CDHash=//p')"
+  done
+}
+CMUX_REMOTE_CDHASHES_BEFORE="$(cmux_remote_cdhashes)"
+
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
   # 0-1. The cmux server launchd plists, then the CLI and private helpers.
   "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
@@ -253,6 +270,13 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
+for remote_app in ${CMUX_REMOTE_APPS[@]+"${CMUX_REMOTE_APPS[@]}"}; do
+  /usr/bin/codesign --verify --strict --deep --verbose=2 "$remote_app"
+done
+if [[ "$(cmux_remote_cdhashes)" != "$CMUX_REMOTE_CDHASHES_BEFORE" ]]; then
+  echo "error: signing changed the pinned cmux Remote's signature (CDHash before: ${CMUX_REMOTE_CDHASHES_BEFORE:-none}); its grants would not survive the update" >&2
+  exit 1
+fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)
