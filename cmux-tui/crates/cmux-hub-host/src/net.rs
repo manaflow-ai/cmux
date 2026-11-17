@@ -10,6 +10,12 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The User-Agent of this host's hub requests.
+#[cfg(not(windows))]
+const USER_AGENT: &str = "cmux-rd-linux-host";
+#[cfg(windows)]
+const USER_AGENT: &str = "cmux-rd-windows-host";
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_HEADER: usize = 32 * 1024;
@@ -192,7 +198,7 @@ pub fn request(
 ) -> Res<Response> {
     let mut conn = Conn::open(url)?;
     let mut head = format!(
-        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
+        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {USER_AGENT}\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
         url.target,
         host_header(url)
     );
@@ -311,7 +317,7 @@ impl WebSocket {
             .map_err(|_| "no randomness")?;
         let key = b64::encode(&nonce);
         let mut head = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {USER_AGENT}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
             url.target,
             host_header(url)
         );
