@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use cmux_feed_core::client::{
     FeedItem, IntegrationOwner, Intent, IntentKind, Mirror, Owner, Place, Poster, Priority,
-    ViewContext, ViewRequest,
+    ViewContext, ViewRequest, items_visited,
 };
 use cmux_feed_core::{Context, Feed, MAX_ITEMS, Notice};
 use serde_json::{Value, json};
@@ -356,6 +356,164 @@ fn degenerate_inputs_post_and_view() {
     assert_eq!(empty["total"], 0);
 }
 
+/// Items one view reads, and how many items it shows (heads and members).
+fn visits(mirror: &Mirror, request: Value) -> (u64, u64) {
+    let before = items_visited();
+    let shown = view(mirror, MIRROR_NOW, request);
+    let read = items_visited() - before;
+    let mut items = 0u64;
+    for group in shown["groups"].as_array().into_iter().flatten() {
+        for entry in group["entries"].as_array().into_iter().flatten() {
+            items += 1 + entry["members"].as_array().map_or(0, |members| members.len() as u64);
+        }
+    }
+    (read, items)
+}
+
+/// The Inbox and a filtered page read what they show, not the feed: the
+/// same page reads the same items at 1k and at 100k, and a page that shows
+/// threads reads at most each shown item and member twice (the walk passes a
+/// shown thread's members once more).
+#[test]
+fn an_inbox_or_filtered_page_reads_what_it_shows() {
+    let small = mirror_of(1_000);
+    let big = mirror_of(100_000);
+    let inbox = json!({"layout": "inbox", "limit": 50});
+    let (inbox_small, _) = visits(&small, inbox.clone());
+    let (inbox_big, _) = visits(&big, inbox);
+    assert!(
+        inbox_big <= inbox_small + 8,
+        "Inbox page: {inbox_big} items read at 100k vs {inbox_small} at 1k"
+    );
+    let pages = [
+        json!({"layout": "inbox", "limit": 50, "filter": {"category": "notices"}}),
+        json!({"layout": "inbox", "limit": 50, "filter": {"category": "unread"}}),
+        json!({"layout": "list", "limit": 50, "filter": {"category": "unread"}}),
+        json!({"layout": "list", "limit": 50, "filter": {"category": "needs_you"}}),
+        json!({"layout": "needs_you", "limit": 50, "filter": {"connection": "github"}}),
+        // Reaches Earlier: Today holds fewer than 2,000 entries.
+        json!({"layout": "inbox", "filter": {"category": "notices"}}),
+    ];
+    for (size, mirror) in [(1_000, &small), (100_000, &big)] {
+        for page in &pages {
+            let (read, shown) = visits(mirror, page.clone());
+            assert!(read <= 2 * shown + 8, "{page} at {size}: {read} items read, {shown} shown");
+        }
+    }
+}
+
+/// A corpus that exercises the Inbox's edges: items over four days and one
+/// day ahead (a skewed clock), threads that span Today, Earlier and the
+/// future, open and answered requests, read and unread, GitHub items,
+/// archived and snoozed items. Every title says "corpus".
+fn edge_item(n: usize) -> FeedItem {
+    const HOUR: i64 = 3_600_000;
+    // From 30 hours ahead to about 4 days back, in 37-minute steps (not
+    // minute-aligned for the odd ones).
+    let at = MIRROR_NOW + 30 * HOUR - (n as i64) * 37 * 60_000 - (n as i64 % 2) * 1_234;
+    let mut item = FeedItem::notice(&format!("fi_e{n:06}"), &format!("Corpus {n}"), agent(), at);
+    item.thread = match n % 7 {
+        0 | 3 => Some(format!("t{}", n % 4)),
+        5 => Some("solo".into()),
+        _ => None,
+    };
+    if n.is_multiple_of(6) {
+        item.kind = "confirm".into();
+        item.priority = if n.is_multiple_of(12) { Priority::Urgent } else { Priority::Normal };
+        if n.is_multiple_of(4) {
+            item.state = cmux_feed_core::client::State::Answered;
+        }
+    }
+    if n % 5 == 1 {
+        item.read_at = Some(at);
+    }
+    if n % 9 == 2 {
+        item.dedupe_key = Some(format!("github:pr:{n}"));
+    }
+    if n % 23 == 4 {
+        item.archived_at = Some(at);
+    }
+    if n % 29 == 6 {
+        item.snoozed_until = Some(MIRROR_NOW + HOUR);
+    }
+    item
+}
+
+fn assert_index_matches_scan(mirror: &Mirror, label: &str) {
+    for layout in ["inbox", "list", "needs_you"] {
+        for connection in ["feed", "github"] {
+            for category in ["all", "unread", "needs_you", "notices"] {
+                for tz in [-720, -540, 0, 330, 840] {
+                    for limit in [0usize, 1, 3, 17, 50, 2_000] {
+                        let filter = json!({"connection": connection, "category": category});
+                        let request = json!({"layout": layout, "limit": limit, "tz_offset_min": tz, "filter": filter});
+                        let fast = view(mirror, MIRROR_NOW, request);
+                        let mut searched = filter.clone();
+                        searched["query"] = json!("corpus");
+                        let request = json!({"layout": layout, "limit": limit, "tz_offset_min": tz, "filter": searched});
+                        let slow = view(mirror, MIRROR_NOW, request);
+                        let at = format!(
+                            "{label}: {layout} {connection} {category} tz {tz} limit {limit}"
+                        );
+                        assert_eq!(fast["total"], slow["total"], "{at}");
+                        assert_eq!(fast["groups"], slow["groups"], "{at}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The index answers exactly what the scan of the whole list answers, for
+/// every layout, filter, time zone and limit, before and after changes that
+/// move items between threads, days, filters and the active list.
+#[test]
+fn the_indexed_inbox_and_filters_match_the_scan() {
+    let mut mirror = Mirror::new("dev_1");
+    let items: Vec<FeedItem> = (0..240).map(edge_item).collect();
+    mirror.cloud_snapshot("user_1", items, MIRROR_NOW);
+    assert_index_matches_scan(&mirror, "snapshot");
+    // Read, re-thread, archive, answer, move in time, remove.
+    let mut changed = Vec::new();
+    for n in (0..240).step_by(5) {
+        let mut item = edge_item(n);
+        item.revision += 1;
+        match n % 4 {
+            0 => item.read_at = Some(MIRROR_NOW),
+            1 => item.thread = Some("moved".into()),
+            2 => item.archived_at = Some(MIRROR_NOW),
+            _ => item.created_at -= 3 * 86_400_000,
+        }
+        if item.is_open_request() && n % 3 == 0 {
+            item.state = cmux_feed_core::client::State::Answered;
+        }
+        changed.push(item);
+    }
+    let removed = (1..240).step_by(11).map(|n| edge_item(n).id).collect();
+    mirror.event(Owner::Cloud, changed, removed, None, MIRROR_NOW);
+    assert_index_matches_scan(&mirror, "after an event");
+    // A pending read shows applied (and marked) until its settle line.
+    let ids: Vec<String> = (2..240).step_by(13).map(|n| edge_item(n).id).collect();
+    let intent = Intent::new("k1", IntentKind::Read { items: ids.clone() }, MIRROR_NOW);
+    mirror.begin(intent, true, MIRROR_NOW);
+    assert!(mirror.is_pending(&ids[0]) && !mirror.is_pending(&edge_item(3).id));
+    assert_index_matches_scan(&mirror, "pending read");
+    mirror.settle("k1", None, MIRROR_NOW);
+    assert!(!mirror.is_pending(&ids[0]));
+    let all = Intent::new("k2", IntentKind::MarkAllRead { before: MIRROR_NOW }, MIRROR_NOW);
+    mirror.begin(all, true, MIRROR_NOW);
+    assert!(mirror.is_pending(&edge_item(3).id));
+    assert_index_matches_scan(&mirror, "pending mark all read");
+    // Mark All Read goes to both owners: it ends on both settle lines.
+    mirror.settle("k2", None, MIRROR_NOW);
+    assert!(mirror.is_pending(&edge_item(3).id));
+    mirror.settle("k2", None, MIRROR_NOW);
+    assert!(!mirror.is_pending(&edge_item(3).id));
+    // The snoozed items wake.
+    mirror.tick(MIRROR_NOW + 2 * 3_600_000);
+    assert_index_matches_scan(&mirror, "after the snoozes woke");
+}
+
 // MARK: Gated timing sweep
 
 #[test]
@@ -449,13 +607,19 @@ fn stress_bench_mirror_and_view() {
     }
     for size in [100usize, 1_000, 10_000, 100_000] {
         let mut mirror = mirror_of(size);
-        let (mut event, mut page, mut inbox, mut full, mut read) = (
+        let (mut event, mut page, mut inbox, mut full, mut read, mut filtered) = (
+            Samples::default(),
             Samples::default(),
             Samples::default(),
             Samples::default(),
             Samples::default(),
             Samples::default(),
         );
+        let inbox_request = json!({"layout": "inbox", "limit": 50});
+        let filtered_request =
+            json!({"layout": "inbox", "limit": 50, "filter": {"category": "notices"}});
+        let (inbox_read, _) = visits(&mirror, inbox_request.clone());
+        let (filtered_read, _) = visits(&mirror, filtered_request.clone());
         let rounds = 200;
         for round in 0..rounds {
             let n = (round * 7919) % size.max(1);
@@ -485,12 +649,11 @@ fn stress_bench_mirror_and_view() {
             std::hint::black_box(view(&mirror, MIRROR_NOW, json!({"limit": 50})));
             page.push(started);
             let started = Instant::now();
-            std::hint::black_box(view(
-                &mirror,
-                MIRROR_NOW,
-                json!({"layout": "inbox", "limit": 50}),
-            ));
+            std::hint::black_box(view(&mirror, MIRROR_NOW, inbox_request.clone()));
             inbox.push(started);
+            let started = Instant::now();
+            std::hint::black_box(view(&mirror, MIRROR_NOW, filtered_request.clone()));
+            filtered.push(started);
             if round.is_multiple_of(20) {
                 let started = Instant::now();
                 std::hint::black_box(view(&mirror, MIRROR_NOW, json!({})));
@@ -500,7 +663,7 @@ fn stress_bench_mirror_and_view() {
         report(
             "mirror_view",
             size,
-            json!({"event": event.summary(), "read_settle": read.summary(), "view_list_50": page.summary(), "view_inbox_50": inbox.summary(), "view_default": full.summary()}),
+            json!({"event": event.summary(), "read_settle": read.summary(), "view_list_50": page.summary(), "view_inbox_50": inbox.summary(), "view_inbox_notices_50": filtered.summary(), "view_default": full.summary(), "inbox_items_read": inbox_read, "inbox_notices_items_read": filtered_read}),
         );
     }
 }

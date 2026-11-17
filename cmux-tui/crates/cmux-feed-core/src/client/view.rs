@@ -3,6 +3,8 @@
 //! mirror's ordered list (no sort per read), with each item's row content,
 //! pending mark and GitHub detail.
 
+use std::cell::Cell;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -15,6 +17,21 @@ use super::row::{Place, Row};
 /// `feed.view.read` answers at most this many entries.
 pub const MAX_VIEW_ENTRIES: usize = 2000;
 const DAY_MS: i64 = 86_400_000;
+
+thread_local! {
+    static VISITED: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Items the views read on this thread so far (each item a view looks at,
+/// shown or not): the work count the stress tests compare across feed sizes.
+#[doc(hidden)]
+pub fn items_visited() -> u64 {
+    VISITED.with(Cell::get)
+}
+
+fn visit() {
+    VISITED.with(|count| count.set(count.get().wrapping_add(1)));
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,7 +108,7 @@ impl ViewContext<'_> {
     pub fn view(&self, request: &ViewRequest) -> Value {
         let matcher = Matcher::new(request.filter.clone().unwrap_or_default());
         let limit = request.limit.unwrap_or(MAX_VIEW_ENTRIES).min(MAX_VIEW_ENTRIES);
-        let kept = || self.mirror.list().filter(|item| matcher.keeps(item));
+        let kept = || self.mirror.list().inspect(|_| visit()).filter(|item| matcher.keeps(item));
         // Each group: its id, the entries built (at least the shown ones),
         // and how many entries it has in all.
         let mut groups: Vec<(&str, Vec<Entry<'_>>, usize)> = Vec::new();
@@ -103,7 +120,7 @@ impl ViewContext<'_> {
             // however many items the feed holds.
             Layout::List | Layout::NeedsYou if everything => {
                 let open = self.mirror.counts().open_requests.min(self.mirror.list_len());
-                let mut list = self.mirror.list();
+                let mut list = self.mirror.list().inspect(|_| visit());
                 let shown = open.min(limit);
                 let id = if request.layout == Layout::List { "requests" } else { "needs_you" };
                 groups.push((id, list.by_ref().take(shown).map(Entry::single).collect(), open));
