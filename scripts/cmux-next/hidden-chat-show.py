@@ -437,6 +437,8 @@ def main():
             send(f"history: {opts.history}")
             ended = wait(lambda: state().get("isWorking") is False and (state().get("rows") or 0) > 10, 90, 0.5)
             note(f"{chat['name']} history in: {bool(ended)} {short(state(), 300)}")
+            if not ended:
+                raise RuntimeError(f"chat {chat['name']} never streamed its history: {short(state(), 300)}")
 
         done_up, done_follow = os.path.join(WORK, "done-up.json"), os.path.join(WORK, "done-follow.json")
         # UP: the turn starts, the reader scrolls up a few screens, then another tab is shown.
@@ -527,4 +529,12 @@ if __name__ == "__main__":
                     tar.add(full, arcname=name)
         print("HIDDEN-SHOW " + json.dumps({k: R.get(k) for k in ("floods", "up_before", "up_after", "follow_after")})[:2000],
               flush=True)
+    # A run that streamed nothing measured nothing: it fails, so its report never reads as a result.
+    floods = R.get("floods") or {}
+    unstreamed = [k for k in ("up_after", "follow_after") if ((R.get(k) or {}).get("rows") or 0) <= 10]
+    missing = [k for k in ("up", "follow") if not floods.get(k)]
+    if R.get("error") or unstreamed or missing:
+        print(f"HIDDEN-SHOW FAILED: measured nothing: error={bool(R.get('error'))} "
+              f"chats at <=10 rows={unstreamed} floods missing={missing}", flush=True)
+        sys.exit(1)
     sys.exit(0)
