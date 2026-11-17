@@ -94,6 +94,12 @@ pub(super) fn sections(package: &Package) -> Vec<Section> {
                 .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
                 .collect()
         };
+    // One section per contribution id, the first entry's: a repeated id
+    // hashes to the same section id, and two adds of one id in a placement
+    // would fail the document transaction for every app placed with it.
+    let mut seen = std::collections::HashSet::new();
+    let entries: Vec<(&str, &Value)> =
+        entries.into_iter().filter(|(id, _)| seen.insert(*id)).collect();
     entries
         .into_iter()
         .map(|(id, options)| {
@@ -253,6 +259,7 @@ mod tests {
                 "export": "render", "title": "Recent PRs",
                 "options": {"defaultRegion": "bottom", "maxRows": 8}
             }}}),
+            fragment: None,
         }
     }
 
@@ -342,5 +349,21 @@ mod tests {
         );
         assert_eq!(sections[0].region, Region::Bottom);
         assert_eq!(sections[1].region, Region::Middle);
+    }
+
+    /// A repeated contribution id gives one section, the first entry's
+    /// (base red: each entry gave a section with the same hashed id, and a
+    /// placement of both added one id twice).
+    #[test]
+    fn a_repeated_section_id_gives_one_section() {
+        let mut app = package();
+        app.manifest = json!({"contributes": {"sidebarSections": (0..200)
+            .map(|i| json!({"id": format!("s{}", i % 7), "title": "T", "defaultRegion": if i < 7 { "bottom" } else { "top" }, "render": "render"}))
+            .collect::<Vec<_>>()}});
+        let sections = sections(&app);
+        assert_eq!(sections.len(), 7);
+        let ids: std::collections::HashSet<&str> = sections.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids.len(), 7);
+        assert!(sections.iter().all(|s| s.region == Region::Bottom), "the first entry wins");
     }
 }

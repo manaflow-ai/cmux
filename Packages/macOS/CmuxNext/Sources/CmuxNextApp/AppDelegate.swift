@@ -48,21 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
-    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
-    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
-    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
-                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
-        ForcedQuitExit(prepare: {
-            services()?.crashRecovery.applicationWillTerminate()
-            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            services()?.home.applicationWillTerminate()
-        }, save: {
-            guard let services = services() else { return }
-            async let files: Void = services.stateFilesDrained()
-            await services.home.flushCacheForQuit()
-            await files
-        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
-    }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -188,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markReveal(services.launchReveal)
         // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
-            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
             firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -298,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
+        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -395,7 +381,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
-        services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
@@ -600,5 +585,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.input.noteReopenRequested()
         services?.windows.reopenOrCreateWindow()
         return false
+    }
+}
+
+extension AppDelegate {
+    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
+    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
+    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
+                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
+        ForcedQuitExit(prepare: {
+            services()?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+            services()?.home.applicationWillTerminate()
+        }, save: {
+            guard let services = services() else { return }
+            async let files: Void = services.stateFilesDrained()
+            await services.home.flushCacheForQuit()
+            await services.windows.recordSaver.launchRecord.flush()
+            await files
+        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
 }
