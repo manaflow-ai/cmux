@@ -45,6 +45,8 @@ jobs:
       react_apps: ${{ steps.scope.outputs.react_apps }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
+      # How many react-apps-check shards run tests (1-12, from the pick below); the rest pass without a step.
+      webview_shards: ${{ steps.pick.outputs.shards || '12' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -101,6 +103,42 @@ jobs:
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
           fi
 
+      # A pull request's shards run the test files its change can reach (scripts/ci/webviews_affected.py: the
+      # import graph, every test that reads files or drives a browser, every file for a build input or an
+      # unmapped path), picked once here for every shard, and only as many shards run them as the split needs to
+      # keep each under WEBVIEW_SHARD_BUDGET seconds (webviews_test_shards.py count). Each shard used to pick the
+      # files itself and all 12 ran: a change that reached 40 files paid 12 checkouts, installs, bundle builds,
+      # engine installs and Vite warm-ups for them. A shard past the count runs no step on a hosted runner and
+      # passes. A feat-cmux-next push, a full-ci label, an empty pick (every file) or a failed pick run all 12.
+      - name: Pick the webview test files and shard count
+        id: pick
+        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        working-directory: webviews
+        env:
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          SHARDS: "12"
+          # run-webviews-tests.sh's split widths at the shards' CMUX_WEB_TEST_JOBS=8 (plain 6, browser 2,
+          # dev-server CMUX_WEB_TEST_DEV_JOBS=4) and shard 1's head start: the count sizes the split they make.
+          WIDTHS: "6,2,4"
+          CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
+          WEBVIEW_SHARD_BUDGET: "600"
+        run: |
+          picked="$RUNNER_TEMP/webviews-durations/affected-files"
+          count="$SHARDS"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ] &&
+            timeout 120 python3 ../scripts/ci/webviews_affected.py --base HEAD^1 --head HEAD > "$picked.tmp" &&
+            [ -s "$picked.tmp" ]; then
+            mv "$picked.tmp" "$picked"
+            count="$(timeout 120 python3 ../scripts/ci/webviews_test_shards.py count "$picked" \
+              "$RUNNER_TEMP/webviews-durations/manifest.json" "$SHARDS" "$WIDTHS" "$WEBVIEW_SHARD_BUDGET")" || count="$SHARDS"
+            [[ "$count" =~ ^([1-9]|1[0-2])$ ]] || count="$SHARDS"
+            echo "picked $(grep -c . "$picked") webview test files for $count of $SHARDS shards"
+          else
+            rm -f "$picked" "$picked.tmp"
+            echo "every webview test file runs on $SHARDS shards"
+          fi
+          echo "shards=$count" >> "$GITHUB_OUTPUT"
+
       - name: Upload the duration manifest
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -111,6 +149,7 @@ jobs:
           path: |
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
+            ${{ runner.temp }}/webviews-durations/affected-files
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -326,7 +365,11 @@ jobs:
     # 972 s, pull requests) for half the per-minute price, the longest 2139 s, under
     # the 40 min timeout. The overflow failover still goes to 32 vCPU. Fork pull
     # requests run the same suite on the hosted runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    # A shard past web-subarea-scope's count (webview_shards) runs no step: the hosted runner, not 16 vCPU.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.shard > fromJSON(needs.web-subarea-scope.outputs.webview_shards || '12') && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    env:
+      # True on a shard the pick left without files: every step skips and the shard passes.
+      SHARD_IDLE: ${{ matrix.shard > fromJSON(needs.web-subarea-scope.outputs.webview_shards || '12') }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -377,6 +420,7 @@ jobs:
             shard_count: 12
     steps:
       - name: Checkout
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # A pull request's merge commit with its parents: ui-rules and gallery
@@ -387,18 +431,20 @@ jobs:
       # The run's one manifest, from web-subarea-scope. No fallback: a shard
       # that split without it would disagree with its siblings.
       - name: Download the duration manifest
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: webviews-test-durations
           path: ${{ runner.temp }}/webviews-durations
 
       - name: List the pull request's files
-        if: github.event_name == 'pull_request'
+        if: ${{ env.SHARD_IDLE != 'true' && (github.event_name == 'pull_request') }}
         run: |
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
       - name: Setup Bun
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -407,12 +453,14 @@ jobs:
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -420,6 +468,7 @@ jobs:
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Setup Node
+        if: ${{ env.SHARD_IDLE != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -432,11 +481,13 @@ jobs:
       # #23763 (2026-10-21) merged its own TS2339 because a base red in the bundle
       # build skipped the type check and the tests after it.
       - name: Verify webviews source checks
+        if: ${{ env.SHARD_IDLE != 'true' }}
         id: source-build
         continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
       - name: Build the web bundles
+        if: ${{ env.SHARD_IDLE != 'true' }}
         id: bundles
         continue-on-error: true
         run: ./scripts/cmux-next/build-web-bundles.sh --force
@@ -505,6 +556,7 @@ jobs:
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
+        if: ${{ env.SHARD_IDLE != 'true' }}
         id: playwright-apt
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
@@ -512,6 +564,7 @@ jobs:
           engines: chromium-webkit
 
       - name: Install headless engines
+        if: ${{ env.SHARD_IDLE != 'true' }}
         id: engines
         continue-on-error: true
         working-directory: webviews
@@ -537,12 +590,13 @@ jobs:
       - name: Test webviews
         id: webview-tests
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}
+        if: ${{ env.SHARD_IDLE != 'true' && (!cancelled() && steps.engines.outcome != 'failure') }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
-          CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
+          # The pick's count (web-subarea-scope): the selected files split over the shards that run.
+          CMUX_WEB_TEST_SHARD_COUNT: ${{ needs.web-subarea-scope.outputs.webview_shards || matrix.shard_count }}
           # Shard 1 runs the shard-independent checks above first (107-132 s in runs 43338660731
           # to 43342364793); the split gives it that much less test work (webviews_test_shards.py).
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
@@ -593,14 +647,16 @@ jobs:
           # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
           # the import graph, every test that reads files from disk, and every file for a build input
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
-          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
-            CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
+          # web-subarea-scope picked them once for every shard (affected-files); none there runs every file.
+          picked="$RUNNER_TEMP/webviews-durations/affected-files"
+          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ] && [ -s "$picked" ]; then
+            CMUX_WEB_TEST_FILES="$(cat "$picked")"
             export CMUX_WEB_TEST_FILES
           fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
-        if: ${{ always() && github.event_name == 'pull_request' && steps.webview-tests.outcome != 'skipped' }}
+        if: ${{ env.SHARD_IDLE != 'true' && (always() && github.event_name == 'pull_request' && steps.webview-tests.outcome != 'skipped') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Artifact names are stable across failed-job reruns: the rerun keeps
@@ -616,7 +672,7 @@ jobs:
       # Optional upkeep, like the durations below: it never fails the shard.
       - name: Upload this push's webview results
         id: history-upload
-        if: ${{ !cancelled() && github.event_name == 'push' }}
+        if: ${{ env.SHARD_IDLE != 'true' && (!cancelled() && github.event_name == 'push') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -634,7 +690,7 @@ jobs:
       # shard; the gate step below reports it as a warning.
       - name: Upload this shard's durations
         id: durations-upload
-        if: ${{ !cancelled() }}
+        if: ${{ env.SHARD_IDLE != 'true' && (!cancelled()) }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -646,7 +702,7 @@ jobs:
           retention-days: 1
 
       - name: Fail on the gate checks
-        if: ${{ !cancelled() }}
+        if: ${{ env.SHARD_IDLE != 'true' && (!cancelled()) }}
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
@@ -890,8 +946,9 @@ jobs:
       # A shard that published no results fails the check here, as its missing download failed its own base check.
       - name: Join the head shards' results
         env:
-          # react-apps-check-shard's matrix size (tests/test_webviews_test_history.py holds them equal).
-          HEAD_SHARDS: "12"
+          # The shards that ran tests (web-subarea-scope's pick); at most react-apps-check-shard's matrix size,
+          # the fallback (tests/test_webviews_test_history.py holds them equal). A shard past the count publishes none.
+          HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.webview_shards || '12' }}
         run: python3 scripts/ci/webviews_test_history.py heads "$RUNNER_TEMP/head-shards" --count "$HEAD_SHARDS" --out "$RUNNER_TEMP/head-results"
 
       # Every early shard's verdicts (react-apps-base-early): any shard's head reds may be any early shard's files.

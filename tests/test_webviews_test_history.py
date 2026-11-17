@@ -405,7 +405,9 @@ class OneBaseCheck(unittest.TestCase):
         self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
         self.assertNotIn("merge-multiple", download)
         join = steps["Join the head shards' results"]
-        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        size = len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"])
+        self.assertEqual(join["env"]["HEAD_SHARDS"], f"${{{{ needs.web-subarea-scope.outputs.webview_shards || '{size}' }}}}")
+        self.assertEqual(jobs["web-subarea-scope"]["outputs"]["webview_shards"], f"${{{{ steps.pick.outputs.shards || '{size}' }}}}")
         self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
         self.assertNotIn("continue-on-error", join)
         self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))

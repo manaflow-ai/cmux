@@ -257,7 +257,8 @@ class WebValidationTests(unittest.TestCase):
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
         self.assertNotIn("strategy:", base)
-        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        # The shards that ran tests: web-subarea-scope's pick, the whole matrix when it picked none.
+        self.assertIn(f"HEAD_SHARDS: ${{{{ needs.web-subarea-scope.outputs.webview_shards || '{len(shards)}' }}}}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",

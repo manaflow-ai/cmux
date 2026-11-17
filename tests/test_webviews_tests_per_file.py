@@ -1076,7 +1076,83 @@ class ShardHelper(unittest.TestCase):
         self.assertEqual(plan.wall("browser", 30_000), 60_000)  # a ninth waits for a lane
 
 
+    def count(self, temp, files, durations, budget, most=12):
+        (temp / "picked").write_text("".join(f"{name}\n" for name in files))
+        (temp / "d.json").write_text(json.dumps(durations))
+        return int(subprocess.run([sys.executable, str(SHARDS), "count", "picked", "d.json", str(most), "6,2,4", str(budget)],
+                                  cwd=temp, capture_output=True, text=True, check=True,
+                                  env={**os.environ, "CMUX_WEB_TEST_SHARD_HEAD_START": "1:120"}).stdout)
+
+    def test_count_runs_a_small_pick_on_the_fewest_shards_under_the_budget(self):
+        """A pick of 40 plain files of 30 s fits one shard: 6 lanes take 210 s, plus shard 1's 120 s head
+        start. All 12 shards ran such a pick, each paying its own setup for three files."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/p{index:02}.test.ts" for index in range(40)]
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("export {};\n")
+        self.assertEqual(self.count(temp, files, {name: 30 for name in files}, 600), 1)
+        # Twelve 300 s dev-server files, 4 lanes beside one warming file: 2 shards keep each under 1000 s.
+        dev = [f"test/d{index:02}.test.ts" for index in range(12)]
+        for name in dev:
+            (temp / name).write_text("// vite.config.acpmux-pane.mjs\n")
+        self.assertEqual(self.count(temp, dev, {name: 300 for name in dev}, 1000), 2)
+        # Nothing fits: the most shards that each get a file, never more shards than files.
+        self.assertEqual(self.count(temp, dev[:3], {name: 5000 for name in dev[:3]}, 600), 3)
+
+    def test_count_never_leaves_a_shard_empty(self):
+        """Untimed files split by path hash, so two shards may get none; an empty shard's runner exits 1."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/new{index}.test.ts" for index in range(3)]
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("export {};\n")
+        found = self.count(temp, files, {}, 1)
+        spec = importlib.util.spec_from_file_location("shards_for_count", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        self.assertEqual(len(set(shards.assign(files, set(), {}, found, (6, 2, 4), {0: 120_000}))), found)
+
+    def test_count_runs_every_shard_for_an_empty_pick(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.assertEqual(self.count(temp, [], {}, 600), 12)
+
+    def test_the_runner_and_the_count_read_dev_server_files_alike(self):
+        spec = importlib.util.spec_from_file_location("shards_for_dev", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        self.assertIn(f"dev_servers='{shards.DEV_SERVERS.pattern}'", RUNNER.read_text(encoding="utf-8"))
+
+
 class Workflow(unittest.TestCase):
+    def test_a_shard_past_the_picks_count_runs_no_step_and_passes(self):
+        """web-subarea-scope picks the files once and sizes the shards; the rest skip every step on a hosted
+        runner, so they pass without paying a 16 vCPU setup for no file."""
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        scope = jobs["web-subarea-scope"]
+        pick = {s["name"]: s for s in scope["steps"]}["Pick the webview test files and shard count"]
+        self.assertIn("webviews_affected.py --base HEAD^1 --head HEAD", pick["run"])
+        self.assertIn("webviews_test_shards.py count", pick["run"])
+        self.assertIn('[ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]', pick["run"])
+        upload = {s["name"]: s for s in scope["steps"]}["Upload the duration manifest"]
+        self.assertIn("webviews-durations/affected-files", upload["with"]["path"])
+        shard = jobs["react-apps-check-shard"]
+        self.assertEqual(shard["env"]["SHARD_IDLE"],
+                         "${{ matrix.shard > fromJSON(needs.web-subarea-scope.outputs.webview_shards || '12') }}")
+        self.assertIn("matrix.shard > fromJSON(needs.web-subarea-scope.outputs.webview_shards || '12') && 'ubuntu-24.04'",
+                      shard["runs-on"])
+        for step in shard["steps"]:
+            with self.subTest(step=step["name"]):
+                cond = str(step.get("if", ""))
+                # shard 1 always runs (the count is at least 1)
+                self.assertTrue(cond == "matrix.shard == 1" or "env.SHARD_IDLE != 'true'" in cond, cond)
+        test = {s["name"]: s for s in shard["steps"]}["Test webviews"]
+        self.assertEqual(test["env"]["CMUX_WEB_TEST_SHARD_COUNT"],
+                         "${{ needs.web-subarea-scope.outputs.webview_shards || matrix.shard_count }}")
+        self.assertIn('CMUX_WEB_TEST_FILES="$(cat "$picked")"', test["run"])
+        self.assertNotIn("webviews_affected.py", test["run"])
+
     def test_every_shard_splits_by_the_one_manifest_web_subarea_scope_hands_it(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         scope = text[text.index("  web-subarea-scope:"):text.index("  web-typecheck:")]
