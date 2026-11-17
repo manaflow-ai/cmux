@@ -120,7 +120,7 @@ extension SettingsSchema {
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
         "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
         "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
-        "browser.showLoadingBar",
+        "browser.pageShortcuts", "browser.pageShortcutSites", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",

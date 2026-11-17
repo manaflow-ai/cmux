@@ -263,6 +263,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):
+            if asksPageShortcuts(event, candidate: candidate, context: context, focus: focus, facts: facts, controller: controller) { return true }
             // The key's own time starts a tab switch's input stage (debug.tab_switch).
             DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
             // A refusal (no neighbor) is reported by the registry; the chord
@@ -379,7 +380,9 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     var chords = ChordTracker()
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
-    var pageFirstOffer = PageFirstKeyOffer()
+    var pageFirstOffer = PageFirstKeyOffer<HeldPageKey>()
+    /// Sites `browser.pageShortcuts` asked about this launch: a closed dialog asks again after a relaunch.
+    var askedPageShortcutSites: Set<String> = []
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the

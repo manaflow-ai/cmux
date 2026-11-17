@@ -424,6 +424,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
+        case .note(let text):
+            return [label(text, font: Typography.body, role: .secondary, width: width)]
         case .preview(let text):
             let preview = label(text, font: Typography.system(.monospaced, size: TypeScale.body), role: .primary, width: width)
             preview.maximumNumberOfLines = 8

@@ -391,6 +391,8 @@
         "browser.newTabPage",
         "browser.showBookmarksBar",
         "browser.vimKeys",
+        "browser.pageShortcuts",
+        "browser.pageShortcutSites",
         "browser.showLoadingBar"
       ]
     },

@@ -15,11 +15,13 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
     /// code in monospaced digits on an inset well, selectable so it can be copied. Each line of `text`
     /// draws as one line.
     case code(label: String?, text: String)
+    /// A secondary line among the fields, drawn as the message lines are: a tip under a check box.
+    case note(String)
 
     public var id: String? {
         switch self {
         case .text(let id, _, _, _, _), .choice(let id, _, _, _), .check(let id, _, _): id
-        case .preview, .code: nil
+        case .preview, .code, .note: nil
         }
     }
 

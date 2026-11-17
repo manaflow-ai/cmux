@@ -163,7 +163,7 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview, .code: break
+            case .preview, .code, .note: break
             }
         }
         return values

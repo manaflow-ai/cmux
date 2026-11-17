@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextFocus
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 
@@ -152,7 +153,8 @@ extension KeyRouter {
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
                      workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
-                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller),
+                     pageFirstShortcuts: services?.settings?.snapshot.pageShortcuts(forHost: focusedBrowserTab(in: controller)?.state.url?.host()) == .page)
     }
 
     /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
