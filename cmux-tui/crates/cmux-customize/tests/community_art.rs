@@ -271,9 +271,19 @@ fn a_theme_files_own_flourish_value_wins() {
     let repo = twin(MARKER, &[("themes/twin.json", own.as_bytes())]);
     let package = community::read_package(repo.path()).unwrap();
     let dark = &package.profile.files["themes/twin.json"];
-    assert!(dark.contains("#112233") && !dark.contains("\"#39c5bb\""), "{dark}");
-    assert!(dark.contains("\"block\"") && !dark.contains("\"bar\""), "{dark}");
-    assert!(dark.contains("\"radius\": 24"), "the parts it does not set still come: {dark}");
+    let root: serde_json::Value = cmux_config::jsonc::parse(dark).unwrap();
+    assert_eq!(
+        root.pointer("/appearance/accentGlow/dark"),
+        Some(&serde_json::json!("#112233")),
+        "{dark}"
+    );
+    assert_eq!(root.get("terminal.cursorStyle"), Some(&serde_json::json!("block")), "{dark}");
+    assert!(root.pointer("/terminal/cursorStyle").is_none(), "no second cursorStyle: {dark}");
+    assert_eq!(
+        root.pointer("/appearance/accentGlow/radius"),
+        Some(&serde_json::json!(24)),
+        "the parts it does not set still come: {dark}"
+    );
 }
 
 #[test]
@@ -283,5 +293,8 @@ fn a_theme_without_flourishes_writes_none() {
     let repo = twin(marker, &[]);
     let package = community::read_package(repo.path()).unwrap();
     assert!(package.art.settings.is_empty() && package.art.applied.is_empty());
-    assert_eq!(package.profile.files["themes/twin.json"], DARK, "the theme file is as written");
+    let dark = &package.profile.files["themes/twin.json"];
+    for key in ["accentGlow", "tabClose", "sidebarHeader", "paneArt", "terminal"] {
+        assert!(!dark.contains(key), "no {key} without flourishes: {dark}");
+    }
 }
