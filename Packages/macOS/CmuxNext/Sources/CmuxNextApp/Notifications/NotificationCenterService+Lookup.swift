@@ -200,6 +200,7 @@ extension NotificationCenterService {
                 marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChatLook)
             }
         }
+        if let ring = workspace.markRing(dismissed: dismissedMarks[key]), marks[LayoutPaneID(ring.pane.id)] == nil { marks[LayoutPaneID(ring.pane.id)] = AttentionMark(color: nil, generation: Self.markRingBase | ring.generation, agentChat: false) }
         return marks
     }
 
@@ -268,8 +269,8 @@ extension NotificationCenterService {
                             session: daemon?.identity?.session, id: tab.id)
     }
 
-    /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings
-    /// until a newer notification arrives or a tab is marked unread again.
+    /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings until a newer notification
+    /// arrives or a tab or the workspace (its mark's ring, #44931) is marked unread again.
     /// The tabs stay unread (the tab dot, the row badge and the Dock badge
     /// keep them).
     func dismissHighlight(_ workspace: WorkspaceModel) {
@@ -282,9 +283,8 @@ extension NotificationCenterService {
         if key.machine == MachineRegistry.localID {
             for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
         }
-        for tab in tabs where tab.markedUnread {
-            dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
-        }
+        for tab in tabs where tab.markedUnread { dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration }
+        if workspace.markedUnread { dismissedMarks[key] = workspace.markedUnreadGeneration }
         for tab in tabs where tab.attention != nil { hideAttentionRing(of: tab) }
         guard newest > (dismissedHighlights[key] ?? 0) else { return }
         dismissedHighlights[key] = newest
