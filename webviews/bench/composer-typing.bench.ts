@@ -27,6 +27,8 @@
 import path from "node:path";
 import { chromium, webkit } from "./browsers";
 import { runComposerLoad } from "./composer-load";
+import { composerTypingRows } from "./composerTypingRows";
+import { perfRow } from "./perfRow";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 
@@ -349,6 +351,8 @@ try {
         `${String(row.mode)} ${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`,
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
+    // Load modes only: the rows web-ui-suite.ts collects for perf-cron.py (web-ui-typing) and `cmux-bench typing`.
+    for (const row of composerTypingRows(table)) perfRow(row);
   }
 } finally {
   for (const release of releases.reverse()) await release();

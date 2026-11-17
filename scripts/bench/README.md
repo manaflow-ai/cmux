@@ -83,11 +83,26 @@ Tests: `python3 -m unittest discover -s scripts/bench/tests -p 'test_*.py'` (pur
 
 ## Composer typing under load
 
-The canonical browser diagnostic is `webviews/bench/composer-typing.bench.ts`:
+The canonical browser diagnostic is `webviews/bench/composer-typing.bench.ts`, registered as the
+`typing` bench (`benches/typing.py`), which runs it through `cmux-ci test --setup playwright` and
+records one row set per engine and load in the ledger:
+
+```sh
+scripts/bench/cmux-bench typing --build SHA [--arg modes=L0,L1] [--arg engines=chromium] [--arg keys=500] [--arg gap_ms=20]
+scripts/bench/cmux-bench typing --import composer-typing.log   # a saved run's log
+```
+
+The same command by hand:
 
 ```sh
 cmux-ci test --setup playwright --timeout 2400 -- bash -lc 'cd webviews && bun install --frozen-lockfile && bun bench/composer-typing.bench.ts --mode L0,L1,L2,L3 --engines chromium,webkit --lengths 60 --keys 500 --gap 20'
 ```
+
+The perf cron's `web-ui-typing` part (`scripts/cmux-next/perf-cron.py`) runs it through
+`webviews/bench/web-ui-suite.ts` (`--only composer-typing`): rows `webui.composer_typing.<load>.<engine>.rows60`
+`.invalid`, `.to_paint` (p95, target 16 ms) and `.to_paint_p99` (target 33 ms), from
+`webviews/bench/composerTypingRows.ts`. Those targets are report-only: the cron lists rows over them and files its
+regression issue; nothing gates a push or a pull request.
 
 `--modes idle,stream` retains its Chromium render-cost comparison. `--mode L0,L1,L2,L3`
 adds idle, focused reply/tool stream (60 chunks and 2,000 tool lines per second), ten

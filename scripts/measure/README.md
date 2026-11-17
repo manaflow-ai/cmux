@@ -25,6 +25,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 
 
 ## Launch and update

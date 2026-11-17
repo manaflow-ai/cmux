@@ -208,6 +208,10 @@ PARTS = [
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
+    # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
+    # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
+    {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -227,6 +231,7 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.", "web-ui"),
 ]
@@ -902,6 +907,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-typing":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
@@ -1753,6 +1760,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-typing":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
         elif need == "infinite-items":
@@ -1805,6 +1814,8 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+# The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
+COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
