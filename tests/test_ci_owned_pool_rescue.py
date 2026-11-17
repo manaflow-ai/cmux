@@ -5142,6 +5142,36 @@ class IOSDispatch(unittest.TestCase):
         assert_left_at_open_head(self, api, summary)
         self.assertIn("pull request #42's .github/workflows/test-ios.yml", summary)
 
+    def test_a_stalled_label_the_ios_retry_never_takes_does_not_hold_it(self):
+        # Run 43863208774 (2026-11-16): ios-simulator-build queued on [glaeda-std-xcode-26.6, glaeda-ios-sim] from
+        # 12:05Z with every carrier held off; at its budget (13:21Z) the watch held it "because the re-run would take
+        # blacksmith-12vcpu-macos-26, which is stalled" (one Seed DerivedData job queued there since 09:33Z). A
+        # persistent placement's re-run takes ios_runner_pool's SMALL_RUNNER, never the 12 vCPU label: test-ios.yml
+        # reads retry_runs_on from its picker job, so retry_labels() judged every Blacksmith label instead.
+        import ios_runner_pool
+        self.assertEqual(rescue.PICKED_PERSISTENT_RETRY[rescue.IOS_TEST_WORKFLOW_PATH], ios_runner_pool.SMALL_RUNNER)
+        workflow = (ROOT / rescue.IOS_TEST_WORKFLOW_PATH).read_text()
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40))
+            return found
+        for stalled, held in (("blacksmith-12vcpu-macos-26", False), (ios_runner_pool.SMALL_RUNNER, True)):
+            with self.subTest(stalled=stalled):
+                clock = Clock()
+                api = FakeAPI(clock, jobs, marker=True, workflow=workflow,
+                              snapshot=blacksmith_snapshot(queued=1, oldest=300, label=stalled))
+                _, summary = run_main(api, clock, payload=e2e_event(path=rescue.IOS_TEST_WORKFLOW_PATH))
+                if held:
+                    # Held while its re-run's label is stalled, until OWNED_WAIT_BOUND_SECONDS moves it anyway.
+                    self.assertIn(f"would take {stalled} is stalled", summary)
+                    self.assertIn("moving past the owned wait bound", summary)
+                else:
+                    self.assertNotIn("moving past the owned wait bound", summary)
+                    self.assertNotIn("held on the owned pool", summary)
+                    self.assertEqual(api.calls[-1], "rerun-failed")
+
 
 def main_event(**overrides):
     return event(**{"event": "workflow_dispatch", "head_branch": "main", "pull_requests": [], **overrides})
