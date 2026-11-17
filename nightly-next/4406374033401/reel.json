@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "build": "4406374033401",
+  "notes": "notes/4406374033401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44933,
+      "title": "Keys: a Close Tab key waits behind kept New Tab keys",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45097,
+      "title": "[startup] launch record v2 and the launch-shell plan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45311,
+      "title": "Settings descriptions: one plain clause each, or none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45318,
+      "title": "hover-instant bench: sample only rows a real move reaches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45396,
+      "title": "cmux-host: semicolon after the wrote line (base clippy red since #40159)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45325,
+      "title": "Settings: Reset/Restore Appearance and Remove account run on the click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45326,
+      "title": "Updater and Settings alerts: plain copy, no jargon or defensive text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45316,
+      "title": "Agent chat strings: delete 205 keys nothing shows, and a check that none come back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45392,
+      "title": "Glide the composer from New Tab to the dock when a chat starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45361,
+      "title": "app FFI re-pin: a cancelled check does not move a held re-pin head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45358,
+      "title": "cmux-window-rules: a bulk close with no window left asks only for incognito workspaces (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45365,
+      "title": "tests: three git fixtures load git_fixture_env (determinism gate base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45354,
+      "title": "ci(cloud-journey-prod): keep the step table 3 days, not 14 (feat twin of #44610)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45313,
+      "title": "Changes card: no scope hints under Staged/All, git messages say what to do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45263,
+      "title": "base_red_excuse: a guard step named 'timeout' is no cut-short run; a guard finding in a PR-changed file is the PR's own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45049,
+      "title": "Agent chat: a reply after a steer draws below the steer",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45049/steer-reply-before-after.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    }
+  ]
+}
