@@ -1,5 +1,5 @@
 import { errorMessage, isHostRefusal, startCancelled, startErrorMessage, switchFailedText } from "./transportErrors";
-import { START_CONNECTION_LOST, startFailureCause } from "./startFailure";
+import { logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -845,19 +845,11 @@ export class HarnessSwitch {
     const recovery =
       typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
     intent.error = [startErrorMessage(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
-    const code = (error as { code?: unknown } | undefined)?.code;
-    intent.code = typeof code === "string" ? code : undefined;
-    // The connection to acpmux went while it started the agent (direct.ts `rejectPending`): its
-    // `native.timed_out` is also a deadline's, so the card reads the dropped line by its own code.
-    if ((error as { interrupted?: unknown } | undefined)?.interrupted === true) intent.code = START_CONNECTION_LOST;
+    intent.code = startFailureCode(error);
     // What actually failed stays under Details and goes to the app's log with the chat it was
     // starting, so a start that fails for every agent at once can be told apart (#44964).
     intent.cause = startFailureCause(error);
-    console.error(
-      `agent pane: couldn't start ${intent.harness} session=${intent.sessionId ?? "none"} start=${intent.id}: ${
-        intent.cause ?? "no error"
-      }`,
-    );
+    logStartFailure(intent.harness, intent.sessionId, intent.cause);
     // An agent that is not signed in: cmux-tui codes it for another machine; acpmux on this Mac
     // names it in `data.reason` only. Either is the one sign-in code the card reads (hq#11225).
     const signIn = error as { reason?: unknown; errorKind?: unknown } | undefined;
@@ -878,6 +870,8 @@ export class HarnessSwitch {
       const reason = Object.assign(new Error(intent.error), {
         handedBack: true,
         ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
+        // What actually failed, for a caller's own card (New Tab's): startFailureCause reads it back.
+        ...(intent.cause ? { startCause: intent.cause } : {}),
       });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];

@@ -86,6 +86,8 @@ export function startFailureView(t: Translate, switching: StartFailure): StartFa
 /// without anything beyond an empty message.
 export function startFailureCause(error: unknown): string | undefined {
   const typed = (typeof error === "object" && error !== null ? error : {}) as Record<string, unknown>;
+  // A start HarnessSwitch already failed hands its prompts back with the cause it found.
+  if (typeof typed.startCause === "string" && typed.startCause) return typed.startCause;
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const field = (key: string) => (typeof typed[key] === "string" && typed[key] ? (typed[key] as string) : undefined);
   const code = typeof typed.code === "number" ? String(typed.code) : field("code");
@@ -99,6 +101,21 @@ export function startFailureCause(error: unknown): string | undefined {
   const line = [message.trim(), detail && detail !== message.trim() ? detail : undefined].filter(Boolean).join(": ");
   const text = [line, facts.length ? `(${facts.join(", ")})` : ""].filter(Boolean).join(" ");
   return text || undefined;
+}
+
+/// A failed start's code for the card: the failure's own, except a connection that dropped while
+/// acpmux started the agent (direct.ts `rejectPending`, `interrupted`), whose `native.timed_out` is
+/// also a deadline's, so it reads by its own (`START_CONNECTION_LOST`).
+export function startFailureCode(error: unknown): string | undefined {
+  const typed = error as { code?: unknown; interrupted?: unknown } | undefined;
+  if (typed?.interrupted === true) return START_CONNECTION_LOST;
+  return typeof typed?.code === "string" ? typed.code : undefined;
+}
+
+/// Writes a failed start to the app's log (the agent pane's `console.error` reaches the unified log,
+/// ConsoleErrorCapture), with the chat it was starting: `none` before acpmux made one.
+export function logStartFailure(harness: string, sessionId: string | undefined, cause: string | undefined): void {
+  console.error(`agent pane: couldn't start ${harness} session=${sessionId ?? "none"}: ${cause ?? "no error"}`);
 }
 
 function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {

@@ -40,7 +40,8 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "../transportErrors";
+import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -750,11 +751,14 @@ export function NewTabScreen(props: Props) {
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
       if (isStartCancelled(error)) return;
-      const code = (error as { code?: unknown } | undefined)?.code;
+      const code = startFailureCode(error);
+      const cause = startFailureCause(error);
+      logStartFailure(args[0], undefined, cause);
       setStartError({
         harness: args[0],
-        error: errorMessage(error) || t("switch.unknownError"),
-        ...(typeof code === "string" ? { code } : {}),
+        error: startErrorMessage(error) || t("switch.unknownError"),
+        ...(code ? { code } : {}),
+        ...(cause ? { cause } : {}),
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
         // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
