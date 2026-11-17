@@ -166,7 +166,7 @@ impl Mux {
     ) -> TreeDecorations {
         let workspace = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            crate::mux::tree_edit::resolve_workspace_index(&state, id, key)
+            resolve_workspace_index(&state, id, key)
                 .ok()
                 .and_then(|index| state.workspaces.get(index).map(|workspace| workspace.id))
         };
