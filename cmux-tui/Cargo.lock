@@ -37,6 +37,7 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-hub-host",
+ "cmux-image-linear",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -1329,22 +1330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-cloud-codex-holder"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64",
- "futures-util",
- "libc",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
 name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
@@ -1389,7 +1374,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1728,6 +1712,13 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-image-linear"
+version = "0.1.0"
+dependencies = [
+ "png",
 ]
 
 [[package]]
@@ -2297,7 +2288,6 @@ dependencies = [
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
- "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
  "cmux-cloud-machine",
@@ -2697,22 +2687,18 @@ name = "cmux-weft"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum",
  "base64",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
  "hex",
- "ip_network",
  "proptest",
  "reqwest",
  "ring",
- "rusqlite",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "subtle",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",
