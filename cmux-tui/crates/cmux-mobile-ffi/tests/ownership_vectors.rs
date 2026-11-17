@@ -4,7 +4,9 @@
 //! input the frames to send and the view after it equal the TypeScript
 //! client's. Swift and Kotlin call exactly these methods. The app observes
 //! the view through the listener: after every input that changed the view
-//! it is told once, with the view `view()` returns; otherwise not at all.
+//! it is told once, with the view `view()` returns (its rows: every row, or
+//! the rows written since the last view, applied here as the app does);
+//! otherwise not at all.
 
 use cmux_mobile_ffi::ownership::{
     OwnershipMirror, OwnershipMirrorError, OwnershipMirrorListener, OwnershipMirrorView,
@@ -32,6 +34,44 @@ impl Seen {
 /// The view without its generation: what a screen renders.
 fn shown(view: &OwnershipMirrorView) -> OwnershipMirrorView {
     OwnershipMirrorView { generation: 0, ..view.clone() }
+}
+
+/// The app's rows after a told view: replaced by a full view, else the
+/// written rows applied (`{table: {key: {key, n, row}}}`).
+fn fold(rows: &mut Value, view: &OwnershipMirrorView) {
+    if view.rows_full {
+        *rows = parse(&view.rows_json);
+        return;
+    }
+    assert!(view.rows_json.is_empty(), "a change view carries no full rows");
+    for change in &view.rows_changed {
+        let table = rows
+            .as_object_mut()
+            .expect("rows")
+            .entry(change.table.clone())
+            .or_insert_with(|| json!({}));
+        let table = table.as_object_mut().expect("table");
+        match &change.row_json {
+            Some(row) => {
+                let stored = json!({"key": change.key, "n": change.n, "row": parse(row)});
+                table.insert(change.key.clone(), stored);
+            }
+            None => {
+                table.remove(&change.key);
+            }
+        }
+    }
+}
+
+/// A told view against `view()`: equal but for how the rows came.
+fn same_view(told: &OwnershipMirrorView, rows: &Value, now: &OwnershipMirrorView) -> bool {
+    let bare = |v: &OwnershipMirrorView| OwnershipMirrorView {
+        rows_json: String::new(),
+        rows_full: false,
+        rows_changed: Vec::new(),
+        ..v.clone()
+    };
+    bare(told) == bare(now) && same(rows, &parse(&now.rows_json))
 }
 
 fn vectors() -> Value {
@@ -126,6 +166,8 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
         let seen = Arc::new(Seen::default());
         let mut before = m.set_listener(Some(seen.clone()));
         assert_eq!(before, m.view(), "{name}: set_listener returns the view now");
+        assert!(before.rows_full, "{name}: set_listener returns every row");
+        let mut rows = parse(&before.rows_json);
         for (i, s) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let got = Value::Array(step(&m, &s["in"]));
             let now = m.view();
@@ -134,7 +176,13 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
                 assert!(told.is_empty(), "{name} step {i}: told without a change: {told:?}");
                 assert_eq!(now.generation, before.generation, "{name} step {i}");
             } else {
-                assert_eq!(told, vec![now.clone()], "{name} step {i}: the change, told once");
+                assert_eq!(told.len(), 1, "{name} step {i}: the change, told once: {told:?}");
+                fold(&mut rows, &told[0]);
+                assert!(
+                    same_view(&told[0], &rows, &now),
+                    "{name} step {i}: told {:?} (rows {rows}), view {now:?}",
+                    told[0]
+                );
                 assert_eq!(now.generation, before.generation + 1, "{name} step {i}");
             }
             before = now;
