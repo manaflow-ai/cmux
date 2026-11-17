@@ -192,6 +192,7 @@ pub mod peer_last_good;
 pub mod peer_link;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
+pub mod peer_path_stats;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
@@ -254,6 +255,10 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 pub mod sha256;
+/// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
+pub mod share_approval;
+/// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
+pub mod share_host;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;

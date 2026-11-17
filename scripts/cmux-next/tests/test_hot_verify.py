@@ -685,7 +685,7 @@ class VideoTest(unittest.TestCase):
                                        (1920.0, 1080.0))
             self.assertIsNone(why)
             self.assertEqual(mp4.read_bytes(), b"window")
-            compiled.assert_called_once_with("crop-video")
+            compiled.assert_called_once_with(hv.HERE / "media/crop-video.swift")
             argv = json.loads(log.read_text())
             self.assertEqual(argv[0], str(mp4))
             self.assertEqual(argv[2:], ["0.250000", "0.250000", "0.500000", "0.500000", "1"])
@@ -720,6 +720,21 @@ class VideoTest(unittest.TestCase):
                 mp4 = video.stop()
             self.assertEqual(mp4.read_bytes(), b"window")
             self.assertEqual(video.facts, {"by": "cua-driver", "window": True})
+
+    def test_every_swift_tool_source_is_a_literal_join_a_fleet_export_follows(self):
+        """A fleet worker runs the engine from an export holding only the files its text joins to its folder as a
+        literal (cmuxterm-hq build-fleet/ci-client.py hot_verify_refs: `HERE / "media/x.swift"`). A source path
+        built from a name (f"media/{name}.swift") was not exported, so crop-video.swift was missing on the worker
+        and the video stayed the whole display (2026-11-16, cmux19)."""
+        import re
+        text = ENGINE.read_text()
+        calls = re.findall(r"swift_tool\(([^)]*)\)", text)
+        sources = [c.split(",")[0].strip() for c in calls if not c.startswith("source")]
+        self.assertGreaterEqual(len(sources), 2, calls)
+        for source in sources:
+            found = re.fullmatch(r'HERE / "(media/[\w.-]+\.swift)"', source)
+            self.assertIsNotNone(found, f"swift_tool({source}): not a literal HERE join the export follows")
+            self.assertTrue((ENGINE.parent / found.group(1)).is_file(), found.group(1))
 
     def test_the_looks_copy_has_a_neutral_shell(self):
         """The copy's terminals said `cmux@cmux23 ~ %`, and the privacy check withheld the new-tab shot and the video
