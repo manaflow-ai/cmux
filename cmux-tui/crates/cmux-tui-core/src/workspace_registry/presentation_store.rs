@@ -328,6 +328,9 @@ pub struct PresentationSnapshot {
     pub home_workspace: Option<String>,
     /// The app of every live app workspace, by workspace key (`app-screens-v1`).
     pub app_workspaces: HashMap<String, String>,
+    /// Terminal ids the daemon recovered from orphaned hosts (`workspace-recovered-v1`): their
+    /// durable rows keep the recovered launch spec (`mux/orphan_hosts.rs`).
+    pub recovered_terminals: HashSet<String>,
     /// App tab records, by public browser id (`app-screens-v1`).
     pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
@@ -1255,12 +1258,7 @@ impl WorkspaceRegistry {
     /// Notification ids acknowledged as read on the shared console. A
     /// restart restores an unread marker only for unacknowledged ones.
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
-        Ok(ids)
+        acked_notification_ids_in(&self.connection.get())
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
@@ -1290,4 +1288,13 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(removed)
     }
+}
+
+/// The acknowledged notification ids, read on `db` (the registry's connection or the read-only one).
+pub(crate) fn acked_notification_ids_in(db: &Connection) -> anyhow::Result<HashSet<String>> {
+    let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    Ok(ids)
 }

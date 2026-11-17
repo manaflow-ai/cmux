@@ -46,15 +46,16 @@ import Testing
         #expect(abs(puzzle.width - back.width) < 0.1 && abs(puzzle.height - back.height) < 0.1, "puzzle \(puzzle.size), back \(back.size)")
     }
 
-    /// One glyph side per density on the toolbar's line (20 at Compact, 22 at level 1), never wider
-    /// than its button less Helium's 4 pt insets.
+    /// One glyph side per density whose ink box is a point under the small icon (11 at Compact, 13 at level 1 and at
+    /// Default, Helium's 13 pt; Lucas 2026-11-13: the arrows were bigger than Helium's), never wider than its button.
     @Test func theGlyphSideFollowsDensity() {
-        #expect(DensityTokens.compact.toolbarGlyphSize == 20)
-        #expect(DensityTokens(id: "level1", name: "Level 1", level: 1).toolbarGlyphSize == 22)
+        let ratio = DensityTokens.toolbarGlyphInkRatio
+        #expect(abs(DensityTokens(id: "level1", name: "Level 1", level: 1).toolbarGlyphSize * ratio - 13) < 0.001)
+        #expect(abs(DensityPreset.cozy.tokens.toolbarGlyphSize - (14 / 0.9 / 0.617 * 2).rounded() / 2) < 0.001) // Helium's 14 px reload at Compact
         for preset in DensityPreset.allCases {
             let tokens = preset.tokens
-            #expect(tokens.toolbarGlyphSize == tokens.resolve(compact: 20, comfortable: 22), "\(preset)")
-            #expect(tokens.toolbarGlyphSize <= tokens.toolbarButtonSize - 4, "\(preset)")
+            #expect(abs(tokens.toolbarGlyphSize - (14 / 0.9 / 0.617 * CGFloat(preset.scaleFactor) * 2).rounded() / 2) < 0.001, "\(preset)")
+            #expect(tokens.toolbarGlyphSize <= tokens.toolbarButtonSize, "\(preset)")
         }
     }
 

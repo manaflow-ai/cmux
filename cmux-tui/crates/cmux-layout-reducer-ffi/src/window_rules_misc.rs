@@ -1,8 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`): their tables and refusals.
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`): their tables
+//! and refusals.
 
-use cmux_window_rules::{appearance, browser, files, history, notifications, remote};
+use cmux_window_rules::{
+    appearance, browser, files, history, launch, notifications, remote, screen_share,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -137,13 +140,14 @@ struct Keymap {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 6] = [
+const DOMAINS: [&[u8]; 7] = [
     b"window_notifications_",
     b"window_history_",
     b"window_remote_",
     b"window_browser_",
     b"window_files_",
     b"window_appearance_",
+    b"window_launch_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -203,6 +207,7 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             ))?
         }
         b"window_remote_connect_step" => value(remote::connect_step(read(request)?))?,
+        b"window_remote_screen_share" => value(screen_share::plan(&read(request)?))?,
         b"window_browser_fit_actions" => json!({ "actions": browser::fit_actions() }),
         b"window_browser_fit" => {
             let request: Fit = read(request)?;
@@ -252,6 +257,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_appearance_keymap_toast" => {
             let request: Keymap = read(request)?;
             value(appearance::keymap_toast(&request.preset, &request.changed))?
+        }
+        // Whether the launch snapshot drawn before the daemon answered is stale (cmuxterm-hq#12660).
+        b"window_launch_snapshot_verdict" => {
+            let facts: launch::SnapshotFacts = read(request)?;
+            json!({ "verdict": launch::verdict(&facts) })
         }
         _ => return Err(ERR_INVALID),
     };

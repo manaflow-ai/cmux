@@ -167,3 +167,10 @@ export function reasoningChoices(
     return base;
   });
 }
+
+/// Whether a chat takes `effort` once it runs the picked model: a level its effort option offers, or
+/// Claude Code's Ultracode, which is no level of that option but rides Extra High through it where the
+/// chat offers its switch (`ultracode`, the configOption ComposerPickers draws as its own row).
+export function effortTakes(effort: string, offered: readonly string[], ultracode: boolean): boolean {
+  return offered.includes(effort) || (effort === "ultracode" && ultracode && offered.includes("xhigh"));
+}

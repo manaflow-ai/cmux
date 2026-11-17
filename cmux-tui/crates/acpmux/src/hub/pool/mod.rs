@@ -32,12 +32,10 @@
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Known gap (recorded, not for now): over a socket, a `session/new` is
-//! never cancelled. Requests run as spawned tasks and `$/cancel_request`
-//! is accepted but does nothing, so a client that gives up on a create
-//! still gets the session made. `ClaimGuard` covers the in-process case
-//! (a dropped `new_session` future puts its claimed entry back); a real
-//! cancel would need the server to abort the request task.
+//! Cancel: over a socket, a client's `$/cancel_request` drops the request's
+//! task (`server/in_flight.rs`, `request_cancel.rs`), so a `session/new` it
+//! gives up on is dropped like an in-process one: `ClaimGuard` puts its
+//! claimed entry back, and an agent request it waited on is cancelled there.
 
 use super::*;
 use crate::agent::Attached;
@@ -313,6 +311,26 @@ fn tool_servers(
 #[path = "suggestions_tests.rs"]
 mod suggestions_tests;
 
+/// The model and effort a pooled Claude Code agent for `draft` starts on: what `spawn_pooled`
+/// hands `claude_stdio::spawn_plan`, spelled as that puts it on the command line (`--model`
+/// takes `model_id`; "default" or nothing is the harness's own). `(None, None)` for any other
+/// harness, whose model is in its argv (`${model}`) or set after start.
+pub(super) fn started_on(
+    spawn: &HarnessProfile,
+    draft: &SessionMeta,
+) -> (Option<String>, Option<String>) {
+    if spawn.kind != crate::config::HarnessKind::ClaudeStdio {
+        return (None, None);
+    }
+    let set = |v: Option<String>| v.filter(|v| !v.is_empty() && v != "default");
+    let model = set(current_model(draft)).map(|m| crate::claude_stdio::model_id(&m));
+    (model, set(current_effort(draft)))
+}
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod model_tests;
+
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
@@ -412,6 +430,7 @@ impl Hub {
             crate::agent_tools::warm_codex_answer(&draft.cwd, &spawn.argv, &spawn.env, &answer)
                 .await;
         }
+        let (model, effort) = started_on(&spawn, draft);
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
@@ -421,7 +440,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
-            machine: crate::login_env::machine_stamp(),
+            machine: crate::vault::machine_stamp(),
             prompt_suggestions: suggestions_at_start(
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
@@ -436,6 +455,8 @@ impl Hub {
                     answer: Some(&answer),
                 }),
             ),
+            model,
+            effort,
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
@@ -460,6 +481,7 @@ impl Hub {
         cwd: PathBuf,
         spare: Option<Option<String>>,
     ) -> Result<PoolSpec, RpcError> {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -478,16 +500,30 @@ impl Hub {
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
+        // The model a new chat here would start on (`new_session`): a spare keeps its session's;
+        // a plain chat takes the start value (`start_defaults.rs`), which the key now carries
+        // (`started_on`), so a prewarmed agent runs the model the chat it serves would.
+        let start_model = || {
+            let plain = r.preset_name.is_none()
+                && r.folder_root.is_none()
+                && r.profile.model.is_none()
+                && !super::start_defaults::profile_sets_model(&r.profile, &r.defaults.env);
+            if plain {
+                self.start_defaults(&r.agent, &r.profile, &r.defaults, None).0.map(|s| s.value)
+            } else {
+                r.defaults.model.clone()
+            }
+        };
         let mut draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: if spawn_model {
-                spare.flatten().or_else(|| r.defaults.model.clone())
-            } else {
-                None
+            model_request: match (spawn_model, spare) {
+                (false, _) => None,
+                (true, Some(model)) => model,
+                (true, None) => start_model(),
             },
             cwd,
             agent_session_id: None,
@@ -635,7 +671,7 @@ impl Hub {
         #[cfg(debug_assertions)]
         crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("pool-start", async move {
             match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -865,7 +901,7 @@ impl Hub {
                     // A delivery or revocation since its key was made (also
                     // while this claim waited on its start): a cold start
                     // reads the machine's secrets afresh.
-                    if p.key.machine != crate::login_env::machine_stamp() {
+                    if p.key.machine != crate::vault::machine_stamp() {
                         tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
                         self.pool_discard(vec![p]);
                         return None;
@@ -926,15 +962,28 @@ impl Hub {
     }
 
     /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
-    /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
-    /// session starts cold.
+    /// (`opencode_ask.rs`) and runs the model and effort the chat `meta` now asks for. One
+    /// claimed before the chat's policy, model or effort changed is ended, and the session
+    /// starts cold: a pooled Claude Code never switches the model it was started on.
     pub(super) fn pool_take_claimed_for(
         &self,
         id: &str,
         spawn: &HarnessProfile,
+        meta: &SessionMeta,
         off: &crate::hub::full_access_bound::OffLatch,
     ) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
+        let (model, effort) = started_on(spawn, meta);
+        if p.key.model != model || p.key.effort != effort {
+            tracing::info!(
+                session = %id,
+                pooled = ?p.key.model,
+                asked = ?model,
+                "pooled session not taken: it runs another model or effort than the chat asks for"
+            );
+            self.pool_discard(vec![p]);
+            return None;
+        }
         // MDM forces full access off (#23322, review 32): an entry in full access by what it
         // reported while held (a mode its harness declares none for, an option) is not taken,
         // since `cap_full_access` may read the session before those reports reach it. Nor is one
@@ -977,7 +1026,7 @@ impl Hub {
         // between ends the pooled agent for it (#26337).
         session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            tokio::spawn(end_pooled(p));
+            self.scope.spawn_named("end-pooled", end_pooled(p));
             return Err(e);
         }
         self.forget_adopted_caller(&session.id, &p.record.incarnation);
@@ -1017,11 +1066,7 @@ impl Hub {
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         let init = &p.init;
         let steering =
             init.pointer("/_meta/steering/supported").and_then(Value::as_bool).unwrap_or(false);
@@ -1161,7 +1206,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
         }
     }

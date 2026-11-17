@@ -66,7 +66,7 @@ import CmuxNextDesignTokens
     }
 
     /// Only a window that has held an `ActiveLookGlassEffectView` keeps the glass's key look; a
-    /// window with plain glass alone (popups, the palette) follows the key state.
+    /// window with plain glass alone, and no app window owning it, follows the key state.
     @Test func onlyTheBackdropWindowKeepsTheActiveLook() {
         guard #available(macOS 26.0, *) else { return }
         func window() -> NSWindow {

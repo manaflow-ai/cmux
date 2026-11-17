@@ -296,3 +296,77 @@ fn a_flapping_session_put_journals_the_capability_hash_not_the_list() {
     let stored = super::read_session(&registry.connection.get(), "remote-1").unwrap().unwrap();
     assert_eq!(stored.capabilities.as_ref(), Some(&capabilities));
 }
+
+/// The `personal.session.put` rows of `registry`.
+fn session_put_rows(registry: &WorkspaceRegistry) -> i64 {
+    registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal WHERE kind = 'personal.session.put'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// Twelve Freestyle lane VMs forked from one snapshot answered with one
+/// registry id, and the app put each one's record under it in turn: the
+/// machine (`fs-lane-12` ... `fs-lane-1`, `vm-<hash>`) changed on every put,
+/// so each put journaled a row and bumped the revision that started the next
+/// pass, 5.57 million rows in two days (2026-11-02/03). A second machine's
+/// put of a session another machine holds is refused and writes nothing; a
+/// machine that took the id over after the hold is recorded.
+#[test]
+fn two_machines_putting_one_session_id_in_turn_journal_one_row_not_one_per_put() {
+    const PUTS: usize = 24;
+    let mut registry = WorkspaceRegistry::in_memory("session-machine-hold").unwrap();
+    let lane = |n: usize| {
+        (format!("fs-lane-{n}"), json!({"kind": "cloud", "machine": format!("vm-{n:032x}")}))
+    };
+    let mut refused = 0;
+    for put in 0..PUTS {
+        let (name, transport) = lane(1 + put % 2);
+        let before = registry.personal_revision().unwrap();
+        match registry.put_session("shared-id", Some(&name), None, &transport, None, None) {
+            Ok(_) => {}
+            Err(error) => {
+                let message = error.to_string();
+                assert!(message.starts_with("bad request: "), "the app shows a refusal: {message}");
+                assert!(message.contains("vm-") && message.contains("fs-lane-2"), "{message}");
+                assert_eq!(
+                    registry.personal_revision().unwrap(),
+                    before,
+                    "a refusal writes nothing"
+                );
+                refused += 1;
+            }
+        }
+    }
+    assert_eq!(refused, PUTS / 2, "every put of the second machine is refused");
+    assert_eq!(session_put_rows(&registry), 1, "one row, not one per put");
+    let held = super::read_session(&registry.connection.get(), "shared-id").unwrap().unwrap();
+    assert_eq!(held.transport, lane(1).1);
+    assert_eq!(held.machine_name.as_deref(), Some("fs-lane-1"));
+
+    // The holder's own changes (its name, its `connect` flag) still record.
+    let mut transport = lane(1).1;
+    transport["connect"] = json!("true");
+    registry.put_session("shared-id", Some("fs-lane-1b"), None, &transport, None, None).unwrap();
+    assert_eq!(session_put_rows(&registry), 2);
+
+    // The first machine went away: once the hold passes, the id moves.
+    registry
+        .connection
+        .get()
+        .execute(
+            "UPDATE sessions SET last_seen_ms = last_seen_ms - ?1 WHERE session_id = 'shared-id'",
+            [crate::workspace_registry::personal_mutations::SESSION_MACHINE_HOLD_MS],
+        )
+        .unwrap();
+    let (name, transport) = lane(2);
+    let (moved, _) =
+        registry.put_session("shared-id", Some(&name), None, &transport, None, None).unwrap();
+    assert_eq!(moved.transport, transport);
+    assert_eq!(session_put_rows(&registry), 3);
+}

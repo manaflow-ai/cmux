@@ -221,3 +221,37 @@ def mutable_document(ir: SdkIR) -> dict[str, Any]:
     value = _thaw(ir.document)
     assert isinstance(value, dict)
     return value
+
+
+def admits_json_null(types: Mapping[str, Any], expression: Mapping[str, Any]) -> bool:
+    """Return whether decoding ``expression`` alone would accept a JSON null.
+
+    Opaque JSON (``JsonValue`` and every other ``opaque_json`` type) admits
+    any JSON document, null included, so the field, not the type, has to
+    reject null. An emitter decoding a field that is not nullable guards it
+    with a typed decode error whenever this returns true; a bare opaque-JSON
+    decode would otherwise keep the null or crash on it.
+    """
+
+    seen: set[str] = set()
+
+    def walk(expr: Mapping[str, Any]) -> bool:
+        kind = expr["kind"]
+        if kind == "opaque_json":
+            return True
+        if kind == "literal":
+            return expr["value"] is None
+        if kind == "alias":
+            return walk(expr["target"])
+        if kind == "untagged_union":
+            return any(walk(variant) for variant in expr["variants"])
+        if kind == "ref":
+            name = str(expr["name"])
+            if name in seen:
+                return False
+            seen.add(name)
+            target = types.get(name)
+            return isinstance(target, Mapping) and walk(target)
+        return False
+
+    return walk(expression)

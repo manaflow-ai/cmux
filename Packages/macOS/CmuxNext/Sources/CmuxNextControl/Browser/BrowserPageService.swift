@@ -134,6 +134,10 @@ public struct BrowserPageService: Sendable {
             let selector = try Self.string(call, "selector")
             let tab = try Self.tab(call)
             let text = call.request.params["text"]?.stringValue
+            // `cmux keys fill`: the text is a stored key. It goes only to a site it is for, the
+            // agent cursor masks it, and the answer never carries the field's value back.
+            let secret = Self.isSecret(call, element: name)
+            if secret { try await Self.checkSecretHost(call, tab: tab, engine: engine) }
             let mouse = name == "click" ? await agentMouse() : nil
             let value: JSONValue
             if let mouse, mouse.motion == .human {
@@ -145,12 +149,62 @@ public struct BrowserPageService: Sendable {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
             if let input = Self.agentInput(element: name, answer: value, text: text) {
-                await engine.announce(Self.attributed(input, call), tabID: tab.id)
+                await engine.announce(Self.attributed(secret ? Self.masked(input) : input, call), tabID: tab.id)
             }
             var result: [String: JSONValue] = Self.base(tab)
-            result["value"] = value["value"] ?? .null
+            if secret { result["secret"] = .bool(true) } else { result["value"] = value["value"] ?? .null }
             return .object(result)
         }
+    }
+
+    /// Whether this `fill` or `type` carries a stored key (`params.secret`, `cmux keys fill`).
+    static func isSecret(_ call: ControlCall, element name: String) -> Bool {
+        (name == "fill" || name == "type") && call.request.params["secret"]?.boolValue == true
+    }
+
+    /// `params.secret_hosts`, lowercased, without a scheme, port, path or trailing dot; empty: any site.
+    static func secretHosts(_ call: ControlCall) -> [String] {
+        guard case .array(let items)? = call.request.params["secret_hosts"] else { return [] }
+        return items.compactMap { item -> String? in
+            guard var host = item.stringValue?.trimmingCharacters(in: .whitespaces).lowercased(), !host.isEmpty else { return nil }
+            if let rest = host.components(separatedBy: "://").last { host = rest }
+            host = String(host.prefix { $0 != "/" && $0 != ":" && $0 != "?" && $0 != "#" })
+            while host.hasSuffix(".") { host.removeLast() }
+            return host.isEmpty ? nil : host
+        }
+    }
+
+    /// Whether page `url`'s host is one of `hosts` or under one (`api.example.com` under
+    /// `example.com`). A URL with no host (`about:blank`, a file) is under none.
+    static func host(of url: String?, isIn hosts: [String]) -> Bool {
+        guard let url, var host = URLComponents(string: url)?.host?.lowercased(), !host.isEmpty else { return false }
+        while host.hasSuffix(".") { host.removeLast() }
+        return hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// Refuses a secret fill before any script runs when the tab's page is not on a site the key is
+    /// for (`secret_host_mismatch`). The page's own URL wins over the snapshot's, which may lag a
+    /// redirect.
+    static func checkSecretHost(_ call: ControlCall, tab: Tab, engine: any BrowserPageEngine) async throws {
+        let hosts = secretHosts(call)
+        guard !hosts.isEmpty else { return }
+        let live = try? await engine.run(.state, tabID: tab.id, url: tab.url)["url"]?.stringValue
+        let url = live.flatMap { $0.isEmpty ? nil : $0 } ?? tab.url
+        guard host(of: url, isIn: hosts) else {
+            let shown = url.flatMap { URLComponents(string: $0)?.host } ?? url ?? "about:blank"
+            throw ControlError(code: "secret_host_mismatch", message: ControlStrings.format(
+                "control.error.secretHostMismatch", "This key is only for %1$@; the tab is on %2$@", hosts.joined(separator: ", "), shown),
+                data: ["hosts": .array(hosts.map(JSONValue.string)), "host": .string(shown)])
+        }
+    }
+
+    /// `input` with its text replaced by as many bullets, marked secret: the agent cursor never
+    /// holds a stored key.
+    static func masked(_ input: BrowserPageAgentInput) -> BrowserPageAgentInput {
+        var copy = input
+        copy.secret = true
+        copy.text = input.text.map { String(repeating: "•", count: $0.count) }
+        return copy
     }
 
     /// The agent input an element action made, for the agent cursor; nil

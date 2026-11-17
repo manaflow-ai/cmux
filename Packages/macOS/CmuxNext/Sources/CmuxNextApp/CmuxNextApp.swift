@@ -1,9 +1,12 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMallocZone
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -14,8 +17,10 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
-        DebugTimings.markLaunch("main_start")
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
+        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
         announceBenchHooksBuild()
+        ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -41,12 +46,11 @@ public struct CmuxNextApp {
             SingleInstanceGuard.handOff(activates: activates)
         }
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
-        // A relaunch into an update nobody clicked comes back behind the user's app; read (and
-        // cleared) before anything can activate the app. An agent launch never activates anyway.
+        // An unclicked update relaunch comes back behind the user's app: read (and cleared) before any activation; agent launches never activate.
         if !environment.noActivate {
             environment.relaunchBehind = UpdateRelaunchFocus.consume(
                 build: UpdateBuildIdentity.main().build,
@@ -63,6 +67,7 @@ public struct CmuxNextApp {
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
+        let launchSnapshot = LaunchSnapshot.readAtLaunch(work: work, build: environment.launch.build) // first on the lane: the launch window is drawn from it
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
@@ -75,8 +80,8 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
-                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment)
+        let delegate = AppDelegate(environment: environment,
+                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

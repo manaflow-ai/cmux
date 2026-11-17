@@ -141,6 +141,31 @@ impl Hub {
         reply
     }
 
+    /// One headless call for the daemon's own use (`prompt_coach.rs`): harness `name` (else the
+    /// default harness) on its small model, the answer cut to about `max_tokens` tokens. The
+    /// prompt is the daemon's, so `_acpmux/complete`'s prompt size limit does not apply.
+    pub(super) async fn complete_own(
+        self: &Arc<Self>,
+        name: Option<&str>,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<String, CompleteError> {
+        let (name, profile) = {
+            let cfg = self.config.read().await;
+            let found = |n: &str| cfg.harnesses.get(n).cloned().map(|p| (n.to_owned(), p));
+            name.and_then(found)
+                .filter(|(n, p)| recipes::recipe_for(n, p).is_ok())
+                .or_else(|| cfg.default_harness.as_deref().and_then(found))
+                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
+        };
+        let recipe = recipes::recipe_for(&name, &profile)?;
+        let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
+        let deadline = tokio::time::Instant::now() + timeout;
+        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
+        Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
+    }
+
     /// The harness's small model (`model_pick`). None: the CLI's default.
     async fn small_model(
         &self,

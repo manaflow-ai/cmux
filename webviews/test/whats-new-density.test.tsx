@@ -14,6 +14,7 @@ import { plainLine, readableChange } from "../src/pages/changelog/readableChange
 import { AREA_ROWS, addedLine, sheetRows } from "../src/pages/changelog/SheetPage";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import { denseDay, longAreaDay } from "../src/pages/changelog/whatsNewFixtures";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -32,11 +33,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 async function mount(notes: ReleaseNotes[], rows: number) {
@@ -115,7 +113,7 @@ test("a day lists its changes under their app area, each with its glyph, name an
   const areas = [...root.querySelectorAll(".cls-area")];
   expect(areas.length).toBeGreaterThan(2);
   for (const area of areas) {
-    expect(area.querySelector(".cls-area-head .cls-icon svg path, .cls-area-head .cls-icon svg rect")).not.toBeNull();
+    expect(area.querySelector(".cls-area-head .cls-icon svg :is(path, rect, circle)")).not.toBeNull();
     expect(area.querySelector(".cls-area-head .cl-count")?.textContent).toBe(
       String(area.querySelectorAll(".cls-row").length),
     );

@@ -161,7 +161,7 @@ enum SubagentLimitStrings {
     }
     static var unsupported: String {
         String(localized: "subagentLimit.unsupported",
-               defaultValue: "This version of acpmux has no subagent limit. Update cmux to set one.",
+               defaultValue: "This version of cmux has no subagent limit. Update cmux to set one.",
                table: "Handlers", bundle: .module)
     }
     static var notAChat: String {

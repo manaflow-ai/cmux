@@ -396,3 +396,53 @@ fn only_the_roster_owner_reads_the_journal_or_saves_the_roster_for_a_close_or_a_
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Each agent hook moves the roster's cursor, and each pass that moved it
+/// rewrote the whole roster snapshot into the registry: at 170 agent
+/// terminals 96 KB, 0.42 ms to serialize under the roster lock and 0.13 ms
+/// to write under the writer's connection lock, per hook (at 800: 452 KB,
+/// 2.05 ms + 0.58 ms; agent_roster_snapshot_save_cost_probe). The journal
+/// is the truth and a start replays it from the saved cursor, so hooks save
+/// once per bounded stretch of the journal; a wait for the roster (the
+/// maintenance catch-up, a settle, the stop) and a retirement still save at
+/// once.
+#[test]
+fn hooks_do_not_rewrite_the_roster_snapshot_one_by_one() {
+    const HOOKS: usize = 40;
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-save-burst-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("roster-save-burst", &root);
+    // The maintenance catch-up saves on its own ticks; this test counts the
+    // saves of the hooks' passes alone.
+    mux.stop_journal_maintenance();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("save-burst"));
+    assert!(mux.settle_agent_roster_for_test(), "the roster owner settles");
+    let saves_before = mux.agent_roster_snapshot_saves_for_test();
+    let mut last = 0;
+    for index in 0..HOOKS {
+        let event = if index % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
+        last = append_hook(&mux, &terminal_id, event, "save-burst");
+        // Each hook gets its own pass, as hooks spaced out in time do.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while roster_cursor(&mux) < last {
+            assert!(Instant::now() < deadline, "the roster did not fold hook {index}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let saves = mux.agent_roster_snapshot_saves_for_test() - saves_before;
+    assert!(saves <= 1, "{HOOKS} hooks rewrote the whole roster snapshot {saves} times");
+    // A wait for the roster still leaves the snapshot at its cursor.
+    let cursor = saved_roster_cursor(&mux);
+    assert_eq!(cursor, roster_cursor(&mux), "the saved snapshot is at the roster's cursor");
+    assert!(cursor >= last, "the saved snapshot holds the last hook (at {last}): {cursor}");
+    let state = roster_agent_state(&mux, &terminal_id);
+    mux.shutdown();
+    drop(mux);
+    let reopened = open_persistent_test_mux("roster-save-burst", &root);
+    assert_eq!(roster_agent_state(&reopened, &terminal_id), state, "a restart keeps the roster");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}

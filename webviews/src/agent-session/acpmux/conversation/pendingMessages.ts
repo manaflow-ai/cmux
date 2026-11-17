@@ -17,6 +17,7 @@
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
 import { batchLaneNotices, flattenInboxRows, noticeOf } from "./laneNoticeBatches";
+import { PrefixFilter } from "./prefixFlatMap";
 import { isLiveLine, PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
@@ -48,16 +49,21 @@ export function dedupeMessages(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[]
   return out ?? rows;
 }
 
+const waitingReads = new PrefixFilter<AcpmuxRow>((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+
 /// Rows Find searches for waiting messages. The transcript draws the same messages through
 /// `pendingMessagesRow`, which deduplicates them, so Find must search that same set or it can
 /// select a duplicate row id that is not present in the rendered group.
+
 export function searchablePendingRows(
   sourceRows: readonly AcpmuxRow[],
   queuedRows: readonly AcpmuxRow[],
 ): readonly AcpmuxRow[] {
   const raw = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
   const all = flattenInboxRows(raw);
-  const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+  // Read again past the rows a snapshot kept only (prefixFlatMap.ts): Find's rows are made on
+  // every snapshot, and a long chat waits on no message most of the time.
+  const waiting = waitingReads.read(all).items;
   if (waiting.length === 0) return all;
   const kept = new Set(dedupeMessages(waiting));
   const visible = flattenInboxRows([...kept]);

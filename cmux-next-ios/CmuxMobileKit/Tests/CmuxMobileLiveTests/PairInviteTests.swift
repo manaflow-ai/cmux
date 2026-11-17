@@ -110,6 +110,11 @@ import Testing
         return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil), invites: invites)
     }
 
+    static func pairing<C: Clock<Duration>>(_ invites: PairInvites, clock: C) -> LinkPairing {
+        let keys = PhoneKeys(userID: "u1", service: "test.invite.\(UUID())", store: MemorySecretStore(), enclave: false)
+        return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil), push: nil, invites: invites, clock: clock)
+    }
+
     /// Runs one `auth` whose challenge is `frame`; the reply the phone sent.
     static func reply(_ pairing: LinkPairing, challenge frame: JSONValue, macID: String = MacPinTests.mac) async throws -> JSONValue? {
         let channel = RemoveThisPhoneUnpairTests.AuthChannel(frame)

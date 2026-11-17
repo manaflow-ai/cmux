@@ -12,9 +12,16 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
-import { currentLanguage } from "../i18n";
+import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
+import {
+  sendPromptAgainMenu,
+  sendPromptAgainTarget,
+  type SendPromptAgainMenu,
+  type SendPromptAgainState,
+} from "./sendPromptAgain";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -32,6 +39,8 @@ export type MessageMenuTarget = {
   sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
+  /// The latest successful turn can send its original prompt again, optionally on another model.
+  sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
@@ -52,6 +61,17 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   popupId?: string;
 };
 
+export function withSendPromptAgain(
+  target: MessageMenuTarget | undefined,
+  rowId: string,
+  state: SendPromptAgainState,
+  t: Translate,
+): MessageMenuTarget | undefined {
+  if (sendPromptAgainTarget(state)?.messageId !== rowId) return target;
+  const again = sendPromptAgainMenu(state, t);
+  return again ? { ...(target ?? { text: "" }), sessionId: again.sessionId, sendPromptAgain: again } : target;
+}
+
 /// A native menu action may run after its page report. Require the selected and drawn sessions to
 /// still agree with that report before applying an action to a transcript row.
 export function messageMenuSessionMatches(
@@ -64,13 +84,18 @@ export function messageMenuSessionMatches(
   );
 }
 
-/// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
-/// chat is on this computer (acpmux refuses the rest).
+/// Whether acpmux can fork the chat at all here: it serves forks and the pane is connected. A chat
+/// on another computer forks there: acpmux forwards the fork to that computer (`fork_through.rs`).
 const forkServed = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) &&
-  !snapshot.summary?.peer &&
-  snapshot.connection !== "disconnected" &&
-  !snapshot.connection.startsWith("connecting");
+  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+
+/// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
+/// `chat.switchModel`): acpmux serves forks, and a chat on another computer (a peer's, a Cloud machine's)
+/// too, which acpmux forwards to that machine's daemon. A connection that drops for a moment keeps
+/// the pick; the send then fails and the composer keeps the message. The same daemons that serve
+/// Continue In… (`canHandoff`), the gate a started chat's model menu has had for its harness rail, so
+/// the chats that list other harnesses' models are the ones whose pick of one forks in place.
+export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork && snapshot.canHandoff);
 
 /// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
@@ -198,7 +223,8 @@ function childMenuTarget(snapshot: AcpmuxSnapshot, row: AcpmuxRow): MessageMenuT
   const text = row.text ?? "";
   const target: MessageMenuTarget = {
     ...(sessionId ? { sessionId } : {}),
-    text: plainText(text),
+    // A prompt copies and resends as written; a reply copies as plain text, its Markdown beside it.
+    text: row.kind === "user" ? text : plainText(text),
     ...(row.kind === "assistant" && {
       markdown: text,
       replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
@@ -316,7 +342,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -344,7 +372,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };

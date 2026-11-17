@@ -1,0 +1,37 @@
+// Classic Desktop: a 90s desktop look. Gray chrome with hard edges, navy selection, white panes, no
+// glass and no motion. Copy it to ~/.config/cmux/themes/classic-desktop.json (yours wins over this
+// one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Classic Desktop",
+  "description": "Gray chrome, hard edges, navy selection, no glass and no motion.",
+
+  // A light terminal theme, with white panes and the navy of the era's title bars.
+  "appearance.theme": "Builtin Light",
+  "colors": { "background": "#ffffff", "foreground": "#000000", "selection": "#000080", "accent": "#000080" },
+  "appearance.accent": "theme",
+
+  // No wallpaper and no glass: every surface is solid.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.glassTransparency": 0,
+  "appearance.chromeStyle": "blocks",
+
+  // Gray chrome around the panes, with a thick edge.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#c0c0c0",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#c0c0c0",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 2,
+  "sidebar.sectionLook": "lines",
+  "appearance.metrics.dividerThickness": 2,
+
+  // Nothing slides or fades, and work shows as a dot, not a spinner.
+  "ui.animationSpeed": "off",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "compact",
+  "terminal.fontFamily": "Courier New",
+  "terminal.fontSize": 13
+}

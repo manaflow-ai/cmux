@@ -57,6 +57,10 @@ ALLOWED: dict[str, str] = {
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
+    "app-ffi-release.yml: Watch the build and rescue it to Blacksmith macOS":
+        "per feat-cmux-next app-ffi-release run, only while vars.CI_BLACKSMITH_MACOS is pr-rescue or on "
+        "(app_ffi_rescue.py, #45076, hq#3690): one jobs page every 120 s, at most 50 reads, ending once the "
+        "build has a runner; a candidate for the owned-pool rescue's one sweeper",
     'published-in.yml: Comment the release on its PRs':
         'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
     'nightly.yml: Comment the build on its PRs':
@@ -191,6 +195,11 @@ class PythonTests(unittest.TestCase):
         multiline = ("import time\ndef state(\n    a,\n    b,\n):\n    return urllib.request.urlopen(a)\n"
                      "while True:\n    state(1, 2)\n    time.sleep(5)\n")
         self.assertTrue(python_polls(multiline))
+        # The deadline transport is an HTTP call too, buffered or streamed (scripts/ci/deadline_http.py).
+        for call in ("deadline_http.request(u, 30)",
+                     "with deadline_http.stream(u, 30) as answer:\n        answer.read()"):
+            with self.subTest(call=call):
+                self.assertTrue(python_polls(f"import time\nwhile True:\n    {call}\n    time.sleep(5)\n"))
 
     def test_a_nested_helper_does_not_hide_the_global_one(self) -> None:
         py = ("import time\ndef state():\n    return gh_json('api', 'x')\ndef unused():\n    def state():\n"

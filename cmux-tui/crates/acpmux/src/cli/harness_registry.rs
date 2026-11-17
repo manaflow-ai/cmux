@@ -113,8 +113,7 @@ pub fn add(
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        crate::home_fs::create_dir_all(&dir, 0o700)?;
     }
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir)?;

@@ -55,7 +55,8 @@ public final class ScreenSession {
     public var preferences: ScreenPreferences
     public var credentials: VNCCredentials
     /// Automatic reconnects after a stream drops: how many tries (0 turns them
-    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
+    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails. A viewer
+    /// that needs a new ticket can use ``prepareForReconnect()`` first.
     @ObservationIgnored public var reconnectLimit = 5
 
     @ObservationIgnored public var onFrame: ((VNCFrame) -> Void)?
@@ -78,7 +79,10 @@ public final class ScreenSession {
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
     /// Set for a Mac paired as a screen stream (WebRTC video + input channel).
-    @ObservationIgnored public private(set) var stream: ScreenStreamViewer?
+    @ObservationIgnored public private(set) var stream: ScreenStreamViewer? {
+        // A paste the old stream carried never hears from the Mac now: settle it.
+        didSet { if stream !== oldValue { abandonPendingPaste() } }
+    }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
@@ -103,8 +107,108 @@ public final class ScreenSession {
 
     /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
     public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
+    /// The Mac pastes images sent from here (``pasteImage(_:type:)``): a
+    /// screen stream in full control whose host listed it. Paste Image shows only then.
+    public var supportsImagePaste: Bool { stream != nil && hostCapabilities.contains(ScreenHostMessage.pasteImageCapability) }
+
+    /// Where the last Paste Image is.
+    public enum ImagePaste: Equatable, Sendable {
+        case idle
+        /// The image is on its way to the Mac.
+        case sending
+        /// The Mac put it on its pasteboard and pressed ⌘V.
+        case pasted
+        /// It did not reach the Mac's pasteboard (the reason, for the person).
+        case failed(String)
+    }
+
+    public private(set) var imagePaste = ImagePaste.idle
+
+    /// What the stream's Mac says its screen shows: live, or black because it
+    /// is locked or its display asleep (``ScreenSourceState``). Live for an
+    /// older Mac that never says, and again on each connect.
+    public private(set) var sourceState = ScreenSourceState.live
+    /// The Mac's source state, from the running stream's viewer (a demo may set it too).
+    public func receiveSourceState(_ state: ScreenSourceState) {
+        if sourceState != state { sourceState = state }
+    }
+    /// The image ``imagePaste`` is about (another image's answer never settles it).
+    @ObservationIgnored private var imagePasteID: String?
+
+    /// Sends an image for the Mac to paste where its focus is (the Mac puts
+    /// it on its pasteboard and presses ⌘V). ``imagePaste`` follows it:
+    /// sending, then pasted or failed once the Mac answers.
+    public func pasteImage(_ data: Data, type: String) {
+        guard let stream, supportsImagePaste else {
+            imagePaste = .failed("This Mac can't take pasted images.")
+            return
+        }
+        guard ScreenInput.pasteImageTypes.contains(type), !data.isEmpty else {
+            imagePaste = .failed("This kind of image can't be pasted.")
+            return
+        }
+        guard data.count <= ScreenInput.pasteImageMaximumBytes else {
+            imagePaste = .failed("This image is too large to paste.")
+            return
+        }
+        perf?.input("paste-image")
+        let id = UUID().uuidString
+        imagePasteID = id
+        imagePaste = .sending
+        Task { [weak self] in
+            let sent = await stream.pasteImage(data, type: type, id: id)
+            guard let self, id == imagePasteID, imagePaste == .sending, !sent else { return }
+            imagePaste = .failed("The connection closed before the image was sent.")
+        }
+    }
+
+    /// The Mac's answer about the image `id` (nil from a host that names none).
+    package func receivePasteImage(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String? = nil) {
+        guard imagePaste == .sending, id == nil || id == imagePasteID else { return }
+        switch outcome {
+        case .pasted: imagePaste = .pasted
+        case .refused: imagePaste = .failed("The Mac could not paste this image.")
+        case .incomplete: imagePaste = .failed("Part of the image went missing. Try again.")
+        }
+    }
+
+    private func abandonPendingPaste() {
+        guard imagePaste == .sending else { return }
+        imagePaste = .failed("The connection dropped before the Mac answered. Try again.")
+    }
+
+    /// A paste that failed before it reached the session (the photo could not be read).
+    public func reportImagePasteFailure(_ message: String) {
+        imagePaste = .failed(message)
+    }
+
+    /// Clears a settled paste (the banner went away).
+    public func dismissImagePaste() {
+        if imagePaste != .sending { imagePaste = .idle }
+    }
     /// The stream dropped and is coming back on its own.
-    public private(set) var isReconnecting = false
+    public private(set) var isReconnecting = false {
+        didSet { if isReconnecting != oldValue { armReconnectNotice() } }
+    }
+    /// A reconnect has run for ``reconnectNoticeDelay`` without a picture: only now does the
+    /// view say "Reconnecting". Under it the last frame stays and nothing is said (a blip
+    /// the session recovers from by itself is not the person's problem).
+    public private(set) var reconnectNoticeDue = false
+    /// How long a reconnect stays silent: about the time after which a frozen picture
+    /// stops reading as a hiccup. A reattach lands well under it on a short drop.
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
+    @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
+    /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
+    /// session stays reconnecting over its last frame instead of showing the failed card first.
+    /// Not taken (false): the failed card, as without an owner.
+    @ObservationIgnored public var onDropped: (@MainActor () -> Bool)?
+    /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
+    /// the screen does not jump while it comes back.
+    public var keepsLiveLayout: Bool {
+        if case .connected = phase { return true }
+        return isReconnecting
+    }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
     public private(set) var isStalled = false
@@ -165,9 +269,8 @@ public final class ScreenSession {
 
     /// A screen stream whose signaling the app supplies: each `connect()`
     /// asks `signaling` for the connection to use (a device hub session's
-    /// ``TicketSignaling``, which admits once). Nil fails the connect, so a
-    /// dropped session does not reconnect on its own unless the app has a
-    /// new one ready.
+    /// ``TicketSignaling``, which admits once). Nil fails the connect; an app
+    /// that needs to reattach supplies a fresh ticket before reconnecting.
     public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
                 signaling: @escaping @MainActor () -> (any ScreenSignaling)?) {
         self.title = title
@@ -276,6 +379,13 @@ public final class ScreenSession {
         isStalled = false
         stats.targetFps = nil
         hostCapabilities = []
+        receiveSourceState(.live)
+        viewer.onSourceState = { [weak self, weak viewer] state in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveSourceState(state)
+            }
+        }
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -306,6 +416,12 @@ public final class ScreenSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
+        viewer.onPasteImage = { [weak self, weak viewer] outcome, id in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receivePasteImage(outcome, id: id)
+            }
+        }
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
@@ -368,6 +484,12 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            if let onDropped {
+                // The owner reattaches with a new ticket: still reconnecting, never the failed card.
+                isReconnecting = true
+                phase = .connecting
+                if onDropped() { return }
+            }
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -384,6 +506,20 @@ public final class ScreenSession {
         }
     }
 
+    /// Starts (or stops) the clock after which a reconnect is said out loud.
+    private func armReconnectNotice() {
+        reconnectNoticeTask?.cancel()
+        reconnectNoticeTask = nil
+        if reconnectNoticeDue { reconnectNoticeDue = false }
+        guard isReconnecting else { return }
+        reconnectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
+            try? await Task.sleep(for: Self.reconnectNoticeDelay)
+            guard !Task.isCancelled, let self, isReconnecting else { return }
+            reconnectNoticeDue = true
+        }
+    }
+
     /// Connects again under the reconnect policy: a failed attempt retries
     /// with backoff before the error shows. For a change that needs a new
     /// connection (the relay setting), where the host may still be dropping
@@ -395,6 +531,17 @@ public final class ScreenSession {
         reconnectAttempts = 0
         isReconnecting = true
         connect()
+    }
+
+    /// Leaves this session in the reconnecting state while an app obtains new
+    /// signaling credentials. The session object and its view state stay alive.
+    public func prepareForReconnect() {
+        guard !isClosed else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        disconnect(silently: true)
+        isReconnecting = true
+        phase = .connecting
     }
 
     /// The app came back to the foreground: a stream that dropped while it
@@ -470,7 +617,10 @@ public final class ScreenSession {
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN
         // deallocation can take seconds): never on the main actor.
-        if let stream { Task.detached { stream.close() } }
+        if let stream {
+            let sendBye = !silently
+            Task.detached { stream.close(sendBye: sendBye) }
+        }
         stream = nil
         onTelepointers?(nil, nil)
         stats.targetFps = nil

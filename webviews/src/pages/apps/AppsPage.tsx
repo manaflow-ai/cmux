@@ -9,6 +9,7 @@ import { InstalledView } from "./InstalledView";
 import { CategoryBar, ItemCard, ItemRow } from "./items";
 import type { StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
+import { Skeleton } from "../../ui/Skeleton";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { useLasting } from "../../ui/lasting";
@@ -215,10 +216,10 @@ function LoadingGrid({ strings }: { strings: Strings }) {
     <div className="apps-grid apps-grid-loading" aria-busy="true" aria-label={strings.t("store.detail.loading")}>
       {Array.from({ length: 6 }, (_, index) => (
         <div className="apps-card-skeleton" key={index} aria-hidden="true">
-          <span className="apps-skeleton-icon" />
-          <span className="apps-skeleton-line wide" />
-          <span className="apps-skeleton-line" />
-          <span className="apps-skeleton-footer" />
+          <Skeleton className="apps-skeleton-icon" />
+          <Skeleton className="apps-skeleton-line wide" />
+          <Skeleton className="apps-skeleton-line" />
+          <Skeleton className="apps-skeleton-footer" />
         </div>
       ))}
     </div>

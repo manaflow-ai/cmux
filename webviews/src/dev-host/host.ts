@@ -61,6 +61,28 @@ export function devHostParams(hash: string): DevHostParams | undefined {
   };
 }
 
+type DevHostKept = { tails: Record<string, unknown>; anchors: Record<string, unknown> };
+
+/// The app host's per-chat tails and reading places, in this page (`cmuxDevHostKept`).
+function keptReply(method: string, params: Record<string, unknown>): DevHostReply {
+  const kept = (globalThis as { cmuxDevHostKept?: DevHostKept }).cmuxDevHostKept;
+  if (!kept) return unsupported(method);
+  const sessionId = String(params.sessionId ?? "");
+  switch (method) {
+    case "chat.tail":
+      if (params.tail === undefined) delete kept.tails[sessionId];
+      else kept.tails[sessionId] = params.tail;
+      return { ok: true, value: null };
+    case "chat.tail.get":
+      return { ok: true, value: kept.tails[sessionId] ?? null };
+    case "chat.scrollAnchor":
+      kept.anchors[sessionId] = { rowId: params.rowId, offset: params.offset };
+      return { ok: true, value: null };
+    default:
+      return { ok: true, value: kept.anchors[sessionId] ?? null };
+  }
+}
+
 function unsupported(method: string): DevHostReply {
   return {
     ok: false,
@@ -171,12 +193,24 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       actions.push(String(request.params?.id ?? ""));
       return { ok: true, value: null };
     }
+    case "cmux.page.heartbeat":
+      // As the app's page host answers (PageWebView takesRestBeats): a page with nothing happening in it
+      // stops beating after 10 s (pageHealth.ts). "Unsupported" here kept every dev and bench page beating
+      // every 2 s for good, a wakeup the app does not have.
+      return { ok: true, value: { rest: true } };
     case "pane.painted":
       // When the app would fade the page in over its loading state (frame tests read it).
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
       return { ok: true, value: null };
     case "session.persist":
-    case "chat.persistSession":
+    case "chat.persistSession": {
+      // As slow as the app's answer can be, for frame tests (`cmuxDevPersistMs`): a send's row must
+      // never wait on it in a started chat.
+      const ms = (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs;
+      return ms
+        ? new Promise((resolve) => setTimeout(() => resolve({ ok: true, value: null }), ms))
+        : { ok: true, value: null };
+    }
     case "pane.checkpointAvailability":
     case "pane.commandAvailability":
     case "pane.clientReady":
@@ -184,7 +218,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
-    case "newTab.editWidgets":
     case "nowPlaying.command":
     case "newTab.touched":
     case "newTab.warm":
@@ -216,6 +249,14 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       return { ok: true, value: { cwd: host.cwd, urls: [] } };
     case "transport.gesture":
       return gestureReply();
+    // What the app host keeps of a chat for its next page (tailCache.ts, App.tsx's reading place),
+    // only on a page a test gave `cmuxDevHostKept`: it hands that to a new page to open it as after
+    // an app restart (agent-pane-settled-load.test.ts). Other pages keep no host copy, as before.
+    case "chat.tail":
+    case "chat.tail.get":
+    case "chat.scrollAnchor":
+    case "chat.scrollAnchor.get":
+      return keptReply(method, request.params ?? {});
     default:
       return unsupported(method);
   }

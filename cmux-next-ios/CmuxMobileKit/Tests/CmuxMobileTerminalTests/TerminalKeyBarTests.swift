@@ -238,16 +238,24 @@ import Testing
 }
 
 @Suite struct JoystickAndComposerGeometryTests {
-    @Test func theThumbFollowsTheFingerPastTheCircleUpToACap() {
+    @Test func theThumbsCenterReachesTheCirclesEdgeAndNoFarther() {
         let geometry = JoystickGeometry()
-        #expect(JoystickGeometry.travel == 48)
         #expect(JoystickGeometry.circle == 28)
-        // Inside the cap the thumb is under... beside the finger: no scaling.
-        #expect(geometry.thumbOffset(for: CGSize(width: 30, height: 0)) == CGSize(width: 30, height: 0))
-        // Beyond it, capped along the same direction.
-        let capped = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
-        #expect(abs(hypot(capped.width, capped.height) - 48) < 0.001)
-        #expect(abs(capped.width / capped.height - 0.75) < 0.001)
+        // The dot's center stops on the circle's edge (14 pt), not 48 pt out.
+        #expect(JoystickGeometry.travel == 14)
+        #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
+        // The screenshot's case: a long drag up moves the dot 14 pt.
+        // (Scaling rounds: 200 x 14 / 200 is 14.000000000000002.)
+        let up = geometry.thumbOffset(for: CGSize(width: 0, height: -120))
+        #expect(abs(up.width) < 0.001 && abs(up.height + 14) < 0.001)
+        let right = geometry.thumbOffset(for: CGSize(width: 200, height: 0))
+        #expect(abs(right.width - 14) < 0.001 && abs(right.height) < 0.001)
+        // Diagonally it keeps the finger's direction, on the same edge.
+        let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
+        #expect(abs(hypot(diagonal.width, diagonal.height) - 14) < 0.001)
+        #expect(abs(diagonal.width / diagonal.height - 0.75) < 0.001)
+        let corner = geometry.thumbOffset(for: CGSize(width: -500, height: 500))
+        #expect(abs(hypot(corner.width, corner.height) - JoystickGeometry.circle / 2) < 0.001)
     }
 }
 

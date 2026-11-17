@@ -201,6 +201,7 @@ mod tests {
             cmux_for_agents: true,
             user_plugin_dir: None,
             displays: None,
+            project_servers: Default::default(),
         }
     }
 

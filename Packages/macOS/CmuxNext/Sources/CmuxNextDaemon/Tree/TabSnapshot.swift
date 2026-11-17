@@ -10,7 +10,11 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var shortID: String?
     public var kind: TabKind
     public var name: String?
+    /// The title's text as the daemon split it (wire `title_text`, D2): a terminal's without its leading status
+    /// glyphs, a page's as is. A daemon from before D2 sends only the raw `title`: it is the text then, glyphs included.
     public var title: String
+    /// What a terminal title's leading glyph said (wire `title_activity`); nil for none and on older daemons.
+    public var titleActivity: TerminalTitle.Activity?
     public var size: CellSize?
     public var dead: Bool
     public var notification: TabNotification?
@@ -63,6 +67,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         kind: TabKind = .pty,
         name: String? = nil,
         title: String = "",
+        titleActivity: TerminalTitle.Activity? = nil,
         size: CellSize? = nil,
         dead: Bool = false,
         notification: TabNotification? = nil,
@@ -86,6 +91,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         self.kind = kind
         self.name = name
         self.title = title
+        self.titleActivity = titleActivity
         self.size = size
         self.dead = dead
         self.notification = notification
@@ -114,6 +120,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     enum CodingKeys: String, CodingKey {
         case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end, app
         case terminalState = "terminal_state"
+        case titleText = "title_text"
+        case titleActivity = "title_activity"
         case hostRecordVersion = "host_record_version"
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
@@ -146,7 +154,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         shortID = try c.decodeIfPresent(String.self, forKey: .shortID)
         kind = try c.decodeIfPresent(TabKind.self, forKey: .kind) ?? .pty
         name = try c.decodeIfPresent(String.self, forKey: .name)
-        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        title = try c.decodeIfPresent(String.self, forKey: .titleText) ?? c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        titleActivity = try c.decodeIfPresent(String.self, forKey: .titleActivity).flatMap(TerminalTitle.Activity.init(rawValue:))
         size = try c.decodeIfPresent(CellSize.self, forKey: .size)
         dead = try c.decodeIfPresent(Bool.self, forKey: .dead) ?? false
         notification = try c.decodeIfPresent(TabNotification.self, forKey: .notification)

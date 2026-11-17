@@ -16,6 +16,7 @@ public final class AgentPaneShownChatsWait {
     public typealias WhenPainted = (@escaping () -> Void) -> Void
 
     /// The longest a page that never reports its paint holds the spare.
+    // timeout: only how long a new tab holds its spare pane for a page that never reports its paint; the page still opens and loads, nothing is cut off
     public static let deadline: Duration = .seconds(3)
 
     /// Stands in for the pages `holds` is given (tests).
@@ -58,6 +59,11 @@ public final class AgentPaneShownChatsWait {
     private func end(_ then: @MainActor () -> Void) {
         timer.cancel()
         then()
+    }
+
+    /// The chat pages among `views` that the person sees load now (``loading(_:)``), or the stand-in's (tests).
+    public func loadingNow(_ views: some Sequence<AgentPaneView>) -> [WhenPainted] {
+        standIn?() ?? Self.loading(views)
     }
 
     /// The chat pages among `views` that are not drawn yet and that the person sees load: not hidden, in a window

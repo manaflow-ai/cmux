@@ -7,6 +7,7 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type * as Diagrams from "../src/pages/markdown/diagrams";
+import { settleReact } from "./support/domTeardown";
 
 let diagrams: typeof Diagrams;
 const scope = globalThis as Record<string, unknown>;
@@ -21,7 +22,8 @@ beforeAll(async () => {
   diagrams = await import("../src/pages/markdown/diagrams");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

@@ -13,7 +13,7 @@ Launches the tagged app with no activation, seeds a local channel through
   - memory: resident size and phys_footprint (`footprint`) at each stage.
 Runs on cmux-lawrence-2 (GUI host), never on the laptop. Writes one JSON file.
 
-Usage: home-perf.py --tag <tag> --out results.json [--messages 300]
+Usage: home-perf.py --tag <tag> --out results.json [--app <app>] [--messages 300]
 """
 import argparse, json, os, re, socket, statistics, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,14 +21,22 @@ import home_classic  # noqa: E402
 # The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
 # (its scratch working folder, its own session).
 from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--messages", type=int, default=300)
+# The built app. perf-budgets.py passes the one it measures (the fleet's split-spring.sh builds into
+# .build/DerivedData/cmux-measure), as it does for every other bench; without it, reload.sh's default
+# place. Before --app the fleet run looked only there and found no app (FileNotFoundError, 0.2 s), so
+# the home rows were never measured on the fleet.
+parser.add_argument("--app", default="")
 opts = parser.parse_args()
 home = os.environ["HOME"]
-app = f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
+app = opts.app or f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
+if not os.path.isdir(app):
+    sys.exit(f"home-perf: no app at {app} (pass --app)")
 sock = f"/tmp/cmux-debug-{opts.tag}.sock"
 require_gui_session("home-perf")
 
@@ -162,4 +170,4 @@ finally:
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     with open(opts.out, "w") as handle:
         json.dump(results, handle, indent=1)
-    print("wrote", opts.out, flush=True)
+    safe_print("wrote", opts.out, flush=True)

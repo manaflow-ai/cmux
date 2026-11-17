@@ -317,8 +317,7 @@ pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: 
     json!({"kind": "task_result", "from": from, "fromName": from_name, "to": to, "taskId": task_id, "state": state})
 }
 
-/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
-pub const NAMED_SENDER: &str = "fromAgent";
+pub use crate::provenance_keys::{NAMED_SENDER, NOTICE_KIND, VERIFIED};
 
 /// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
 /// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
@@ -329,11 +328,6 @@ pub fn named_sender(name: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to, VERIFIED: false})
 }
 
-/// Whether the daemon itself bound the sender's identity (`true`: a caller-proven session, the
-/// hub's own prompt), or the sender only claimed it (`false`: a name, a peer's label, a
-/// provenance a client sent). Set by the daemon only: a client's own `verified` is never read
-/// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
-pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
 /// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
@@ -439,8 +433,6 @@ pub fn forwarded_by_peer(mut provenance: Value, via: Option<&str>) -> Value {
 /// unverified, never as the person.
 pub const ORIGIN: &str = "origin";
 
-/// The provenance kind of a tool's notice ([`notice`]).
-pub const NOTICE_KIND: &str = "notice";
 /// A peer-carried proof that the originating connection was a verified person.
 pub const PERSON_VERIFIED: &str = "personVerified";
 /// Longest notice title, in characters.
@@ -1034,7 +1026,10 @@ pub fn sender_record_with_auth(
     let authenticated = stamped_session.is_some() || relay.is_some() || human_authenticated;
     let session = stamped_session.clone().or_else(|| legacy_session.map(str::to_owned));
     let label = declared_label(Some(provenance));
-    let verification = if authenticated {
+    // A named sender this host's sender token proved (`sender_token.rs`): its name is verified,
+    // though no session is (`authenticated` stays the session's or relay's proof).
+    let token = crate::sender_token::verified_by_token(provenance);
+    let verification = if authenticated || token {
         "verified"
     } else if label.is_some() {
         "declared"
@@ -1117,6 +1112,9 @@ pub fn sender_record_with_auth(
     // they were.
     if let Some(sub) = provenance.get(FROM_SUBAGENT).filter(|s| s.is_object()) {
         record.set("subagent", sub.clone());
+    }
+    if token {
+        record.set(crate::sender_token::VERIFIED_BY_KEY, json!(crate::sender_token::VERIFIED_BY));
     }
     record
 }

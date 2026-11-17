@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// cmux: the large picture viewer over a Chief chat pane (the user, 2026-11-05, on a Before|After table: "i want
 /// to be able to expand and annotate"). A click on a picture in a table card (or a picture bubble) opens it: the
 /// pane dims and blurs under it, it fits the pane and zooms (pinch, Command-plus and -minus, Command-0 to fit, a
-/// double-click for its own size) and pans (scroll, or drag with Move). The arrow keys and the side buttons step
+/// double-click for its own size, a mouse wheel) and pans (a trackpad scroll, or drag with Move). The arrow keys and the side buttons step
 /// through the table's pictures; C (or Compare) shows the row's Before and After side by side, where a click or
 /// Space flips one picture in place (B and A pick one) and the bar's style control also offers the slider
 /// (``HomePictureCompare``). The tools mark it up (arrow, box, pen, text; Command-Z undoes); Send in Chat hands the
@@ -41,7 +41,7 @@ final class HomePictureViewer: NSView {
 
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let dim = NSView(frame: .zero)
-    private let scroll = NSScrollView(frame: .zero)
+    private let scroll = HomePictureScrollView(frame: .zero)
     private let canvas = HomePictureCanvas(frame: .zero)
     private let compare = HomePictureCompare(frame: .zero)
     private let titleLabel = NSTextField(labelWithString: "")
@@ -345,6 +345,8 @@ final class HomePictureViewer: NSView {
         let topBar = HomePictureViewerTopBar(
             width: bounds.width,
             titleWidth: naturalWidth(titleLabel),
+            titleHeight: Self.titleHeight,
+            titleInkMiddle: titleInkMiddle,
             center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
             counterWidth: naturalWidth(counterLabel),
             avoiding: topBarObstacles)
@@ -373,6 +375,18 @@ final class HomePictureViewer: NSView {
         if let textField {
             textField.frame.size.width = max(160, min(320, bounds.width - textField.frame.minX - 20))
         }
+    }
+
+    /// The title label's height: its font's line.
+    private static let titleHeight: CGFloat = 18
+
+    /// The middle of the title's capital letters, from the label's top: the cell's text top plus the font's ascent
+    /// to the baseline, less half a capital (the bar puts this on its centre line, not the label box's middle).
+    private var titleInkMiddle: CGFloat {
+        guard let font = titleLabel.font else { return Self.titleHeight / 2 }
+        let box = CGRect(x: 0, y: 0, width: 1000, height: Self.titleHeight)
+        let top = titleLabel.cell?.titleRect(forBounds: box).minY ?? 0
+        return top + font.ascender - font.capHeight / 2
     }
 
     /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
@@ -471,6 +485,36 @@ final class HomePictureViewer: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) { handle(.escape) }
+
+    /// Esc while the keyboard is anywhere in the viewer's pane (a local monitor, as the thread view's in
+    /// `PaneHost+Thread.swift`): one Esc closes the viewer even when something under it holds the keyboard (the
+    /// user, 2026-11-11: "pressing esc doesnt work").
+    private var escapeMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !closed else { return stopEscapeMonitor() }
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.claimsEscape(event) == true ? nil : event
+        }
+    }
+
+    private func stopEscapeMonitor() {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
+    }
+
+    /// Closes the viewer for a plain Esc in its window while the keyboard is in its pane; false leaves the key alone.
+    func claimsEscape(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.keyCode == 53,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+              !closed, let window, event.window === window, !isHiddenOrHasHiddenAncestor, let pane = superview else { return false }
+        let focus = window.firstResponder
+        guard focus === window || (focus as? NSView).map({ $0 === pane || $0.isDescendant(of: pane) }) == true else { return false }
+        handle(.escape)
+        return true
+    }
 
     /// A click outside the picture and the controls closes the viewer.
     override func mouseDown(with event: NSEvent) {
@@ -676,6 +720,7 @@ final class HomePictureViewer: NSView {
     func close() {
         guard !closed else { return }
         closed = true
+        stopEscapeMonitor()
         loading?.cancel()
         textField?.removeFromSuperview()
         textField = nil

@@ -91,8 +91,9 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     but knows which phone it is. What hostd's phone filter refuses (a mode that
     does not ask, a chat in one) then goes on marked
     `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
-    Full-access setting is on (Settings > Devices on the Mac, off by default,
-    off again at once when turned off or the phone is removed). Without a
+    Full-access setting is on (Settings > Devices on the Mac; on by default for
+    a phone the person paired, since 2026-11-13; off at once when it is
+    turned off or the phone is removed, and an off stays off). Without a
     credential, or when acpmux refuses it, the dashboard token and hostd's own
     refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
@@ -788,7 +789,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 
 | Phone action | Line it sends | Rule 2 notes |
 | --- | --- | --- |
-| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Mac-started Claude session stays unchanged from the phone (D13). |
+| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Claude chat the Mac started takes the owner's own paired phone's prompts, stops, answers, model and mode, as the Mac's do (acpmux D13: a live `phone` credential; in a mode that does not ask, only while the phone's Full-access setting is on, the one the Mac app issues for a phone its host admits under the Mac owner's account; removing the phone revokes it). With the phone's Full-access setting off, the owner's phone still passes the D13 refusal, so the user's own Claude permission rules run in a turn it sends; every other Web rule (an asking mode, an asking policy, no lasting grant, the sandbox) still holds it, as Leo asked on 2026-11-14 ("chat writable in both directions"). Any other client is refused with `remote.local_claude_session` and `action: new_chat`. |
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
 | Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
@@ -1004,6 +1005,28 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
   asks nothing until the app sent its approved list, so an approved phone is
   never asked again after a hostd restart.
+- **What the phone sends before its own check.** To save round trips on a
+  reconnect, the phone opens `acpmux` right behind `auth` and sends acpmux's
+  `initialize` (protocol version, client name) and the first page's watch
+  (`enabled`, a row limit) before it has checked the Mac's proof. Neither
+  carries a secret, a session id or content. A real Mac holds both until
+  `auth` passes; the phone applies no reply and no notification until its own
+  check of the Mac passed, and closes the channel when it fails, so a Mac that
+  cannot prove its pinned key learns only that a cmux phone asked for its
+  chat list (ask-48f698fc26). Until then the phone keeps at most 256
+  notifications, 8 MiB of them in all, from that channel (`AcpmuxConnection`
+  `held`). One rule bounds every message while its frames arrive, plain or
+  compressed (`MessageJoiner` `budget`): it may grow to at most what is left of
+  the 8 MiB, a compressed one judged by its header before it is inflated. The
+  one exception is decided from the message's first bytes (`{"id":N` or
+  `{"jsonrpc":"2.0","id":N` in the first 64 bytes of text, with at most 4 KiB
+  of compressed bytes inflated to read them): an answer to one of the phone's
+  own two requests still waiting may be 64 MiB as on any connection, once per
+  request, so an older Mac that ignores the row limit still delivers its whole
+  list. A Mac that sends more is cut off while it sends (the channel closes;
+  nothing is dropped quietly), so one that never passes the check holds at most
+  8 MiB of notifications and two answers of 64 MiB, what an honest Mac's
+  answers may take, in the phone's memory while it waits.
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered

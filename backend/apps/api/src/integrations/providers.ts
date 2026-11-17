@@ -19,14 +19,14 @@ export { MAX_LINKED_REPOS, ProviderError, type Approved, type CallResult, type C
 // ---------------------------------------------------------------- GitHub App
 
 const GH_API = "https://api.github.com"
-const ghHeaders = (token: string) => ({
+export const ghHeaders = (token: string) => ({
   authorization: `Bearer ${token}`,
   accept: "application/vnd.github+json",
   "x-github-api-version": "2022-11-28",
   "user-agent": "cmux-cloud"
 })
 
-const appJwt = async (env: Env) => {
+export const appJwt = async (env: Env) => {
   const key = await importPKCS8(env.GITHUB_APP_PRIVATE_KEY!, "RS256")
   const now = Math.floor(Date.now() / 1000)
   return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)

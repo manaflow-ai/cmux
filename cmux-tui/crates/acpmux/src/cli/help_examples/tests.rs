@@ -128,8 +128,11 @@ fn every_example_parses_as_the_command_it_documents() {
             if what.trim().is_empty() {
                 wrong.push(format!("\"{key}\": an example with no description: {line}"));
             }
-            // Input piped in (`printf … | acpmux send coord -`) is fine; parse the acpmux part.
-            let Some(at) = line.find("acpmux ").filter(|&at| at == 0 || line[..at].ends_with("| "))
+            // Input piped in (`printf … | acpmux send coord -`) and `sudo acpmux …` are fine;
+            // parse the acpmux part.
+            let Some(at) = line
+                .find("acpmux ")
+                .filter(|&at| at == 0 || line[..at].ends_with("| ") || &line[..at] == "sudo ")
             else {
                 wrong.push(format!("\"{key}\": does not run acpmux: {line}"));
                 continue;

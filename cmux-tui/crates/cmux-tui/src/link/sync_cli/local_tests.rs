@@ -71,7 +71,7 @@ fn a_plain_copy_leaves_credential_folders_and_files_here() {
     for relative in kept {
         write(&top, relative);
     }
-    let set = collect(&top, Rules::Copy).unwrap();
+    let set = collect(&top, Rules::Copy, None).unwrap();
     for relative in secrets {
         assert!(!set.files.contains_key(relative), "{relative} went: {:?}", set.files.keys());
     }
@@ -100,6 +100,8 @@ fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
             skipped: 0,
             skips: Skips::new(&top),
             git: false,
+            cap: None,
+            left: None,
         };
         // As the walk descends into a name it listed as a folder.
         let _ = walk_plain(&mut set, Rules::Copy, &|_| true, &top, &dir);
@@ -132,6 +134,8 @@ fn an_entry_of_an_open_folder_swapped_away_is_read_through_its_descriptor() {
         skipped: 0,
         skips: Skips::new(&top),
         git: false,
+        cap: None,
+        left: None,
     };
     let path = top.join("a/link");
     entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link).unwrap();
@@ -213,7 +217,7 @@ fn a_symlinked_git_config_goes_as_the_file_it_names() {
     let (config, real) = (repo.join(".git/config"), root.join("dotfiles-config"));
     std::fs::rename(&config, &real).unwrap();
     let config_text =
-        |repo: &Path| match collect(repo, Rules::Copy).unwrap().files.remove(".git/config") {
+        |repo: &Path| match collect(repo, Rules::Copy, None).unwrap().files.remove(".git/config") {
             Some(LocalFile { source: super::Source::Bytes(bytes), .. }) => {
                 String::from_utf8(bytes).unwrap()
             }
@@ -269,7 +273,7 @@ fn a_stray_file_in_a_borrowed_store_stays_here() {
     git(&root, &["clone", "-q", "--shared", "base", "copy"]);
     let copy = root.join("copy");
 
-    let set = collect(&copy, Rules::Copy).unwrap();
+    let set = collect(&copy, Rules::Copy, None).unwrap();
     let borrowed: Vec<&str> =
         set.files.keys().filter_map(|path| path.strip_prefix(".git/objects/")).collect();
     assert!(
@@ -307,4 +311,102 @@ fn a_borrowed_store_keeps_its_own_alternates_and_indexes() {
     for goes in ["pack/pack-1.pack", "pack/pack-1.idx", "pack/pack-1.promisor", "ab/cdef"] {
         assert!(!borrowed_skipped(goes), "{goes}");
     }
+}
+
+/// The untracked secrets the git seed keeps on this Mac stay here on a
+/// chat's copy too, in a git folder and outside one. RED before the copy
+/// used the seed's rule: an untracked `id_rsa`, `*.pem`, `.netrc` and a
+/// `.npmrc` with a token went to the machine; only `.env*` stayed.
+#[test]
+fn a_copy_keeps_every_untracked_secret_the_seed_keeps() {
+    let secrets = [
+        (".env.local", "TOKEN=x\n"),
+        ("id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n"),
+        ("keys/id_ed25519", "x\n"),
+        ("deploy/server.pem", "x\n"),
+        ("cert.p12", "x\n"),
+        (".netrc", "machine github.com login x password y\n"),
+        (".npmrc", "//registry.npmjs.org/:_authToken=npm_x\n"),
+        (".pypirc", "[pypi]\npassword = x\n"),
+        // Any `.npmrc`, token or not, by name ([`skips::credential`]).
+        ("web/.npmrc", "save-exact=true\n"),
+    ];
+    let goes = [("README.md", "hi\n"), ("keys/keyboard.rs", "fn main() {}\n")];
+    for in_git in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(dir.path()).unwrap();
+        if in_git {
+            git(&top, &["init", "-q"]);
+            std::fs::write(top.join("tracked.txt"), "t\n").unwrap();
+            git(&top, &["add", "tracked.txt"]);
+            git(&top, &["commit", "-q", "-m", "base"]);
+        }
+        for (path, text) in secrets.iter().chain(goes.iter()) {
+            let file = top.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        let set = collect(&top, Rules::Copy, None).unwrap();
+        assert_eq!(set.git, in_git);
+        for (path, _) in secrets {
+            assert!(!set.files.contains_key(path), "git={in_git}: {path} went to the machine");
+        }
+        for (path, _) in goes {
+            assert!(set.files.contains_key(path), "git={in_git}: {path} stayed here");
+        }
+        let (_, counts) = set.skips.json();
+        assert_eq!(counts["secret"], serde_json::json!(secrets.len()), "git={in_git}: {counts}");
+    }
+}
+
+/// An untracked heavy folder in a git checkout stays here, as it does
+/// outside git: it is named once, as the folder, and none of its files
+/// go. RED before the git copy used the heavy rule: an untracked,
+/// un-ignored `node_modules/` or Cargo `target/` went to the machine
+/// file by file (a 12.8 GB copy into a 16 GB disk ended in a broken pipe).
+/// A tracked file under such a name is the project's and still goes.
+#[test]
+fn a_git_copy_leaves_untracked_heavy_folders_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(dir.path()).unwrap();
+    git(&top, &["init", "-q"]);
+    for (path, text) in [("Cargo.toml", "[package]\n"), ("vendor/node_modules/kept.js", "1\n")] {
+        let file = top.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    }
+    git(&top, &["add", "Cargo.toml", "vendor/node_modules/kept.js"]);
+    git(&top, &["commit", "-q", "-m", "base"]);
+    let heavy = [
+        "node_modules/left-pad/index.js",
+        "node_modules/left-pad/package.json",
+        "web/node_modules/react/index.js",
+        "target/debug/app",
+        "vendor/node_modules/new.js",
+    ];
+    let goes = ["notes.md", "docs/target/page.md", "web/src/app.ts"];
+    for path in heavy.iter().chain(goes.iter()) {
+        let file = top.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "x\n").unwrap();
+    }
+
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    assert!(set.git);
+    for path in heavy {
+        assert!(!set.files.contains_key(path), "{path} went to the machine");
+    }
+    for path in goes.iter().chain(["Cargo.toml", "vendor/node_modules/kept.js"].iter()) {
+        assert!(set.files.contains_key(*path), "{path} stayed here");
+    }
+    let (listed, counts) = set.skips.json();
+    assert_eq!(counts["heavy"], serde_json::json!(4), "{counts}");
+    let listed = listed.to_string();
+    for folder in ["node_modules/", "web/node_modules/", "target/", "vendor/node_modules/"] {
+        assert!(listed.contains(&format!("\"{folder}\"")), "{folder} not named: {listed}");
+    }
+
+    // A share of files (`cmux link access`) keeps the heavy folders.
+    let shared = collect(&top, Rules::Share, None).unwrap();
+    assert!(shared.files.contains_key("node_modules/left-pad/index.js"));
 }

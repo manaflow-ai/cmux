@@ -66,7 +66,11 @@ await requireBrowserLane("cloud-environment-chip-geometry.test.ts", async () => 
   };
 
   const openDropUp = async (page: Page) => {
-    await page.click('.acpmux-cloud-env-slot[data-shown="true"] button');
+    // The drop-up variants' play has already opened it by the time the frame is ready; a second
+    // click on the chip toggled it shut, so the wait below saw no menu and ran out its 30 s (620 px,
+    // on base too, whenever the play finished first). Click only when it is not open.
+    if (!(await page.$(".acpmux-cloud-env-menu [role='menuitemradio']")))
+      await page.click('.acpmux-cloud-env-slot[data-shown="true"] button');
     await page.waitForSelector(".acpmux-cloud-env-menu [role='menuitemradio']");
     // The popup's own open transition settles before it is measured.
     await page.waitForFunction(() => {

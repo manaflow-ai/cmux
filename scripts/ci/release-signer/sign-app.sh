@@ -52,6 +52,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 MODE="${CMUX_SIGN_MODE:-all}"
 [[ "$MODE" == all ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||
   { echo "error: CMUX_SIGN_MODE=$MODE and CMUX_NEXT_CEF_ON_DEMAND are not supported here" >&2; exit 2; }
+# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+# one: stamped for the app's final bundle id and name first (the nightly-next
+# identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2.
+screen_share=""
+find_screen_share() {
+  local found
+  screen_share=""
+  for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+    if [[ -d "$found/Contents" ]]; then screen_share="$found"; return 0; fi
+  done
+}
+find_screen_share
+if [[ -n "$screen_share" ]]; then
+  "${CMUX_SCREEN_HELPER_STAMP_TOOL:-$SCRIPTS_DIR/cmux-next/bundle-screen-sharing-helper.sh}" --stamp "$APP_PATH"
+  find_screen_share
+fi
 command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; exit 1; }
 : "${APPLE_CERTIFICATE_BASE64:?}" "${APPLE_CERTIFICATE_PASSWORD:?}"
 export APPLE_CERTIFICATE_PASSWORD
@@ -320,6 +336,11 @@ done
 args=(--entitlements-xml-file "$work/app.entitlements" --code-signature-flags runtime)
 for rel in "${!ent[@]}"; do args+=(--entitlements-xml-file "$rel:${ent[$rel]}"); done
 for rel in "${!ident[@]}"; do args+=(--binary-identifier "$rel:${ident[$rel]}"); done
+is_first_helper() { # <rel>: inside a helper notarized first
+  local hrel
+  for hrel in ${first_rels[@]+"${first_rels[@]}"}; do [[ "$1" == "$hrel/"* ]] && return 0; done
+  return 1
+}
 for rel in "${machos[@]}"; do
   [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || args+=(--code-signature-flags "$rel:runtime")
 done

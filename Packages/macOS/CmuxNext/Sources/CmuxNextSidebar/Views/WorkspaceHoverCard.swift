@@ -25,7 +25,16 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
     /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
     /// its row's top, touching the row's fill (`HoverCardPlacement.besideRow`).
-    var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
+    /// Leo 2026-11-07: "this is one of the more important hover previews because it's how we navigate into the thing
+    /// and navigate to different tabs. So I don't want it to disappear as quickly as other ones would." By default it
+    /// lingers for the leave grace and a pointer heading into it keeps it; Debug Settings
+    /// `sidebar.hoverCards.workspaceLeave` brings back hiding at once.
+    var leave: HoverCardLeave {
+        switch SidebarTunables.workspaceHoverCardLeave.value {
+        case .lingers: .lingers
+        case .hidesAtOnce: .hides(reshow: HoverCardTiming.reshowWindow)
+        }
+    }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
@@ -90,6 +99,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
@@ -182,7 +193,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if openedByRequest { startSampling(id) }
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
-        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true) { [weak body] in body?.applyColors() }
+        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
+                             cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
     }
 
     /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
@@ -255,7 +267,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
             resources.close()
         }
         updateTicker()
-        coordinator.refit(id)
+        // Show and Hide details grow and fold the card on the hover cards' motion, not in one jump.
+        coordinator.refit(id, animated: true)
     }
 
     /// The custom card for `ws`, mounted once per shown card; nil without a customization.
@@ -317,6 +330,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// summary thing reflect size of ui compactness i chose"). Read at configure time, so a change applies live.
     static var tokens: SidebarHoverCardMetrics { SidebarRowTokens.current.hoverCard }
     private static var padding: CGFloat { tokens.padding }
+    /// The card's corners, concentric around its tab rows' fill: a sidebar workspace row's radius (the rows' own)
+    /// plus the gap from the card's edge to a row's fill (Lawrence 2026-11-09: "roundness needs to match roundness of
+    /// the workspace row itself").
+    static var cardCornerRadius: CGFloat {
+        SidebarDensityTokens.rowCornerRadius + max(0, padding - WorkspaceTabHoverCardRow.fillOutset)
+    }
     /// The card sizes to its content between these widths (POLISH: no
     /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { tokens.width }
@@ -351,10 +370,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60) // hover-timing: clock refresh, not a delay
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
+    /// The name, its icon, the host and the age (`sidebar.hoverCards.workspaceTitle` hides it when it repeats).
+    private let titleRow = NSStackView()
+    /// The workspace's tabs' titles, for ``WorkspaceHoverCardTitle/showsTitle(_:tabTitles:expanded:)``.
+    private var tabTitles: [String] = []
     /// The kind icon, leading the name on the card's icon column; a Cloud or remote card has none
     /// (its machine reads once, in `hostLabel`).
     private let kindIcon = HoverCardIconView()
@@ -392,6 +415,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var width: CGFloat = WorkspaceHoverCardView.cardWidth
     /// The constraints the tokens size, and how (`applySizes`).
     private var sized: [(NSLayoutConstraint, (SidebarHoverCardMetrics) -> CGFloat)] = []
+    /// The rows, and their top and bottom insets from the card's edges (`applyEdgeInsets`).
+    private var rowsStack: NSStackView?
+    private var topInset: NSLayoutConstraint?
+    private var bottomInset: NSLayoutConstraint?
     private var activitySlot: HoverCardIconSlot?
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
@@ -453,7 +480,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
-        let titleRow = NSStackView()
         titleRow.setViews([kindIcon, titleLabel, hostDot, hostLabel], in: .leading)
         titleRow.setViews([ageLabel], in: .trailing)
         titleRow.orientation = .horizontal
@@ -504,16 +530,19 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         content.addSubview(stack)
         let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)
         self.widthLimit = widthLimit
+        let topInset = stack.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.padding)
+        let bottomInset = content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: Self.padding)
+        (rowsStack, self.topInset, self.bottomInset) = (stack, topInset, bottomInset)
         sized = [
             (content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth), \.minWidth),
-            (stack.topAnchor.constraint(equalTo: content.topAnchor), \.padding),
-            (stack.bottomAnchor.constraint(equalTo: content.bottomAnchor), { -$0.padding }),
             (stack.leadingAnchor.constraint(equalTo: content.leadingAnchor), \.padding),
             (stack.trailingAnchor.constraint(equalTo: content.trailingAnchor), { -$0.padding }),
         ] + [kindIcon.widthAnchor, kindIcon.heightAnchor, activitySlot.widthAnchor, activitySlot.heightAnchor,
              activity.widthAnchor, activity.heightAnchor].map { ($0.constraint(equalToConstant: Self.iconSize), \.iconSide) }
         NSLayoutConstraint.activate(sized.map(\.0) + [
             widthLimit,
+            topInset,
+            bottomInset,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -545,6 +574,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         resourceRow.iconSide = tokens.iconSide
         factViews.forEach { $0.iconSide = tokens.iconSide }
         detailsToggle.applySizes()
+        applyEdgeInsets()
+    }
+
+    /// A tab row's fill and Show details' reach `WorkspaceTabHoverCardRow.fillOutset` past the rows' sides; where one
+    /// is the first or the last row shown, the rows come that much nearer the card's top or bottom too, so the fill
+    /// stands one gap from every edge it meets, the gap the card's corners are concentric around (Lawrence
+    /// 2026-11-16: "bottom padding must be same as left/right, same for top"). A row with no fill keeps the padding.
+    private func applyEdgeInsets() {
+        guard let rowsStack else { return }
+        let shown = rowsStack.arrangedSubviews.filter { !$0.isHidden }
+        func inset(_ edge: NSView?) -> CGFloat {
+            let fills = edge === tabList || edge === detailsToggle
+            return Self.padding - (fills ? WorkspaceTabHoverCardRow.fillOutset : 0)
+        }
+        topInset?.constant = inset(shown.first)
+        bottomInset?.constant = inset(shown.last)
     }
 
     @available(*, unavailable)
@@ -567,6 +612,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
     var drawnTitleFont: NSFont? { titleLabel.font }
+    /// The name row is hidden (`sidebar.hoverCards.workspaceTitle`; tests read it).
+    var drawnTitleHidden: Bool { titleLabel.isHidden }
     var drawnCaptionFont: NSFont? { ageLabel.font }
     var kindIconFrame: CGRect { kindIcon.convert(kindIcon.bounds, to: self) }
 
@@ -672,6 +719,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
         tabList.configure(title: title, tabs: tabs, now: now, machine: machine)
+        tabTitles = tabs.map(\.title)
+        updateTitleVisibility()
         summaryRow.isHidden = style.header != .summary || tabs.isEmpty
         let running = tabs.filter { $0.state.isWorking || $0.state.isLoading }.count
         let unread = tabs.filter(\.isUnread).count
@@ -731,9 +780,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             customError.isHidden = customError.stringValue.isEmpty
         }
         ageLabel.isHidden = !detailsExpanded || content?.age == nil
+        updateTitleVisibility()
         let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
             || content?.facts.contains(where: { $0.kind != "machine" }) == true || content?.timeline.isEmpty == false || resourceShown
         detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
+        applyEdgeInsets()
+    }
+
+    /// The name row shows unless the tab rows already say it (`sidebar.hoverCards.workspaceTitle`): a host shown
+    /// beside the name keeps the row, since the tabs do not say where the workspace runs.
+    private func updateTitleVisibility() {
+        guard let content else { return }
+        let shows = SidebarTunables.workspaceHoverCardTitle.value.showsTitle(content.title, tabTitles: tabTitles, expanded: detailsExpanded)
+        titleRow.isHidden = !shows && hostLabel.isHidden
+        titleLabel.isHidden = !shows
+        kindIcon.isHidden = !shows || !hostLabel.isHidden
+        applyEdgeInsets()
     }
 
     /// Shows the user's card when it rendered, else the built-in card with the error (if any).
@@ -821,7 +883,7 @@ extension WorkspaceHoverCardView {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
             wantsLayer = true
-            layer?.cornerRadius = HoverCardStyle.shared.cornerRadius
+            layer?.cornerRadius = Self.cardCornerRadius
             layer?.cornerCurve = .continuous
             // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
             layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil

@@ -1,0 +1,132 @@
+{
+  "check_run_url": "https://api.github.com/repos/manaflow-ai/cmux/check-runs/131026209923",
+  "completed_at": "2026-11-12T06:58:04Z",
+  "conclusion": "failure",
+  "created_at": "2026-11-12T06:56:50Z",
+  "head_branch": "lane/palette-devices-setup",
+  "head_sha": "8e9574276379d4faeaa11c5c6bbc2ce228d32e90",
+  "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/43171396634/job/131026209923",
+  "id": 131026209923,
+  "labels": [
+    "ubuntu-2404-16vcpu"
+  ],
+  "name": "web / Web tests (2/4)",
+  "node_id": "CR_kwDORDHQWM8AAAAegcVMgw",
+  "run_attempt": 1,
+  "run_id": 43171396634,
+  "run_url": "https://api.github.com/repos/manaflow-ai/cmux/actions/runs/43171396634",
+  "runner_group_id": 26,
+  "runner_group_name": "linux runners",
+  "runner_id": 1,
+  "runner_name": "runner-1",
+  "started_at": "2026-11-12T06:56:54Z",
+  "status": "completed",
+  "steps": [
+    {
+      "completed_at": "2026-11-12T06:56:55Z",
+      "conclusion": "success",
+      "name": "Set up job",
+      "number": 1,
+      "started_at": "2026-11-12T06:56:55Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:56:55Z",
+      "conclusion": "success",
+      "name": "Set up runner",
+      "number": 2,
+      "started_at": "2026-11-12T06:56:55Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:57:03Z",
+      "conclusion": "success",
+      "name": "Checkout",
+      "number": 3,
+      "started_at": "2026-11-12T06:56:55Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:57:04Z",
+      "conclusion": "success",
+      "name": "Setup Bun",
+      "number": 4,
+      "started_at": "2026-11-12T06:57:03Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:57:06Z",
+      "conclusion": "success",
+      "name": "Cache Bun package cache",
+      "number": 5,
+      "started_at": "2026-11-12T06:57:04Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:57:06Z",
+      "conclusion": "success",
+      "name": "Install dependencies",
+      "number": 6,
+      "started_at": "2026-11-12T06:57:06Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:02Z",
+      "conclusion": "failure",
+      "name": "Run web test shard",
+      "number": 7,
+      "started_at": "2026-11-12T06:57:06Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "success",
+      "name": "Upload failed shard JUnit report",
+      "number": 8,
+      "started_at": "2026-11-12T06:58:02Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "skipped",
+      "name": "Post Cache Bun package cache",
+      "number": 13,
+      "started_at": "2026-11-12T06:58:03Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "skipped",
+      "name": "Post Setup Bun",
+      "number": 14,
+      "started_at": "2026-11-12T06:58:03Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "success",
+      "name": "Post Checkout",
+      "number": 15,
+      "started_at": "2026-11-12T06:58:03Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "success",
+      "name": "Complete runner",
+      "number": 16,
+      "started_at": "2026-11-12T06:58:03Z",
+      "status": "completed"
+    },
+    {
+      "completed_at": "2026-11-12T06:58:03Z",
+      "conclusion": "success",
+      "name": "Complete job",
+      "number": 17,
+      "started_at": "2026-11-12T06:58:03Z",
+      "status": "completed"
+    }
+  ],
+  "url": "https://api.github.com/repos/manaflow-ai/cmux/actions/jobs/131026209923",
+  "workflow_name": "v1;sha=8e9574276379d4faeaa11c5c6bbc2ce228d32e90;ref=lane/palette-devices-setup;cache=r2;release=arm64;coverage=compile-only"
+}

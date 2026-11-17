@@ -20,6 +20,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag")
@@ -163,7 +164,7 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     normal = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
     if not quiet_wait(lambda: focused_pane(normal), 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(lambda: focused_pane(normal), "a focused pane", 60)
 
     added = rpc("action.run", {"action": "bookmark.add", "args": {"url": URL, "title": f"Test {WORD} page", "profile": "default"}})
@@ -177,7 +178,7 @@ try:
 
     # 2. An incognito window.
     before = {w.get("id") for w in windows()}
-    print("newIncognitoWindow", rpc("action.run", {"action": "newIncognitoWindow", "origin": "script"}), flush=True)
+    safe_print("newIncognitoWindow", rpc("action.run", {"action": "newIncognitoWindow", "origin": "script"}), flush=True)
     incognito = (wait_for(lambda: [w.get("id") for w in windows() if w.get("id") not in before],
                           "the incognito window", 60) or [None])[0]
     if incognito and wait_for(lambda: browser_omnibar(incognito), "an omnibar in the incognito window", 90):

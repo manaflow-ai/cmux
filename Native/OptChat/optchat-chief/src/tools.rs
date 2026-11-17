@@ -249,9 +249,6 @@ pub struct SendCall {
     /// Chief knows the reply is long (a list the person asked for): the
     /// length gate lets its first send post (chief_kernel::replies).
     pub long: bool,
-    /// A widget part (plans/cmux-next/chat-widgets-DESIGN.md): drawn by a Mac
-    /// with the app, shown as its fallback text everywhere else.
-    pub widget: Option<cmux_conversation::Widget>,
 }
 
 impl SendCall {
@@ -277,39 +274,8 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        let widget = match args.get("widget") {
-            None | Some(Value::Null) => None,
-            Some(Value::Object(w)) => {
-                let field = |k: &str| {
-                    w.get(k)
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                };
-                let widget = cmux_conversation::Widget {
-                    app: field("app").ok_or("send: `widget.app` is the app id, publisher/name")?.to_owned(),
-                    widget: field("widget").unwrap_or("cmux.chat.widget/1").to_owned(),
-                    props: w.get("props").cloned().unwrap_or_else(|| json!({})),
-                    fallback: field("fallback")
-                        .ok_or("send: `widget.fallback` is required: the text clients without the app show")?
-                        .to_owned(),
-                    url: field("url").map(str::to_owned),
-                };
-                if !cmux_conversation::valid_widget(&widget) {
-                    return Err(format!(
-                        "send: the widget is malformed: app is publisher/name, props a JSON object of at most {} bytes, fallback 1 to {} characters, url https",
-                        cmux_conversation::MAX_WIDGET_PROPS_BYTES,
-                        cmux_conversation::MAX_WIDGET_FALLBACK_CHARS
-                    ));
-                }
-                Some(widget)
-            }
-            Some(_) => {
-                return Err("send: `widget` must be an object {app, props, fallback, url?}".into());
-            }
-        };
-        if text.is_none() && attachments.is_empty() && widget.is_none() {
-            return Err("send: give `text`, `attachments`, `widget` or several".into());
+        if text.is_none() && attachments.is_empty() {
+            return Err("send: give `text`, `attachments` or both".into());
         }
         let reply_to = match args.get("reply_to") {
             None | Some(Value::Null) => None,
@@ -329,7 +295,6 @@ impl SendCall {
             attachments,
             reply_to,
             long,
-            widget,
         })
     }
 
@@ -346,9 +311,6 @@ impl SendCall {
         }
         if self.long {
             v["long"] = json!(true);
-        }
-        if let Some(w) = &self.widget {
-            v["widget"] = json!(w);
         }
         v
     }
@@ -986,9 +948,7 @@ impl Call {
                     None | Some("") => tasks,
                     Some(v) => {
                         let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
-                            return Err(format!(
-                                "spawn: no sidebar {v}; one of auto, shown, hidden"
-                            ));
+                            return Err(format!("spawn: no sidebar {v}; one of auto, user, chief"));
                         };
                         tasks
                             .into_iter()
@@ -1339,6 +1299,9 @@ pub enum ControlRequest {
     Restart(Vec<String>),
     /// The turn session's tool hook (rights.rs): answers the hook's JSON.
     RightsHook { phase: String, payload: Value },
+    /// `optchat-chief memory redescribe`: describe again the images these
+    /// note lines name (brain/redescribe.rs); answers `{started, refused}`.
+    Redescribe(Vec<u64>),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1460,6 +1423,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "inspect"
                         | "grant"
                         | "browse"
+                        | "redescribe"
                 ) && role() == crate::turn_caller::Role::Subagent
                 {
                     if writeln!(
@@ -1609,6 +1573,34 @@ fn connection(conn: UnixStream, served: &Served) {
                             ),
                             Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
                         },
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                // The owner's `memory redescribe`: the owner only (as the
+                // inspector's changes): never one of the Chief's own sessions.
+                if tool == "redescribe" {
+                    let owner = role() == crate::turn_caller::Role::Other
+                        && req.get("from").and_then(Value::as_str) != Some("subagent")
+                        && !peer.is_some_and(crate::turn_caller::under_this_process);
+                    let notes: Option<Vec<u64>> = req
+                        .get("messages")
+                        .and_then(Value::as_array)
+                        .map(|ids| ids.iter().filter_map(Value::as_u64).collect());
+                    let answer = match (owner, notes, control) {
+                        (false, _, _) => json!({"error": "owner control only"}),
+                        (true, None, _) => json!({"error": "redescribe needs messages: [ids]"}),
+                        (true, Some(_), None) => {
+                            json!({"error": "the host control is not served here"})
+                        }
+                        (true, Some(notes), Some(control)) => {
+                            match control(ControlRequest::Redescribe(notes)) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;
@@ -1972,6 +1964,13 @@ pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<Strin
 /// The browse page from the live host; Err when no host answers on `path`.
 pub fn ask_browse(path: &Path) -> Result<String, String> {
     ask_json(path, &json!({"tool": "browse"}))
+}
+
+/// `optchat-chief memory redescribe`: asks the running host to describe
+/// again the images these note lines name; returns its `{started, refused}`
+/// JSON.
+pub fn ask_redescribe(path: &Path, notes: &[u64]) -> Result<String, String> {
+    ask_json(path, &json!({"tool": "redescribe", "messages": notes}))
 }
 
 fn ask_json(path: &Path, request: &Value) -> Result<String, String> {

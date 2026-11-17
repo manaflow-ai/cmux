@@ -55,7 +55,7 @@ done
 [[ -n $WALLPAPER_REMOTE_ROOT ]] || WALLPAPER_REMOTE_ROOT='~/Library/Application Support/cmux-showcase/backdrops'
 ARCHIVE="$OUT_ROOT/captures/cmux-next-showcase/$CAPTURE_DATE"; RECEIPTS="$ARCHIVE/receipts"; STILL_ROOT="$ARCHIVE/stills"; REEL_ROOT="$ARCHIVE/reel"
 if (( DRY_RUN )); then
- printf 'showcase-capture: dry run (no effects)\n  host=%s tag=%s target=%s checkout=%s\n  archive=%s\n  backdrop-manifest=%s\n  stills=01-main-rail 02-agent-chat-tools-footer 03-diff-viewer 04-inbox 05-sidebar 06-settings\n  reel=launch rail worked-turn inbox\n' "$HOST" "$TAG" "$TARGET" "$CHECKOUT" "$ARCHIVE" "$BACKDROP_MANIFEST"; exit 0
+ printf 'showcase-capture: dry run (no effects)\n  host=%s tag=%s target=%s checkout=%s\n  archive=%s\n  backdrop-manifest=%s\n  stills=01-main-rail 02-agent-chat-tools-footer 03-diff-viewer 05-sidebar 06-settings\n  reel=launch rail worked-turn\n' "$HOST" "$TAG" "$TARGET" "$CHECKOUT" "$ARCHIVE" "$BACKDROP_MANIFEST"; exit 0
 fi
 [[ -f $LEASE_RECEIPT ]] || die "--lease-receipt must name an existing controller receipt"
 [[ -n $ADMISSION_COMMAND ]] || die "--admission-command is required for live capture"
@@ -232,19 +232,19 @@ sleep "$WAIT_SECONDS"; seed; seed_worked_turn; sleep "$WAIT_SECONDS"; still 01-m
 still 02-agent-chat-tools-footer
 call debug.agent_pane '{"action":"open_changes"}'
 sleep 1; still 03-diff-viewer
-surface 04-inbox switchRightSidebarToFeed; surface 05-sidebar toggleSidebar
+surface 05-sidebar toggleSidebar
 surface 06-settings openSettings
 record_id="cmux-next-showcase-$CAPTURE_DATE-$TAG"; cua record-start "$HOST" --id "$record_id" --cursor --clicks
 remote "open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"; sleep "$WAIT_SECONDS"
 cua state "$HOST" "$TARGET" --out "$REEL_ROOT/01-launch" --quiet; seed; seed_worked_turn; sleep 1; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/02-rail" --quiet
-seed; seed_worked_turn; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/03-worked-turn" --quiet; socket_action switchRightSidebarToFeed
-cua state "$HOST" "$TARGET" --out "$REEL_ROOT/04-inbox" --quiet; cua record-end "$HOST" "$record_id" --out "$REEL_ROOT"; [[ -s "$REEL_ROOT/recording.mov" && -s "$REEL_ROOT/meta.json" && -s "$REEL_ROOT/events.jsonl" ]] || die "recording metadata missing"
+seed; seed_worked_turn; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/03-worked-turn" --quiet
+cua record-end "$HOST" "$record_id" --out "$REEL_ROOT"; [[ -s "$REEL_ROOT/recording.mov" && -s "$REEL_ROOT/meta.json" && -s "$REEL_ROOT/events.jsonl" ]] || die "recording metadata missing"
 python3 - "$OUT_ROOT/captures/manifest.json" "$CAPTURE_DATE" "$ARCHIVE" "$TAG" "${REF:-}" "$HOST" "$REMOTE_BACKDROP_PATH" "$BACKDROP_SHA256" "$BACKDROP_ENTRY_JSON" "$wallpaper_readback" <<'PY'
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); date,archive,tag,ref,host,remote_path,sha256,entry_json,readback=sys.argv[2:]; d=json.loads(p.read_text()) if p.exists() else {}
 entry=json.loads(entry_json)
-d.setdefault("apps",{})["cmux-next-showcase"]={"status":"complete","date":date,"tag":tag,"ref":ref or None,"path":str(pathlib.Path(archive).relative_to(p.parent.parent)),"screenshots":6,"reel":"reel/recording.mov","capture_method":"cmux-cua via cua-ssh on an admitted tagged fleet build","wallpaper":{"host":host,"remote_path":remote_path,"sha256":sha256,"attribution":entry,"readback":readback}}
-d.setdefault("validation",{})["cmux-next-showcase"]={"dense_stills":["main-rail","agent-chat-tools-footer","diff-viewer","inbox","sidebar","settings"],"reel":"launch, rail, worked turn, inbox"}
+d.setdefault("apps",{})["cmux-next-showcase"]={"status":"complete","date":date,"tag":tag,"ref":ref or None,"path":str(pathlib.Path(archive).relative_to(p.parent.parent)),"screenshots":5,"reel":"reel/recording.mov","capture_method":"cmux-cua via cua-ssh on an admitted tagged fleet build","wallpaper":{"host":host,"remote_path":remote_path,"sha256":sha256,"attribution":entry,"readback":readback}}
+d.setdefault("validation",{})["cmux-next-showcase"]={"dense_stills":["main-rail","agent-chat-tools-footer","diff-viewer","sidebar","settings"],"reel":"launch, rail, worked turn"}
 p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(d,indent=2)+"\n")
 PY
 echo "showcase-capture: wrote $ARCHIVE"

@@ -138,6 +138,40 @@ fn package_paths_are_checked() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Step 11 (extensibility-DESIGN.md 12.1 item 12): an app whose script or
+/// manifest strings carry a character that hides what it does is refused at
+/// load and install, naming file, line and column, never the text.
+#[test]
+fn a_script_or_manifest_string_with_a_hidden_character_is_refused() {
+    let dir = std::env::temp_dir().join(format!("cmux-app-manifest-hidden-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("dist")).expect("mkdir");
+    std::fs::write(
+        dir.join("dist/main.js"),
+        "let ok = 1;\nlet admin = \"user\u{202E} \u{2066}// x\";\n",
+    )
+    .expect("write");
+    let m = manifest(json!({ "runtime": { "main": "dist/main.js" }, "icon": { "symbol": "app" } }));
+    std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
+    let report = validate_package(&dir);
+    let hidden: Vec<_> = report.issues.iter().filter(|i| i.code == "text.hidden").collect();
+    assert_eq!(hidden.len(), 1, "{:?}", report.issues);
+    assert_eq!(hidden[0].path, "/runtime/main");
+    assert!(hidden[0].message.starts_with("dist/main.js:2:18 "), "{}", hidden[0].message);
+    assert!(hidden[0].message.contains("U+202E"));
+    assert!(!report.is_valid());
+
+    std::fs::write(dir.join("dist/main.js"), "text.replace(/^\u{FEFF}/, '');\n").expect("write");
+    assert!(!validate_package(&dir).issues.iter().any(|i| i.code == "text.hidden"));
+    std::fs::remove_dir_all(&dir).ok();
+
+    let named = manifest(json!({ "description": "Shows the time\u{200B}" }));
+    let issues = validate_manifest(&named);
+    assert!(
+        issues.iter().any(|i| i.code == "text.hidden" && i.path == "/description"),
+        "{issues:?}"
+    );
+}
+
 #[test]
 fn sidebar_sections_accept_all_three_regions_including_bottom() {
     for region in ["top", "middle", "bottom"] {
@@ -147,4 +181,38 @@ fn sidebar_sections_accept_all_three_regions_including_bottom() {
             }}}));
         assert!(codes(&value).is_empty(), "{region}: {:?}", codes(&value));
     }
+}
+
+/// A text field past the schema's 300-character cap is refused with an issue
+/// that names the field and its length (the schema's own answer is a `oneOf`
+/// miss that repeats the text and never says why; the daemon then drops the
+/// package from the App Store with only that line to show for it).
+#[test]
+fn a_text_field_over_its_cap_names_the_field_and_its_length() {
+    let long = "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS + 112);
+    for (m, path) in [
+        (manifest(json!({ "description": long })), "/description"),
+        (manifest(json!({ "description": { "en": "ok", "de": long } })), "/description/de"),
+    ] {
+        let issues = validate_manifest(&m);
+        let issue = issues.iter().find(|i| i.code == "text.too_long").expect("text.too_long");
+        assert_eq!(issue.path, path, "{issues:?}");
+        assert_eq!(issue.message, "is 412 characters; the limit is 300");
+    }
+    let at_cap = "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS);
+    assert!(!codes(&manifest(json!({ "description": at_cap }))).contains(&"text.too_long"));
+    // Another oneOf with a string past 300 (an icon path, capped lower) keeps its own error.
+    let icon = format!("assets/{}.png", "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS));
+    let icon_codes = codes(&manifest(json!({ "icon": icon })));
+    assert!(!icon_codes.contains(&"text.too_long"), "{icon_codes:?}");
+    assert!(icon_codes.contains(&"schema"), "{icon_codes:?}");
+}
+
+/// The cap above is the schema's (`$defs/text`), not a second copy that can drift.
+#[test]
+fn the_text_cap_is_the_schemas() {
+    let schema: Value = serde_json::from_str(cmux_app_manifest::SCHEMA).expect("schema");
+    let text = &schema["$defs"]["text"]["oneOf"];
+    assert_eq!(text[0]["maxLength"], cmux_app_manifest::TEXT_MAX_CHARS);
+    assert_eq!(text[1]["additionalProperties"]["maxLength"], cmux_app_manifest::TEXT_MAX_CHARS);
 }

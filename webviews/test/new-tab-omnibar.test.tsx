@@ -13,6 +13,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -59,12 +60,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -297,7 +295,7 @@ test("Down on the last row wraps to the top; Up on the top row comes back to the
 // line. The top row stays selected while typing (the list has the arrows), ↑ from it goes back to the
 // text, and in the text ↑ and ↓ move the caret while there is a line to go to, as in the chat's
 // composer; ← and → in the list go back to the text and move the caret.
-test("in the text Up and Down move the caret between lines; in the list they step the rows", async () => {
+test("in the text Up and Down move the caret between lines; Up from the row goes back to the text", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("first line\nsecond line");
@@ -307,14 +305,14 @@ test("in the text Up and Down move the caret between lines; in the list they ste
     await act(async () => field.dispatchEvent(event));
     return event.defaultPrevented;
   };
+  // Many lines are a prompt: Ask alone under them (Lucas 2026-11-17).
   const count = rows().length;
-  expect(count).toBeGreaterThan(1);
+  expect(count).toBe(1);
   expect(highlighted()).toBe(0);
 
   await caretAt(); // the second line
-  expect(await press("ArrowDown")).toBe(true); // the list: the next row
-  expect(highlighted()).toBe(1);
-  expect(await press("ArrowUp")).toBe(true);
+  expect(await press("ArrowDown")).toBe(true); // the list: the next row, the only one again
+  expect(highlighted()).toBe(0);
   expect(await press("ArrowUp")).toBe(true); // the top row: back to the text
   expect(highlighted()).toBe(-1);
 
@@ -322,10 +320,10 @@ test("in the text Up and Down move the caret between lines; in the list they ste
   expect(highlighted()).toBe(-1);
   await caretAt(3); // the first line
   expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
-  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last
+  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last line
   expect(highlighted()).toBe(count - 1);
 
-  expect(await press("ArrowLeft")).toBe(false); // the list: back to the text, the caret moves
+  expect(await press("ArrowLeft")).toBe(false); // a listed row: back to the text, the caret moves
   expect(highlighted()).toBe(-1);
   await press("Enter");
   expect(calls).toEqual([["ask", "claude", "first line\nsecond line", undefined, "claude-opus-5-5"]]);

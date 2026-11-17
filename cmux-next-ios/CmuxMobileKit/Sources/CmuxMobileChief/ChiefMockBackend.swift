@@ -16,12 +16,14 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     public let liveFeed = ChiefLiveFeed()
 
     /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
+    /// `quiet`: a new conversation with people (New Message's demo) — no seeded transcript,
+    /// no question and no replies; a sent message is delivered and read.
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
-                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
+                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }, quiet: Bool = false) {
         let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
-        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo)
+        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo, quiet: quiet)
         self.sleep = sleep
-        if !showsLiveDemo {
+        if !showsLiveDemo, !quiet {
             questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
         }
         // Opt-in synthetic live state for before/after simulator captures.
@@ -115,9 +117,13 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             return info
         }
 
-        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false) {
+        /// No transcript and no replies (``ChiefMockBackend/init(identity:now:sleep:quiet:)``).
+        let quiet: Bool
+
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false, quiet: Bool = false) {
             self.identity = identity
             self.sleep = sleep
+            self.quiet = quiet
             // A completed Chief reply would suppress the live bubble when the
             // first history page lands. This scene starts with an unanswered
             // synthetic prompt so both revisions show the long live reply.
@@ -125,7 +131,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
                 id: "demo-prompt", seq: 1, clientMessageID: "demo-prompt",
                 senderID: identity.meID, sentAt: now, text: "Please check the sample project.",
                 delivery: .read(nil)
-            )] : ChiefMockScript.history(identity: identity, now: now)
+            )] : quiet ? [] : ChiefMockScript.history(identity: identity, now: now)
         }
 
         private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }
@@ -191,6 +197,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             read.delivery = .read(Date())
             store(read)
             emit(read)
+            guard !quiet else { return }
             if let reaction = ChiefMockScript.tapback(for: message.text) {
                 await sleep(.milliseconds(450))
                 if var reacted = messages.first(where: { $0.id == message.id }) {
@@ -209,9 +216,12 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             // Typing time grows with the reply, as a person's would.
             await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
             let seq = headSeq + 1
+            // Markdown links and tables as the real Chief's arrive (``ChiefWire``).
+            let linked = ConversationMarkdownLinks.extract(reply)
+            let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: Date(), text: reply
+                sentAt: Date(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
@@ -273,6 +283,20 @@ extension ChiefMockBackend: ChiefQuestionSource {
         let allowed = answer.selections.values.contains { $0.optionIDs.contains("allow") }
         await engine.post(allowed ? "Allowed. Claude is running cargo test -p cmux-mobile-link in cmux now."
                                   : "Told Claude not to run it. It will ask before trying another way.")
+    }
+}
+
+/// The mock lists a few skills on `/`, as the Mac's Chief host does
+/// (ChiefSlashSkills.swift); layout and flow only.
+extension ChiefMockBackend: ChiefSlashSkillSource {
+    public var slashSkills: [ChiefSlashSkill] {
+        [
+            ChiefSlashSkill(name: "cmux-views", description: "Build a cmux view page from what you describe.", source: "chief"),
+            ChiefSlashSkill(name: "triage", description: "Sort the inbox and say what needs you.", source: "chief"),
+            ChiefSlashSkill(name: "emil-prototype", description: "Explore several versions behind a live picker.", source: "claude"),
+            ChiefSlashSkill(name: "verify-implementation", description: "Draft acceptance criteria, build, and verify with video.", source: "claude"),
+            ChiefSlashSkill(name: "vercel:ai-sdk", description: "Answer questions about the AI SDK.", source: "plugin:vercel"),
+        ]
     }
 }
 
@@ -350,6 +374,17 @@ struct ChiefMockScript {
         }
         if lower.contains("test") {
             return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
+        }
+        if lower.contains("table") {
+            return """
+            Here are your agents:
+
+            | Agent | Task | State |
+            | --- | --- | :---: |
+            | a42 | Keyboard | building |
+            | a49 | Panes | done |
+            | a52 | Pin tab | open |
+            """
         }
         if lower.contains("stop") || lower.contains("cancel") {
             return "Stopped. Nothing else is running."

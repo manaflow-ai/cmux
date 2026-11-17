@@ -171,7 +171,7 @@ fn machine_list_adds_the_apps_cloud_machines() {
     assert_eq!(rows[1]["origin"], "cloud");
     assert_eq!(rows[1]["status"], "running");
     assert_eq!(rows[1]["connectable"], true);
-    assert_eq!(rows[1]["target"], "machine:vm-brave-otter");
+    assert_eq!(rows[1]["target"], "vm:vm-brave-otter");
 }
 
 #[test]

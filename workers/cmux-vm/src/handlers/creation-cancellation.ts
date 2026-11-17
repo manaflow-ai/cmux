@@ -35,6 +35,8 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
       // Nothing at the exact slug: settle only once no earlier send can still be allocating.
       if (found === null && allocation === "absent") {
         if (!(yield* limits.settleAbsentCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable)))) return status;
+        // Nothing was made: an agent key's slot held for this create goes back.
+        yield* limits.forgetAgentVm(caller.value.tenantId, vm.value, retained.key).pipe(Effect.ignore);
         if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
         return yield* readVmCreation(caller, key);
       }
@@ -51,6 +53,8 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
       yield* store.markDeleted(caller.value.tenantId, "vm", vm.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
     }
     yield* limits.settleCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable));
+    // The cancelled VM is deleted: an agent key's slot held for it goes back (best effort; it lapses on its own).
+    yield* limits.forgetAgentVm(caller.value.tenantId, vm.value, retained.key).pipe(Effect.ignore);
     if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
     return yield* readVmCreation(caller, key);
   }));

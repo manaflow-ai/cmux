@@ -98,10 +98,14 @@ export function chatSwitchParts(scroller: HTMLElement, arm: Exclude<ChatSwitchAr
       to: { opacity: 1, transform: "none" },
     });
   visibleRows(scroller).forEach((row, index) => {
+    const delay = Math.min(index, MAX_STAGGERED_ROWS - 1) * STAGGER_MS;
     parts.push({
       element: row,
-      delay: Math.min(index, MAX_STAGGERED_ROWS - 1) * STAGGER_MS,
-      duration: duration - Math.min(index, MAX_STAGGERED_ROWS - 1) * (STAGGER_MS / 2),
+      delay,
+      // Every row lands on the move step's last frame, however late it started: the eighth row's
+      // 112 ms start and 124 ms run ended at 236 ms, 56 ms after the first (Leo 2026-11-10: "the slow
+      // animations"; 2026-11-05: "everything moves as one").
+      duration: duration - delay,
       from: { opacity: 0, transform: `translateY(${RISE_PX}px)` },
       to: { opacity: 1, transform: "none" },
     });

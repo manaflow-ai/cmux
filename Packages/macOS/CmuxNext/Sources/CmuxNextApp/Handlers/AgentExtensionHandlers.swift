@@ -15,7 +15,7 @@ enum AgentExtensionHandlers {
             guard let key = context.services.cache.key(of: entry.tab) else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             context.services.cache.allowAgentWithExtensions(key)
             // The browser host's relay gate reads the override from `tab.access`.
-            context.services.browserHost?.provider.refreshTabs()
+            context.services.browserHost?.provider.refreshTabs([key])
         })
     }
 

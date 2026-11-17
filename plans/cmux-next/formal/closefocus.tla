@@ -10,7 +10,7 @@
 (*     pane (Policy = "recent").                                           *)
 (*   Kind = "list": the sidebar's workspace list. Rows CW tall, one item   *)
 (*     each; the successor is the next row, else the previous one          *)
-(*     (FocusAfterClose.workspace).                                        *)
+(*     (CloseSelection.workspace).                                        *)
 (* Anyone may close any item (the user, the CLI, another client, the      *)
 (* daemon): origin does not enter the rules. A close re-anchors the       *)
 (* offset on the focused item (strip: the focused column keeps its screen *)
@@ -70,7 +70,7 @@ FirstIn(h, S) == IF \E i \in DOMAIN h : h[i] \in S
                  ELSE None
 IndexIn(s, x) == CHOOSE i \in DOMAIN s : s[i] = x
 
-\* FocusAfterClose.pane (strip) / FocusAfterClose.workspace (list), over
+\* FocusAfterClose.pane (strip) / CloseSelection.workspace (list), over
 \* the columns before the close; h is the history without p.
 Successor(cs, p, h) ==
     LET c == ColOf(cs, p)

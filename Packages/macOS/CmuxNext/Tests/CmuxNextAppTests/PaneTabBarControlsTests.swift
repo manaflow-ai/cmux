@@ -29,7 +29,7 @@ import Testing
 
     @Test func theTopBarOffersNoCreationButtonsOnlyItsMoreMenu() {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
         toolbar.update(target: "sample-terminal", kind: .terminal)
         #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu, which the ⋮ menu holds")
         #expect(toolbar.view.buttons.isEmpty)
@@ -187,16 +187,24 @@ import Testing
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
     }
 
-    @Test func pressingThePlainPlusChangesItsGlyphEvenWhenHovered() throws {
+    @Test(arguments: [false, true])
+    func theNewTabGlyphKeepsItsWeightDuringInteraction(showsChevron: Bool) throws {
         let plus = NewTabButtonView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        plus.isHovered = true
+        plus.showsChevron = showsChevron
+        plus.layoutSubtreeIfNeeded()
         let glyph = try #require(plus.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-        let hoverWidth = glyph.lineWidth
-        plus.isPressed = true
-        #expect(glyph.lineWidth > hoverWidth, "a press is visible even after hover brightens the glyph")
-        #expect(plus.layer?.sublayers?.first?.backgroundColor == nil, "a press adds no plate")
-        plus.isPressed = false
-        #expect(glyph.lineWidth == hoverWidth, "release restores the hover glyph")
+        let restingWidth = glyph.lineWidth
+        for hovered in [false, true] {
+            plus.isHovered = hovered
+            #expect(glyph.lineWidth == restingWidth, "hovering keeps the glyph weight")
+            plus.isPressed = true
+            #expect(glyph.lineWidth == restingWidth, "pressing keeps the glyph weight")
+            plus.isMenuOpen = true
+            plus.isPressed = false
+            #expect(glyph.lineWidth == restingWidth, "an open menu keeps the glyph weight after release")
+            plus.isMenuOpen = false
+            #expect(glyph.lineWidth == restingWidth, "closing the menu keeps the glyph weight")
+        }
     }
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {

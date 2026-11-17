@@ -71,7 +71,7 @@ enum DestructiveConfirmation {
                           button: CloudStrings.deleteFirewallRule)
         case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
-            return await question(for: id, invocation, context, warn: warn)
+            return await question(for: id, invocation, context, warn: warn) ?? services.registry.descriptor(for: id).flatMap { CatalogRequestHandlers.confirmation(for: $0) }.map { Prompt(title: $0.title, body: $0.body, button: $0.button) } // else a destructive request row's generic question
         }
     }
 
@@ -110,9 +110,9 @@ enum DestructiveConfirmation {
             return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
         case .killProcess?:
             // A process Kill Process refuses is not asked about: the handler says why.
-            let key = services.taskManager.process(invocation["process"]?.stringValue)
-            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
-            let question = services.taskManager.prompt(for: key)
+            let key = services.taskManager.hub.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.hub.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.hub.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
         case .deleteChief?:
             // A Chief not listed (or the default one) is refused by the action with its reason.

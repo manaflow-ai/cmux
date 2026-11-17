@@ -118,28 +118,27 @@ fn go(request: &Request, key: &[u8]) -> Result<Value, Failure> {
 }
 
 #[test]
-fn a_classic_call_reaches_the_api_through_the_daemon() {
-    let (origin, seen) =
-        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
-    let args = json!({"id": "r1", "timeoutMs": 1});
-    let answer = go(&request(&origin, Auth::Stack, "runs.wait", args), &[]);
-    assert_eq!(answer.unwrap()["run"]["id"], "r1");
+fn an_owner_call_reaches_the_api_through_the_daemon() {
+    let (origin, seen) = fake(|_| (200, r#"{"handoffs":[{"id":"h1"}],"nextCursor":null}"#.into()));
+    let answer = go(&request(&origin, Auth::Owner, "owner.handoffs", json!({})), &[]);
+    assert_eq!(answer.unwrap(), json!([{"id": "h1"}]));
     let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
+    assert!(seen[0].line.starts_with("GET /v1/handoffs?limit=100 "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
-    assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
-    assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_1"));
+    assert_eq!(seen[0].header("x-stack-refresh-token"), None);
 }
 
 #[test]
-fn a_run_create_sends_its_key_through_the_daemon() {
+fn a_run_create_is_answered_by_the_daemon_with_no_http_call() {
     let (origin, seen) = fake(|_| (200, r#"{"id":"run_1","state":"queued"}"#.into()));
-    let args = json!({"task": "echo hi", "idempotencyKey": "k-1"});
-    let answer = go(&request(&origin, Auth::Stack, "runs.start", args), &[]).unwrap();
-    assert_eq!(answer["id"], "run_1");
-    let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("POST /api/runs "));
-    assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("k-1"));
+    let args = json!({"task": "echo hi", "agent": "bash", "idempotencyKey": "k-1"});
+    let failure = go(&request(&origin, Auth::Owner, "runs.start", args), &[]).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Http { status: 400, code: Some(code), .. } if code == "run_agent_invalid"),
+        "{failure:?}"
+    );
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -187,8 +186,8 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
                 .into(),
         )
     });
-    let args = json!({"id": "r1", "timeoutMs": 1});
-    let failure = go(&request(&origin, Auth::Stack, "runs.wait", args), &[]).unwrap_err();
+    let args = json!({"id": "vm_abcdefghij0123456789", "publicKey": "ssh-ed25519 CALLER"});
+    let failure = go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args), &[]).unwrap_err();
     assert_eq!(
         failure,
         Failure::PlanRequired {
@@ -202,7 +201,7 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
 #[test]
 fn a_daemon_that_is_not_running_is_a_transport_failure() {
     let missing = std::env::temp_dir().join(format!("cloud-api-none-{}.sock", std::process::id()));
-    let call = request("https://cmux.com", Auth::Stack, "runs.wait", json!({"id": "r1"}));
+    let call = request("https://cmux.com", Auth::Owner, "owner.handoffs", json!({}));
     assert!(matches!(call_socket(&missing, false, None, &call, &[]), Err(Failure::Transport(_))));
 }
 
@@ -225,7 +224,7 @@ fn the_params_carry_the_route_the_fields_and_the_key_as_base64() {
 #[test]
 fn a_resource_error_reads_back_every_failure_kind() {
     for failure in [
-        Failure::TimedOut("/api/runs".into()),
+        Failure::TimedOut("cloud.runs".into()),
         Failure::Transport("t".into()),
         Failure::NoBackend,
         Failure::Http {
@@ -234,6 +233,8 @@ fn a_resource_error_reads_back_every_failure_kind() {
             message: Some("m".into()),
             action: Some("a".into()),
             trace_id: Some("t".into()),
+            retryable: Some(true),
+            retry_after_s: Some(5),
         },
         Failure::PlanRequired { message: None, upgrade_url: None, plan: "max".into() },
         Failure::Decoding("d".into()),

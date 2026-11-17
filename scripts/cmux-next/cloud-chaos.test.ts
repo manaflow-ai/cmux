@@ -6,27 +6,30 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
-import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
-const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, feltTurnScript, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
+
+const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
 
 describe("chaosProbeRow", () => {
-  test("ok only when every fault that ran passed; ms is the slowest recovery", () => {
-    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
+  test("ok only when every fault that ran passed; ms is the slowest felt time, network_ms the slowest connection", () => {
+    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", felt_ms: null, recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
     expect(row.outcome).toBe("ok");
     expect(row.ms).toBe(2400);
+    expect(row.network_ms).toBe(800);
     expect(row.at).toBe("2026-11-08T09:00:00Z");
     expect(row.error).toBeNull();
   });
 
   test("a failed fault fails the row and is named", () => {
-    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", recover_ms: null, detail: "no answer within 120 s" }]);
+    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", felt_ms: null, recover_ms: null, detail: "no answer within 120 s" }]);
     expect(row.outcome).toBe("fail");
     expect(String(row.error)).toContain("drop 60 s: no answer within 120 s");
   });
 
   test("a run where nothing ran is a failure, not a pass", () => {
-    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, recover_ms: null, carrier: "", turn: "", detail: n.why })));
+    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why })));
     expect(row.outcome).toBe("fail");
     expect(row.error).toBe("no fault ran");
   });
@@ -130,6 +133,19 @@ describe("judgeLoss", () => {
     expect(v.text).toContain("the client is missing step 4");
   });
 
+  test("a gap names the journal's kind of each skipped seq", () => {
+    const j = turn(10).map((e) => e.seq === 47 ? { ...e, kind: "agent_message_chunk" } : e);
+    const client = j.filter((e) => e.seq !== 47);
+    const v = judgeLoss({ n: 10, journal: j, client });
+    expect(v.text).toContain("the client's stream jumps 46->48 [agent_message_chunk]");
+    const many = turn(10).filter((e) => e.seq < 45 || e.seq > 49);
+    expect(judgeLoss({ n: 10, journal: turn(10), client: many }).text).toContain("44->50 [?,?,?,...]");
+  });
+
+  test("journalEvent keeps the record's kind", () => {
+    expect(journalEvent("t", { seq: 7, kind: "agent_message_chunk", msg: {} })?.kind).toBe("agent_message_chunk");
+  });
+
   test("a delivery received twice is doubled output", () => {
     const j = turn(10);
     const client = [...j.slice(0, 12), j[11], ...j.slice(12)];
@@ -192,13 +208,25 @@ describe("judgeLoss", () => {
 });
 
 describe("the counting turn", () => {
-  test("the shared model stub plays it from the turn's own prompt; only a step's output carries its number", () => {
+  test("the felt turn is text-only and matches warm-up and reply prompts", () => {
+    const turn = feltTurnScript();
+    expect(new RegExp(turn.match).test("[chaos-felt jr-1-warm] warm up.")).toBe(true);
+    expect(turn.steps).toEqual([{ text: "Felt reply {{prompt}}." }]);
+    expect(turn.steps.some((step) => "shell" in step)).toBe(false);
+  });
+
+  test("the shared model stub plays it from the turn's own prompt as Reads of the written files; only a read's result carries its number", () => {
     const script = { version: 1, steps: [{ shell: "echo first" }, { text: "done" }], turns: [countingTurnScript(3)] };
     const dir = mkdtempSync(join(tmpdir(), "chaos-count-"));
     try {
+      // The files, as the guest command writes them in the chat's folder.
+      const wrote = spawnSync("sh", ["-c", chaos.countingFilesCommand(dir, "t1-f0", 3)], { encoding: "utf8" });
+      const folder = /@@dir (\S+)/.exec(wrote.stdout)?.[1] ?? "";
+      expect(folder).toBe(join(dir, "chaos-count", "t1-f0"));
       const file = join(dir, "script.json");
       writeFileSync(file, JSON.stringify(script));
       // An earlier turn's tool result, then the counting prompt and k of its own results: the step the stub plays.
+      const prompt = chaos.countingPrompt("t1-f0", "drop 5 s", folder);
       const py = [
         "import json, sys",
         `sys.path.insert(0, ${JSON.stringify(fileURLToPath(new URL("../../tests/fixtures/model-stub", import.meta.url)))})`,
@@ -206,29 +234,44 @@ describe("the counting turn", () => {
         "s = m.Stub(m.load_script(sys.argv[1]), 'n', None)",
         "out = []",
         "for k in range(5):",
-        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), ('[chaos-count t1-f0] count', 1)])",
-        "    i, step, res, turn = s.step(r, ['Bash'])",
-        "    out.append([i, turn, m.render(step.get('shell', step.get('text', '')), 'n', res)])",
+        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), (sys.argv[2], 1)])",
+        "    i, step, res, turn = s.step(r, ['Bash', 'Read'])",
+        "    call = m.anthropic_tool_call(step, ['Bash', 'Read'], 'n', res) if 'tool' in step else m.render(step['text'], 'n', res)",
+        "    out.append([i, turn, call, step.get('pause', 0)])",
         "print(json.dumps(out))",
       ].join("\n");
-      const r = spawnSync("python3", ["-c", py, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-c", py, file, prompt], { encoding: "utf8" });
       expect(r.stderr).toBe("");
-      const played = JSON.parse(r.stdout) as Array<[number, number, string]>;
+      const played = JSON.parse(r.stdout) as Array<[number, number, any, number]>;
       expect(played.map((p) => p[0])).toEqual([0, 1, 2, 3, 3]);
       expect(played[3][2]).toBe("Counted 3 steps for t1-f0.");
-      const cmd = played[1][2];
-      expect(cmd).toBe("sleep 0.2; printf '%s-%s-%s\\n' chaos t1-f0 2");
-      expect(countedSteps("t1-f0", cmd)).toEqual([]);
-      const ran = spawnSync("sh", ["-c", cmd], { encoding: "utf8" }).stdout;
-      expect(countedSteps("t1-f0", ran)).toEqual([2]);
+      // A Read (no shell, so no policy asks a person), paced by the stub.
+      const call = played[1][2];
+      expect(call).toEqual({ name: "Read", input: { file_path: join(folder, "2.txt") } });
+      expect(played[1][3]).toBe(0.2);
+      expect(countedSteps("t1-f0", JSON.stringify(call))).toEqual([]);
+      const read = spawnSync("cat", [call.input.file_path], { encoding: "utf8" }).stdout;
+      expect(countedSteps("t1-f0", read)).toEqual([2]);
       expect(countMarker("t1-f0")).toBe("[chaos-count t1-f0]");
+      expect(new RegExp(countingTurnScript().match).test(prompt)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("no counting step runs a shell", () => {
+    expect(countingTurnScript().steps.some((step) => "shell" in step)).toBe(false);
+  });
 });
 
 describe("judgeLoss on a turn a restart cut short", () => {
+  test("an interrupted turn with journal events but no counted output cannot pass", () => {
+    const j = [{ seq: 40, ks: [] }, { seq: 41, ks: [] }];
+    const v = judgeLoss({ n: 10, journal: j, client: j, interrupted: true });
+    expect(v.ok).toBe(false);
+    expect(v.text).toContain("no counting steps");
+  });
+
   test("every step up to the last one reached, and no more", () => {
     const j = turn(10).slice(0, 12); // steps 1..6 ran
     expect(judgeLoss({ n: 10, journal: j, client: j }).ok).toBe(false);
@@ -239,12 +282,31 @@ describe("judgeLoss on a turn a restart cut short", () => {
   });
 });
 
+describe("judgeLoss at the fault boundary", () => {
+  test("a complete transcript does not excuse a fault outside the counting turn", () => {
+    const j = turn(10);
+    for (const injection of [
+      { step: 0, running: true },
+      { step: 3, running: true },
+      { step: 4, running: false },
+      { step: 10, running: true },
+      { step: 10, running: false },
+    ]) {
+      const v = judgeLoss({ n: 10, journal: j, client: j, injection });
+      expect(v.ok).toBe(false);
+      expect(v.text).toContain("fault was not armed during counting output");
+    }
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 4, running: true } }).ok).toBe(true);
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 9, running: true } }).ok).toBe(true);
+  });
+});
+
 describe("journalEvent", () => {
   const update = (k: number, extra: object = {}) => ({ sessionUpdate: "tool_call_update", toolCallId: `toolu_${k}`, status: "completed",
     rawOutput: `chaos-t-${k}\n`, content: [{ type: "content", content: { type: "text", text: `chaos-t-${k}` } }], ...extra });
   test("a stored tool update counts its step once, keyed by its call", () => {
     const e = journalEvent("t", { seq: 7, at: 1, dir: "in", kind: "tool_call_update", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "s", update: update(12) } } });
-    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12" });
+    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12", kind: "tool_call_update" });
   });
   test("the call's command, a replayed load and a raw transcript event carry no step", () => {
     const call = { sessionUpdate: "tool_call", toolCallId: "toolu_3", rawInput: { command: "sleep 0.2; printf '%s-%s-%s\\n' chaos t 3" } };
@@ -272,9 +334,44 @@ describe("journalCommand", () => {
       const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
       expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 0");
       const events = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => journalEvent("t", JSON.parse(l)));
-      expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
+      expect(events).toEqual([{ seq: 5, ks: [], kind: "agent_message_chunk" }, { seq: 6, ks: [1], call: "a", kind: "tool_call_update" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("a permission ask comes through as its tool's kind and a cut title, and the notes name it", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      const lines = [
+        { seq: 7, kind: "turn_started" },
+        { seq: 8, kind: "permission_request", msg: { request: { toolCall: { kind: "execute", title: `sleep 0.2; ${"y".repeat(100)}`, rawInput: { command: "secret-arg" } } } } },
+      ];
+      writeFileSync(join(bin, "c"), `#!/bin/sh\ncat <<'EOF'\n${lines.map((l) => JSON.stringify(l)).join("\n")}\nEOF\n`);
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 6)}`], { encoding: "utf8" });
+      expect(r.stdout).not.toContain("secret-arg");
+      const notes: chaos.JournalNotes = { kinds: {}, asks: [] };
+      for (const l of r.stdout.split("\n").filter((x) => x.startsWith("{"))) chaos.noteJournalLine(notes, JSON.parse(l));
+      expect(notes.kinds).toEqual({ turn_started: 1, permission_request: 1 });
+      const text = chaos.journalNotesText(notes);
+      expect(text).toContain("1 permission ask: seq 8: execute \"sleep 0.2; yyy");
+      expect(text).not.toContain("y".repeat(60));
+      expect(chaos.journalNotesText({ kinds: { turn_started: 1 }, asks: [] })).toBe("the turn's journal records: turn_started 1; no permission ask");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("an acp tail that fails is the exit the line reports, never an empty journal read as whole", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      writeFileSync(join(bin, "c"), "#!/bin/sh\necho partial\nexit 3\n");
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
+      expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 3");
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }
@@ -378,6 +475,13 @@ describe("judgeTerminal", () => {
     const behind: TerminalRead = { after: r[3].next, start: 0, next: r[3].next - 1, complete: true, text: all(5) };
     expect(judgeTerminal({ n: 50, reads: [...r, behind], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
   });
+
+  test("a repeated live snapshot at cursor zero replaces rather than duplicates", () => {
+    const snapshot: TerminalRead = { after: 0, start: 0, next: 0, complete: true, snapshot: true, text: all(3) };
+    const v = judgeTerminal({ n: 3, reads: [snapshot, snapshot], machineSha256: sha(all(3)), sha256: sha });
+    expect(v.ok).toBe(true);
+    expect(v.text).toContain("2 snapshot");
+  });
 });
 
 // Codex review F1: a session host restart restores the mux with new numeric surface ids; the chat's tab id stays.
@@ -407,14 +511,48 @@ describe("the chat's surface after a restart", () => {
   const fakeDial = (answer: (frame: any) => any) => {
     const frames: any[] = [];
     let onDial: () => void = () => undefined;
+    let onLine: (m: any) => void = () => undefined;
     const dial = {
       dials: 0,
       start() { this.dials += 1; queueMicrotask(() => onDial()); },
       async request(frame: any) { frames.push(frame); return { ok: true, data: answer(frame) }; },
       stop() {},
     };
-    return { frames, dial, make: (_onLine: (m: any) => void, d: () => void) => { onDial = d; return dial; }, redial: () => onDial() };
+    return { frames, dial, make: (line: (m: any) => void, d: () => void) => { onLine = line; onDial = d; return dial; }, redial: () => onDial(), push: (m: any) => onLine(m) };
   };
+
+  for (const redial of [false, true]) test(`records beside an attach reply survive ${redial ? "redial" : "initial attach"}`, async () => {
+    let attachingAgain = false;
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": {
+          if (!redial || attachingAgain) {
+            // ClientDial resolves the reply, then handles the next line in
+            // that stdout chunk before attach's await continuation can run.
+            queueMicrotask(() => f.push({ surface: 7, event: "agent-session-record", record: { seq: 11 } }));
+          }
+          return { lastSeq: 10, events: [], hasMore: false };
+        }
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" }, f.make);
+    try {
+      await chat.open("claude");
+      if (redial) {
+        attachingAgain = true;
+        f.redial();
+        await chat.caughtUp(11, 1_000);
+      }
+      expect(chat.received.map((r) => r.seq)).toEqual([11]);
+      expect(chat.held).toBe(11);
+    } finally { chat.stop(); }
+  });
 
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;
@@ -443,5 +581,224 @@ describe("the chat's surface after a restart", () => {
     await chat.prompt("hi");
     expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
     chat.stop();
+  });
+});
+
+describe("why a stalled chat stalled", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  const late = (ms: number) => Promise.reject(new Error(`no answer within ${ms / 1000} s`));
+  /** A chat holding seq 10 whose dial answers the diagnosis' `agent-session-events` and `identify` as given. */
+  const chatWith = async (events: () => Promise<any>, identify: () => Promise<any>) => {
+    let onDial: () => void = () => undefined;
+    const asked: any[] = [];
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any, ms?: number) {
+        if (frame.cmd === "agent-session-events") { asked.push({ ...frame, ms }); return events(); }
+        if (frame.cmd === "identify" && asked.length) { asked.push({ ...frame, ms }); return identify(); }
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_s" } };
+          case "agent-session-start": return { ok: true, data: { session: "s" } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 10, events: [], hasMore: false } };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (_line, d) => { onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, asked };
+  };
+
+  test("events past the seq held: the attachment is dead and the transport fine, and the client keeps none of them", async () => {
+    const { chat, asked } = await chatWith(async () => ({ ok: true, data: { events: [{ seq: 9 }, { seq: 11 }, { seq: 12 }] } }), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events answered from seq 11 (2 records), identify answered: attachment dead, transport fine");
+    expect(chat.held).toBe(10);
+    expect(chat.received).toEqual([]);
+    expect(asked.map((a) => [a.cmd, a.after_seq, a.ms])).toEqual([["agent-session-events", 10, 10_000], ["identify", undefined, 5_000]]);
+    chat.stop();
+  });
+
+  test("events unanswered while identify answers: the bulk lane stalled", async () => {
+    const { chat } = await chatWith(() => late(10_000), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify answered: bulk lane stalled");
+    chat.stop();
+  });
+
+  test("neither answered: the carrier is dead", async () => {
+    const { chat } = await chatWith(() => late(10_000), () => late(5_000));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify timed out (5 s): carrier dead");
+    chat.stop();
+  });
+
+  test("a refusal or nothing new names no cause", async () => {
+    const refused = await chatWith(async () => ({ ok: false, error: { code: "not_found", message: "no such surface" } }), async () => ({ ok: true, data: {} }));
+    expect(await refused.chat.stallDiagnosis()).toBe("after seq 10: events failed: not_found: no such surface, identify answered: no conclusion");
+    refused.chat.stop();
+    const empty = await chatWith(async () => ({ ok: true, data: { events: [] } }), async () => ({ ok: true, data: {} }));
+    expect(await empty.chat.stallDiagnosis()).toBe("after seq 10: events answered with nothing past it, identify answered: no conclusion");
+    empty.chat.stop();
+  });
+});
+
+describe("the felt time after a send", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  /** A chat on a fake dial whose first `refuse` prompts fail (the carrier still down), then answers and pushes `pushes`. */
+  const chatWith = async (refuse: number, pushes: Array<{ ms: number; record: any }>) => {
+    const prompts: any[] = [];
+    let push: (m: any) => void = () => undefined;
+    let onDial: () => void = () => undefined;
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any) {
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_felt" } };
+          case "agent-session-start": return { ok: true, data: { session: "s-felt" } };
+          case "list-workspaces": return { ok: true, data: { workspaces: [{ screens: [{ panes: [{ tabs: [{ surface: 7, tab_resource_id: "tab_felt" }] }] }] }] } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 4, events: [], hasMore: false } };
+          case "agent-session-prompt":
+            prompts.push(frame);
+            if (prompts.length <= refuse) throw new Error("the client has no dial");
+            for (const p of pushes) setTimeout(() => push({ surface: 7, event: "agent-session-record", record: p.record }), p.ms);
+            return { ok: true, data: {} };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (onLine, d) => { push = onLine; onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, prompts };
+  };
+
+  test("runs from the send to the first record of the agent's reply, not to the echo of the prompt", async () => {
+    const { chat, prompts } = await chatWith(0, [
+      { ms: 10, record: { seq: 5, kind: "user_message_chunk" } },
+      { ms: 200, record: { seq: 6, kind: "tool_call", msg: { params: { update: { sessionUpdate: "tool_call" } } } } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, `${chaos.feltMarker("t-0")} drop 5 s: reply.`, 5_000);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(190);
+    expect(felt.felt_ms).toBeLessThan(1_000);
+    expect(felt.tries).toBe(1);
+    expect(prompts[0].text).toStartWith("[chaos-felt t-0]");
+    chat.stop();
+  });
+
+  test("a send the dial cannot take yet is tried again with the same prompt_id, and the clock keeps the wait", async () => {
+    const { chat, prompts } = await chatWith(2, [{ ms: 0, record: { seq: 5, params: { update: { sessionUpdate: "agent_message_chunk" } } } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 10_000);
+    expect(felt.tries).toBe(3);
+    expect(new Set(prompts.map((p) => p.prompt_id)).size).toBe(1);
+    // Two refusals, each followed by a 500 ms pause: the person waited through them.
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
+    expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
+    chat.stop();
+  });
+
+  test("no reply within the deadline is null, with the last error", async () => {
+    const { chat } = await chatWith(1_000, []);
+    const felt = await chaos.feltAfterSend(chat, "hi", 1_200);
+    expect(felt.felt_ms).toBeNull();
+    expect(felt.ack_ms).toBeNull();
+    expect(felt.error).toContain("no dial");
+    chat.stop();
+  });
+
+  test("a replayed record the chat already held is not the reply", async () => {
+    const { chat } = await chatWith(0, [{ ms: 300, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    // A re-attach page after the send that repeats held seq 4 (take keeps it, so the loss judge sees the replay).
+    (chat as any).take({ events: [{ seq: 4, kind: "agent_message_chunk" }], hasMore: false });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
+    chat.stop();
+  });
+
+  test("a late record of the chat's previous turn is not the reply", async () => {
+    // The previous turn ended at journal seq 9; its seq 7 arrives late, after the send.
+    const { chat } = await chatWith(0, [
+      { ms: 20, record: { seq: 7, kind: "agent_message_chunk" } },
+      { ms: 300, record: { seq: 10, kind: "agent_message_chunk" } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 5_000, 9);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
+    chat.stop();
+  });
+
+  test("a reply received after the deadline does not count", async () => {
+    const { chat } = await chatWith(0, [{ ms: 900, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 400);
+    expect(felt.felt_ms).toBeNull();
+    chat.stop();
+  });
+
+  test("a live reply that a re-attach page also carries keeps its earlier arrival time", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    // A re-attach is paging: the live push of seq 5 is stashed at its arrival, then the page brings seq 5 later.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const pushedAt = c.stash[0].at;
+    await sleep(120);
+    const pageFrom = c.received.length;
+    c.take({ events: [{ seq: 5, kind: "agent_message_chunk" }], hasMore: false });
+    c.flushStash(pageFrom);
+    expect(chat.received.filter((r) => r.seq === 5)).toHaveLength(1);
+    expect(chat.received.find((r) => r.seq === 5)!.at).toBe(pushedAt);
+    chat.stop();
+  });
+
+  test("a reply still held behind a loading page counts at its own arrival", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    await sleep(100);
+    // A re-attach is paging: the live reply is stashed now; the page carrying it is still loading.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(90);
+    expect(felt.felt_ms).toBeLessThan(400);
+    chat.stop();
+  });
+
+  test("only the agent's own output counts as the reply", () => {
+    expect(chaos.isReply({ seq: 1, kind: "agent_message_chunk" })).toBe(true);
+    expect(chaos.isReply({ params: { update: { sessionUpdate: "tool_call" } } })).toBe(true);
+    expect(chaos.isReply({ seq: 1, kind: "user_message_chunk" })).toBe(false);
+    expect(chaos.isReply({ seq: 1, kind: "turn_end" })).toBe(false);
+  });
+
+  test("the felt prompt never plays the counting turn", () => {
+    expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
+  });
+});
+
+describe("the machine at a stall", () => {
+  test("names acpmux's queues and the logs' attachment lines, and runs where journalctl is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chaos-stall-"));
+    try {
+      const c = join(dir, "c");
+      writeFileSync(c, `#!/bin/sh\nprintf '{"pid":7,\\n"gauges":{"queues":{"connections":3,"bytes":512,"overruns":0,"largest":[]}}}\\n'\n`);
+      chmodSync(c, 0o755);
+      const log = join(dir, ".acpmux");
+      spawnSync("mkdir", ["-p", log]);
+      writeFileSync(join(log, "daemon.log"), "INFO quiet\nWARN conn 4 lagged dropped 12\n");
+      const r = spawnSync("sh", ["-c", `c=${c}; ${chaos.STALL_FACTS_COMMAND}`], { encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('@@queues "queues":{"connections":3,"bytes":512,"overruns":0');
+      expect(r.stdout).toContain("@@acpmux.service");
+      expect(r.stdout).toContain("@@cmux-host.service");
+      expect(r.stdout).toContain("WARN conn 4 lagged dropped 12");
+      expect(r.stdout).not.toContain("INFO quiet");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

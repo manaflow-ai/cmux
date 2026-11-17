@@ -1,6 +1,6 @@
 .acpmux-replay{flex:1;min-height:0;display:flex;flex-direction:column}
 .acpmux-replay-bar{display:flex;align-items:center;gap:6px;flex:0 0 44px;box-sizing:border-box;padding:0 8px;white-space:nowrap;color:var(--agent-text)}
-.acpmux-replay-button{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-soft)}
+.acpmux-replay-button{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-soft)}
 .acpmux-replay-button:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-replay-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-replay-badge{flex:none;padding:2px 7px;border-radius:4px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-accent);font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:600;letter-spacing:var(--text-caption--letter-spacing)}

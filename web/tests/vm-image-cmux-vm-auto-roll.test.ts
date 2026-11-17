@@ -5,10 +5,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   AUTO_PREFIX,
+  BOOT_ENTRY,
   KEEP_AUTO,
   MAX_BYTES,
+  MAX_ROLLS_BEHIND,
   ROLLBACK_DEPLOYS,
   approve,
+  bootDrift,
+  fallbackImage,
+  withFallback,
+  bootedImage,
   locate,
   modeOf,
   replaceList,
@@ -25,10 +31,21 @@ import { runChild, runChildOk } from "./helpers/run-child";
 const checkedIn = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
 const handOnly = (text: string, env: "staging" | "production") =>
   replaceList(text, env, locate(text, env).images.filter((i) => !i.id.startsWith(AUTO_PREFIX)));
-const wrangler = handOnly(handOnly(checkedIn, "staging"), "production");
+const FALLBACK = fallbackImage();
+/** The lists without cmux-platform's fallback entry: what the checked-in file was before a roll first wrote it. */
+const withoutFallback = (text: string) =>
+  (["staging", "production"] as const).reduce((t, env) => replaceList(t, env, locate(t, env).images.filter((i) => i.id !== FALLBACK.id)), text);
+/** The hand-approved lists as a roll leaves them: the fallback entry included (approve writes it when missing). */
+const wrangler = (["staging", "production"] as const).reduce(
+  (t, env) => replaceList(t, env, withFallback(locate(t, env).images, env)),
+  handOnly(handOnly(checkedIn, "staging"), "production"),
+);
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
+const KEY = "c".repeat(64);
+/** A roll whose candidate records the image's inputs key (bake.ts bakeInputsSha256). */
+const keyed = (run: string): BootImage => rolledImage({ ...candidate, inputs_sha256: KEY }, `ci-${run}-1`, tui, run, "1");
 
 /** The file with every VM_BOOT_IMAGES value cut out, to show nothing else moved. */
 const skeleton = (text: string) => text.replace(/"VM_BOOT_IMAGES": "(?:[^"\\\n]|\\.)*"/gu, '"VM_BOOT_IMAGES": ""');
@@ -60,6 +77,26 @@ describe("auto-roll approve", () => {
     const hand = (list: BootImage[]) => list.filter((i) => !i.id.startsWith(AUTO_PREFIX));
     expect(hand(prod)).toEqual(locate(wrangler, "production").images);
     expect(hand(staging)).toEqual(locate(wrangler, "staging").images);
+  });
+
+  // cmuxterm-hq probe cloud-chat-replies-staging 2026-11-17T14:03:17Z: a create that booted cmux-platform's pin got
+  // cloud-native-bd31f93-rd022, the newest image every list kept. Its cmux-host ran the session host binary as the relay
+  // ticket command (fixed by #37770) and its updater refused the channel's machine/ URLs (#42308), so the machine
+  // never connected. An auto-rolled image leaves the lists within KEEP_AUTO rolls, so the pin needs a current entry
+  // that every roll keeps.
+  test("every roll keeps cmux-platform's fallback image listed in both lists, never where an environment boots", () => {
+    expect(FALLBACK.id.startsWith(AUTO_PREFIX)).toBe(false);
+    let text = withoutFallback(wrangler);
+    for (let run = 1; run <= KEEP_AUTO + 3; run++) text = approve(text, entry(String(600 + run))).text;
+    text = rollback(text, entry(String(600 + KEEP_AUTO + 3)).id).text;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(images.filter((i) => i.id === FALLBACK.id)).toEqual([
+        { ...FALLBACK, services: env === "production" ? ["cloud-platform-production", "ci-product-smoke"] : ["cloud-platform-dev", "cloud-platform-staging"] },
+      ]);
+      expect(bootedImage(text, env)).toBe(entry(String(600 + KEEP_AUTO + 2)).id);
+    }
+    expect(bootDrift(text).every((d) => d.ok)).toBe(true);
   });
 
   test("refuses an id that is already approved", () => {
@@ -100,6 +137,85 @@ describe("auto-roll approve", () => {
     const { text } = approve(checkedIn, entry("9000"));
     for (const env of ["staging", "production"] as const)
       expect(Buffer.byteLength(JSON.stringify(locate(text, env).images))).toBeLessThanOrEqual(MAX_BYTES);
+  });
+
+  test("the hand-approved lists with every kept roll carrying inputs_sha256 stay under the text binding limit", () => {
+    let text = checkedIn;
+    for (let run = 1; run <= KEEP_AUTO; run++) text = approve(text, keyed(String(9100 + run))).text;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(images.filter((i) => i.id.startsWith(AUTO_PREFIX)).every((i) => i.inputs_sha256 === KEY)).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+    }
+  });
+
+  test("entries with and without inputs_sha256 share a list; a malformed one is refused", () => {
+    const { text } = approve(approve(wrangler, entry("10")).text, keyed("11"));
+    const prod = locate(text, "production").images;
+    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[1]).not.toHaveProperty("inputs_sha256");
+    const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
+    expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);
+    expect(() => replaceList(text, "production", [{ ...entry("12"), extra: "x" } as BootImage, ...prod])).toThrow(/fields/);
+  });
+});
+
+describe("auto-roll check (stale boot image detector)", () => {
+  const drift = (text: string) => Object.fromEntries(bootDrift(text).map((d) => [d.env, d]));
+
+  test("each environment boots the entry cmux-platform follows: production its first, staging its last", () => {
+    expect(BOOT_ENTRY).toEqual({ production: "first", staging: "last" });
+    const { text } = approve(wrangler, entry("700"));
+    expect(bootedImage(text, "production")).toBe(entry("700").id);
+    expect(bootedImage(text, "staging")).toBe(entry("700").id);
+    expect(bootDrift(text).every((d) => d.ok && d.behind === 0)).toBe(true);
+  });
+
+  test("a roll, several rolls and a rollback keep both environments on production's newest roll", () => {
+    let text = wrangler;
+    for (let run = 1; run <= KEEP_AUTO + 2; run++) text = approve(text, entry(String(800 + run))).text;
+    expect(bootDrift(text).map((d) => d.behind)).toEqual([0, 0]);
+    text = rollback(text, entry(String(800 + KEEP_AUTO + 2)).id).text;
+    expect(bootDrift(text).map((d) => d.behind)).toEqual([0, 0]);
+  });
+
+  test("fails when staging's boot entry trails production's newest roll by more than MAX_ROLLS_BEHIND", () => {
+    let text = wrangler;
+    for (let run = 1; run <= MAX_ROLLS_BEHIND + 2; run++) text = approve(text, entry(String(900 + run))).text;
+    // A staging list that stopped taking rolls: its newest roll(s) dropped, the older ones still last.
+    const staging = locate(text, "staging").images;
+    const stale = replaceList(text, "staging", staging.slice(0, -(MAX_ROLLS_BEHIND + 1)));
+    const d = drift(stale);
+    expect(d.production!.ok).toBe(true);
+    expect(d.staging!.ok).toBe(false);
+    expect(d.staging!.behind).toBe(MAX_ROLLS_BEHIND + 1);
+    // Reordered newest-first like production: staging would boot its oldest entry, a hand-approved image.
+    const reordered = replaceList(text, "staging", [...staging].reverse());
+    expect(drift(reordered).staging!.ok).toBe(false);
+  });
+
+  test("the checked-in lists boot production's newest roll in both environments", () => {
+    for (const d of bootDrift(checkedIn)) expect({ env: d.env, image: d.image, ok: d.ok }).toEqual({ env: d.env, image: d.image, ok: true });
+  });
+
+  test("the CLI exits 1 on a stale list and 0 on the checked-in one", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-check-"));
+    try {
+      let text = wrangler;
+      for (let run = 1; run <= 3; run++) text = approve(text, entry(String(950 + run))).text;
+      const staging = locate(text, "staging").images;
+      const file = path.join(dir, "wrangler.jsonc");
+      writeFileSync(file, replaceList(text, "staging", staging.slice(0, -2)));
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const stale = await runChild("bun", [script, "check", "--wrangler", file]);
+      expect(stale.status).toBe(1);
+      expect(stale.stderr).toContain("staging boots");
+      writeFileSync(file, text);
+      const fresh = await runChild("bun", [script, "check", "--wrangler", file]);
+      expect(fresh.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -155,6 +271,13 @@ describe("auto-roll inputs", () => {
   test("the checked-in switch is a known mode", () => {
     expect(["off", "dry-run", "live"]).toContain(modeOf(readFileSync(new URL("../../images/cmux-vm/auto-roll.json", import.meta.url), "utf8")));
     expect(() => modeOf('{"mode":"on"}')).toThrow();
+  });
+
+  test("the entry carries the candidate's inputs_sha256 only when it is 64 lowercase hex", () => {
+    expect(keyed("1").inputs_sha256).toBe(KEY);
+    expect(entry("1")).not.toHaveProperty("inputs_sha256");
+    for (const bad of ["", "f".repeat(63), "F".repeat(64), 42])
+      expect(rolledImage({ ...candidate, inputs_sha256: bad as string }, "ci-1-1", tui, "1", "1")).not.toHaveProperty("inputs_sha256");
   });
 
   test("a candidate without a snapshot id or a cmux-tui commit makes no entry", () => {
@@ -348,7 +471,7 @@ describe("auto-roll scripts", () => {
   test("the push script names the image with the workflow run attempt, not its own push retry counter", () =>
     withDir(async (dir) => {
       const src = path.join(dir, "src");
-      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
         mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
         copyFileSync(path.join(repoRoot, file), path.join(src, file));
       }

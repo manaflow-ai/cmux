@@ -9,14 +9,17 @@ windows.
 - `webviews/src/browser-chrome/ui/BrowserToolbar.tsx` (toolbar strip, omnibar, chip, star,
   extension and trailing buttons, progress line), `toolbarModel.ts` (metrics, commands, layout and
   chip rules), `SuggestionDropdown.tsx` (suggestion card), `browserChrome.css`.
-- `webviews/src/browser-chrome/page-info/PageInfoBubble.tsx` (the bubble), `model.ts` (model,
-  commands, permission rules), `pageInfo.css`; the windows the bubble opens:
+- The Page Info bubble is AppKit, not React (`plans/cmux-next/language-layers.md`: a bubble on a
+  native control is native chrome): `CmuxNextBrowser/PageInfo/UI/PageInfoPages*.swift` (the pages),
+  `PageInfoRowView`, `PageInfoHeaderView`, `PageInfoToggle`, `PageInfoController` (state, keys, the
+  popup). The windows the bubble opens are React, in `webviews/src/browser-chrome/page-info/`:
+  `model.ts` (the site, permission kinds, defaults and icons),
   `SiteSettingsWindow.tsx`, `SiteDataWindow.tsx`, `CertificateViewer.tsx` (with `certificate.ts`,
   the viewer's words), `windows.ts` (their wire), `pageInfoWindows.css`.
 - Strings: `Localizable.xcstrings` next to each, copied with every locale from the native
   `CmuxNextBrowser/Resources/Localizable.xcstrings` (toolbar) and `PageInfo.xcstrings` (Page Info,
   chip); `scripts/pages/gen-strings.mjs` writes `generated/strings.json`.
-- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`,
+- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`,
   `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate` (area Browser chrome,
   Experimental until the React chrome ships). Each has a Look option.
 - The Import Cookies card (its own section below): gallery `browser-chrome.cookie-import`, same area, with a Look option.
@@ -68,14 +71,14 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 | suggestion card | the bar's width, rows inset 4, 2 above each row, 4 at the end, row radius 4 | `rowSideInset`, `rowGap`, `cardBottomPadding` |
 | suggestion row | glyph 16 on the chip's center, text on the address text's column | `SuggestionRowView` |
 | Page Info card | 320 wide, padding 6, radius 8 | `bubbleWidth`, `inset / 2` |
-| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` (former) |
+| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` |
 | Page Info text | title 12 emphasized, body 12, captions 10.5 (web: the 11 caption step) | `Typography` |
-| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` (former) |
-| header buttons | 24 square, glyph 14 | `PageInfoIconButton` (former) |
+| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` |
+| header buttons | 24 square, glyph 14 | `PageInfoIconButton` |
 | Page Info windows | fixed width (site settings 460, site data 440, certificate 520), inset 18, height fits the page up to 640 | `PageInfoWebWindow` |
 
 Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the numbers live in
-`TOOLBAR_METRICS` and the `--pi-*` block, so it is one change in each.
+`TOOLBAR_METRICS`, so it is one change.
 
 ## States
 
@@ -107,18 +110,27 @@ fade as they close.
 
 ## Page Info
 
+The bubble is AppKit: `PageInfoController` builds the current page from the model
+(`PageInfoPages`) into a native glass card (`PageInfoCardView`) in the shared popup host, so it
+opens in the same frame as the click, with the size its rows need. A React page drew it from
+#37369 until it was taken back; what that page added is kept (the site name's cut, the last cookie
+counts, the back arrow in a right-to-left layout).
+
 Pages, each one card, swapped in place:
 
 - **Main.** The site (host and port, or the file path), then the connection row (chevron), the
   permissions this site has (switch each, the row opens that permission's page), Reset
   permission(s), the reload notice, Cookies and site data (chevron), Site settings (external
-  mark), About this page (public web pages). Non-web pages show a single identity line.
+  mark), About this page (public web pages). Non-web pages show a single identity line. A site
+  name wider than the header is cut in its middle, so its end (the registrable domain and port)
+  always shows (`PageInfoSite.fittedName`); the whole name is its tooltip.
 - **Security.** Back, title and site; the long summary; the details paragraph (plus the identity
   line and the engine's reason on a certificate error); Turn on warnings when the user proceeded
   past a warning ("For all sites in this profile" on Chromium); the certificate row.
 - **Cookies.** The description, the third-party line when the engine blocks them, Manage
   on-device site data with "Cookies from this site: N · Sites with data: N"; Loading while the
-  numbers come.
+  numbers come. A site this pane read before opens on its last numbers until the new ones arrive
+  (`PageInfoSiteDataMemory`: memory only, 32 sites); Manage forgets them.
 - **One permission.** Its switch, its choices as a radio group (Ask, Allow, Block with the
   default marked), Manage.
 
@@ -197,6 +209,30 @@ not a banner).
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
 
+## Bookmarks bar
+
+The strip under the toolbar that shows the Bookmarks Bar folder's items. It is native AppKit
+(`CmuxNextBookmarks/UI/BookmarksBarView.swift`, `BookmarkBarItemView.swift`, `BookmarkFolderMenu.swift`,
+`BookmarksBarView+Drag.swift`), filled by the app through `BookmarksBarSource`
+(`BookmarksBarHostSource` over the app's `BookmarksBarHost`, the same model path as the star and the manager page).
+
+- **Hosting.** Each browser tab's chrome holds one bar view as its accessory bar (height
+  `controlHeight + space2`). The bar paints no fill: the chrome gives the accessory band the toolbar's
+  fill, so the toolbar and the bar read as one band. No glass (the toolbar has none). A bar off its
+  window rebuilds when it is shown again.
+- **Layout (Standard density, pt).** Items `controlHeight` tall, `space1` apart, from the pane chrome
+  inset; a small icon and the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit
+  goes behind the chevron; Other Bookmarks keeps the trailing end when it has anything.
+- **States.** No fill at rest, the gray hover fill fading at the quick motion step, the pressed fill
+  at once. Empty bar with Other Bookmarks: the caption hint in the faint ink. A drop shows a 2 pt
+  line between items.
+- **Menus.** Folders, the chevron and Other Bookmarks open a native `NSMenu` (a submenu fills when it
+  opens) with Open All past one link and "(empty)" for none. Right-click is the registry's Bookmark or
+  Bookmarks Bar menu.
+- **Clicks.** Click opens in the tab, Cmd-click or the middle button in a background tab, Shift or
+  Cmd-Shift in a new tab. Drag an item to reorder it (pasteboard type `com.cmuxterm.bookmark-id`);
+  drop a link to bookmark it there.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts
@@ -214,7 +250,6 @@ not a banner).
 | --- | --- | --- |
 | omnibar | flat (today), outlined (hairline, no fill), capsule (fully round) | **flat** |
 | suggestions | joined (today), floating (separate glass popup), two-line (title over URL) | **joined** |
-| Page Info | parity (today), grouped (inset cards per group), dense (one-line rows) | **parity** |
 | Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
 | On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
 | Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
@@ -228,10 +263,8 @@ not a banner).
   through, and opaque, so page text never shows under the rows. Floating is what other popups do,
   but here it breaks the column and puts glass over a page the user is reading. Two-line fits long
   titles at the cost of half as many rows in view.
-- **Parity** matches the native bubble row for row, so the move to React changes nothing a user
-  sees. Grouped reads well but grows the card by a third; dense hides the "Can ask to …" sentences
-  that explain what a switch does.
-- **Site settings and site data stay at parity** for the same reason. Segmented choices save a
+- **Site settings and site data stay at parity** with the native windows they replaced, so the
+  move to React changes nothing a user sees. Segmented choices save a
   click but make every row three buttons wide and crowd the window's fixed width; the grouped site
   data list only helps once many third parties stored data, and compact rows cut the domain short.
 - **List** for the certificate viewer: the native Details tab hid each value behind picking its

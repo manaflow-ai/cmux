@@ -14,6 +14,7 @@ struct WorkerLaunch: Sendable {
     /// The persistent per-app-build directory and scope (the Screen Sharing worker's device lives there).
     var stateDirectory: String
     var scope: String
+    let lifetime: RemoteChildLifetime
 
     func arguments(_ kind: RemoteWorkerKind, layout: RemoteHostLayout) -> [String] {
         ["worker", kind.rawValue, "--layout-dir", layout.directory, "--state-dir", stateDirectory, "--scope", scope]
@@ -155,7 +156,7 @@ final class ScreenWorkerSupervisor: Sendable {
     private func start() {
         let child: ChildProcess
         do {
-            child = try ChildProcess.spawn(executable: launch.executable,
+            child = try launch.lifetime.spawn(executable: launch.executable,
                                            arguments: launch.arguments(.screenSharing, layout: layout),
                                            environment: launch.environment, logPath: launch.logPath)
         } catch {
@@ -180,7 +181,9 @@ final class ScreenWorkerSupervisor: Sendable {
         }
         reader.name = "remote-screen-worker-read"
         reader.start()
-        ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
+        launch.lifetime.watch(child) { [self] status in
+            // Remove this generation before exited() can spawn its replacement (and reuse its PID).
+            if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()

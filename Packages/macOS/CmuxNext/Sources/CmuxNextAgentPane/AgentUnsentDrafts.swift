@@ -157,6 +157,12 @@ public final class AgentUnsentDrafts {
     /// Tab `key`'s kept text, if any.
     public func draft(for key: String) -> String? { drafts[key] }
 
+    /// Tab `key`'s (of `machine`) kept text, if any: a Cloud start's sending tab, whose text typed while
+    /// the chat started is that chat's draft (CloudStartChat `openUploaded`, Leo, 2026-11-09: "I can't
+    /// click into the composer at all to, like potentially type other stuff while it's doing that
+    /// initial load situation").
+    public func draft(forTab key: String, machine: String?) -> String? { drafts[slot(key, machine: machine)] }
+
     /// The page of tab `key` sent its text (`chat.unsentDraft`). Until the page takes the kept
     /// draft (its seed, ``seed(for:session:local:)``), each text it sends is only its typing: it is
     /// merged with the draft the file held, and an empty one leaves that draft as it was. Before

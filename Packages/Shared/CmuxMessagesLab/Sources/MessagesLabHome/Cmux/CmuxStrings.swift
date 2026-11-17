@@ -281,4 +281,19 @@ enum CmuxStrings {
     static func pictureCounter(_ index: Int, _ count: Int) -> String {
         String(format: String(localized: "home.picture.counter", defaultValue: "%1$ld of %2$ld", table: "CmuxHome", bundle: .module), index, count)
     }
+
+    // MARK: The transcript scroller's arrow and page parts (SequenceScroller)
+
+    static var scrollerPageDown: String {
+        String(localized: "home.scroller.pageDown", defaultValue: "Page Down", table: "CmuxHome", bundle: .module)
+    }
+    static var scrollerPageUp: String {
+        String(localized: "home.scroller.pageUp", defaultValue: "Page Up", table: "CmuxHome", bundle: .module)
+    }
+    static var scrollerScrollDown: String {
+        String(localized: "home.scroller.scrollDown", defaultValue: "Scroll Down", table: "CmuxHome", bundle: .module)
+    }
+    static var scrollerScrollUp: String {
+        String(localized: "home.scroller.scrollUp", defaultValue: "Scroll Up", table: "CmuxHome", bundle: .module)
+    }
 }

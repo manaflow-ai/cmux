@@ -1,6 +1,399 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "connect.authRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't accept this credential. Check it, then connect again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقبل cmux بيانات الاعتماد هذه. تحقّق منها، ثم اتصل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije prihvatio ove vjerodajnice. Provjerite ih, pa se ponovo povežite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux accepterede ikke disse loginoplysninger. Tjek dem, og opret forbindelse igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat diese Zugangsdaten nicht angenommen. Prüfe sie und verbinde dich dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no aceptó esta credencial. Revísala y vuelve a conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas accepté cet identifiant. Vérifiez-le, puis reconnectez-vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha accettato questa credenziale. Controllala, poi connettiti di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの認証情報を受け付けませんでした。確認してから、もう一度接続してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានទទួលយកព័ត៌មានសម្គាល់នេះទេ។ សូមពិនិត្យវា រួចភ្ជាប់ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 자격 증명을 받아들이지 않았습니다. 확인한 다음 다시 연결하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux godtok ikke denne påloggingsinformasjonen. Sjekk den, og koble til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie zaakceptował tych danych uwierzytelniających. Sprawdź je, a potem połącz się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não aceitou esta credencial. Verifique-a e conecte-se novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не принял эти учетные данные. Проверьте их и подключитесь снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ยอมรับข้อมูลรับรองนี้ ตรวจสอบแล้วเชื่อมต่ออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu kimlik bilgisini kabul etmedi. Kontrol edin, ardından yeniden bağlanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не прийняв ці облікові дані. Перевірте їх і під'єднайтеся знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không chấp nhận thông tin xác thực này. Hãy kiểm tra rồi kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未接受此凭据。请检查后重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未接受此憑證。請檢查後重新連線。"
+          }
+        }
+      }
+    },
+    "connect.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart cmux-tui"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تشغيل cmux-tui"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo pokreni cmux-tui"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstart cmux-tui"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui neu starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar cmux-tui"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer cmux-tui"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riavvia cmux-tui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui を再起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើម cmux-tui ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 재시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start cmux-tui på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom ponownie cmux-tui"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar o cmux-tui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустить cmux-tui"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่ม cmux-tui ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui'yi yeniden başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустити cmux-tui"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động lại cmux-tui"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动 cmux-tui"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動 cmux-tui"
+          }
+        }
+      }
+    },
+    "connect.listenerRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux-tui was started with its own sign-in settings, so this view can't connect to it. Restart cmux-tui."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأ cmux-tui هذا بإعدادات تسجيل دخول خاصة به، لذا يتعذّر على هذا العرض الاتصال به. أعد تشغيل cmux-tui."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj cmux-tui je pokrenut s vlastitim postavkama prijave, pa se ovaj prikaz ne može povezati s njim. Ponovo pokrenite cmux-tui."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-tui blev startet med sine egne loginindstillinger, så denne visning kan ikke oprette forbindelse til den. Genstart cmux-tui."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses cmux-tui wurde mit eigenen Anmeldeeinstellungen gestartet, daher kann sich diese Ansicht nicht verbinden. Starte cmux-tui neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este cmux-tui se inició con su propia configuración de inicio de sesión, así que esta vista no puede conectarse. Reinicia cmux-tui."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce cmux-tui a été lancé avec ses propres réglages de connexion, cette vue ne peut donc pas s'y connecter. Redémarrez cmux-tui."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo cmux-tui è stato avviato con impostazioni di accesso proprie, quindi questa vista non può connettersi. Riavvia cmux-tui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux-tui は独自のサインイン設定で起動されたため、このビューから接続できません。cmux-tui を再起動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui នេះត្រូវបានចាប់ផ្ដើមជាមួយការកំណត់ចូលផ្ទាល់ខ្លួន ដូច្នេះទិដ្ឋភាពនេះមិនអាចភ្ជាប់ទៅវាបានទេ។ សូមចាប់ផ្ដើម cmux-tui ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux-tui는 자체 로그인 설정으로 시작되어 이 보기에서 연결할 수 없습니다. cmux-tui를 재시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-tui ble startet med egne påloggingsinnstillinger, så denne visningen kan ikke koble til den. Start cmux-tui på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten cmux-tui został uruchomiony z własnymi ustawieniami logowania, więc ten widok nie może się z nim połączyć. Uruchom ponownie cmux-tui."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este cmux-tui foi iniciado com as próprias configurações de acesso, então esta visualização não consegue se conectar. Reinicie o cmux-tui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот cmux-tui запущен со своими настройками входа, поэтому это окно не может к нему подключиться. Перезапустите cmux-tui."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui นี้เริ่มด้วยการตั้งค่าการลงชื่อเข้าใช้ของตัวเอง มุมมองนี้จึงเชื่อมต่อไม่ได้ เริ่ม cmux-tui ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cmux-tui kendi oturum açma ayarlarıyla başlatıldı, bu yüzden bu görünüm ona bağlanamıyor. cmux-tui'yi yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей cmux-tui запущено з власними налаштуваннями входу, тому це подання не може до нього під'єднатися. Перезапустіть cmux-tui."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui này được khởi động với cài đặt đăng nhập riêng nên chế độ xem này không kết nối được. Hãy khởi động lại cmux-tui."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux-tui 使用自己的登录设置启动，因此此视图无法连接到它。请重新启动 cmux-tui。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux-tui 以自己的登入設定啟動，因此此檢視無法連線。請重新啟動 cmux-tui。"
+          }
+        }
+      }
+    },
     "work.backgroundCommands": {
       "comment": "Chief Home Work: truthful harness-only inventory scope; excludes daemon task jobs",
       "extractionState": "manual",
@@ -21238,6 +21631,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "打開"
+          }
+        }
+      }
+    },
+    "tasks.hat.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background tasks"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المهام في الخلفية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zadaci u pozadini"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Baggrundsopgaver"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hintergrundaufgaben"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tareas en segundo plano"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tâches en arrière-plan"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Attività in background"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "バックグラウンドタスク"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កិច្ចការផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "백그라운드 작업"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bakgrunnsoppgaver"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zadania w tle"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarefas em segundo plano"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Фоновые задачи"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "งานเบื้องหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arka plan görevleri"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Фонові завдання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác vụ nền"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "后台任务"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "背景工作"
           }
         }
       }

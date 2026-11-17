@@ -31,7 +31,7 @@ extension AgentTabStore {
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
-              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
+              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
@@ -84,7 +84,7 @@ extension AgentTabStore {
         }
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
-        let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
+        let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot).wrapping(around)) } // `around`: Insert New at a divider wraps that split
         let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
         let scoped = AgentTabKey(machine: daemon.machineID, key: key)
@@ -108,7 +108,7 @@ extension AgentTabStore {
                 guard let self else { throw CancellationError() }
                 let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
-                                                                                          splitID: sendsSplitID ? $0.1.splitID : nil) })
+                                                                                          splitID: sendsSplitID ? $0.1.splitID : nil, around: around) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
                 // hides and closes; the page's view state goes.
                 if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created, machine: daemon.machineID) }
@@ -151,13 +151,13 @@ extension AgentTabStore {
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, host: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil, focuses: Bool = true,
                  then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
-                               spare: spare, linked: linked, host: host, split: split)
+                               spare: spare, linked: linked, host: host, split: split, around: around)
         } catch {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
@@ -329,6 +329,13 @@ extension AgentTabStore {
               case .connected = store.connectionState,
               record.host == localHost else { return nil }
         return key
+    }
+
+    /// The outside chat tab `key` resumes (``tab(resuming:)`` the other way round), if any.
+    func adoption(of key: String) -> AgentPaneAdopt? {
+        guard let entry = adoptions.first(where: { AgentTabKey(relaunchStorageKey: $0.value).key == key }),
+              let colon = entry.key.firstIndex(of: ":") else { return nil }
+        return AgentPaneAdopt(harness: String(entry.key[..<colon]), agentSessionId: String(entry.key[entry.key.index(after: colon)...]))
     }
 
     /// "This chat runs on <machine>" for tab `key`, whose session another Mac's acpmux runs.

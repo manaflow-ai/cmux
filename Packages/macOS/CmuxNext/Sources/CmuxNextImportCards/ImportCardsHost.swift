@@ -24,16 +24,21 @@ public struct ImportCardsHost {
     /// recorded in the import's ledger (so nothing comes over twice). Reports progress and
     /// returns as `importClassic` does.
     public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
+    /// How many of classic cmux's saved workspaces Import Workspaces from Classic cmux would open now
+    /// (the daemon's `classic_import.plan`); nil when classic saved none or the daemon could not say.
+    public var classicWorkspaces: () async -> Int?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
-                importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
+                importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
+                classicWorkspaces: @escaping () async -> Int?) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
         self.importConductor = importConductor
+        self.classicWorkspaces = classicWorkspaces
     }
 }

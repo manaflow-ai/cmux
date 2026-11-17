@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
 
@@ -25,6 +26,9 @@ pub use threads::forget;
 use threads::query_threads;
 
 const ARCHIVED: &str = "archived_sessions";
+/// The folders that hold rollouts ([`classify`]'s sessions); every other file of the root that
+/// [`classify`] reads is the root's own entry.
+pub(super) const SESSION_FOLDERS: &[&str] = &["sessions", ARCHIVED];
 
 pub(super) fn list(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
@@ -302,18 +306,10 @@ fn newest_state_db(root: &Path) -> io::Result<Option<PathBuf>> {
 
 /// Names from `session_index.jsonl` replace every title except a DB name.
 pub(super) fn apply_session_index(root: &Path, entries: &mut [ChatEntry]) {
-    let mut names: HashMap<String, Option<String>> = HashMap::new();
-    let folded = fold_lines(&root.join("session_index.jsonl"), 0, |line| {
-        if let Ok(record) = serde_json::from_slice::<Value>(line)
-            && let Some(id) = record.get("id").and_then(Value::as_str)
-        {
-            let name = record.get("thread_name").and_then(Value::as_str).and_then(title_line);
-            names.insert(id.to_owned(), name);
-        }
-    });
-    if folded.is_err() {
+    if entries.is_empty() {
         return;
     }
+    let Some(names) = session_index_names(&root.join("session_index.jsonl")) else { return };
     for entry in entries {
         if entry.title_source == Some(TitleSource::Custom) {
             continue;
@@ -323,6 +319,40 @@ pub(super) fn apply_session_index(root: &Path, entries: &mut [ChatEntry]) {
             entry.title_source = Some(TitleSource::Custom);
         }
     }
+}
+
+type Names = HashMap<String, Option<String>>;
+
+/// Each session index read, by path, with the stamp it was read at.
+type ReadIndexes = HashMap<PathBuf, (FileStamp, Arc<Names>)>;
+static SESSION_INDEXES: Mutex<Option<ReadIndexes>> = Mutex::new(None);
+
+/// The names `index` gives (last line per id wins), None when it cannot be read. Read again
+/// only when its stamp moved: a watcher applies each rollout write through
+/// [`apply_session_index`], and the index holds a line per named thread, so reading it whole
+/// each time made one rollout line cost the whole index.
+fn session_index_names(index: &Path) -> Option<Arc<Names>> {
+    let stamp = FileStamp::of(&fs::metadata(index).ok()?);
+    let mut guard = SESSION_INDEXES.lock().unwrap_or_else(PoisonError::into_inner);
+    let known = guard.get_or_insert_with(HashMap::new);
+    if let Some((at, names)) = known.get(index)
+        && *at == stamp
+    {
+        return Some(names.clone());
+    }
+    let mut names = Names::new();
+    fold_lines(index, 0, |line| {
+        if let Ok(record) = serde_json::from_slice::<Value>(line)
+            && let Some(id) = record.get("id").and_then(Value::as_str)
+        {
+            let name = record.get("thread_name").and_then(Value::as_str).and_then(title_line);
+            names.insert(id.to_owned(), name);
+        }
+    })
+    .ok()?;
+    let names = Arc::new(names);
+    known.insert(index.to_path_buf(), (stamp, names.clone()));
+    Some(names)
 }
 
 fn record_type(record: &Value) -> Option<&str> {

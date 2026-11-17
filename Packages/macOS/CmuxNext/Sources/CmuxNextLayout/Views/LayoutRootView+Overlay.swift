@@ -69,7 +69,6 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
-            let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
@@ -77,8 +76,8 @@ extension LayoutRootView {
                 shown.insert(ObjectIdentifier(chrome))
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
-                let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
+                let alpha = host.alphaValue
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenBounds: screen.bounds,
                                              rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
@@ -137,7 +136,7 @@ extension LayoutRootView {
         refreshDividerHover()
     }
 
-    /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
+    /// Whether a layout motion runs (a ratio or width change, a key resize, New Column's reveal, a column scroll): its springs
     /// move panes and dividers on every display frame until they land, including the frame they
     /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
     /// stepped yet, or a divider drag moves them under the pointer. The window keeps what follows the dividers

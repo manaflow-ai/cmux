@@ -8,7 +8,8 @@ public import Foundation
 /// park and writes its own `<state dir>/carrier/connect.log`; the app only spawns it.
 /// - `desktop`: the machine's `cmux-rd` host (`cmux.rd/1`), which serves only the owner's grant.
 /// - `mux`: the machine daemon's `cmux.protocol/2` lines; a Cloud session runs it through one
-///   `cmux carrier serve` (``CloudCarrierServe``), which dials once per connection to its socket.
+///   `cmux carrier serve` (``CloudCarrierServe``, run by `cmux carrier supervise`), which dials once per
+///   connection to its socket.
 public struct CloudCarrierDial: Equatable, Sendable {
     /// The carrier service a dial opens.
     public enum Service: String, Sendable {
@@ -63,62 +64,10 @@ public struct CloudCarrierDial: Equatable, Sendable {
                             replyTimeoutMs: Int32(Self.deadlineMs + Self.answerSlackMs))
     }
 
-    /// `cmux carrier serve`'s argv: a 0600 socket at `socket` that dials this machine's `mux` once per
-    /// connection it accepts, for the Cloud session's daemon connection and every CLI call to that daemon.
-    public func serveArguments(socket: String) -> [String] {
-        ["carrier", "serve", "--machine", machine, "--socket", socket]
-    }
-
-    /// One stderr line of `carrier serve`: its ready line, or a refusal (before it is ready, why it exits;
-    /// after, one refused connection's dial). Nil for anything else.
-    public enum ServeLine: Equatable, Sendable {
-        case ready(socket: String)
-        /// One connection's dial got through; `vmk` is the grant's `owner` or `team`, nil when it had none.
-        case connected(vmk: String?)
-        case refused(code: String, detail: String?)
-    }
-
-    /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}`, `{"ok":true,"route":"carrier","vmk"?:…}` or
-    /// `{"ok":false,"error_code":…,"error_detail"?:…}`.
-    public static func serveLine(_ line: String) -> ServeLine? {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return nil }
-        if object["ok"] as? Bool == true {
-            if let socket = object["socket"] as? String, !socket.isEmpty { return .ready(socket: socket) }
-            return .connected(vmk: object["vmk"] as? String)
-        }
-        guard object["ok"] as? Bool == false, let code = object["error_code"] as? String else { return nil }
-        return .refused(code: code, detail: object["error_detail"] as? String)
-    }
-
-    /// A refused dial as the link wording the sidebar already has, step by step: `relay` dropped,
-    /// `parked_timeout` not ready yet (the machine's daemon never registered), any other step (`ticket`,
-    /// `handshake`) a failed connect naming it.
-    public static func linkError(code: String, detail: String?) -> CloudLinkError {
-        switch code {
-        case "relay": .disconnected(reason: code)
-        case "parked_timeout": .notUp(state: code)
-        default: .failed(code: code, message: detail.map { "\(code): \($0)" } ?? "")
-        }
-    }
-
-    /// `carrier serve`'s refusal before its ready line, after which it exits (#37278). A path it could not
-    /// claim (a live serve's socket or another file there) is `bad_request` naming that path, exit 64: another
-    /// cmux serving the machine. `ticket` (exit 2: no API URL or credential) and `handshake` (exit 5: no device
-    /// key) keep the dial's wording.
-    public static func serveStartError(code: String, detail: String?, socket: String) -> CloudLinkError {
-        if code == "bad_request", let detail, detail.contains(socket) { return socketTaken }
-        return linkError(code: code, detail: detail)
-    }
-
-    /// A refusal line of a ready `carrier serve`: a refused connection's step, or the listener failing for good
-    /// (`socket`, exit 6), which ends serve. Nil for `bad_request`, which answers a stdin line serve could not use
-    /// (a token it refused), not a connection.
-    public static func serveRefusal(code: String, detail: String?) -> CloudLinkError? {
-        switch code {
-        case "bad_request": nil
-        case "socket": .helperNotRunning(reason: "cmux carrier serve stopped listening" + (detail.map { ": \($0)" } ?? ""))
-        default: linkError(code: code, detail: detail)
-        }
+    /// `cmux carrier supervise`'s argv: the session's `cmux carrier serve` (a 0600 socket at `socket` that dials
+    /// this machine's `mux` once per connection it accepts) and its whole lifecycle (``CloudCarrierServe``).
+    public func superviseArguments(socket: String) -> [String] {
+        ["carrier", "supervise", "--machine", machine, "--socket", socket]
     }
 
     /// A failed carrier socket ask of the Cloud app server (``CloudCredentialRelay/carrierSocketOp``) as the
@@ -129,6 +78,9 @@ public struct CloudCarrierDial: Equatable, Sendable {
         switch error as? CloudLinkError {
         case .failed(let code, let message)?:
             return .init(code: code, message: message.isEmpty ? text : message, retryable: code != "bad_request")
+        case .helperRefused(let code, let message)?:
+            // Asking again starts a helper that refuses the same way: only the person's Retry, after a fix, helps.
+            return .init(code: code, message: message.isEmpty ? text : message, retryable: false)
         case .disconnected(let reason)? where reason == "relay":
             return .init(code: "relay", message: text, retryable: true)
         case .notUp(let state)? where state == "parked_timeout":
@@ -138,15 +90,6 @@ public struct CloudCarrierDial: Equatable, Sendable {
         default:
             return .init(code: "unavailable", message: text, retryable: true)
         }
-    }
-
-    /// Another `carrier serve` holds the session's socket.
-    static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
-
-    /// The JSON line `carrier serve` reads on stdin to take a new access token for its next dials.
-    public static func tokenLine(_ accessToken: String) -> String {
-        let data = (try? JSONSerialization.data(withJSONObject: ["access_token": accessToken])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
     }
 
     /// One machine's carrier for the signed-in person: the bundled CLI and the environment each child reads

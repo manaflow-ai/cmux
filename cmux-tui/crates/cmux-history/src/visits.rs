@@ -400,8 +400,23 @@ impl VisitStore {
     /// Removes visits at or after `since_ms` (`None`: every visit), into
     /// `backup`.
     pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
+        self.remove_between(since_ms, i64::MAX, backup)
+    }
+
+    /// Removes visits at or after `since_ms` (`None`: from the first) and at
+    /// or before `until_ms`, into `backup`.
+    pub fn remove_between(
+        &self,
+        since_ms: Option<i64>,
+        until_ms: i64,
+        backup: &str,
+    ) -> Result<usize, HistoryError> {
         let since = since_ms.unwrap_or(i64::MIN);
-        self.remove_where("visit_time_ms >= ?2", &[&since], backup)
+        self.remove_where(
+            "visit_time_ms >= ?2 AND visit_time_ms <= ?3",
+            &[&since, &until_ms],
+            backup,
+        )
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest

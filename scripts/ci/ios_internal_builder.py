@@ -33,9 +33,6 @@ FALLBACK_AFTER = dt.timedelta(hours=12)
 PACKAGE_SWIFT = "cmux-next-ios/CmuxMobileKit/Package.swift"
 PROJECT_YML = "cmux-next-ios/project.yml"
 BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
-# testflight-build.sh runs this before it builds and refuses to archive on drift, so the plan runs the same
-# comparison on Linux first (package_drift): a drifted head would only fail ~25 Mac minutes later.
-SYNC_SCRIPT = "cmux-next-ios/scripts/check-tabskit-sync.sh"
 # A failing builder backs off instead of building every new head: after the second failure in a row it waits
 # FAILURE_BACKOFF_START, doubling per failure up to FAILURE_BACKOFF_MAX, and the same iOS input as the newest
 # failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it.
@@ -130,13 +127,12 @@ def failure_backoff(streak: int) -> dt.timedelta:
 
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
          now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
-         since_failure: list[str] | None = None, drift: str | None = None, force: bool = False) -> Decision:
+         since_failure: list[str] | None = None, force: bool = False) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
     changed: files changed from the last uploaded SHA to head; None when unknown.
     since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
-    drift: why head's shared iOS packages differ from upstream (testflight-build.sh refuses those); None if not.
     force: a person dispatched the trigger; the failure backoff does not apply.
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
@@ -153,9 +149,6 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
-    if drift:
-        return Decision(False, f"BLOCKED: {drift}; testflight-build.sh refuses to archive that, so no Mac build "
-                               f"until the packages match again ({SYNC_SCRIPT})", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
     failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
@@ -281,41 +274,6 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
         return None
 
 
-def sync_pairs(sync_script: str | None) -> list[tuple[str, str]]:
-    """(package path, upstream branch) pairs from check-tabskit-sync.sh's `pairs=( "PATH BRANCH" ... )` list."""
-    block = re.search(r"^pairs=\((.*?)^\)", sync_script or "", re.M | re.S)
-    return re.findall(r'"(\S+) (\S+)"', block.group(1)) if block else []
-
-
-def package_drift(repo: str, head: str, pairs: list[tuple[str, str]]) -> str | None:
-    """What check-tabskit-sync.sh would call drift at head (a package tree that differs from its upstream branch's).
-
-    Reads trees only: a depth-1 blobless fetch of each upstream branch. None when every package matches, or when
-    an upstream cannot be fetched (unknown: the Mac build then runs the check itself).
-    """
-    try:
-        depth = ["--depth=1"] if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true" else []
-    except (subprocess.CalledProcessError, OSError):
-        return None
-    drifted = []
-    for path, branch in pairs:
-        ref = f"refs/ios-internal-upstream/{branch}"
-        try:
-            fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *depth, "--filter=blob:none",
-                                      "origin", f"+refs/heads/{branch}:{ref}"], capture_output=True, timeout=300)
-        except subprocess.TimeoutExpired:
-            return None
-        if fetched.returncode != 0:
-            return None
-        ours = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", f"{head}:{path}"],
-                              capture_output=True, text=True).stdout.strip()
-        theirs = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", f"{ref}:{path}"],
-                                capture_output=True, text=True).stdout.strip()
-        if ours != theirs:
-            drifted.append(f"{path} differs from origin/{branch}")
-    return "; ".join(drifted) or None
-
-
 def _git_has_builder_script(repo: str) -> bool | None:
     """The signing branch's answer from git: a depth-1 blobless fetch of its tip, then a tree lookup. No REST call
     (the public repo's git fetch does not spend the shared Actions token's budget). None when git cannot tell."""
@@ -380,18 +338,13 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
     _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
                                               reverse=True))
     since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
-    drift = package_drift(repo, head, sync_pairs(_show(repo, head, SYNC_SCRIPT))) if has_cmux_next_ios else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
                     relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready,
-                    since_failure=since_failure, drift=drift, force=force)
+                    since_failure=since_failure, force=force)
     _write_outputs(decision)
     if decision.reason.startswith("BLOCKED"):
         # An annotation on the decide run; for a failure backoff the builder's own newest run stays red.
         print(f"::error title=cmux INTERNAL builder held::{decision.reason}")
-    if drift and not decision.build:
-        # Drift starts no builder run at all, so nothing else turns red: fail this run, on every push,
-        # until the packages are synced (check-tabskit-sync.sh). A green skip hid 26 hours of no uploads.
-        return 1
     return 0
 
 

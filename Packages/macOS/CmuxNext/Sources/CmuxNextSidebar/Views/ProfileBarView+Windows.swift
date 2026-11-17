@@ -61,11 +61,25 @@ extension ProfileBarView {
 
     // MARK: Click
 
+    /// What a click on space `index` does (`SpaceSwitcherLogic.click`).
+    func outcome(_ index: Int, option: Bool) -> SpaceClick {
+        let profile = model.profiles[index]
+        return SpaceSwitcherLogic.click(profile.id, active: model.activeProfileID, elsewhere: elsewhere(profile),
+                                        hereIsIncognito: windowMarks.windowIsIncognito, style: switcherStyle, option: option)
+    }
+
+    /// The press's part of a click: a space this window can show at once shows now. Returns whether it did.
+    /// Every other outcome waits for the release: a menu opened on the press would take the dot's drag, and
+    /// raising another window must stay cancellable by a release off the mark.
+    func switchOnPress(_ index: Int, option: Bool) -> Bool {
+        guard model.profiles.indices.contains(index), outcome(index, option: option) == .switchHere else { return false }
+        model.send(.switchProfile(model.profiles[index].id))
+        return true
+    }
+
     func click(_ index: Int, option: Bool) {
         let profile = model.profiles[index]
-        let outcome = SpaceSwitcherLogic.click(profile.id, active: model.activeProfileID, elsewhere: elsewhere(profile),
-                                               hereIsIncognito: windowMarks.windowIsIncognito, style: switcherStyle, option: option)
-        switch outcome {
+        switch outcome(index, option: option) {
         case .none: return
         case .switchHere: model.send(.switchProfile(profile.id))
         case .goToWindow: windowMarks.perform?(.goToWindow(profile.id))

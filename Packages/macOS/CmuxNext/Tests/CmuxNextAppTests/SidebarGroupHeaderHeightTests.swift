@@ -69,8 +69,8 @@ import Testing
     }
 
     @Test func layoutMetricsUseOneRowHeightForHeadersAndRows() {
-        for m in [SidebarLayoutMetrics.standard, SidebarLayoutMetrics.standard.minimal] {
-            #expect(m.groupHeaderHeight == m.rowHeight)
+        for m in [SidebarLayoutMetrics.standard, SidebarLayoutMetrics.standard.expanded] {
+            #expect(m.groupHeaderHeight == m.rowStep)
         }
     }
 }

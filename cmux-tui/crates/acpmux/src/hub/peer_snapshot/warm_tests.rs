@@ -130,7 +130,7 @@ fn a_newest_page_is_kept_and_the_store_says_what_it_covers() {
     let peer = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert(PEER.to_owned(), peer.clone());
     let rows = vec![row("m1", 9, 0), row("m2", 9, 0)];
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(rows));
     let records = |mux: &str, seqs: std::ops::RangeInclusive<u64>| -> Vec<Value> {
         seqs.map(|s| json!({"sessionId": mux, "seq": s, "kind": "agent_message_chunk", "msg": {}}))
             .collect()

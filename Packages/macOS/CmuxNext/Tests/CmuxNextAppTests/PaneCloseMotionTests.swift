@@ -7,10 +7,9 @@ import Testing
 
 /// Closing a pane's last tab (or the pane) and closing a window
 /// (plans/cmux-next/close-animation/DESIGN.md). The pane leaves its window in the key's turn with
-/// the even sizes the close leaves, so its neighbours spring into its space on one spring (the
-/// split's) from the key's frame; the daemon's echoes change nothing on screen; their terminals
-/// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
-/// closes at once. Frames step at a fixed 120 Hz dt.
+/// the even sizes the close leaves, so its neighbours take its space in one frame, the first after
+/// the key (`PaneLayoutCommitTests`); the daemon's echoes change nothing on screen. A window fades
+/// out as a whole, then closes once. Frames step at a fixed 120 Hz dt.
 @MainActor
 @Suite(.closesItsWindows)
 struct PaneCloseMotionTests {
@@ -306,33 +305,6 @@ struct PaneCloseMotionTests {
         print("column close: final target at frame \(finalAt), focus at frame \(focusAt), at rest at frame \(rest) (120 Hz, echo at \(echo))")
         #expect(finalAt == 0, "the final layout waited \(finalAt) frames")
         #expect(focusAt == 0, "the focus waited \(focusAt) frames")
-    }
-
-    // MARK: The spring
-
-    /// A close is a split run backwards: the same spring (`split`, 0.085 s, damping 0.95), about nine
-    /// tenths of the way at 50 ms, no visible overshoot, exactly at rest within 0.75 s.
-    @Test(arguments: [SplitAxis.horizontal, .vertical])
-    func aCloseRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
-        let screen = Screen(.splits(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))
-        defer { screen.tearDown() }
-        let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
-        let start = extent(try #require(screen.rect("p1")))
-        _ = try #require(screen.close("p2"))
-        let target = try #require(screen.target("p1"))
-        var sizes: [CGFloat] = [], rest: Int?
-        for frame in 1...180 {
-            let moving = screen.step()
-            sizes.append(extent(try #require(screen.rect("p1"))))
-            if rest == nil, !moving { rest = frame }
-        }
-        let travel = extent(target) - start
-        let early = (sizes[Int((0.05 * Self.scale / Self.dt).rounded()) - 1] - start) / travel
-        #expect(early > 0.8 && early < 0.95, "at 50 ms the close is at \(early) of its travel")
-        #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 >= $0 - 0.1 }, "the growing pane shrank on its way")
-        #expect(sizes.allSatisfy { $0 <= extent(target) + 0.25 }, "the growing pane overshot: \(sizes.max() ?? 0) > \(extent(target))")
-        #expect(screen.rect("p1") == target)
-        #expect((rest ?? .max) <= Int((0.75 * Self.scale / Self.dt).rounded(.up)), "at rest at frame \(rest.map(String.init) ?? "never")")
     }
 
     // MARK: Terminals

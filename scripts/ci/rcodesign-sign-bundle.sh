@@ -19,11 +19,12 @@
 #   1. Mach-O helpers under Contents/Resources/{bin,libexec}: hardened runtime and
 #      the helper entitlements; libexec/cmux-server-helper: no entitlements,
 #      identifier cmux-server-helper. Symlinks and scripts are left to the seal.
-#   2. Each Contents/PlugIns/* (recursive, like codesign --deep).
-#   3. Contents/Frameworks/*: Sparkle's sandbox XPC services removed first,
+#   2. The Screen Sharing helper app, if any (no entitlements).
+#   3. Each Contents/PlugIns/* (recursive, like codesign --deep).
+#   4. Contents/Frameworks/*: Sparkle's sandbox XPC services removed first,
 #      then each framework recursively. A bundle with the Chromium engine is
 #      refused: scripts/cmux-next/sign-cef.sh has no rcodesign port yet.
-#   4. The main bundle, shallow, with the entitlements reconciled against the
+#   5. The main bundle, shallow, with the entitlements reconciled against the
 #      embedded provisioning profile (scripts/reconcile-entitlements-with-profile.py).
 # Not ported (they run before signing and use no Apple tool):
 # scripts/cmux-next/bundle-server-helper.sh --stamp and
@@ -76,20 +77,27 @@ for dir in bin libexec; do
   done
 done
 
-# 2. Plugins.
+# 2. The Screen Sharing helper app ("<app> Screen Sharing.app",
+# plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
+# Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.
+for screen_share in "$APP/Contents/Library/"*" Screen Sharing.app"; do
+  if [[ -d "$screen_share" ]]; then sign "$screen_share"; fi
+done
+
+# 3. Plugins.
 if [[ -d "$APP/Contents/PlugIns" ]]; then
   while IFS= read -r -d '' plugin; do sign "$plugin"; done \
     < <(find "$APP/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
 fi
 
-# 3. Frameworks.
+# 4. Frameworks.
 if [[ -d "$APP/Contents/Frameworks" ]]; then
   "$ROOT/scripts/remove-sparkle-sandbox-xpc-services.sh" "$APP"
   while IFS= read -r -d '' framework; do sign "$framework"; done \
     < <(find "$APP/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
 fi
 
-# 4. Main bundle, shallow, with the effective entitlements.
+# 5. Main bundle, shallow, with the effective entitlements.
 effective="$(mktemp)" profile_xml="$(mktemp)"; trap 'rm -f "$effective" "$profile_xml"' EXIT
 profile_args=(--no-profile)
 if [[ -f "$APP/Contents/embedded.provisionprofile" ]]; then

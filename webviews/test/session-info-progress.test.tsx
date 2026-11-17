@@ -17,6 +17,8 @@ import { currentPlan } from "../src/agent-session/acpmux/session-info/progressSe
 import { projectLiveProgress, type LiveProgress } from "../src/agent-session/acpmux/liveProgress";
 import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -65,6 +67,7 @@ afterEach(async () => {
   planArrays.clear();
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -175,7 +178,7 @@ test("Progress follows the plan as the agent updates it in place", async () => {
 
 test("a chat with no plan has no Progress", async () => {
   const { container } = await mount(withPlan(undefined));
-  expect(container.querySelector("aside.acpmux-session-info")).not.toBeNull();
+  expect(container.querySelector(SESSION_INFO)).not.toBeNull();
   expect(progress(container)).toBeNull();
 });
 

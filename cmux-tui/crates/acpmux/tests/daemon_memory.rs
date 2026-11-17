@@ -19,6 +19,10 @@ const BENCH_VARS: &[&str] = &[
     "ACPMUX_WAIT_BENCH_SECS",
     "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
     "ACPMUX_PEER_SNAPSHOT_CPU_MS",
+    "ACPMUX_SCALE_CHATS",
+    "ACPMUX_SCALE_TURNS",
+    "ACPMUX_SCALE_CATALOGS",
+    "ACPMUX_SCALE_DHAT_DIR",
 ];
 
 use serde_json::{Value, json};
@@ -111,6 +115,11 @@ impl Daemon {
             )
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
+            // A dhat build writes its heap profile here when it stops (`heap_profile.rs`).
+            .envs(std::env::var_os("ACPMUX_SCALE_DHAT_DIR").map(|dir| {
+                let tag = scratch.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                ("ACPMUX_DHAT_OUT", PathBuf::from(dir).join(format!("dhat-{tag}.json")))
+            }))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(log.map_or_else(Stdio::null, |p| std::fs::File::create(p).unwrap().into()))
@@ -274,13 +283,22 @@ fn websocket_token(home: &Path) -> String {
         .to_owned()
 }
 
+/// The ids of the whole list, sorted, as a client reads it: a list past one reply page comes in
+/// pages, each with the `nextCursor` of the rest (`server/list_reply.rs`).
 fn listed(rpc: &mut Rpc) -> Vec<String> {
-    let mut ids: Vec<String> = rpc.call("_acpmux/sessions", json!({}))["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["sessionId"].as_str().unwrap().to_owned())
-        .collect();
+    let (mut ids, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let params = if cursor.is_null() { json!({}) } else { json!({"cursor": cursor}) };
+        let page = rpc.call("_acpmux/sessions", params);
+        let rows = page["sessions"].as_array().unwrap();
+        ids.extend(rows.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()));
+        let next = page["nextCursor"].clone();
+        if next.is_null() {
+            break;
+        }
+        assert_ne!(next, cursor, "the list's cursor did not move past a page");
+        cursor = next;
+    }
     ids.sort();
     ids
 }
@@ -322,10 +340,9 @@ fn env_or(name: &str, default: u64) -> u64 {
 
 /// Budget guard: a daemon over a Chief home of 7,500 purged leftovers and 400 chats
 /// stays under `ACPMUX_MEMORY_BUDGET_MB` (default 166) resident after it lists them.
-/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). The list
-/// guard keeps the list it just sent, serialized, for its window (`hub/list_guard.rs`):
-/// about 1 MB of text, which reads as 160-164 MB here where the daemon held 158-160 MB
-/// without it (five runs each, one job).
+/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). No list is
+/// kept after it is sent (`hub/list_guard.rs`); when one was, for its window, it read as
+/// 160-164 MB here where the daemon held 158-160 MB without it (five runs each, one job).
 #[test]
 fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let leftovers = env_or("ACPMUX_MEMORY_BENCH_LEFTOVERS", 7_500);
@@ -498,6 +515,78 @@ fn idle_session_resident_memory_benchmark() {
             "rss_0_bytes": empty_rss[REPEATS / 2], "rss_200_bytes": full_rss[REPEATS / 2],
             "resident_bytes_per_idle_session": per_session[REPEATS / 2], "samples": samples})
     );
+}
+
+/// The daemon's resident memory over N chats of M turns (Leo, 2026-11-16, on a 952 MB daemon over
+/// his 544 chats: "infinite everything feels like nothing"). Each chat's metadata carries an agent's
+/// slash commands and tool rows (`god_fixture::agent_catalog`, about his median), one of a few
+/// folders' catalogs. Prints one line per N with its RSS once startup and every log load ended and
+/// every chat's detail was read, and after a list of every chat. The target is flat in N. Sizes:
+/// `ACPMUX_SCALE_CHATS` (comma list, default `10,100,1000`), `ACPMUX_SCALE_TURNS` (default 50),
+/// `ACPMUX_SCALE_CATALOGS` (default 4). `ACPMUX_MEMORY_BENCH_BINARY` runs another build, so one
+/// harness measures base and head; with `ACPMUX_SCALE_DHAT_DIR` a `dhat-heap` build writes its heap
+/// profile there.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host resident-memory benchmark; run explicitly on fleet Linux"]
+fn chats_by_turns_resident_memory_scale() {
+    let sizes: Vec<usize> = std::env::var("ACPMUX_SCALE_CHATS")
+        .unwrap_or_else(|_| "10,100,1000".into())
+        .split(',')
+        .map(|n| n.trim().parse().expect("ACPMUX_SCALE_CHATS: a comma list of counts"))
+        .collect();
+    let turns = env_or("ACPMUX_SCALE_TURNS", 50) as usize;
+    let catalogs = env_or("ACPMUX_SCALE_CATALOGS", 4) as usize;
+    for chats in sizes {
+        let dir = scratch(&format!("scale-{chats}x{turns}"));
+        let home = dir.join("home");
+        let ids = acpmux::god_fixture::write_scale_home(&home, chats, turns, catalogs).unwrap();
+        let home_bytes = du(&home);
+        let started = std::time::Instant::now();
+        let daemon = Daemon::start(&dir, &home);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        assert_eq!(listed(&mut rpc).len(), ids.len());
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing an RSS sample before startup ends ({chats} chats): {loading}"
+        );
+        let ready_ms = started.elapsed().as_millis();
+        // Every chat's detail, as a client that shows them reads it (commands and tools included).
+        for id in &ids {
+            let info = rpc.call("_acpmux/info", json!({"sessionId": id}));
+            assert_eq!(info["sessionId"], json!(id));
+        }
+        let loaded_rss = daemon.rss_bytes();
+        assert_eq!(listed(&mut rpc).len(), ids.len());
+        let listed_rss = daemon.rss_bytes();
+        println!(
+            "acpmux-scale-resident: {}",
+            json!({"chats": chats, "turns": turns, "catalogs": catalogs, "home_bytes": home_bytes,
+                "ready_ms": ready_ms, "loaded_rss_bytes": loaded_rss, "listed_rss_bytes": listed_rss,
+                "binary_override": std::env::var("ACPMUX_MEMORY_BENCH_BINARY").ok()})
+        );
+        drop(rpc);
+        drop(daemon);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+/// Bytes of the files under `path`.
+#[cfg(target_os = "linux")]
+fn du(path: &Path) -> u64 {
+    let mut total = 0;
+    for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            total += du(&entry.path());
+        } else if let Ok(meta) = entry.metadata() {
+            total += meta.len();
+        }
+    }
+    total
 }
 
 /// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.
@@ -737,7 +826,7 @@ fn retained_session_list_allocation_benchmark() {
         for request in 0..3 {
             let tag_started = std::time::Instant::now();
             if request > 0 && chats > 0 {
-                // Invalidate the shared snapshot, without omitting any inventory fields.
+                // Change one row (its closed bytes rebuilt), without omitting any inventory fields.
                 rpc.call(
                     "_acpmux/tag",
                     json!({"sessionId": id(0), "set": {"bench": request.to_string()}}),

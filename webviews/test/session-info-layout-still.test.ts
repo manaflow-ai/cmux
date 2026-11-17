@@ -19,6 +19,11 @@ import { agentPaneTheme } from "../src/gallery/theme/web";
 import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 type Moved = { name: string; dx: number; dy: number; dw: number; dh: number };
 type Probe = Window & {
@@ -136,8 +141,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
         trailingInset: 40,
       }),
     );
-  const panel = (page: Page) => page.locator("aside.acpmux-session-info");
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const panel = (page: Page) => page.locator(SESSION_INFO);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
     // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
@@ -190,7 +195,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
 
             await mark(page);
             await toggle(page).click({ force: true });
-            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+            await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
             await settle(page);
             const opening = await moved(page);
 
@@ -266,7 +271,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-closed-${colorScheme}.png`) });
           await toggle(page).click({ force: true });
-          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-open-${colorScheme}.png`) });
         } finally {

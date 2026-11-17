@@ -627,6 +627,7 @@ impl Hub {
             }),
             human_authenticated: false,
             unproven_owner: false,
+            coach: None,
             agent: None,
             class: None,
             after_turn: None,

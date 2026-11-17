@@ -276,7 +276,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
         // keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
-            use crate::cli::uniichat_agent::{Endpoint, Options};
+            use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
             let endpoint = Endpoint::resolve(
                 &Options::default(),
@@ -293,7 +293,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -395,7 +395,7 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 /// when it says the provider had no capacity or the connection dropped: a transport error is
 /// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::hub::turn_errors::says_unreachable(output) {
+    if crate::turn_errors::says_unreachable(output) {
         Auth::Unknown
     } else if crate::claude_auth::is_expired_credential(output) {
         Auth::Expired

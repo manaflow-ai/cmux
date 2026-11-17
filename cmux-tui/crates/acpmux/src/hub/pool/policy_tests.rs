@@ -18,6 +18,8 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         prompt_suggestions: None,
         tool_servers: String::new(),
         settings_file: PathBuf::new(),
+        model: None,
+        effort: None,
     }
 }
 

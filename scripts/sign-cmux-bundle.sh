@@ -37,14 +37,16 @@
 #      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
-#   2. Each nested plugin under Contents/PlugIns/* with --deep.
-#   3. The embedded Chromium engine (CEF framework, its libraries, the shim
+#   2. The Screen Sharing helper app under Contents/Library, stamped for the
+#      app's final bundle id and name, hardened runtime, no entitlements.
+#   3. Each nested plugin under Contents/PlugIns/* with --deep.
+#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
 #      scripts/cmux-next/sign-cef.sh, the remote browser host under
 #      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
-#   4. The main app bundle with the effective app-level entitlements,
+#   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
@@ -134,15 +136,32 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. Plugins
+  # 2. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # (nightly and RC rename the app after the build, and stable-next-identity.sh and
+  # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
+  # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
+  # Screen Recording and Accessibility grants under, so a grant survives every update.
+  # A helper re-stamped here drops its old CodeResources; the app's notarization covers
+  # its new signature.
+  if [[ "$SIGN_MODE" == "all" ]]; then
+    "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+      [[ -d "$screen_helper" ]] || continue
+      echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
+    done
+  fi
+
+  # 3. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
-      /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
-  # 3. Frameworks. The Chromium engine first, with its own per-helper
+  # 4. Frameworks. The Chromium engine first, with its own per-helper
   # entitlements; --deep would re-sign its helpers without them.
   if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
@@ -174,14 +193,14 @@ if [[ "$SIGN_MODE" == "all" ]]; then
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
       esac
       echo "==> signing framework $(basename "$framework")"
-      /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
 fi
 
-# 4. Main app bundle (no --deep), with the effective entitlements.
+# 5. Main app bundle (no --deep), with the effective entitlements.
 echo "==> signing main bundle ($SIGN_MODE)"
-/usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
+"$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
@@ -192,6 +211,10 @@ for alias in cmux-tui acpmux; do
     echo "error: bin/$alias is not a symlink to cmux" >&2
     exit 1
   fi
+done
+for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+  [[ -d "$screen_helper" ]] || continue
+  /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.

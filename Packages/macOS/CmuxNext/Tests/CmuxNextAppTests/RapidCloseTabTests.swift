@@ -9,8 +9,10 @@ import Testing
 /// Leo 2026-10-12 (cx-ag5.11): Cmd-W hammered closes exactly one tab per
 /// press, each the tab selected after the last close, while the daemon has
 /// not confirmed any of them yet; the pane keeps a selected tab and the focus.
-/// A close selects the tab before it (#38316, #38328), so the presses start at
-/// the last of four tabs and walk left. Runs the app's Close Tab against a
+/// The presses start at the last of four tabs with no opener, and the last
+/// tab's close selects the tab before it (the one close-selection rule,
+/// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was "always the
+/// tab before", #38316, #38328), so they walk left. Runs the app's Close Tab against a
 /// same-tree cmux-tui daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct RapidCloseTabTests {

@@ -117,7 +117,7 @@ extension AttentionSettings {
     public nonisolated static let showOnSidebarDefault = true
     /// `notifications.attention.moveToTop`.
     public nonisolated static let moveToTopPath = ["notifications", "attention", "moveToTop"]
-    public nonisolated static let moveToTopDefault = false
+    public nonisolated static let moveToTopDefault = true
     /// `notifications.attention.moveToTopOnAgentFinish`.
     public nonisolated static let moveToTopOnAgentFinishPath = ["notifications", "attention", "moveToTopOnAgentFinish"]
     public nonisolated static let moveToTopOnAgentFinishDefault = false

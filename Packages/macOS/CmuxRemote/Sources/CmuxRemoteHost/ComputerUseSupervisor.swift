@@ -252,8 +252,10 @@ final class ComputerUseSupervisor: Sendable {
         }
         let child: ChildProcess
         do {
-            child = try ChildProcess.spawn(executable: launch.executable, arguments: launch.arguments(.computerUse, layout: layout),
-                                           environment: launch.environment, logPath: launch.logPath)
+            // Through the host's child lifetime: refused once admission is frozen (capture lease,
+            // shutdown), and stopped with every other child at the host's exit.
+            child = try launch.lifetime.spawn(executable: launch.executable, arguments: launch.arguments(.computerUse, layout: layout),
+                                              environment: launch.environment, logPath: launch.logPath)
         } catch {
             logger.error("Computer Use worker did not start: \(String(describing: error), privacy: .public)")
             settle(.unavailable, reason: "the Computer Use worker did not start: \(error)")
@@ -283,7 +285,8 @@ final class ComputerUseSupervisor: Sendable {
         }
         reader.name = "remote-cu-worker-read"
         reader.start()
-        ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
+        launch.lifetime.watch(child) { [self] status in
+            if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()
@@ -355,8 +358,9 @@ final class ComputerUseSupervisor: Sendable {
             state.wanted = false
             state.startAfterExit = false
         }
+        let child = state.withLockUnchecked { $0.child }
         stop()
-        if let pid { kill(pid, SIGTERM) }
+        if let child { launch.lifetime.stopOwnedChildren([child]) }
     }
 
     private func exited(generation: Int, status: Int32, ranFor seconds: Double, channel: LineChannel) {

@@ -65,7 +65,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           title={t("floating.keepOnTop")}
           onClick={() => floating.setOnTop(!floating.state.onTop)}
         >
-          <Icon name="action.pin" size={16} selected={floating.state.onTop} />
+          <Icon name="action.pin" size={16} />
         </button>
         <button
           type="button"
@@ -116,7 +116,7 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         title={t("floating.keepOnTop")}
         onClick={() => floating.setOnTop(!floating.state.onTop)}
       >
-        <Icon name="action.pin" size={16} selected={floating.state.onTop} />
+        <Icon name="action.pin" size={16} />
       </button>
     </div>
   );

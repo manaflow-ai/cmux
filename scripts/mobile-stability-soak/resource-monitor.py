@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import tempfile
 import json
 import os
 import subprocess
@@ -12,7 +13,8 @@ from pathlib import Path
 TAG = os.environ.get("CMUX_TAG", "swmob")
 DURATION_SECONDS = int(os.environ.get("SOAK_SECONDS", "43200"))
 INTERVAL_SECONDS = float(os.environ.get("RESOURCE_SAMPLE_INTERVAL", "60"))
-soak_root = Path(os.environ.get("SOAK_ROOT", f"/tmp/cmux-mobile-soak-{TAG}"))
+# Run alone (no SOAK_ROOT from the driver): a folder mkdtemp makes, never a guessable /tmp name.
+soak_root = Path(os.environ.get("SOAK_ROOT") or tempfile.mkdtemp(prefix=f"cmux-mobile-soak-{TAG}-", dir="/tmp"))
 LOG_PATH = Path(os.environ.get("RESOURCE_LOG", soak_root / "resources.jsonl"))
 STATUS_PATH = Path(os.environ.get("RESOURCE_STATUS", soak_root / "resources.status"))
 IPHONE_SIM_ID = os.environ.get("IPHONE_SIM_ID", "")

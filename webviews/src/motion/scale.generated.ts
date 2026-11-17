@@ -19,17 +19,17 @@ export type MotionStep = keyof typeof MOTION_MS;
 export const MOTION_EASE_OUT = "cubic-bezier(0, 0, 0.58, 1)";
 
 /**
- * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end.
+ * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and stops there, never past it (a sliding tab indicator, the chat switch; Lawrence: no bounce in any motion); run over its step (large, 240 ms) it is at its end by 55% (about 130 ms) and stays there.
  */
-export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
+export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1)";
 
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
 
 /**
- * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: "it's all just one unified motion"), on the standard step's 180 ms like the settle (Leo 2026-11-09: "the animations end to end need to just resolve faster"); scaled with the move step by ui.animationSpeed.
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do it."); 0 at every ui.animationSpeed.
  */
-export const MOTION_SEND_MS = 180;
+export const MOTION_SEND_MS = 0;
 
 /** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
 export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";

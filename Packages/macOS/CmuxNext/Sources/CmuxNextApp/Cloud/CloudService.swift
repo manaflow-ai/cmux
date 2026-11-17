@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCloudUI
@@ -30,11 +31,9 @@ final class CloudService {
     }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    /// The chat tabs a Bring Back Local or Move to Another Machine runs on now (``CloudBringBack``).
+    @ObservationIgnored var movingBack: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
-    /// One app-lifetime owner of confirmed, per-account Codex delivery.
-    let codexBroker: CloudCodexHolder
-    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
-    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
     /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
     @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
@@ -46,6 +45,7 @@ final class CloudService {
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
+    @ObservationIgnored let capability: CloudPreApproval // the person's pre-approval (cmux-platform#1126)
     /// The installs guest links' owner tokens come from, one per API the daemon's share room names (``shareOwnerToken(api:)``):
     /// ``installIdentity`` for its own, the others registered at their first share and revoked with it.
     @ObservationIgnored let shareInstalls: ShareInstalls
@@ -53,6 +53,10 @@ final class CloudService {
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
+    /// The owner's model credentials for Cloud chats and their refresh (``CloudAgentCredentials``); read wired in AgentTabs+Wiring.
+    @ObservationIgnored let agentCredentials = CloudAgentCredentials()
+    @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
+    @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (CloudStartChat.wireSetup)
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
@@ -118,7 +122,6 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
-    @ObservationIgnored let claimedCopies = CloudClaimedCopyRegistrations() // the claims' login copies Rust has not registered yet (CloudSpareWarm)
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -126,6 +129,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// Machine changes an agent or a script asked for, joined by a repeat of the same ask (``CloudChangeRuns``).
+    @ObservationIgnored let machineChanges = CloudChangeRuns()
     /// The machines a start is bringing up now, which the automatic machine update leaves alone (``CloudStartGate``).
     @ObservationIgnored let startGate = CloudStartGate()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
@@ -184,39 +189,18 @@ final class CloudService {
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() })
-        let build = LaunchIdentity.current().build
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let environment = ProcessInfo.processInfo.environment
-        let userHome = FileManager.default.homeDirectoryForCurrentUser
-        codexBroker = CloudCodexHolder(
-            configuration: .init(binary: machineIO?.binary, root: paths.root, userHome: userHome, api: configuration.ownerAPIBaseURL(),
-                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next"),
-            answers: .init(
-                credential: { try? await auth.tokens().access },
-                acpmux: {
-                    try? await work.run(.userVisible, mayBlock: .files) {
-                        AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment, userHome: userHome)?.executable
-                    }
-                },
-                currentScope: {
-                    guard auth.isSignedIn, let user = auth.user else { return nil }
-                    return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-                },
-                // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
-                ownsMachine: { [weak machines] machineID in
-                    guard let link = machines?.session(machineID)?.appLink else { return false }
-                    return await link.ownerLink != nil
-                },
-                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
-            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
-        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work)); gateway = PersonalGateway(cli: .cli(resources: Bundle.main.resourceURL, work: work), api: configuration.ownerAPIBaseURL(), folder: paths.root)
+        let build = LaunchIdentity.current().build
+        let capability = CloudPreApproval(platform: configuration.relayAPIBaseURL(), headers: identity.requestHeaders)
+        self.capability = capability
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(), capability: capability,
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
-            carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })
+            carrierSocket: { @MainActor [weak machines] id in let s = machines?.session(id); return await CloudLinkSession.carrierAnswer(s?.appLink, machine: id, paused: s?.machine.shownStatus.isPaused == true) })
         credentialProvider = CloudCredentialProvider(relay: relay)
         // The app server link: this Mac's `cmux link`.
         link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: build), installID: { [identity] in await identity.installID() },
@@ -242,9 +226,8 @@ final class CloudService {
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
     func installID() async throws -> String { try await installIDs.machine.load() }
 
-    /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
-    /// broker's target reads it: a Worker machine's owner link on the app server link. A personal
-    /// harness login goes only to such a machine (``CloudCredentialTransfer``).
+    /// Whether the signed-in caller owns `machineID`, as the platform answers it: a Worker machine's
+    /// owner link on the app server link.
     func callerOwnsVM(_ machineID: String) async throws -> Bool {
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil
@@ -316,18 +299,21 @@ final class CloudService {
                     if switched { self.dropAllMachines() }
                     await self.shareInstalls.began(switched: switched, except: self.installIdentity)
                     // The install first: the app server path's first list sends its token through the credential relay.
+                    self.capability.drop() // another account's or team's pre-approval never rides on this one's calls
                     await self.installSignedIn()
-                    self.hands.start()
+                    if self.mayCallCloud { await self.capability.prefetch(self.installIdentity) }
+                    self.hands.start(); self.gateway.start()
                     await self.ensureLink()
                     await self.refresh()
                 } else {
                     // Signing out invalidates the wire's bearer: stop it first so no event races a new account.
                     self.machineWire.stop()
                     self.dropAllMachines()
+                    self.capability.drop()
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
-                    self.hands.stop()
+                    self.hands.stop(); self.gateway.stop()
                 }
             }
         })
@@ -352,7 +338,6 @@ final class CloudService {
             for await account in ObservationStream({ self.account }) where account != last {
                 signedOutCreation.scopeDidChange(from: last, to: account)
                 last = account
-                await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
                 startSessionAsks.endAll()
             }
@@ -368,10 +353,8 @@ final class CloudService {
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
-        // Fence Codex broker requests synchronously with the policy flip. The
-        // adapter tears down holders asynchronously and retains their private
-        // homes for a later confirmed run after policy is restored. The credential relay refuses (no carrier socket).
-        codexBroker.setAvailable(!disabled); credentialProvider?.setTurnedOff(disabled)
+        // The credential relay refuses (no carrier socket) while policy turns Cloud off.
+        credentialProvider?.setTurnedOff(disabled)
         if disabled {
             // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
             machineWire.stop()
@@ -412,9 +395,8 @@ final class CloudService {
         for session in machines.cloud { session.disconnect() }
     }
 
-    /// The quit coordinator awaits this before AppKit may terminate the
-    /// process. Delivered Codex access stays on each Cloud machine (#33482).
-    func prepareForTermination() async { await codexBroker.detachForQuit() }
+    /// The quit coordinator awaits this before AppKit may terminate the process: the personal gateway ends (a crash closes its stdin, which ends it too).
+    func prepareForTermination() async { gateway.stop() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -494,7 +476,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now; codexBroker.machinesListed(list)
+            listLoadedAt = .now
             return true
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
@@ -583,23 +565,12 @@ final class CloudService {
         }
     }
 
-    /// Remove the app session after an authoritative omission or destroyed detail. Only a
-    /// destroyed detail may discard the broker's target/auth metadata; an omission may be a
+    /// Remove the app session after an authoritative omission or destroyed detail; an omission may be a
     /// filtered retired-provider row while the VM survives.
-    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed _: Bool) {
         deferredRecordRemovals[machineID] = nil
         guard machines.session(machineID) != nil else { return }
         changes.removed(machineID)
-        if let user = auth.user {
-            let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-            // task-owner: confirmed removal stops renewal, then discards the deleted target.
-            Task {
-                try? await codexBroker.revoke(machineID: machineID, scope: scope)
-                if destructionConfirmed {
-                    await codexBroker.machineWasDeleted(machineID, scope: scope)
-                }
-            }
-        }
         creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
     }
@@ -758,7 +729,7 @@ final class CloudService {
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps)
+            try await CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps); machines.session(machineID)?.suspend(pausing: true)
         }
         changes.began(machineID: machineID) { [weak self] in _ = await self?.refresh() }; if !changes.isPushed(machineID) { await refresh() }; logger.info("paused machine \(machineID, privacy: .public)")
     }
@@ -798,7 +769,6 @@ final class CloudService {
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
-        await codexBroker.signOut()
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()

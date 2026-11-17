@@ -14,6 +14,7 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
+import { acpmuxPerf } from "./perf";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -66,6 +67,10 @@ export type ComposerBoxProps = {
   onReorderAttachment?(id: string, index: number): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
   onPasteFile?(file: MadeFile): void;
+  /// A large paste stays text, and one too long for that is refused (`onPasteRefused`), instead of a
+  /// chip or a file (a Cloud start's, composer/pastedChips.ts `keepsText`).
+  pasteKeepsText?: boolean;
+  onPasteRefused?(): void;
   /// Attaches files pasted from the pasteboard at the caret, as the intake's own paste does: a copy of
   /// a composer's text and attachments pasted back in its order (composer/composerCopy.ts).
   onPasteFiles?(files: File[]): void;
@@ -101,9 +106,6 @@ export type ComposerBoxProps = {
   /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
   /// quiet row's empty middle.
   bottom?: React.ReactNode;
-  /// Nothing in the box takes input (inert): a Cloud start is out, and this tab closes once its
-  /// chat opens on the machine, so an edit made meanwhile would go with it (App.tsx `cloudStarting`).
-  inert?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -130,6 +132,8 @@ export function ComposerBox({
   onReorderAttachment,
   onPasteFile,
   onPasteFiles,
+  pasteKeepsText = false,
+  onPasteRefused,
   onPersonEdit,
   fieldMenu,
   onFieldMenuOpen,
@@ -144,8 +148,8 @@ export function ComposerBox({
   trailing,
   chromeItems,
   bottom,
-  inert = false,
 }: ComposerBoxProps) {
+  acpmuxPerf.render("composer:box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
   // with + and the trailing actions on the lower row (composerLook.css).
@@ -170,23 +174,28 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
-  /// Set while a file that stays in the strip is attached: its intake places it synchronously
-  /// (attachmentIntake.tsx), so `place` reads this in the same call.
-  const toStrip = useRef(false);
+  /// Set while a file with no caret of its own is attached (a Pasted text chip with no node, kept as
+  /// a file): its intake places it synchronously (attachmentIntake.tsx), so `place` reads this in
+  /// the same call and puts it at the start of the prompt, as every attachment goes in the text.
+  const atStart = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
+  const keepsTextNow = useRef({ keeps: pasteKeepsText, refused: onPasteRefused });
+  keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
     prompt,
     onPasteFile &&
       ((file, inText = true) => {
-        toStrip.current = !inText;
+        atStart.current = !inText;
         try {
           onPasteFile(file);
         } finally {
-          toStrip.current = false;
+          atStart.current = false;
         }
       }),
+    () => keepsTextNow.current.keeps,
+    () => keepsTextNow.current.refused?.(),
   );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
@@ -219,7 +228,7 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
+      place: (chips, kind) => inline.place(chips, kind, atStart.current),
       sent: (ids) => {
         inline.sent(ids);
         pastedChips.pastes.current = [];
@@ -296,12 +305,9 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
-        inert={inert}
         onMouseDown={focusFromCard}
       >
-        <ComposerListAnchor box={boxElement} inert={inert}>
-          {top}
-        </ComposerListAnchor>
+        <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
         <AttachmentStrip
           attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
           {...(pending

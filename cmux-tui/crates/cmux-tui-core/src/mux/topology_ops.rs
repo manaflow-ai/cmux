@@ -132,6 +132,7 @@ impl Mux {
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
@@ -146,6 +147,28 @@ impl Mux {
             fields,
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::TabCreateBrowser, &commit);
+        self.ordinary_created_surface(&commit)
+    }
+
+    /// A browser tab at `url` in `workspace`'s active pane, or in a new first
+    /// pane of an empty workspace (its first tab), in one commit. The target
+    /// is the workspace named, never the active one.
+    pub(crate) fn new_browser_tab_in_workspace_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        url: String,
+        workspace: WorkspaceId,
+        extra_fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let selectors = self
+            .ordinary_workspace_selectors(workspace)
+            .with_context(|| format!("unknown workspace {workspace}"))?;
+        let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
+        fields.extend(extra_fields);
+        let operation = ResourceOperation::TabCreateBrowser;
+        let commit =
+            self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
+        self.emit_resource_topology_legacy_events(operation, &commit);
         self.ordinary_created_surface(&commit)
     }
 
@@ -331,6 +354,7 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,

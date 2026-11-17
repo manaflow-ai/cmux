@@ -76,8 +76,15 @@ impl Mux {
     /// Hands a stale roster's rebuild to the owner and wakes it.
     pub(in crate::mux) fn start_agent_roster_rebuild(&self) {
         let worker = &self.agent_roster_worker;
+        // A roster the next build premigrated beside the previous owner and
+        // did not finish: the rebuild folds only the journal after it.
+        let seed = crate::workspace_registry::premigrate::rebuild_seed(
+            &self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner),
+        );
+        let host =
+            seed.map(|(roster, cursor)| AgentRosterHost { roster, cursor }).unwrap_or_default();
         *worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(AgentRosterRebuild::default());
+            Some(AgentRosterRebuild { host, ..AgentRosterRebuild::default() });
         worker.stale.store(true, Ordering::Release);
         worker.rebuilding.store(true, Ordering::Release);
         self.continue_agent_roster_rebuild_later();
@@ -97,6 +104,13 @@ impl Mux {
         if let Some(rebuild) = slot.as_mut() {
             rebuild.retired.extend(terminals);
         }
+    }
+
+    /// The rebuild's own cursor (how far it folded), while one runs.
+    #[cfg(test)]
+    pub(in crate::mux) fn agent_roster_rebuild_cursor_for_test(&self) -> Option<u64> {
+        let slot = self.agent_roster_worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.as_ref().map(|rebuild| rebuild.host.cursor)
     }
 
     /// Whether the roster is stale and its rebuild is not done.

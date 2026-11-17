@@ -2,50 +2,6 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
-    static var mobile: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.mobile", "iPhone")
-        return [
-            SettingDescriptor(
-                MobileSettings.allowIPhoneConnectionsPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."),
-                summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
-                kind: .toggle,
-                default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
-                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."),
-                kind: .choice([
-                    SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
-                    SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
-                    SettingChoice(MobileTerminalSizing.latest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.latest", "Prefer the Active Device")),
-                    SettingChoice(MobileTerminalSizing.priority.rawValue, SettingsText.keyed("settings.choice.terminalSizing.priority", "Priority Order")),
-                ]),
-                default: .string(MobileSettings.terminalSizingDefault.rawValue),
-                keywords: ["iphone", "phone", "mobile", "terminal", "size", "sizing", "shared", "priority", "columns"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingOrderPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."),
-                kind: .stringList,
-                default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
-                keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
-            ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
     static var macScreen: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
         return [
@@ -54,7 +10,7 @@ extension MachineSettingsSchema {
                 section: .keyboard,
                 group: group,
                 title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."),
+                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."),
                 summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
                 kind: .toggle,
                 default: .bool(MacScreenSettings.systemShortcutsDefault),
@@ -73,7 +29,7 @@ extension MachineSettingsSchema {
                 section: .development,
                 group: group,
                 title: SettingsText.keyed("settings.macScreen.debug.relayOnly", "Relay Only"),
-                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."),
+                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect only through the relay, to test it."),
                 summary: SettingsText.keyed("settings.macScreen.debug.relayOnly.summary", "Mac Screen streams use the relay only"),
                 kind: .toggle,
                 default: .bool(MacScreenDebugSettings.relayOnlyDefault),
@@ -92,22 +48,26 @@ extension MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
+                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off: this Mac stays available to your devices while cmux is quit."),
                 summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
             ),
             SettingDescriptor(
-                RemoteSettings.ultraModePath,
+                RemoteSettings.ultraPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.remote.ultraMode", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultraMode.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.ultraModeDefault),
-                keywords: ["ultra", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
+                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."),
+                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .choice([
+                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
+                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
+                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
+                ]),
+                default: .string(RemoteSettings.ultraDefault.rawValue),
+                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
         ]
     }
@@ -122,7 +82,7 @@ extension MachineSettingsSchema {
                 section: .development,
                 group: group,
                 title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
+                help: SettingsText.keyed("settings.deviceHub.url.help", "The device hub for Mac Screen sharing. Empty uses the built-in one."),
                 summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
                 kind: .url,
                 default: .string(DeviceHubSettings.urlDefault),
@@ -141,7 +101,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
-                help: SettingsText.keyed("settings.imessage.enabled.help", "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."),
+                help: SettingsText.keyed("settings.imessage.enabled.help", "Lets cmux read Messages conversations on this Mac. Sending needs your click."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
                 keywords: ["imessage", "messages", "connector", "privacy"]
@@ -151,7 +111,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
-                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remember skipping the Messages Automation step. This does not grant access or authorize sending."),
+                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remembers that you skipped the Messages Automation step."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
                 keywords: ["imessage", "messages", "automation", "connector"]

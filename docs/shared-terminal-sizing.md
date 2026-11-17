@@ -98,7 +98,14 @@ keys.
   not activity. Ties between handhelds that only attached go to the later
   attach. Why this default: plans/cmux-next/sync-ux/DESIGN.md part 2.
 - `smallest` ("Fit everyone"): component-wise min over counting
-  participants, so every attached device sees the whole grid.
+  participants, so every attached device sees the whole grid, with one
+  exception, the **phone floor**: while a phone or tablet counts (it shows
+  the terminal now), the grid is never narrower than the narrowest counting
+  phone or tablet. A desktop view narrower than that clips at the right.
+  Rows stay the plain minimum: a shorter desktop pane cut at the bottom
+  would hide the prompt and cursor rows, and a phone's row count swings
+  with its keyboard. Leo, 2026-11-15: "i dont see the point of a
+  narrower-than-iphone terminal".
 - `largest`: component-wise max over counting participants.
 - `priority`: the first key in `priority` that matches a counting participant
   (newest activity breaks ties inside one key). No match falls back to `latest`
@@ -107,6 +114,13 @@ keys.
 
 `owners` lists the participants that set a dimension, in attach order. A
 viewport is clamped to at least 2 × 1.
+
+Under every mode but `fixed` (and `held`), the grid is never narrower than an
+iPhone's portrait terminal page, 40 columns, while any counting participant is
+at least that wide: a narrower view (a split pane, another device) gets the
+40-column grid instead of narrowing every view below a phone (Leo, 2026-11-15:
+"i dont see the point of a narrower-than-iphone terminal"). When every counting
+view is narrower, the mode decides as usual. Rows are not floored.
 
 With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
@@ -149,6 +163,20 @@ A phone's lane relays no other device: the daemon drops `user_id` and
 (cmux-mobile-host does too), so a sub-view gets its own priority key and no
 `device:` token ranks it. A relay that is one of this host's own
 connections keeps its sub-views' identity.
+
+### Agent layout changes (cmux-tui daemon)
+
+A split, move, zoom or resize of panes made by an agent or a script (an
+actor that is a process in a cmux terminal, an acpmux session or an app)
+makes this Mac's panes of that workspace smaller, and their views report it.
+Such a smaller report of one of this Mac's views, within 5 s of the change,
+does not count while another view counts: the view keeps counting at its
+size before the change until the person uses that pane (input, or a focus
+click), or until no other view counts. A person's own layout change (the
+verified app, the local user, another machine) counts at once. The engine
+sees the kept size, so the published size state stays the engine's
+decision; this is a daemon rule, not an engine rule, and the fixtures do not
+cover it (`terminal_sizing/agent_layout_hold.rs`).
 
 ## Creation size
 

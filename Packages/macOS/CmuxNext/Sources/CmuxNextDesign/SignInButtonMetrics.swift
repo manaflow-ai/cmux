@@ -17,7 +17,7 @@ public nonisolated struct SignInButtonMetrics: Equatable, Sendable {
     public var height: CGFloat
     /// The room on each side of the title.
     public var paddingX: CGFloat
-    /// The fill's corner radius: a control's corner (`Metrics.controlCornerRadius`).
+    /// The fill's corner radius: a tab's, as every button (`Metrics.buttonCornerRadius`).
     public var cornerRadius: CGFloat
     /// The title's size in points: the density's body text.
     public var textSize: CGFloat
@@ -25,7 +25,7 @@ public nonisolated struct SignInButtonMetrics: Equatable, Sendable {
     /// The sizes at `density`, times `scale` (the interface scale; 1 keeps them).
     /// - Parameters:
     ///   - density: The density to read (``DensityTokens/active`` for the app's).
-    ///   - cornerRadius: The fill's corner, already scaled: `Metrics.controlCornerRadius` in the app.
+    ///   - cornerRadius: The fill's corner, already scaled: `Metrics.buttonCornerRadius` in the app.
     ///   - scale: The interface scale, `Metrics.scale` in the app; 1 in tests.
     public init(density: DensityTokens, cornerRadius: CGFloat, scale: CGFloat = 1) {
         height = (density.resolve(compact: 24, comfortable: 30, token: "controlHeight") * scale).rounded()

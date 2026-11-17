@@ -383,7 +383,8 @@ pub(super) fn app_method(
         None
     };
     let failure = |kind, error| CallFailure { kind, error, idempotency_key: key.clone() };
-    match app::request_with_retry(&mut stream, method, &params, timeout) {
+    // The tool call's own budget, not the 30 s a person's command waits: the MCP client times the call out.
+    match app::request_with_retry_within(&mut stream, method, &params, timeout) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
         // Once sent, a change's outcome is unknown; a read changed nothing.

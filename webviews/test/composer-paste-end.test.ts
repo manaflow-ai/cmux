@@ -13,6 +13,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-paste-end.test.ts", async () => {
   const LAST_LINE = "pasted line 15";
@@ -60,74 +61,79 @@ await requireBrowserLane("composer-paste-end.test.ts", async () => {
       });
     });
     await page.goto(base());
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
     return page;
   }
 
   for (const [engine] of engines)
     test(`${engine}: a 15-line paste into a 3-line draft scrolls to its end, the caret after it`, async () => {
       const page = await newChat(engine);
-      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.click();
       // A short draft first: it fits the field, which has not scrolled.
       for (const [index, line] of ["draft line 1", "draft line 2", "draft line 3"].entries()) {
         if (index > 0) await page.keyboard.press("Shift+Enter");
         await page.keyboard.type(line);
       }
-      await page.evaluate((last) => {
-        const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
-        const data = new DataTransfer();
-        // Under the chip's 3,500 words and 20,000 characters (pastedText.ts): a larger paste is a chip,
-        // not prompt text. The field shows pasted lines joined as one paragraph, so they are long
-        // enough to wrap past its eight lines (40 short lines did that before the chip).
-        const lines = Array.from(
-          { length: 15 },
-          (_, index) => `pasted line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
-        );
-        lines[14] = last;
-        data.setData("text/plain", lines.join("\n"));
-        field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      }, LAST_LINE);
+      await page.evaluate(
+        ({ last, COMPOSER_EDITOR }) => {
+          const field = document.querySelector<HTMLElement>(COMPOSER_EDITOR)!;
+          const data = new DataTransfer();
+          // Under the chip's 3,500 words and 20,000 characters (pastedText.ts): a larger paste is a chip,
+          // not prompt text. The field shows pasted lines joined as one paragraph, so they are long
+          // enough to wrap past its eight lines (40 short lines did that before the chip).
+          const lines = Array.from(
+            { length: 15 },
+            (_, index) => `pasted line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+          );
+          lines[14] = last;
+          data.setData("text/plain", lines.join("\n"));
+          field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+        { last: LAST_LINE, COMPOSER_EDITOR },
+      );
       await page.waitForFunction(
-        (last) =>
-          document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes(last),
-        LAST_LINE,
+        ({ last, COMPOSER_EDITOR }) => document.querySelector(COMPOSER_EDITOR)?.textContent?.includes(last),
+        { last: LAST_LINE, COMPOSER_EDITOR },
       );
       // Let layout and any scroll settle.
       await page.evaluate(
         () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(undefined)))),
       );
-      const seen = await page.evaluate((last) => {
-        const editable = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
-        const scroller = editable.closest<HTMLElement>(".acpmux-md-field")!;
-        const box = scroller.getBoundingClientRect();
-        const inside = (rect: DOMRect | undefined) =>
-          !!rect && rect.height > 0 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
-        // The last pasted line's own text, wherever the field put it.
-        const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
-        let lastLine: DOMRect | undefined;
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const at = node.textContent?.indexOf(last) ?? -1;
-          if (at < 0) continue;
-          const range = document.createRange();
-          range.setStart(node, at);
-          range.setEnd(node, at + last.length);
-          lastLine = range.getClientRects()[0];
-        }
-        const selection = getSelection();
-        const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
-        const caret = range && editable.contains(range.endContainer) ? range.getClientRects()[0] : undefined;
-        const handle = (scroller as MarkdownFieldElement).acpmuxMarkdownField!;
-        const text = handle.text();
-        return {
-          scrolled: scroller.scrollHeight > scroller.clientHeight,
-          scrollTop: scroller.scrollTop,
-          lastLineShown: inside(lastLine),
-          caretShown: inside(caret),
-          caretAtEnd: text.selectionStart === text.value.length && text.selectionEnd === text.value.length,
-          endsWithLast: text.value.endsWith(last),
-        };
-      }, LAST_LINE);
+      const seen = await page.evaluate(
+        ({ last, COMPOSER_EDITOR }) => {
+          const editable = document.querySelector<HTMLElement>(COMPOSER_EDITOR)!;
+          const scroller = editable.closest<HTMLElement>(".acpmux-md-field")!;
+          const box = scroller.getBoundingClientRect();
+          const inside = (rect: DOMRect | undefined) =>
+            !!rect && rect.height > 0 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
+          // The last pasted line's own text, wherever the field put it.
+          const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+          let lastLine: DOMRect | undefined;
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const at = node.textContent?.indexOf(last) ?? -1;
+            if (at < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + last.length);
+            lastLine = range.getClientRects()[0];
+          }
+          const selection = getSelection();
+          const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+          const caret = range && editable.contains(range.endContainer) ? range.getClientRects()[0] : undefined;
+          const handle = (scroller as MarkdownFieldElement).acpmuxMarkdownField!;
+          const text = handle.text();
+          return {
+            scrolled: scroller.scrollHeight > scroller.clientHeight,
+            scrollTop: scroller.scrollTop,
+            lastLineShown: inside(lastLine),
+            caretShown: inside(caret),
+            caretAtEnd: text.selectionStart === text.value.length && text.selectionEnd === text.value.length,
+            endsWithLast: text.value.endsWith(last),
+          };
+        },
+        { last: LAST_LINE, COMPOSER_EDITOR },
+      );
       // The paste overflows the field's cap, so it scrolls inside.
       expect(seen.scrolled).toBe(true);
       expect(seen.endsWithLast).toBe(true);

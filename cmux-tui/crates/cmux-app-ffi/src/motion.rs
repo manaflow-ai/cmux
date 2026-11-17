@@ -1,19 +1,18 @@
 //! The C ABI of cmux-motion for the macOS app (`include/cmux_motion_ffi.h`,
 //! Swift module `CCmuxMotionFFI`): the closed-form spring step, the token
-//! table, the structural bounce rule and the per-kind switches, and the
-//! tab strip's tweens and geometry (Chrome's strip motion). The app's
+//! table and the per-kind switches, and the tab strip's tweens and geometry
+//! (Chrome's strip motion). The app's
 //! `MotionClock` keeps only the display link and the layer updates; the
 //! physics and the rules live once, in cmux-motion. Every function is pure
 //! (no globals, no allocation) and never panics on any input.
 
 use cmux_motion::{
-    AnimationSwitches, MotionBounce, MotionFade, MotionKind, MotionPolicy, MotionSpeed,
-    MotionSpring, MotionTween, SpringParameters, TabStripGeometry, TweenCurve, TweenValue,
-    advance_spring,
+    AnimationSwitches, MotionFade, MotionKind, MotionPolicy, MotionSpeed, MotionSpring,
+    MotionTween, SpringParameters, TabStripGeometry, TweenCurve, TweenValue, advance_spring,
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 5;
+const ABI_VERSION: u32 = 6;
 
 /// `SpringParameters`.
 #[repr(C)]
@@ -33,13 +32,13 @@ pub struct CmuxMotionState {
 }
 
 /// The host's settings for one resolve: `speed` 0 fast, 1 normal, 2 off;
-/// `bounce` 0 none, 1 subtle; the three `ui.animations.*` switches.
+/// the three `ui.animations.*` switches. No field sets a bounce: every
+/// spring token is critically damped (Lawrence 2026-11-10).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CmuxMotionPolicy {
     pub speed: u8,
     pub reduce_motion: bool,
-    pub bounce: u8,
     pub pane_animations: bool,
     pub new_tab: bool,
     pub new_workspace: bool,
@@ -63,12 +62,10 @@ fn policy(p: &CmuxMotionPolicy) -> MotionPolicy {
         2 => MotionSpeed::Off,
         _ => MotionSpeed::Fast,
     };
-    let bounce = if p.bounce == 1 { MotionBounce::Subtle } else { MotionBounce::None };
     MotionPolicy::new(speed, p.reduce_motion).with_animations(AnimationSwitches {
         pane_animations: p.pane_animations,
         new_tab: p.new_tab,
         new_workspace: p.new_workspace,
-        bounce,
     })
 }
 
@@ -79,9 +76,9 @@ pub extern "C" fn cmux_motion_ffi_abi_version() -> u32 {
 }
 
 /// The spring token `token` (`MotionSpring` order: 0 move, 1 appear, 2
-/// disappear, 3 settle, 4 scroll, 5 screen, 6 track, 7 selection, 8 panel,
-/// 9 pinDrag, 10 zoom, 11 exit, 12 tabOpen; the macOS `MotionSpring` declares its
-/// cases in this order) at speed `fast` from the spec, before the policy. Returns
+/// disappear, 3 settle, 4 scroll, 5 track, 6 selection, 7 panel, 8 pinDrag,
+/// 9 zoom, 10 exit, 11 tabOpen; the macOS `MotionSpring` declares its cases
+/// in this order) at speed `fast` from the spec, before the policy. Returns
 /// false for an unknown token.
 ///
 /// # Safety
@@ -97,30 +94,16 @@ pub unsafe extern "C" fn cmux_motion_spring_base(token: u8, out: *mut CmuxMotion
     true
 }
 
-/// True when spring token `token` is structural (follows the bounce).
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_motion_spring_is_structural(token: u8) -> bool {
-    MotionSpring::ALL.get(usize::from(token)).is_some_and(|t| t.is_structural())
-}
-
 /// Resolves `base` (a token's speed-`fast` tuning, possibly a host
-/// override) under `policy`: a structural spring is critically damped with
-/// bounce none and takes the subtle bounce with bounce subtle; then the
-/// speed scales the response. The same rule as `MotionPolicy::spring`.
+/// override) under `policy`: the speed scales the response and the damping
+/// fraction stays. The same rule as `MotionPolicy::spring`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_resolve(
     base: CmuxMotionSpring,
-    structural: bool,
     policy: CmuxMotionPolicy,
 ) -> CmuxMotionSpring {
     let p = self::policy(&policy);
-    let mut s = SpringParameters::from(base);
-    if structural {
-        s = match p.animations.bounce {
-            MotionBounce::None => SpringParameters::new(s.response, s.damping_fraction.max(1.)),
-            MotionBounce::Subtle => s.with_bounce(MotionBounce::Subtle.amount()),
-        };
-    }
+    let s = SpringParameters::from(base);
     if p.speed == MotionSpeed::Off { s.into() } else { s.scaled(p.speed.time_scale()).into() }
 }
 
@@ -393,4 +376,39 @@ pub unsafe extern "C" fn cmux_motion_tab_strip_geometry(
     // SAFETY: `out` is non-null and writable per the contract above.
     unsafe { out.write(c) };
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base(token: u8) -> Option<CmuxMotionSpring> {
+        let mut out = CmuxMotionSpring { response: 0., damping_fraction: 0. };
+        // SAFETY: `out` is a valid, writable `CmuxMotionSpring`.
+        unsafe { cmux_motion_spring_base(token, &mut out) }.then_some(out)
+    }
+
+    /// A change of screen has no animation (Lawrence 2026-11-10): the table has no `screen`
+    /// spring. 12 tokens; `track` follows `scroll`.
+    #[test]
+    fn the_spring_table_has_no_screen_token() {
+        assert_eq!(base(4), Some(MotionSpring::Scroll.base().into()));
+        assert_eq!(base(5), Some(MotionSpring::Track.base().into()), "token 5 is not track");
+        assert_eq!(base(11), Some(MotionSpring::TabOpen.base().into()), "token 11 is not tabOpen");
+        assert_eq!(base(12), None, "the table has a 13th spring token");
+    }
+
+    /// No bounce in any motion (Lawrence 2026-11-10): no token of the table is under-damped.
+    #[test]
+    fn no_spring_token_is_under_damped() {
+        for token in 0..=u8::MAX {
+            if let Some(spring) = base(token) {
+                assert!(
+                    spring.damping_fraction >= 1.,
+                    "spring token {token} has damping fraction {}",
+                    spring.damping_fraction
+                );
+            }
+        }
+    }
 }

@@ -4,11 +4,12 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
+import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -21,7 +22,7 @@ import CmuxNextWakeups
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    let watchdog = MainThreadWatchdog()
+    let watchdog = MainThreadWatchdog(configuration: .init(starvationProbeInterval: .seconds(5)))
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -100,12 +101,14 @@ final class AppControl {
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
+        // `chat.composer.get`: what the composer of the chat that last took files from another app holds.
+        service.router.register(services.externalOpen.chatAttach.controlMethods { [weak services] in services?.windows.active?.focusedPane?.shownChat })
         service.router.register(PermissionsControl.methods(services: services))
-        service.router.register(NotificationsControl.methods(services: services))
+        service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
+        service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
-        errors.start()
         errorJournal = errors
         services.errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
@@ -120,19 +123,24 @@ final class AppControl {
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
-            .mainActor("browser.extensions") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(ExtensionControl.report(services))
-            },
+            .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `apps.views`: each open extension view and the words it shows now (read-only).
+            .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
+            // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
+            AgentChatPerfControl { [weak services] id in
+                guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
+                guard tab.agentSession != nil else { return .notAgentChat }
+                return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
+            }.controlMethod(),
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -158,6 +166,12 @@ final class AppControl {
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
+            },
+            // The newest keyboard focus changes with their route (caller and reason), kept while the focus log is off too:
+            // `cmux app call debug.focus_log '{"limit": 50}'` (plans/cmux-next/focus-loss-AUDIT.md).
+            .mainActor("debug.focus_log") { [weak services] call in
+                let entries = services?.focusLog.recent(limit: call.params["limit"]?.intValue ?? FocusLog.recentLimit) ?? []
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(["changes": entries]))) ?? .null) // main-actor-ok: at most FocusLog.recentLimit (200) entries, a debug call only.
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
@@ -378,6 +392,12 @@ final class AppControl {
             // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
+            // One icon picker (Set Icon) or group editor (the first group's Rename) open, warm, cold or after intent, to its drawn frame.
+            .async("debug.overlay_open_bench") { @MainActor [weak services] call in
+                guard let services else { return .null }
+                let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
+                return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -661,3 +681,9 @@ final class AppControl {
         service?.stop()
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// `debug.overlay_open_bench` drives the two WebKit overlay pages through these (OverlayOpenBench).
+extension IconPickerService: OverlayBenchPage {}
+extension GroupEditorService: OverlayBenchPage {}
+#endif

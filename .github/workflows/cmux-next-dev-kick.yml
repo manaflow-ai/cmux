@@ -4,7 +4,7 @@ name: cmux NEXT DEV kick
 # tip at once, instead of waiting for its cron, which GitHub fired only every
 # 15-25 minutes on 2026-10-25 (a merge reached the tip feed 48 minutes later).
 # The dispatcher spaces DEV builds five minutes apart, so this starts no build
-# per merge; it starts no build at all, only the dispatcher.
+# per merge; it starts no build at all, only the dispatcher and the nightly-next tick.
 on:
   push:
     branches: [feat-cmux-next]
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   kick:
     if: github.repository == 'manaflow-ai/cmux'
-    name: Ask the DEV dispatcher for the newest tip
+    name: Ask the DEV dispatcher and the nightly-next tick for the newest tip
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 3
     permissions:
@@ -31,3 +31,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main
+      # The nightly-next tick (nightly-next-tick.yml on main) at landing too. It heard of a landing only from its
+      # 5-minute cron, or 15-26 min later when cmux-next or cmux-tui artifacts finished (86dc299b, 2026-11-14: landed
+      # 04:29:21Z; they finished 04:44 and 04:55). With no sha the tick applies its rolling rule, which starts nothing
+      # beside a running build and promotes only a buildable commit.
+      - name: Dispatch nightly-next-tick.yml on main
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run nightly-next-tick.yml --repo "$GH_REPO" --ref main

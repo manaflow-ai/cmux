@@ -37,7 +37,8 @@ enum ChiefInspectorHandlers {
         context.services.pages.register(remotePage)
         let memory = ChiefMemoryPageService(services: context.services)
         context.services.pages.register(memory)
-        registry.bind(actionID, run: { invocation in
+        // Not offered when the web fallback has no Chief to read here or on a paired server (as `chief.openUsage`).
+        registry.bind(actionID, unavailable: { opensWebPage && !HomeBrainHost.canStart() && remoteChief(context) == nil ? ChiefInspectorStrings.noLocalChief : nil }, run: { invocation in
             if opensWebPage {
                 try openWeb(invocation, remotePage: remotePage, context: context)
                 return
@@ -189,7 +190,9 @@ enum ChiefInspectorHandlers {
     /// Shows and selects the tab of `surface` once the mirror reports it.
     private static func reveal(_ surface: SurfaceID, context: AppActionContext) async {
         let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
+            for await tab in ObservationStream({
+                context.daemon.store.locatedTab(surface: surface).map { LocatedTab(tab: $0.tab, pane: $0.pane, workspace: $0.workspace) }
+            }) {
                 if let tab { return tab }
             }
             return nil as LocatedTab?

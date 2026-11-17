@@ -40,7 +40,7 @@ class AppSceneNodeNSView: NSView {
     /// Applies a new value of the node; subclasses call super first, then draw their own props.
     func configure(_ node: AppSceneNode) {
         self.node = node
-        toolTip = node.string("help").flatMap { $0.isEmpty ? nil : $0 }
+        themedToolTip = node.string("help").flatMap { $0.isEmpty ? nil : $0 }
         alphaValue = node.number("opacity").map { CGFloat(min(max($0, 0), 1)) } ?? 1
         configureDecorations()
         needsLayout = true

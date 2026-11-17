@@ -5,10 +5,16 @@ public nonisolated struct ActionEnumCase: Sendable, Hashable {
     /// Stable value used by the CLI and handlers (`--arg color=sage`).
     public let value: String
     public let title: String
+    /// A second line a list shows under the title (a team's kind and plan); nil for none.
+    public let subtitle: String?
+    /// The SF Symbol a list draws for this value; nil keeps the action's own.
+    public let symbol: String?
 
-    public init(value: String, title: String) {
+    public init(value: String, title: String, subtitle: String? = nil, symbol: String? = nil) {
         self.value = value
         self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
     }
 }
 
@@ -64,6 +70,12 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
 
     /// Name of the bool argument a destructive action takes (`--confirm`).
     public nonisolated static let confirmName = "confirm"
+
+    /// The `confirm` argument a destructive action gains (``ActionDescriptor/init``).
+    nonisolated static var confirmBool: ActionArgument {
+        ActionArgument(name: confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
 
     /// A copy that may be omitted.
     public var optional: ActionArgument {
@@ -125,4 +137,17 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
             return .target(ActionTargetRef(kind: targetKind, id: trimmed))
         }
     }
+}
+
+extension ActionArgument {
+    /// The `theme` argument value that resets to the Ghostty config.
+    public static let themeConfigValue = "config"
+
+    /// Theme names the theme actions offer first, in picker order: the pinned values of the
+    /// catalog's `theme` argument (cmux-action-catalog), without the Ghostty config.
+    public static let curatedThemes: [String] = {
+        let theme = ActionCatalog.all.lazy.flatMap(\.arguments)
+            .first { $0.name == "theme" && $0.suggestions?.source == ActionSuggestions.ghosttyThemes }
+        return (theme?.suggestions?.pinned ?? []).map(\.value).filter { $0 != themeConfigValue }
+    }()
 }

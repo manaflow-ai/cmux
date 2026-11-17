@@ -22,6 +22,8 @@ fn key(prompt_suggestions: Option<bool>) -> PoolKey {
         prompt_suggestions,
         tool_servers: String::new(),
         settings_file: PathBuf::from("/home/.config/cmux/cmux-next.json"),
+        model: None,
+        effort: None,
     }
 }
 

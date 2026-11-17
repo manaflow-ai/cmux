@@ -240,9 +240,20 @@ import Testing
                  workspaceTitle: "w", markdown: "done", quote: nil, createdAt: Date())
     }
 
-    func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
+    func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {},
+                 keptChats: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
         AccountSignOut(snapshots: f.snapshots, feedStore: f.feed, feedArchive: f.archive, readMarks: f.marks,
-                       preferences: AccountPreferences(defaults: f.defaults), discardChiefOutbox: chief)
+                       preferences: AccountPreferences(defaults: f.defaults), discardChiefOutbox: chief,
+                       discardKeptChats: keptChats)
+    }
+
+    /// The Home rows, Agent Chats lists and agent chat messages kept to show at once leave
+    /// with the account (the user, 2026-11-09). Before, sign-out kept them for the next one.
+    @Test func signOutDropsTheKeptListsAndChats() {
+        let f = Fixture()
+        let discards = Tally()
+        signOut(f, keptChats: { discards.count += 1 }).signedOut(userID: "user-a", session: Session())
+        #expect(discards.count == 1)
     }
 
     @Test func signOutKeepsTheMacsApprovalAndTheDeviceIdentity() async throws {

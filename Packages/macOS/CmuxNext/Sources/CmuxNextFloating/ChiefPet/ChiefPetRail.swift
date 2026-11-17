@@ -14,8 +14,8 @@ final class ChiefPetRail: NSView {
 
     override init(frame: NSRect) {
         surface = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            ? Glass.makeOverlayPanel(cornerRadius: Self.height / 2) as NSView
-            : Glass.makePanel(style: .regular, cornerRadius: Self.height / 2, interactive: true)
+            ? Glass.makeOverlayPanel(cornerRadius: Self.height / 2) as NSView // radius-allow: the pet rail is a floating capsule surface, not a button
+            : Glass.makePanel(style: .regular, cornerRadius: Self.height / 2, interactive: true) // radius-allow: the rail surface
         super.init(frame: frame)
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.autoresizingMask = [.width, .height]

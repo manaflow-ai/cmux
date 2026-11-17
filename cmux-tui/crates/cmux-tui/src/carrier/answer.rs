@@ -390,20 +390,70 @@ pub(super) trait CarrierSource: Send + Sync {
     ) -> Result<SshEndpoint, SourceError> {
         Err(SourceError::fatal("this source mints no carrier ssh key"))
     }
+
+    /// Runs `command` (`bash -c`, as the image's work user) on `machine` through the
+    /// Cloud exec route (`POST /v1/cloud/machines/{id}/exec`), within `timeout`: what
+    /// [`super::adopt`] uses on a machine that never registers on the relay. A source
+    /// without it adopts nothing.
+    async fn exec(
+        &self,
+        _machine: &str,
+        _command: &str,
+        _timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        Err(SourceError::fatal("this source runs no command"))
+    }
 }
 
+/// What an exec answered: its exit code and output.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct ExecReply {
+    pub exit_code: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// The exec route's answer: `{exitCode, stdout, stderr}`, else its refusal
+/// (`{ok: false, error: {code, message}}`) as an error.
+pub(super) fn read_exec(status: u16, body: &Value) -> Result<ExecReply, SourceError> {
+    if (200..300).contains(&status)
+        && let Some(exit_code) = body.get("exitCode").and_then(Value::as_i64)
+    {
+        let text = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        return Ok(ExecReply { exit_code, stdout: text("stdout"), stderr: text("stderr") });
+    }
+    let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or_default();
+    let detail = format!("exec answered HTTP {status} {code}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
+}
+
+/// Asks for the person's credential afresh, off the async runtime (it may block, as asking
+/// the signed-in app does); `Err` names why there is none (signed out, no app).
+pub(crate) type AskCredential = Arc<dyn Fn() -> Result<Zeroizing<String>, String> + Send + Sync>;
+
 /// The person's credential: re-read from the file on every fetch (it may be
-/// renewed), or one value from the environment.
+/// renewed), one value from the environment, or asked for on every request
+/// (the cmux link's tunnel asks the signed-in app, `tunnel_keeper.rs`).
 #[derive(Clone)]
 pub(super) enum Credential {
     File(PathBuf),
     Value(Zeroizing<String>),
+    Ask(AskCredential),
 }
 
 impl Credential {
     fn current(&self) -> Result<Zeroizing<String>, SourceError> {
         let text = match self {
             Self::Value(value) => value.clone(),
+            // Asked only for a request (`HttpSource::request_credential`), never by a
+            // synchronous caller, which would block on the app.
+            Self::Ask(_) => {
+                return Err(SourceError::fatal("the cmux credential is asked per request"));
+            }
             Self::File(path) => Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
                 SourceError::fatal(format!(
                     "the credential file could not be read ({:?})",
@@ -461,14 +511,45 @@ impl HttpSource {
         }
     }
 
+    /// The credential for one request: as [`Self::current`], except that an asked one
+    /// ([`Credential::Ask`]) is asked afresh, on a blocking thread.
+    async fn request_credential(&self) -> Result<Zeroizing<String>, SourceError> {
+        let replaced = self.replaced.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(token) = replaced {
+            return Ok(token);
+        }
+        let Credential::Ask(ask) = &self.credential else { return self.credential.current() };
+        let ask = Arc::clone(ask);
+        let asked = tokio::task::spawn_blocking(move || ask())
+            .await
+            .map_err(|_| SourceError::retry("the cmux credential could not be asked for"))?;
+        let token = asked.map_err(|why| SourceError::fatal(format!("no cmux sign-in: {why}")))?;
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            return Err(SourceError::fatal("the cmux credential is empty"));
+        }
+        Ok(Zeroizing::new(trimmed.to_owned()))
+    }
+
     /// POSTs `body` to `path` on the platform with the person's credential
     /// (and the team header): the status and the JSON body (`Null` when the
     /// body is not JSON). No answer at all is a retry.
     pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
-        let credential = self.current()?;
+        self.post_within(path, body, FETCH_TIMEOUT).await
+    }
+
+    /// [`Self::post`] with its own `timeout` (an exec runs longer than a fetch).
+    async fn post_within(
+        &self,
+        path: &str,
+        body: &Value,
+        timeout: Duration,
+    ) -> Result<(u16, Value), SourceError> {
+        let credential = self.request_credential().await?;
         let mut request = self
             .client
             .post(format!("{}{path}", self.api))
+            .timeout(timeout)
             .bearer_auth(credential.as_str())
             .json(body);
         if let Some(team) = &self.team {
@@ -546,6 +627,25 @@ impl CarrierSource for HttpSource {
         let (status, body) =
             self.post(&format!("/v1/cloud/machines/{machine}/ssh-endpoint"), &body).await?;
         read_ssh_endpoint(status, &body, now_unix())
+    }
+
+    async fn exec(
+        &self,
+        machine: &str,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        let ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        let body = json!({ "command": command, "timeoutMs": ms });
+        // The request outlives the command by a little: the answer still has to come back.
+        let (status, body) = self
+            .post_within(
+                &format!("/v1/cloud/machines/{machine}/exec"),
+                &body,
+                timeout + FETCH_TIMEOUT,
+            )
+            .await?;
+        read_exec(status, &body)
     }
 }
 

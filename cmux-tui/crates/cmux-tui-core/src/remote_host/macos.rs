@@ -2,7 +2,7 @@
 //! responsibility-disclaimed spawn, and process identity checks.
 
 use cmux_process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -35,14 +35,15 @@ pub(super) struct Staged {
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
 /// of the app whose `Contents/Resources/bin` holds this daemon.
-fn embedded() -> Result<PathBuf, String> {
+pub(super) fn embedded() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
         return path
             .is_dir()
             .then_some(path)
             .ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
     }
-    let exe = std::env::current_exe().map_err(|error| format!("{error}"))?;
+    // The file itself, never the link it was started by (`~/.local/bin/acpmux`).
+    let exe = cmux_link::app_caller::own_executable()?;
     let contents = exe
         .parent()
         .and_then(Path::parent)
@@ -55,36 +56,8 @@ fn embedded() -> Result<PathBuf, String> {
         .ok_or_else(|| "this cmux build has no cmux Remote".into())
 }
 
-fn digest_of(app: &Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    for part in [
-        "Contents/MacOS/cmux-remote",
-        "Contents/_CodeSignature/CodeResources",
-        "Contents/Info.plist",
-    ] {
-        let mut file =
-            std::fs::File::open(app.join(part)).map_err(|error| format!("{part}: {error}"))?;
-        let mut buffer = vec![0_u8; 1 << 20];
-        loop {
-            let count = file.read(&mut buffer).map_err(|error| format!("{part}: {error}"))?;
-            if count == 0 {
-                break;
-            }
-            hasher.update(&buffer[..count]);
-        }
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn bundle_id(app: &Path) -> Option<String> {
-    let output = Command::new("/usr/bin/plutil")
-        .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-        .arg(app.join("Contents/Info.plist"))
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+pub(super) fn bundle_id(app: &Path) -> Option<String> {
+    cmux_signed_bundle::bundle_id(app)
 }
 
 /// Whether `app` is a valid, sealed cmux Remote of cmux's team.
@@ -93,21 +66,7 @@ fn verify(app: &Path) -> Result<(), String> {
     if !BUNDLE_IDS.contains(&id.as_str()) {
         return Err(format!("{id} is not cmux Remote"));
     }
-    let requirement = format!(
-        "=identifier \"{id}\" and anchor apple generic and certificate leaf[subject.OU] = \"{TEAM}\""
-    );
-    let output = Command::new("/usr/bin/codesign")
-        .args(["--verify", "--strict", "--deep", "-R"])
-        .arg(&requirement)
-        .arg(app)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("codesign: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!("signature: {}", String::from_utf8_lossy(&output.stderr).trim()))
-    }
+    cmux_signed_bundle::verify(app, &cmux_signed_bundle::team_requirement(&id, TEAM))
 }
 
 /// The verified copy of the embedded bundle that runs, always at one path,
@@ -117,47 +76,35 @@ fn verify(app: &Path) -> Result<(), String> {
 /// verified into `state/app/next/` first; [`promote`] moves it to `current`
 /// only when no host runs from `current` (the caller drains or never adopted
 /// one), so a busy host of the previous build keeps its bundle until it
-/// stops. Never followed through a symlink.
+/// stops. Never followed through a symlink. The digest, copy and signature
+/// checks are `cmux-signed-bundle`'s, shared with the acpmux share host's helper.
 pub(super) fn stage(state: &Path) -> Result<Staged, String> {
-    use std::os::unix::fs::PermissionsExt;
     let source = embedded()?;
-    let digest = digest_of(&source)?;
+    let parts = cmux_signed_bundle::digest_parts(EXECUTABLE);
+    let digest = cmux_signed_bundle::digest_of(&source, &parts)?;
     let root = state.join("app");
-    for dir in [state, root.as_path()] {
-        std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-        let meta = std::fs::symlink_metadata(dir).map_err(|error| format!("{error}"))?;
-        if !meta.is_dir() {
-            return Err(format!("{} is not a directory", dir.display()));
-        }
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-    }
+    cmux_signed_bundle::private_dir(state)?;
+    cmux_signed_bundle::private_dir(&root)?;
     let name = source.file_name().ok_or("bad bundle name")?;
     let current = root.join(CURRENT);
     let app = current.join(name);
     let executable = app.join("Contents/MacOS").join(EXECUTABLE);
-    if slot_holds(&current, name, &digest) {
+    if slot_holds(&current, name, &digest, &parts) {
         let _ = std::fs::remove_dir_all(root.join(NEXT));
         return Ok(Staged { app, executable, digest, next: None });
     }
     let next = root.join(NEXT);
-    if !slot_holds(&next, name, &digest) {
+    if !slot_holds(&next, name, &digest, &parts) {
         let temporary = root.join(format!(".staging-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temporary);
         std::fs::create_dir_all(&temporary).map_err(|error| format!("{error}"))?;
         let copy = temporary.join(name);
-        let status = Command::new("/usr/bin/ditto")
-            .args(["--norsrc", "--noqtn"])
-            .arg(&source)
-            .arg(&copy)
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|error| format!("ditto: {error}"))?;
-        if !status.success() {
+        if cmux_signed_bundle::ditto(&source, &copy).is_err() {
             let _ = std::fs::remove_dir_all(&temporary);
             return Err("cannot copy cmux Remote out of the app".into());
         }
         if let Err(error) = verify(&copy).and_then(|()| {
-            (digest_of(&copy)? == digest)
+            (cmux_signed_bundle::digest_of(&copy, &parts)? == digest)
                 .then_some(())
                 .ok_or("the copy differs from the embedded bundle".into())
         }) {
@@ -176,9 +123,9 @@ const CURRENT: &str = "current";
 const NEXT: &str = "next";
 
 /// Whether `slot` holds a verified copy of the build with `digest`.
-fn slot_holds(slot: &Path, name: &std::ffi::OsStr, digest: &str) -> bool {
+fn slot_holds(slot: &Path, name: &std::ffi::OsStr, digest: &str, parts: &[String]) -> bool {
     std::fs::read_to_string(slot.join(".verified")).is_ok_and(|text| text.trim() == digest)
-        && digest_of(&slot.join(name)).is_ok_and(|copy| copy == digest)
+        && cmux_signed_bundle::digest_of(&slot.join(name), parts).is_ok_and(|copy| copy == digest)
 }
 
 /// Moves a waiting new build into `current` and removes copies of earlier
@@ -277,6 +224,7 @@ pub(super) fn spawn_host(
     command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
     let mut child =
         command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
+    child.detach("cmux Remote runs in its own session and outlives this daemon; launchd reaps it");
     drop(bootstrap_read);
     let pid = child.id();
     let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;

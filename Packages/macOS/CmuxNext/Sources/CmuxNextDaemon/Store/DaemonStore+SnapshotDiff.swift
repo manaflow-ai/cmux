@@ -206,7 +206,7 @@ extension DaemonStore {
             } else {
                 snapshotMemo.untracked = true
             }
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
             // One tab's field: the next snapshot re-applies that tab, not its workspace.
             if index.tabsBySurface[surface] != nil { snapshotMemo.dirtyTabs.insert(surface) }
         case .agentChanged, .agentPresenceChanged, .notification:
@@ -216,7 +216,7 @@ extension DaemonStore {
         case .overflow:
             // Presence cleared on every tab, and the events it stands for named nothing.
             snapshotMemo.untracked = true
-        case .connected, .disconnected, .daemonShutdown, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
+        case .connected, .disconnected, .daemonShutdown, .screenDeviceChanged, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
              .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
              .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:

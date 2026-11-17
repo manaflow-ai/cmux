@@ -82,7 +82,8 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let replies = mux.agent_list_replies(terminal.as_ref());
     let last_sessions = mux.agent_last_sessions();
     // Public agents are durable terminal projections. They remain listable
-    // after process exit detaches the runtime and every tab view.
+    // after process exit detaches the runtime and every tab view, until the
+    // terminal closes: its tombstone deletes the projection.
     let values = mux
         .with_resource_projection(|registry, _state| {
             Ok(registry

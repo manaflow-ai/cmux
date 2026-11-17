@@ -26,6 +26,8 @@ import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -76,6 +78,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -215,9 +218,9 @@ test("a reveal scrolls to its section once; the palette or another pane reopenin
   expect(scrolled).toEqual(["outputs"]);
   // Closed (another pane's toggle), then opened from the palette: Session Info mounts again.
   await act(async () => setSessionInfoOpen(false));
-  expect(container.querySelector("aside.acpmux-session-info")).toBeNull();
+  expect(container.querySelector(SESSION_INFO)).toBeNull();
   await act(async () => void openPicker("Session Info"));
-  expect(container.querySelector("aside.acpmux-session-info")).not.toBeNull();
+  expect(container.querySelector(SESSION_INFO)).not.toBeNull();
   // Opened again by another pane's change.
   await act(async () => setSessionInfoOpen(false));
   await act(async () => setSessionInfoOpen(true));

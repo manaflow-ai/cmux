@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Checks the declared list of Swift test suites that need a display against the suites' own skip traits.
+"""Derives the list of Swift test suites that need a display from the suites' own skip traits.
 
 A suite needs a display when it, or any test in it, carries an `.enabled(...)` or `.disabled(...)` trait whose
 condition reads `NSScreen` or whose comment names a display, a screen or a GUI host or session ("the drag tests need a display", "needs an awake
-display and animations on, ...", "run on a GUI host", "no GUI login session"). Those traits are the source of
-truth; `scripts/ci/display-suites.txt` declares the same suites so cmux-ci can read them at a step's ref and send
-a `package-test-lane.sh suite` step that names one to a display worker (the `gui-session-v1` label) without the
-lane asking. `--check` (cmux-next checks, tests/test_ci_display_suites.py) fails when the two differ.
+display and animations on, ...", "run on a GUI host", "no GUI login session"). Those traits are the only source of
+truth. The list is derived wherever it is read, never committed: a committed copy went stale on every pull request
+that added a display test (generated_files_guard.py refuses a new committed generated file, so the pull request
+autofix could not write it) until the post-merge base autofix landed it. A reader that wants the list at another
+commit runs this script from that commit's tree (`--root`).
 
 Usage: display_suites.py [--root DIR]      print the suites the traits ask for (`PACKAGE TARGET.SUITE`, sorted)
-       display_suites.py --check           exit 1 when scripts/ci/display-suites.txt declares other suites
-       display_suites.py --fix             rewrite scripts/ci/display-suites.txt to the traits' suites
+
+`--fix` and `--check` are transitional no-ops that write, print and check nothing and exit 0. The pull request
+autofix runs a trusted copy of base's scripts (`git archive "$BASE_SHA"`) against the pull request's tree, and base's
+base-autofix.sh step 1e4 calls this script with `--fix` until this change is on base (run 43196743424 failed with
+`unrecognized arguments: --fix`). Remove both, and tests/test_ci_display_suites.py's BASE_STEP_1E4, once no base the
+autofix can archive has step 1e4.
 """
 
 from __future__ import annotations
@@ -20,10 +25,8 @@ import re
 import sys
 from pathlib import Path
 
-LIST = Path("scripts/ci/display-suites.txt")
-HEADER = ("# The suites that need a display (PACKAGE TARGET.SUITE): cmux-ci sends a package-test-lane suite step\n"
-          "# naming one to a display worker. Each has a display skip trait; scripts/ci/display_suites.py --check\n"
-          "# keeps this list equal to those traits, and --fix rewrites it.\n")
+HEADER = ("# The suites that need a display (PACKAGE TARGET.SUITE), derived from their display skip traits by\n"
+          "# scripts/ci/display_suites.py; never committed.\n")
 # A skip comment that asks for a display: the words the suites' traits use.
 DISPLAY = re.compile(r"\b(?:display|screen|GUI)\b", re.I)
 # A trait condition that reads the screen needs one too, comment or not: `.enabled(if: NSScreen.main != nil)` gives
@@ -150,28 +153,13 @@ def render(rows: list[str]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--fix", action="store_true")
-    mode.add_argument("--check", action="store_true")
+    # Transitional: base's trusted base-autofix.sh step 1e4 still calls --fix (see the module docstring).
+    parser.add_argument("--fix", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    text = render(display_suites(args.root))
-    target = args.root / LIST
-    if args.fix:
-        target.write_text(text, encoding="utf-8")
+    if args.fix or args.check:
         return 0
-    if args.check:
-        current = target.read_text(encoding="utf-8") if target.is_file() else ""
-        if current != text:
-            have = {l for l in current.splitlines() if l and not l.startswith("#")}
-            want = {l for l in text.splitlines() if l and not l.startswith("#")}
-            for row in sorted(want - have):
-                print(f"display-suites.txt: missing {row} (it has a display skip trait)", file=sys.stderr)
-            for row in sorted(have - want):
-                print(f"display-suites.txt: lists {row}, which has no display skip trait", file=sys.stderr)
-            print("run: python3 scripts/ci/display_suites.py --fix", file=sys.stderr)
-            return 1
-        return 0
-    sys.stdout.write(text)
+    sys.stdout.write(render(display_suites(args.root)))
     return 0
 
 

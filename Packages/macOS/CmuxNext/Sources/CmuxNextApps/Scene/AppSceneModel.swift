@@ -14,7 +14,7 @@ extension AppSceneInteraction {
     public func reload() {}
 }
 
-/// The observable mirror of one mounted contribution, for `AppSceneView`.
+/// The observable mirror of one mounted contribution, for `AppSceneHostingView`.
 /// Written only by the supervisor's scene stream for the mount (`apps-scene`);
 /// hover and press stay in the views.
 @MainActor

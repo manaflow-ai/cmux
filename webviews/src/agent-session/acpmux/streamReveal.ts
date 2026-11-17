@@ -64,6 +64,18 @@ export class StreamReveal {
     this.shown = this.received;
   }
 
+  /// A completed reply was replaced by a historical/page snapshot. The replacement is already
+  /// visible content, so it must not be paced as if it had just streamed in.
+  replace(text: string): void {
+    this.shown = text.length;
+    this.received = text.length;
+    this.lastFrame = undefined;
+    this.lastArrival = undefined;
+    this.arrivals = [];
+    this.gaps = [];
+    this.drainUntil = undefined;
+  }
+
   /// Reduce Motion changed while the row is mounted: on, all of `text` (the latest, which may not
   /// have reached `advance` yet) shows now and later text shows as it arrives; off, only text after
   /// it is paced.

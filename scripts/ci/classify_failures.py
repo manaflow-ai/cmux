@@ -90,6 +90,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
@@ -410,7 +411,7 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
 # change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
 # which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
 # also failed and named neither of the two tests that were its own.
-BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check \(\d+\)$")
+BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, 12 before
 BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
 BASE_CHECK_ROOT = "webviews/"
 
@@ -530,7 +531,8 @@ def job_text(gh: GitHub, job_id: int) -> tuple[str, list[str]]:
     """The job's log and its failure annotations (a lost runner leaves only an annotation)."""
     log, notes = "", []
     try:
-        log = str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        kept = glaeda_log.cached_job_log(gh.repo, job_id)  # this host's glaeda-gh kept it: no API call
+        log = kept if kept is not None else str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
     except RuntimeError as error:
         print(f"job {job_id}: no log: {error}", file=sys.stderr)
     try:

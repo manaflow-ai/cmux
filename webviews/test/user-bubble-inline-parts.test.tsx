@@ -8,6 +8,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -558,8 +559,9 @@ try {
     expect(chip).toContain(`max-width: min(${INLINE_FILE_CHIP.maxWidth}px, 72vw);`);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
+    await settleReact();
     for (const [key, present, value] of saved) {
       if (present) scope[key] = value;
       else delete scope[key];

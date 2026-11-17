@@ -25,6 +25,29 @@
       }
     }
   },
+  "settings.choice.neko": {
+    "source": "Neko",
+    "identityLocales": {
+      "de": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; German keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "es": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; Spanish keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "fr": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; French keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      }
+    }
+  },
   "settings.choice.agentChatPresentationMessages": {
     "source": "Messages",
     "identityLocales": {
@@ -161,6 +184,16 @@
   "notification.remoteRelay.title": {
     "class": "format",
     "source": "%1$@: %2$@"
+  },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
@@ -6807,6 +6840,10 @@
     "class": "brand",
     "source": "Mac"
   },
+  "devices.platform.linux": {
+    "class": "brand",
+    "source": "Linux"
+  },
   "devices.platform.ios": {
     "class": "brand",
     "source": "iPhone"
@@ -7404,6 +7441,20 @@
     "class": "brand",
     "source": "Superwhisper"
   },
+  "argument.value.dividerInsertKind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.value.dividerInsertKind.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "settings.updates.liveWebReload": {
     "class": "brand",
     "source": "cmux Live"
@@ -7411,5 +7462,48 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "cloudTeam.section.title": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "cloudTeam.filter.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "settings.category.chat": {
+    "source": "Chat",
+    "identityLocales": {
+      "de": {
+        "reason": "Chat is the standard German noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      },
+      "es": {
+        "reason": "Chat is the standard Spanish noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      }
+    }
+  },
+  "settings.category.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud)."
+    }
+  },
+  "settingsWindow.models.org.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
+    }
   }
 }

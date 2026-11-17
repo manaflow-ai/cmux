@@ -144,7 +144,8 @@ final class ExtensionsMenuHoverButton: NSView {
     /// The highlight: hover, keyboard focus or a press, in the theme's gray; a selected button
     /// sits on the accent, a little stronger under the pointer.
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: style.highlightRadius, yRadius: style.highlightRadius)
+        // radius-allow: a menu row's highlight, concentric with the menu card (ExtensionsMenuStyle)
+        let path = NSBezierPath(roundedRect: bounds, xRadius: style.highlightRadius, yRadius: style.highlightRadius) // radius-allow: menu row
         performWithTheme {
             if isSelected, isEnabled {
                 Palette.accentFill.withAlphaComponent(isHighlighted ? style.pinnedHoverFillOpacity : style.pinnedFillOpacity).setFill()
@@ -180,7 +181,7 @@ final class ExtensionsMenuHoverButton: NSView {
         isHovering = true
         guard isEnabled else { return }
         // Chrome: a hovered row button takes the focus, so the keyboard continues from it.
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        if window?.firstResponder !== self { FocusRoute(.system, "extensions menu hover").moveKeyboard(in: window, to: self) }
         onHover?()
     }
 
@@ -191,14 +192,14 @@ final class ExtensionsMenuHoverButton: NSView {
         let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
         isPressed = false
         isHovering = inside
-        if !inside, window.firstResponder === self { window.makeFirstResponder(nil) }
+        if !inside, window.firstResponder === self { FocusRoute(.system, "extensions menu hover ended").moveKeyboard(in: window, to: nil) }
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovering = false
         isPressed = false
         // Chrome: leaving a hovered button clears the focus it took.
-        if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+        if window?.firstResponder === self { FocusRoute(.system, "extensions menu hover ended").moveKeyboard(in: window, to: nil) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

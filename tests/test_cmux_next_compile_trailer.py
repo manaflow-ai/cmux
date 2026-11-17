@@ -11,6 +11,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("compile_trailer", ROOT / "scripts/cmux-next/compile_trailer.py")
@@ -42,7 +49,7 @@ class CompileTrailerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.repo / "gitconfig"), HOME=str(self.repo))
         (self.repo / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@t\n")
         self.git("init", "-q", "-b", "feat-cmux-next")
@@ -671,6 +678,60 @@ class CompileTrailerTests(unittest.TestCase):
                                            {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc n(_ s: String) -> Int {\n"
                                             "    switch s {\n    case \"one\": return 1\n    default: return 2\n    }\n}\nlet one = 1\n"})
         self.assertFalse(refused, lines)
+
+    # 2026-11-12: a push that deleted BrowserSwipeGesture.swift (enum `BrowserSwipeDirection { case back, forward }`,
+    # a gesture with phases `.ready`, `.cancel`) was refused three times in a row: each removed member counted by its
+    # bare name, so upstream's new `let back = ...` in an unrelated test, then a `ready` and a `cancel`, met it. A member
+    # of a type the push removed whole can be reached only through that type's name or through an API that returns it,
+    # and both are removals of their own; the member's name alone meets nothing.
+    SWIPE = f"{PKG}/Sources/Kit/Swipe.swift"
+    SWIPE_TEXT = ("public enum SwipeDirection {\n    case back\n    case forward\n}\n"
+                  "public struct SwipeGesture {\n    public enum Phase {\n        case ready\n        case cancel\n    }\n"
+                  "    public var phase: Phase\n    public func cancel() {}\n}\n")
+
+    def swipe_kit(self):
+        self.kit_app()
+        self.write(self.SWIPE, self.SWIPE_TEXT)
+        self.base = self.commit("swipe")
+
+    def test_deleted_type_members_of_a_type_the_push_deletes_pass_upstream_code_that_shares_their_names(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift",
+                   "import Kit\nstruct Rig {\n    var ready = true\n    func cancel() {}\n}\n"
+                   "func check(_ r: Rig) -> Bool {\n    let back = r.ready\n    r.cancel()\n    return back\n}\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertFalse(refused, lines)
+
+    def test_deleted_type_upstream_code_naming_a_type_the_push_deletes_is_refused(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift", "import Kit\nlet way = SwipeDirection.back\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertTrue(refused, lines)
+        self.assertIn("SwipeDirection", lines[0])
+
+    def test_deleted_type_a_member_removed_from_a_type_that_stays_still_meets_its_name(self):
+        self.swipe_kit()
+        refused, lines = self.rebased_push(
+            {self.SWIPE: self.SWIPE_TEXT.replace("    public func cancel() {}\n", "")},
+            {f"{PKG}/Sources/App/Resize.swift": "import Kit\nfunc stop(_ g: SwipeGesture) { g.cancel() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("cancel", lines[0])
 
     # 2026-11-08: four of five landq trains refused after a re-pick were refused over a name a file could not reach:
     # upstream removed `PairInviteModel.close()` (CmuxNextServer) and the train's test in CmuxNextAgentPaneTests, which

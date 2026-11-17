@@ -32,6 +32,8 @@ pub(crate) use import::ImportedMessage;
 pub(crate) mod links;
 #[path = "conversation_runs.rs"]
 pub(crate) mod runs;
+#[path = "conversation_spill.rs"]
+pub(crate) mod spill;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -439,6 +441,9 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        // A person's send past the text limit goes as a file (conversation_spill).
+        let spilled = self.spill_oversized_send(conversation, actor, op)?;
+        let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
@@ -951,3 +956,7 @@ pub(crate) struct ConversationHost {
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+#[cfg(test)]
+#[path = "conversation_spill_tests.rs"]
+mod spill_tests;

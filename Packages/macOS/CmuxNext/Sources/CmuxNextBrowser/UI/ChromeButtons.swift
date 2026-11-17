@@ -49,7 +49,8 @@ final class ChromeIconButton: ClickableButton {
         ])
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
+            // The tab's ratio on its own side (Lucas 2026-11-15: one shape at every density).
+            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight)
             applyIcon()
         }
         density.start()
@@ -280,7 +281,7 @@ class ChromeTextButton: ClickableButton {
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: BrowserMetrics.controlHeight)
             applyTitle()
             invalidateIntrinsicContentSize()
         }
@@ -370,7 +371,7 @@ class ChromeTextField: NSTextField {
         cell?.wraps = false
         density.update { [weak self] in
             guard let self else { return }
-            font = BrowserMetrics.bodyFont
+            font = densityFont
             applyPlaceholder()
         }
         density.start()
@@ -378,6 +379,11 @@ class ChromeTextField: NSTextField {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The font the field takes at every density change. A subclass with its own size (the omnibar's field) returns it,
+    /// so this binding and the subclass's never race to set two fonts (Lucas 2026-11-16: the omnibar's text came back
+    /// at the body size after some density switches).
+    var densityFont: NSFont { BrowserMetrics.bodyFont }
 
     func setPlaceholder(_ text: String) {
         placeholderText = text

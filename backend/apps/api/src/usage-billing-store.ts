@@ -43,6 +43,8 @@ export const ensureBillingTables = (sql: SqlStorage) => {
   addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"], ["event_ts", "INTEGER"], ["markup_bp", "INTEGER"]])
   addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"], ["markup_bp", "INTEGER"]])
   // The operator's included-mode setting for a Team customer (cx-y79zh.1, Lawrence 2026-10-14), every change kept.
+  // Paid renewal invoices the usage sync saw (the raise lock, billing-catalog.ts teamCapUnpaidMaxPools): one row is enough.
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_paid_invoice (invoice TEXT PRIMARY KEY, subscription TEXT NOT NULL, amount_paid INTEGER NOT NULL, paid_at INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS usage_mode_setting (seq INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, set_at INTEGER NOT NULL, actor TEXT NOT NULL, reason TEXT)`)
 }
 
@@ -152,3 +154,10 @@ export const periodMarkupBp = (sql: SqlStorage, periodStart: number, fallbackBp:
   if (marked) return marked.markup_bp === null ? PASS_THROUGH_BP : Number(marked.markup_bp)
   return fallbackBp
 }
+
+/** A paid renewal invoice the usage sync saw (paid_at in s). Idempotent: the first sighting is kept. */
+export const markPaidInvoice = (sql: SqlStorage, invoice: string, subscription: string, amountPaid: number, paidAt: number, now: number) =>
+  sql.exec(`INSERT OR IGNORE INTO usage_paid_invoice (invoice, subscription, amount_paid, paid_at, seen_at) VALUES (?, ?, ?, ?, ?)`, invoice, subscription, Math.round(amountPaid), Math.round(paidAt), now)
+
+/** Whether the account has paid one renewal invoice (the raise lock lifts then, for good). */
+export const hasPaidInvoice = (sql: SqlStorage): boolean => sql.exec(`SELECT 1 FROM usage_paid_invoice LIMIT 1`).toArray().length > 0

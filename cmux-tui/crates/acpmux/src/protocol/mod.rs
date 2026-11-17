@@ -186,6 +186,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // First-request transport upgrade, answered before framed v2 traffic.
+        untyped(method::MUX_V2, Request),
+        // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
+        untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
@@ -210,11 +214,14 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
-        request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
-        request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
+        request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_REGISTER, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         keyed::<params::OfferRespondParams>(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
@@ -258,6 +265,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
+        keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
@@ -277,6 +285,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_RUN_ELSEWHERE_PLAN, Request),
+        untyped(method::MUX_RUN_ELSEWHERE_START, Request),
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
@@ -288,10 +298,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_KEEP, Request),
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
+        keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
         keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
         keyed::<params::SideParams>(method::MUX_SIDE, Request),
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
@@ -327,6 +339,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::QueueApproveParams>(method::MUX_QUEUE_APPROVE, Request),
         keyed::<params::QueueDeclineParams>(method::MUX_QUEUE_DECLINE, Request),
         untyped(method::MUX_QUEUE_TEXT, Request),
+        untyped(method::MUX_ROWS, Request),
+        untyped(method::MUX_ROWS_PATCH, Notification),
+        untyped(method::MUX_ROWS_LAGGED, Notification),
         keyed::<params::QueueGetParams>(method::MUX_QUEUE_GET, Request),
         keyed::<params::DraftGetParams>(method::MUX_DRAFT_GET, Request),
         keyed::<params::DraftSetParams>(method::MUX_DRAFT_SET, Request),
@@ -459,6 +474,17 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ACCOUNTS, Request),
         untyped(method::MUX_ACCOUNT_SET, Request),
         untyped(method::MUX_ACCOUNT_USAGE, Request),
+        untyped(method::MUX_CONNECTIONS, Request),
+        untyped(method::MUX_CONNECTIONS_ORDER_SET, Request),
+        untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),
+        untyped(method::MUX_CONNECTIONS_REMOVE, Request),
+        untyped(method::MUX_CONNECTIONS_KEY_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_BEGIN, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
@@ -480,6 +506,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_remove", Request),
         keyed::<params::PeerSnapshotParams>("_acpmux/peer_snapshot", Request),
         untyped("_acpmux/peer_snapshots_clear", Request),
+        untyped("_acpmux/journal_restore", Request),
+        untyped("_acpmux/attachments_held", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -488,6 +516,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_SET, Request),
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
+        untyped(method::MUX_MACHINE_ROUTES, Request),
+        untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
+        untyped(method::MUX_SHARE_HOST_STATUS, Request),
+        untyped(method::MUX_MACHINE_ENROLL, Request),
+        untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
+        untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),
@@ -504,10 +538,12 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
+        untyped(method::MUX_CONNECTIONS_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
+        untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
@@ -576,5 +612,24 @@ fn canonical(value: &Value) -> Value {
         }
         Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
         other => other.clone(),
+    }
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
     }
 }

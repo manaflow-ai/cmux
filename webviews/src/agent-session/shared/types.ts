@@ -54,6 +54,10 @@ export type AgentSessionTheme = {
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
   /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
   workingLook?: "breathe" | "shimmer" | "spinner";
+  /// The theme's choice per theme slot (schemas/theme/slots.json): `{ "<slot id>": "<variant id>" }`,
+  /// e.g. `{ "chat.thinkingIndicator": "counting-dots" }` (slots/registry.ts). Absent, or an id no
+  /// variant has, draws each slot's default.
+  slots?: Record<string, string>;
   /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
   /// false keeps the transcript's group cards and the agents pill.

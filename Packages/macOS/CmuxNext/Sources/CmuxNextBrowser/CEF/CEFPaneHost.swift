@@ -28,6 +28,8 @@ final class CEFPaneHost {
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab? { didSet { if let visibleTab { runtime.extensionActionReads.tabShown(visibleTab) } } }
+    /// The tab `present` showed while this host's page window was out of the window (`holdFirstFrameIfAppeared`).
+    private(set) weak var shownWithWindowOut: CEFTab?
     /// The browser this host last made Chromium's active tab (its own
     /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
     /// activation for it, often after the user has moved on.
@@ -135,6 +137,8 @@ final class CEFPaneHost {
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        // The fork orders the page window of a hidden host, or of one in no window, out by the end of that turn.
+        let windowOut = hostView.isHidden || hostView.window == nil || hostView.window !== container.window
         if hostView.superview !== container {
             // A direct addSubview moves the view without taking it out of
             // the window: the page's child window is not re-added (about
@@ -148,6 +152,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
@@ -163,11 +168,7 @@ final class CEFPaneHost {
             // it in the opener's pane. It moves into this host's window.
             ensureOwnWindow(for: tab)
         } else {
-            // Shown in this turn with its input window out of the window: that window comes in after this turn's frame.
-            if tab.appearedThisTurn, !hostView.isHidden {
-                // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
-                hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
-            }
+            holdFirstFrameIfAppeared(tab)
             showBrowser(of: tab)
             tab.grantPendingFocusIfShown()
         }
@@ -349,6 +350,7 @@ final class CEFPaneHost {
         runtime.extensionStores.store(for: key.profile).refresh()
         runtime.orphans.windowBecameLive(self)
         runtime.spareWindow.windowCameUp(self)
+        runtime.pageSpareWindow?.windowCameUp(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
@@ -389,7 +391,7 @@ final class CEFPaneHost {
     /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
         // The spare window has no pane to announce it to: the tab that takes it adopts it.
-        if isSpare { return runtime.spareWindow.park(browser, disposition: disposition, bounds: bounds) }
+        if let spare = runtime.spareWindowHolding(self) { return spare.park(browser, disposition: disposition, bounds: bounds) }
         let opener = visibleTab ?? tabs.last
         if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
@@ -405,6 +407,7 @@ final class CEFPaneHost {
         // Opened by a page: past a new tab's first paint (PageBackground), and
         // Chromium, not us, drives its document, so its page area is its own.
         tab.reachedFirstRealPage(settled: true)
+        tab.replayEarlyEvents()
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }
@@ -417,7 +420,7 @@ final class CEFPaneHost {
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
-        if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindow.giveBack(self, runtime: runtime) }
+        if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindowServing(key)?.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             // A spare page no tab took never outlives its window's tabs (`CEFSpareWindow.page`).
             runtime.spareWindow.closePage(in: self)

@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { bareImageSource, imageOnlyItems, proseImages } from "../src/agent-session/acpmux/conversation/inlineMedia";
 import { codePath, isImagePath, isImageUrl, textLinks } from "../src/agent-session/acpmux/chips/paths";
 import { commitReferences, githubReferences, mentionedRepository } from "../src/githubReferences";
+import { settleReact } from "./support/domTeardown";
 
 const REPO = "manaflow-ai/cmux";
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
@@ -201,7 +202,8 @@ describe("rendered replies", () => {
       IS_REACT_ACT_ENVIRONMENT: true,
     });
   });
-  afterAll(() => {
+  afterAll(async () => {
+    await settleReact();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
       else delete scope[key];

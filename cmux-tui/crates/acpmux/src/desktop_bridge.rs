@@ -24,8 +24,6 @@ pub const APPS: &[App] = &[
     App { address: "claude-desktop", name: "Claude Desktop", harness: "claude" },
     App { address: "codex-desktop", name: "Codex Desktop", harness: "codex" },
 ];
-/// The longest message, as the session mailbox's (`mailbox.rs`).
-pub const MAX_TEXT_BYTES: usize = crate::mailbox::MAX_BODY_BYTES;
 /// Most messages one read returns; the rest stay unread for the next.
 pub const MAX_READ: usize = 50;
 /// How long a read message is kept before a later read removes it.
@@ -79,9 +77,6 @@ impl Bridge {
         if text.is_empty() {
             bail!("the message is empty");
         }
-        if text.len() > MAX_TEXT_BYTES {
-            bail!("the message is {} bytes; the most is {MAX_TEXT_BYTES}", text.len());
-        }
         let from = from.trim();
         if from.is_empty() {
             bail!("the sender is empty");
@@ -99,7 +94,7 @@ impl Bridge {
             at,
         };
         let dir = self.root.join(to.address).join("new");
-        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::home_fs::create_dirs(&dir).with_context(|| format!("creating {}", dir.display()))?;
         crate::config::write_atomic(
             &dir.join(format!("{id}.json")),
             &serde_json::to_vec(&message)?,
@@ -117,7 +112,7 @@ impl Bridge {
         names.truncate(MAX_READ);
         let read = self.root.join(app.address).join("read");
         if mark && !names.is_empty() {
-            std::fs::create_dir_all(&read)?;
+            crate::home_fs::create_dirs(&read)?;
         }
         let mut out = Vec::with_capacity(names.len());
         for name in names {
@@ -127,11 +122,11 @@ impl Bridge {
             let Ok(message) = serde_json::from_slice::<Message>(&bytes) else {
                 // A file that is not a message never blocks the ones after it.
                 if mark {
-                    let _ = std::fs::rename(&path, read.join(&name));
+                    let _ = crate::home_fs::rename(&path, read.join(&name));
                 }
                 continue;
             };
-            if mark && std::fs::rename(&path, read.join(&name)).is_err() {
+            if mark && crate::home_fs::rename(&path, read.join(&name)).is_err() {
                 continue;
             }
             out.push(message);
@@ -161,7 +156,7 @@ fn prune(dir: &Path, keep: Duration) {
     for name in json_files(dir).unwrap_or_default() {
         let at = name.split('-').next().and_then(|t| t.parse::<u64>().ok());
         if at.is_some_and(|at| at < cutoff) {
-            let _ = std::fs::remove_file(dir.join(name));
+            let _ = crate::home_fs::remove_file(dir.join(name));
         }
     }
 }
@@ -231,12 +226,25 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_or_oversized_message_is_refused() {
+    fn an_empty_message_or_sender_is_refused() {
         let (_dir, bridge) = bridge();
         let codex = app("codex").unwrap();
         assert!(bridge.send("x", codex, "  ").is_err());
-        assert!(bridge.send("x", codex, &"a".repeat(MAX_TEXT_BYTES + 1)).is_err());
         assert!(bridge.send(" ", codex, "hi").is_err());
+    }
+
+    /// A message the person or an agent sends goes whole, whatever its size: no 64 KiB limit.
+    #[test]
+    fn send_path_a_bridge_message_of_any_size_is_delivered_whole() {
+        let (_dir, bridge) = bridge();
+        let codex = app("codex").unwrap();
+        let text = "a long paste ".repeat(5 * 1024 * 1024 / 13);
+        assert!(text.len() > 4 << 20);
+        bridge.send("Claude Desktop", codex, &text).unwrap();
+        let (read, more) = bridge.inbox(codex, true).unwrap();
+        assert_eq!(more, 0);
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].text, text.trim());
     }
 
     #[test]

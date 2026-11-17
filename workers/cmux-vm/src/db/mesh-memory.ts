@@ -8,7 +8,7 @@ import { TenantId } from "../lib/ids.ts";
 import type { OverlayServerRow } from "./overlay-servers.ts";
 import type { OverlayServerCodeRow } from "./overlay-server-codes.ts";
 import { memoryDeviceIntents } from "./mesh-intents.ts";
-import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
+import { inventoryOf, MeshStore, type MeshStoreService, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
 export type MemoryEnrollmentCode = Omit<MeshEnrollmentCodeRow, "expiresAt" | "usedAt"> & { expiresAt: Date; usedAt: Date | null; deviceId: string | null };
@@ -30,7 +30,7 @@ export function makeMemoryMeshStore() {
   const serverCodes: Array<OverlayServerCodeRow> = [];
   const intents = memoryDeviceIntents((tenantId, device) => void devices.push({ ...device, tenantId, deletedAt: null }));
 
-  const layer = Layer.succeed(MeshStore, {
+  const service: Omit<MeshStoreService, "meshInventory"> = {
     findDeviceIntent: intents.findDeviceIntent,
     listOpenAttempts: intents.listOpenAttempts,
     findAttempt: intents.findAttempt,
@@ -269,7 +269,8 @@ export function makeMemoryMeshStore() {
         const wanted = new Set(keys);
         for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && wanted.has(row.key) && row.deletedAt === null) row.deletedAt = at;
       }),
-  });
+  };
+  const layer = Layer.succeed(MeshStore, { ...service, meshInventory: inventoryOf(service) });
 
   return {
     layer,

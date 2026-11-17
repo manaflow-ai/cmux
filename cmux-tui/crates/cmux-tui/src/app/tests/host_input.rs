@@ -2,6 +2,9 @@
 //! runtime shutdown, host keyboard protocol negotiation, and text input.
 
 use super::*;
+use crate::app::host_input::{
+    CROSSTERM_POLL_INTERVAL, HOST_INPUT_READER_EXIT_DEADLINE, WAKEABLE_POLL_CAP,
+};
 
 #[test]
 fn input_class_groups_routing_semantics() {
@@ -32,6 +35,7 @@ fn crossterm_reader_uses_bounded_polls_for_all_reads() {
     let fixed_now = Instant::now();
     let blocking = crate::app::read_crossterm_event_with_clock(
         None,
+        CROSSTERM_POLL_INTERVAL,
         |timeout| {
             poll_calls += 1;
             poll_durations.push(timeout);
@@ -49,6 +53,7 @@ fn crossterm_reader_uses_bounded_polls_for_all_reads() {
 
     let timed_out = crate::app::read_crossterm_event_with_clock(
         Some(Duration::from_millis(10)),
+        CROSSTERM_POLL_INTERVAL,
         |timeout| {
             poll_calls += 1;
             poll_durations.push(timeout);
@@ -66,6 +71,7 @@ fn crossterm_reader_uses_bounded_polls_for_all_reads() {
 
     let ready = crate::app::read_crossterm_event_with_clock(
         Some(Duration::from_millis(10)),
+        CROSSTERM_POLL_INTERVAL,
         |timeout| {
             poll_calls += 1;
             poll_durations.push(timeout);
@@ -94,6 +100,7 @@ fn crossterm_reader_propagates_poll_errors_without_reading() {
 
     let result = crate::app::read_crossterm_event(
         None,
+        CROSSTERM_POLL_INTERVAL,
         |_| {
             poll_calls += 1;
             if poll_calls == 1 {
@@ -120,6 +127,7 @@ fn crossterm_reader_retries_interrupted_poll_and_read() {
     let event = Event::Resize(80, 24);
     let result = crate::app::read_crossterm_event(
         None,
+        CROSSTERM_POLL_INTERVAL,
         |_| {
             poll_calls += 1;
             if poll_calls == 1 {
@@ -148,6 +156,7 @@ fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
     let mut poll_calls = 0;
     let poll_result = crate::app::read_crossterm_event_with_clock(
         None,
+        CROSSTERM_POLL_INTERVAL,
         |_| {
             poll_calls += 1;
             Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
@@ -161,6 +170,7 @@ fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
     let mut read_calls = 0;
     let read_result = crate::app::read_crossterm_event_with_clock(
         None,
+        CROSSTERM_POLL_INTERVAL,
         |_| Ok(true),
         || {
             read_calls += 1;
@@ -179,6 +189,7 @@ fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
     let mut poll_calls = 0;
     let result = crate::app::read_crossterm_event_with_clock(
         Some(Duration::from_millis(10)),
+        CROSSTERM_POLL_INTERVAL,
         |timeout| {
             poll_calls += 1;
             assert!(timeout.is_zero());
@@ -207,7 +218,12 @@ fn terminal_paint_pacer_collapses_output_bursts_without_delaying_structural_draw
     let mut pacer = TerminalPaintPacer::after_paint(started);
 
     assert_eq!(pacer.schedule(RenderAction::Paint, started), RenderAction::None);
-    assert_eq!(pacer.wait_timeout(Duration::from_secs(1), started), TERMINAL_PAINT_CADENCE);
+    assert_eq!(
+        pacer.wait_timeout(Some(Duration::from_secs(1)), started),
+        Some(TERMINAL_PAINT_CADENCE)
+    );
+    // An idle wait with no deadline still ends at the pending paint.
+    assert_eq!(pacer.wait_timeout(None, started), Some(TERMINAL_PAINT_CADENCE));
     assert_eq!(
         pacer.schedule(RenderAction::Paint, started + TERMINAL_PAINT_CADENCE / 2),
         RenderAction::None
@@ -446,6 +462,58 @@ fn host_input_runtime_shutdown_joins_reader_before_returning() {
         "runtime shutdown must join the input reader before returning"
     );
     drop(events_rx);
+}
+
+#[test]
+fn the_input_reader_waits_without_a_timer_and_stops_on_wake() {
+    // An idle reader with a waker polls with no timer of its own.
+    let mut polls = Vec::new();
+    let fixed_now = Instant::now();
+    let idle = crate::app::read_crossterm_event_with_clock(
+        None,
+        WAKEABLE_POLL_CAP,
+        |timeout| {
+            polls.push(timeout);
+            Ok(false)
+        },
+        || unreachable!("no event is ready"),
+        || fixed_now,
+    )
+    .unwrap();
+    assert_eq!(idle, None);
+    assert_eq!(polls, vec![WAKEABLE_POLL_CAP]);
+
+    // The reader blocks with no timeout; only shutdown's wake ends the wait.
+    let runtime = HostInputRuntime::new();
+    let ingress = runtime.ingress.clone();
+    let (wake_tx, wake_rx) = crossbeam_channel::bounded::<()>(1);
+    let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+    let (blocked_tx, blocked_rx) = std::sync::mpsc::sync_channel(1);
+    runtime.set_reader_wake(move || {
+        let _ = wake_tx.try_send(());
+    });
+    let spawned = runtime.spawn_reader("input", move || {
+        while !ingress.is_closed() {
+            // Past the ingress check: only a wake can end this wait.
+            let _ = blocked_tx.try_send(());
+            if wake_rx.recv().is_err() {
+                break;
+            }
+        }
+        finished_tx.send(()).unwrap();
+    });
+    assert!(spawned.is_ok(), "the input reader must start");
+    blocked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    let started = Instant::now();
+    runtime.shutdown();
+    let elapsed = started.elapsed();
+
+    assert!(finished_rx.try_recv().is_ok(), "shutdown must wake the blocked reader and join it");
+    assert!(
+        elapsed < HOST_INPUT_READER_EXIT_DEADLINE / 2,
+        "shutdown must not wait out the exit deadline: {elapsed:?}"
+    );
 }
 
 #[test]

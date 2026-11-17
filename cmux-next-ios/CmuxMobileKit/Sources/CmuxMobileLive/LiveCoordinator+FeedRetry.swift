@@ -51,7 +51,7 @@ extension LiveCoordinator {
             do {
                 try Task.checkCancellation()
                 let link = try await pairedLink(session)
-                let channel = try await link.openChannel(service: "acpmux", args: [:])
+                let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
                 guard !Task.isCancelled, session.currentLink === link,
                       sessions[macID] === session else {
                     await channel.close(code: "eof", reason: "recovery cancelled or link replaced")

@@ -96,3 +96,29 @@ fn wait_print_after_a_failed_turn_prints_its_error_and_retry_not_the_reply_befor
     assert!(row["retry"]["nextAt"].as_u64().is_some(), "{v}");
     assert_ne!(row["reply"], "echo: the answer before", "{v}");
 }
+
+/// After a turn that ended without a word (a tool call only), `wait --print` and `wait --json`
+/// print that turn's reply, which is empty, never the reply of the turn before it.
+#[test]
+fn wait_print_after_a_turn_without_text_prints_no_reply_from_before() {
+    let dir = scratch("q");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    let answered = cli(&dir, &["send", "-q", "lane", "the answer before"]);
+    assert!(answered.status.success(), "{}", text(&answered));
+    assert!(String::from_utf8_lossy(&answered.stdout).contains("echo: the answer before"));
+    let quiet = cli(&dir, &["send", "-q", "lane", "quiet-tool"]);
+    assert!(quiet.status.success(), "{}", text(&quiet));
+
+    let waited = cli(&dir, &["wait", "lane", "--print", "--timeout", "20"]);
+    assert_eq!(waited.status.code(), Some(0), "{}", text(&waited));
+    let out = String::from_utf8_lossy(&waited.stdout);
+    assert!(!out.contains("echo: the answer before"), "the reply before: {}", text(&waited));
+
+    let json = cli(&dir, &["--json", "wait", "lane", "--timeout", "20"]);
+    assert_eq!(json.status.code(), Some(0), "{}", text(&json));
+    let v: Value = serde_json::from_slice(&json.stdout)
+        .unwrap_or_else(|e| panic!("not JSON ({e}): {}", text(&json)));
+    assert_eq!(v["sessions"][0]["reply"], "", "{v}");
+}

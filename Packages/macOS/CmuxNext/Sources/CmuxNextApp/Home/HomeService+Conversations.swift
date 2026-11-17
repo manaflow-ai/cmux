@@ -84,7 +84,7 @@ extension HomeService {
         }
         do {
             let record = try await directory.createChief(named: name)
-            if !record.placed { await hostedChief.enableBrain(of: record.id) }
+            if !record.placed { turnOnBrain(of: record.id) }
             pendingSelection = record.mainConversation.map { ConversationID($0) }
             return .success(record)
         } catch FeedServiceError.signedOut {
@@ -100,8 +100,7 @@ extension HomeService {
     private func createCloudChief(named name: String) async -> HomeComposeOutcome {
         do {
             let record = try await directory.createChief(named: name)
-            // A new Chief's brain starts off: turn it on, or it never answers.
-            if !record.placed { await hostedChief.enableBrain(of: record.id) }
+            if !record.placed { turnOnBrain(of: record.id) }
             let id = record.mainConversation.map { ConversationID($0) }
             pendingSelection = id
             return id.map { HomeComposeOutcome.opened($0) } ?? .invited(nil)
@@ -112,6 +111,14 @@ extension HomeService {
         } catch {
             return .refused("")
         }
+    }
+
+    /// A new Chief's brain starts off: turn it on, or it never answers. Not awaited by the create:
+    /// the Chief exists once `chief.create` answers, and the brain's two requests (up to 60 s each)
+    /// held New Chief's Create greyed with nothing said.
+    private func turnOnBrain(of chief: String) {
+        // task-owner: two bounded HTTP requests; enableBrain logs a failure and ends
+        Task { [hostedChief] in _ = await hostedChief.enableBrain(of: chief) }
     }
 
     /// The Chief record behind a conversation row, when the row is a DM

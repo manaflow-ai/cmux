@@ -74,12 +74,22 @@ pub(super) async fn handle(
     }
     let to = recipient(&params["to"])?;
     let command = match params["op"].as_str() {
-        Some("start") => Command::Start {
-            params: start_params(
+        Some("start") => {
+            let start = start_params(
                 &params["params"],
                 crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
-            )?,
-        },
+            )?;
+            // The person's start level, or a full-access caller's, as a start through an ssh
+            // peer carries it (`hub/full_access_children.rs`): the machine serves the relay as a
+            // peer daemon, so without it every such chat started asking there (hq#11835 row 4).
+            let mut start = Value::Object(start);
+            let person = super::requests::person_start(conn, &start);
+            hub.forward_start_policy(person, conn.caller(), &mut start).await;
+            let Value::Object(params) = start else {
+                return Err(RpcError::invalid_params("start requires params"));
+            };
+            Command::Start { params }
+        }
         Some("resume") => Command::Resume,
         Some("stop") => Command::Stop,
         _ => return Err(RpcError::invalid_params("op must be start, resume or stop")),

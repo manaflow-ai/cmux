@@ -181,8 +181,8 @@ import Testing
             let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
             // The band, the badge and the indicator share the top row's one line (#37619). Since 7f3090eb
             // (Lawrence 2026-11-07, "make it all concentric with macos windows by default") the default line is
-            // the top row's pills' (`TopRowLineLook.concentric`), and only the traffic lights, which macOS draws,
-            // keep their own; a window with no top row line keeps the lights'. The line's value is held by
+            // the top row's pills' (`TopRowLineLook.concentric`), and the traffic lights move onto it too
+            // (`TrafficLightsLine`); a window with no top row line keeps the lights'. The line's value is held by
             // `WindowConcentricCornerTests` and `TopRowAlignmentTests`.
             let center = WindowTitlebar.topRowLine(in: window).map { root.bounds.maxY - $0.centerY }
                 ?? root.convert(lights, from: nil).midY

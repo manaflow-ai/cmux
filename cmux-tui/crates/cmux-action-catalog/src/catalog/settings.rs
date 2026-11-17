@@ -370,6 +370,42 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "updates.snooze",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.snooze", "Snooze Update Card…"),
+        keywords: &["update", "snooze", "remind", "remind me later", "later", "hide", "dismiss", "close", "card", "nightly", "version"],
+        category: "settings",
+        symbol: "clock.badge.xmark",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::UPDATE_SNOOZE],
+        cli_name: "action updates-snooze",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.run",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.run", "Run a PR as This App…"),
+        hint: Some(t("ActionCatalog", "action.app.try.run.hint", "Swap this app to a pull request, branch or commit, with no checkout or build. Undo Last PR Run puts it back.")),
+        keywords: &["try", "pr", "pull request", "branch", "commit", "sha", "hot swap", "swap", "run", "test", "nightly", "build"],
+        category: "settings",
+        symbol: "arrow.triangle.pull",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::APP_TRY_TARGET],
+        cli_name: "action app-try-run",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.undo", "Undo Last PR Run"),
+        keywords: &["try", "undo", "pr", "pull request", "put back", "revert", "roll back", "hot swap", "swap"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.pro.upgrade",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.pro.upgrade", "Upgrade to cmux Pro"),
@@ -380,6 +416,17 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings upgrade-to-pro",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "billing.openPortal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.billing.openPortal", "Manage Billing"),
+        keywords: &["billing", "subscription", "invoice", "receipt", "payment", "card", "plan", "pro", "stripe", "portal"],
+        category: "settings",
+        symbol: "creditcard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action billing-open-portal",
         ..Action::DEFAULT
     },
     Action {
@@ -609,28 +656,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "globe",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings toggle-web-page-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.subtle",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.subtle", "Use Bouncy Animations"),
-        keywords: &["animation", "motion", "spring", "bounce", "bouncy", "appearance"],
-        category: "settings",
-        symbol: "arrow.up.and.down.and.sparkles",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-bouncy-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.none",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.none", "Use Animations Without Bounce"),
-        keywords: &["animation", "motion", "spring", "bounce", "critically damped", "appearance"],
-        category: "settings",
-        symbol: "arrow.right.to.line",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-animations-without-bounce",
         ..Action::DEFAULT
     },
     Action {
@@ -882,10 +907,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
         category: "settings",
         symbol: "drop",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action appearance-glass-lens-toggle",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -913,6 +936,47 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Debug Settings > Toasts beside live sample toasts (Lawrence 2026-11-12: "so we can refine the toasts").
+    Action {
+        id: "debug.toastTuning",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastTuning", "Toast Tuning"),
+        keywords: &["toast", "toasts", "notice", "duration", "glass", "padding", "motion", "tuning", "playground", "debug"],
+        category: "settings",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-tuning",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every dialog keycap style on a real dialog card's buttons, rest, hover and pressed, light and dark (Lawrence
+    // 2026-11-16 on the quit dialog's esc and return chips: "come up with more variations").
+    Action {
+        id: "debug.keycapPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.keycapPlayground", "Keycap Playground"),
+        keywords: &["keycap", "keycaps", "shortcut", "key hint", "dialog", "button", "variants", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "keyboard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-keycap-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -920,10 +984,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
         category: "settings",
         symbol: "rectangle.3.group",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-tab-bar-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -934,10 +996,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
         category: "settings",
         symbol: "paintpalette",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-all-themes-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -948,10 +1008,32 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
         category: "settings",
         symbol: "sidebar.left",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-states-playground",
-        main_menu: Some("debug"),
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.sidebarRowTuner",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.sidebarRowTuner", "Sidebar Row Tuner"),
+        keywords: &["sidebar", "rows", "tune", "tuner", "sizes", "spacing", "padding", "gap", "font", "sliders", "values", "debug"],
+        category: "settings",
+        symbol: "slider.horizontal.3",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-sidebar-row-tuner",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.densityOverlayPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityOverlayPlayground", "Density Overlay Playground"),
+        keywords: &["density", "overlay", "helium", "chrome", "browser", "tab bar", "omnibar", "pixel", "diff", "compare", "tune", "debug"],
+        category: "settings",
+        symbol: "square.on.square.dashed",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-overlay-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -962,10 +1044,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
         category: "settings",
         symbol: "macwindow.on.rectangle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-view-window",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -976,11 +1056,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
         category: "settings",
         symbol: "rectangle.on.rectangle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::SERVER.optional(), args::WORKTREE.optional(), args::TEST.optional(), args::PAGE.optional()],
         cli_name: "action debug-projection",
-        main_menu: Some("debug"),
         is_debug_only: true,
         focuses: true,
         ..Action::DEFAULT
@@ -992,11 +1070,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["projection", "test", "run", "worktree", "debug"],
         category: "settings",
         symbol: "checkmark.circle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::TEST.optional()],
         cli_name: "action debug-projection-run-test",
-        main_menu: Some("debug"),
         is_debug_only: true,
         starts_terminal: true,
         ..Action::DEFAULT
@@ -1008,10 +1084,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
         category: "settings",
         symbol: "gauge.with.dots.needle.67percent",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-action-latency-h-u-d",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -1022,9 +1096,46 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
         category: "settings",
         symbol: "arrow.counterclockwise",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-blocking-calls-reset",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.blockingCalls.copy",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.blockingCalls.copy", "Copy Main-Thread Blocking Sites"),
+        keywords: &["blocking", "main thread", "hang", "stall", "sites", "copy", "list", "debug"],
+        category: "settings",
+        symbol: "doc.on.doc",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-blocking-calls-copy",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.sidebarToggleIcon",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.sidebarToggleIcon", "Sidebar Toggle Icon…"),
+        keywords: &["sidebar", "toggle", "icon", "glyph", "button", "debug"],
+        category: "settings",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::DEBUG_SIDEBAR_TOGGLE_ICON],
+        cli_name: "action debug-sidebar-toggle-icon",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.statusIconSet",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.statusIconSet", "Status Icons…"),
+        keywords: &["status", "indicator", "icons", "question", "blocked", "waiting", "debug"],
+        category: "settings",
+        symbol: "questionmark.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::DEBUG_STATUS_ICON_SET],
+        cli_name: "action debug-status-icon-set",
         is_debug_only: true,
         ..Action::DEFAULT
     },

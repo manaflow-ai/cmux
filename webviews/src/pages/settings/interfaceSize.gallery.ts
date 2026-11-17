@@ -2,19 +2,24 @@
 import { settingsPageEntry, type SettingsPageVariant } from "../../gallery/format";
 
 const key = "appearance.metrics.chromeFontSize";
-const metrics = ["sidebarWidth", "columnGap", "dividerThickness"];
 
 function sizeVariant(size: number): SettingsPageVariant {
   return {
+    // Appearance's slider rows (Interface Size, motion, color transition). Text Size itself is drawn by
+    // Personalization's density card, so a focus on it would open Personalization: the page sets the
+    // scale below instead.
     section: "appearance",
-    focus: key,
     options: { values: { [key]: size } },
     note: `Interface Size ${size}: labels stay readable beside or above their sliders in a narrow pane.`,
     play: async (ctx) => {
       ctx.document.documentElement.style.setProperty("--cmux-interface-scale", String(size / 12));
       await ctx.waitFor(() => {
-        for (const metric of metrics) {
-          const row = ctx.find({ selector: `[data-row-key="appearance.metrics.${metric}"]` });
+        // Every slider row the page shows (rows behind a closed More Options are inert, not shown).
+        const rows = [...ctx.document.querySelectorAll<HTMLElement>(".content [data-row-key]")].filter(
+          (row) => row.querySelector(".slider") && row.querySelector(".row-label") && !row.closest("[inert]"),
+        );
+        if (rows.length === 0) return false;
+        for (const row of rows) {
           const label = row.querySelector<HTMLElement>(".row-label")!;
           const slider = row.querySelector<HTMLInputElement>(".slider")!;
           const left = label.getBoundingClientRect();

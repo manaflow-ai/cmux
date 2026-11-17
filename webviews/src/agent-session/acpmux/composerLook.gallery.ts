@@ -1,20 +1,11 @@
 // l10n-allow-file: gallery fixtures (sample chats and prompts), not shipped UI.
-// The composer's two looks (composerLook.ts, composerLook.css; Leo 2026-10-22: "first dot claude,
-// second dot codex. since it's just all looks anyways. first 2 dots minimal on the new tab page, and
-// then when you're in a chat you can also switch the dots if you hover on that bottom area"). The
-// same chat and the same New Tab page in Claude's look (the first dot, the default: the composer as
-// it was) and Codex's (the second dot), and the dots on hover in a chat's bottom area. Both looks lay
-// the buttons out as Claude's (Leo 2026-11-01: "the placement of the buttons are just really bad
-// compared to our claude code version", then "we already have a good version"); Codex's keeps its
-// folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
-// (gallery-only CSS over the shipped one), the replaced in-box row among them.
-import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
+// Chat composers keep Claude and Codex looks. New Tab always uses Claude.
+import { minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
-import type { TaskGoal } from "./goal";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -69,17 +60,6 @@ const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "
         tokensUsed: 12400,
       },
     },
-  };
-};
-
-/// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
-/// `claude_stdio/loops.rs`): the goal strip says when it checks back, or its schedule; its prompt
-/// only on demand.
-const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
-  const snapshot = startedChat();
-  return {
-    ...snapshot,
-    summary: { ...snapshot.summary!, goal: { kind: "loop" as const, status: "active" as const, ...goal } },
   };
 };
 
@@ -277,14 +257,28 @@ const HAT_DEPTH = `.acpmux-dock > .acpmux-running-tray[data-card] {
     var(--glass-material-depth) !important;
 }`;
 
+/// The composer's depth (Leo 2026-11-06, the hat over the composer: "Is there a way to make this less
+/// glass, or maybe less shadow? ... Probably just a little bit more subtle."). The pick is the shipped
+/// --glass-material-depth-composer; the others are gallery-only overrides of the card's shadow.
+const depthCss = (depth: string) => `.acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-shadow: ${depth} !important;
+}`;
+/// Before (base): the floating glass's full two-step depth.
+const DEPTH_BEFORE = depthCss("var(--glass-material-depth)");
+/// Alternate: only the near step, no soft spread under the card.
+const DEPTH_NEAR_ONLY = depthCss(
+  "0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent))",
+);
+/// Alternate: no depth at all; the card is the hairline and its light.
+const DEPTH_NONE = depthCss("0 0 transparent");
+
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
-.nt-composer[data-composer-look="codex"] .nt-above .acpmux-composer-strip { all: revert-layer; }`;
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip { all: revert-layer; }`;
 /// Alternate C: the tray, and the row's controls as quiet text with no mode glyph (Codex's model text).
 const ALT_TEXT_ROW = `
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
+.acpmux-composer[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
+.acpmux-composer[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
 /// Replaced (cmux #28901's in-box row, last good commit 8b44a8a1dc2): + and the mode left, the ring,
 /// the model, the mic and Send right, in one 52 px row inside the box under the prompt. Drawn here
@@ -364,11 +358,11 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
-    "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
     "goal-active": {
+      composerLook: "claude",
       note: "A running Codex goal heads the composer hat; its elapsed time and chevron stay in one row, and pause, edit and delete fade in over the cut objective on hover.",
       snapshot: goalChat("running"),
       play: (ctx) => look(ctx, "claude"),
@@ -384,11 +378,13 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "goal-done": {
+      composerLook: "claude",
       note: "A completed goal keeps a short-lived receipt with its elapsed duration and no misleading resume control.",
       snapshot: goalChat("done"),
       play: (ctx) => look(ctx, "claude"),
     },
     "claude-loop-steps": {
+      composerLook: "claude",
       note: "Claude's /loop is projected into the same goal row; opening it in place shows its checklist for step-by-step plans.",
       snapshot: goalChat("running", "claude"),
       play: async (ctx) => {
@@ -396,52 +392,20 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
     },
-    "loop-wakeup": {
-      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
-      snapshot: loopChat({
-        objective:
-          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
-        reason: "watching the fleet build",
-        nextRunAt: GALLERY_NOW + 15 * 60_000,
-      }),
-      play: (ctx) => look(ctx, "claude"),
-    },
-    "loop-wakeup-open": {
-      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
-      snapshot: loopChat({
-        objective:
-          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
-        reason: "watching the fleet build",
-        nextRunAt: GALLERY_NOW + 15 * 60_000,
-      }),
-      play: async (ctx) => {
-        await look(ctx, "claude");
-        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
-      },
-    },
-    "loop-cron": {
-      note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
-      snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
-      play: (ctx) => look(ctx, "claude"),
-    },
-    "loop-autonomous": {
-      note: "An autonomous /loop (no prompt of the person's), in Codex's look.",
-      snapshot: loopChat({ objective: "", autonomous: true, nextRunAt: GALLERY_NOW + 25_000 }),
-      play: (ctx) => look(ctx, "codex"),
-    },
-    "newtab-codex-speed": {
+    "newtab-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
       height: 520,
       ready: newTab(),
       snapshot: speedNewTab(),
-      play: (ctx) => look(ctx, "codex"),
     },
     "claude-chat": {
-      note: "The first dot, Claude's look (the default): the composer as it was, the mode, model and effort in the quiet row under the box.",
+      composerLook: "claude",
+      note: "The first dot, Claude's look: the composer as it was, the mode, model and effort in the quiet row under the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "claude"),
     },
     "permission-pill-claude": {
+      composerLook: "claude",
       note: "Claude's permission capsule hovered: the shared 8px inset, 28px height and full radius match Codex.",
       snapshot: startedChat(),
       play: async (ctx) => {
@@ -458,6 +422,7 @@ export default agentPaneEntry({
       },
     },
     "claude-chat-dots": {
+      composerLook: "claude",
       note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
@@ -541,16 +506,19 @@ export default agentPaneEntry({
       },
     },
     "composer-glass-quiet-claude": {
+      composerLook: "claude",
       note: "Glass level A: the previous 78% tint and a 16px blur, shown over a busy backdrop for comparison.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "claude", "quiet"),
     },
     "composer-glass-balanced-claude": {
+      composerLook: "claude",
       note: "Glass level B (recommended): a 70% tint and 24px blur keep the background present while preserving AA text contrast.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "claude", "balanced"),
     },
     "composer-glass-clear-claude": {
+      composerLook: "claude",
       note: "Glass level C: a clearer 64% tint and 28px blur; included for comparison, but the bright-underlay contrast is too close for the default.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "claude", "clear"),
@@ -561,36 +529,67 @@ export default agentPaneEntry({
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
     },
     "composer-material-plain": {
+      composerLook: "claude",
       note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "plain"),
     },
     "composer-hat-material": {
+      composerLook: "claude",
       note: "The pick for Leo's image (2026-11-05, the hat over the composer): the hat and the card are one glass, lit once from above. The hat's top takes the card's specular line, corner band and sheen, its frost is the card's vivid one, and the card gives up its own top light at the join, keeping the hairline there and its return along the bottom.",
       snapshot: hatChat(),
       play: (ctx) => hatMaterialStage(ctx),
     },
     "composer-hat-material-before": {
+      composerLook: "claude",
       note: "Before (base): the hat a flat box with a hairline top and the popover frost, and the card's bright top line and sheen running across the middle of the stack, under the hat.",
       snapshot: hatChat(),
       play: (ctx) => hatMaterialStage(ctx, HAT_BEFORE),
     },
     "composer-hat-material-alt-both-lit": {
+      composerLook: "claude",
       note: "Alternate: the hat's top lit and the card keeps its own top light too, so a second bright line divides the one glass.",
       snapshot: hatChat(),
       play: (ctx) => hatMaterialStage(ctx, HAT_BOTH_LIT),
     },
     "composer-hat-material-alt-depth": {
+      composerLook: "claude",
       note: "Alternate: the pick, and the hat casts the material's depth too; through the clear card under it the shadow reads as a smudge at the join.",
       snapshot: hatChat(),
       play: (ctx) => hatMaterialStage(ctx, HAT_DEPTH),
     },
+    "composer-depth": {
+      composerLook: "claude",
+      note: "The pick for Leo's 2026-11-06 ask (\"less shadow ... a little bit more subtle\"): the card casts the material's two steps at about half the reach and half the dark (glass.css --glass-material-depth-composer), so it rests on the pane instead of floating off it. The rim stays as #37594 and #39400 left it.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx),
+    },
+    "composer-depth-before": {
+      composerLook: "claude",
+      note: "Before (base): the floating glass's full depth under the docked card, 0 12px 32px at 55% black in a dark theme, a dark smear below the stack.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_BEFORE),
+    },
+    "composer-depth-alt-near-only": {
+      composerLook: "claude",
+      note: "Alternate: only the near step, a 1 px contact shadow; over art the card loses most of its lift from the wallpaper.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_NEAR_ONLY),
+    },
+    "composer-depth-alt-none": {
+      composerLook: "claude",
+      note: "Alternate: no depth; the card is its hairline and light alone, and over a bright wallpaper its bottom edge disappears.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_NONE),
+    },
     "composer-material-lens": {
+      composerLook: "claude",
       note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "lens"),
     },
     "composer-material-reduce-transparency": {
+      composerLook: "claude",
       note: "Reduce Transparency over the same wallpaper: the solid card with its hairline ring, no frost and no specular band.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "reduce"),
@@ -614,11 +613,13 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
     },
     "send-one-slot-claude-running": {
+      composerLook: "claude",
       note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot before the mic is Stop; the mic keeps the right edge.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-claude-typed": {
+      composerLook: "claude",
       note: "The pick, Claude's look: the first letter turns Stop's slot into Send, Claude desktop's ↵, which steers the turn as Return does (⌘Return queues). One send control, never two.",
       snapshot: runningChat(),
       ready: DRAFT,
@@ -636,6 +637,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "send-alt-after-mic-claude": {
+      composerLook: "claude",
       note: "Alternate (not shipped): Claude's look with the slot after the mic, as Codex's. Not picked: the mic would step left each time a turn starts or a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
@@ -670,32 +672,12 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", ALT_PLAIN_GLYPH),
     },
     "newtab-claude": {
-      note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",
+      composerLook: "claude",
+      note: "New Tab keeps Claude Minimal with no look switcher.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "claude"),
-    },
-    "newtab-codex": {
-      note: "New Tab, the third dot (Codex Minimal): the same page with Codex's composer, the third dot marked.",
-      height: 520,
-      ready: newTab(),
-      snapshot: noChat(manySessions(6)),
-      play: (ctx) => look(ctx, "codex"),
-    },
-    "newtab-classic-codex": {
-      note: "Classic New Tab with Codex's look: the page stays Classic (its dot marked among the styles), its box's row in the same order as Claude's look.",
-      height: 520,
-      ready: newTab({ template: "classic" }),
-      snapshot: noChat(manySessions(4)),
-      play: (ctx) => look(ctx, "codex"),
-    },
-    "newtab-cards-codex": {
-      note: "Cards New Tab with Codex's look: the project strip is Codex's tray over the box, the model in the quiet row under it as Claude's look, the chat cards under it.",
-      height: 560,
-      ready: newTab({ template: "cards" }),
-      snapshot: noChat(manySessions(6)),
-      play: (ctx) => look(ctx, "codex"),
     },
   },
 });

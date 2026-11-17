@@ -76,7 +76,7 @@ public import AppKit
         case .cancel:
             finish(notice: nil)
         case .remove:
-            apply([ShortcutChange(state.actionID, nil)], notice: ShortcutRecorderStrings.shortcutRemoved)
+            apply([replacingPrimary(state.actionID, with: nil)], notice: ShortcutRecorderStrings.shortcutRemoved)
         case .restoreDefault:
             restoreDefault(state)
         case .save, .replace, .keepBoth:
@@ -86,7 +86,7 @@ public import AppKit
             let unbind = option == .keepBoth ? [] : pending.owners
             switch pending {
             case .set(let shortcut, _, _, _):
-                let changes = [ShortcutChange(state.actionID, shortcut)] + unbind.map { unbinding($0, from: shortcut) }
+                let changes = [replacingPrimary(state.actionID, with: shortcut)] + unbind.map { unbinding($0, from: shortcut) }
                 apply(changes, notice: savedNotice(shortcut, removedFrom: unbind))
             case .restoreDefault(let shortcut, _, _, _):
                 commitRestore(state.actionID, unbinding: unbind, from: shortcut)
@@ -108,7 +108,7 @@ public import AppKit
             state.message = message(for: refusal, shortcut: shortcut, id: state.actionID)
         case .available(let notes) where notes.isEmpty:
             writeState(state)
-            return apply([ShortcutChange(state.actionID, shortcut)], notice: savedNotice(shortcut, removedFrom: []))
+            return apply([replacingPrimary(state.actionID, with: shortcut)], notice: savedNotice(shortcut, removedFrom: []))
         case .available(let notes):
             state.pending = .set(shortcut, owners: [], canKeepBoth: false)
             state.message = notes.map { self.note($0, shortcut: shortcut) }.joined(separator: " ")
@@ -145,6 +145,16 @@ public import AppKit
         editor?.restoreDefault(id, unbinding: changes.filter { $0.keys == nil }.map(\.id))
         if !fewer.isEmpty { editor?.save(fewer) }
         finish(notice: ShortcutRecorderStrings.defaultRestored)
+    }
+
+    /// The native recorder displays the primary key. Editing that key keeps
+    /// the other rows, just as editing it in the Keyboard Shortcuts page does.
+    private func replacingPrimary(_ id: ActionID, with shortcut: Shortcut?) -> ShortcutChange {
+        guard let keys = registry.configuredShortcuts(for: id), keys.count > 1 else {
+            return ShortcutChange(id, shortcut)
+        }
+        let primary = shortcut.map { [[$0]] } ?? []
+        return ShortcutChange(id, keys: primary + keys.dropFirst().filter { !primary.contains($0) })
     }
 
     /// Taking `shortcut` from `owner`: only that key when it is one of

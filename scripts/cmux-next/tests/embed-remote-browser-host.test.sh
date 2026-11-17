@@ -2,7 +2,7 @@
 # embed-remote-browser-host.sh under Xcode's /bin/bash 3.2, with a stub host
 # binary, a fake app CEF framework and a file:// stand-in for the controller
 # artifact store (no network, no R2). Covers: the DEV layout (CEF symlink,
-# five helpers, signatures), Release embeds it the same way (the iPhone host
+# five helpers running the small subprocess binary, signatures), Release embeds it the same way (the iPhone host
 # streams phone browser tabs from it) and builds without it, saying so, when it is
 # unavailable unless CMUX_NEXT_REQUIRE_RB_HOST=1,
 # a sha256 mismatch fails the build (also from a damaged store copy), a CEF
@@ -18,7 +18,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 FW="Chromium Embedded Framework.framework"
 fail() { printf 'FAIL: %s\n%s\n' "$1" "${2:-}" >&2; exit 1; }
 
-printf 'int main(void){return 0;}\n' > "$TMP/m.c"
+printf 'const char *m="rbh-host-only"; int main(void){return m[0]==0;}\n' > "$TMP/m.c"
 clang -arch arm64 -o "$TMP/host" "$TMP/m.c"
 sha=$(shasum -a 256 "$TMP/host" | awk '{print $1}')
 app_cef=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$S/cef-manifest.json")
@@ -46,6 +46,7 @@ run() { # <configuration> [ARCHS] [VAR=value...] -> sets out, rc
     TARGET_BUILD_DIR="$TMP/build" TARGET_TEMP_DIR="$TMP/build/tmp" WRAPPER_NAME=app.app \
     CMUX_NEXT_RB_HOST_PIN="$TMP/pin.json" CMUX_NEXT_RB_HOST_CACHE_DIR="$TMP/cache" \
     CMUX_CEF_STORE_URL="file://$TMP/store" CMUX_RB_HOST_NO_R2=1 \
+    CMUX_CEF_CACHE_DIR="$TMP/cef-cache" CMUX_CEF_NO_STORE=1 \
     /bin/bash "$S/embed-remote-browser-host.sh" 2>&1)
   rc=$?
   set -e
@@ -67,6 +68,38 @@ codesign --verify "$host/Contents/Frameworks/cmux-remote-browser-host Helper (GP
 # Unchanged inputs: the stamp skips the rebuild.
 run Debug
 grep -q 'already embedded' <<<"$out" || fail "second Debug run did not reuse the embed" "$out"
+
+# 1b. The helpers run the small subprocess binary (cmux#42190), not copies of
+# the host: CMUX_NEXT_RB_HOST_HELPER stands in for build-cef-shim.sh's
+# cmux-rb-host-helper. Their plists name no principal class; the host's does.
+# Without one (this test has no CEF artifact), the helpers are host copies and
+# the log says so.
+grep -q 'no arm64 cmux-rb-host-helper' <<<"$out" || fail "the host-copy fallback was not reported" "$out"
+grep -aq rbh-host-only "$host/Contents/Frameworks/cmux-remote-browser-host Helper (GPU).app/Contents/MacOS/cmux-remote-browser-host Helper (GPU)" ||
+  fail "the fallback helper is not the host binary"
+printf 'const char *m="rbh-small-helper-stub"; int main(void){return m[0]==0;}\n' > "$TMP/h.c"
+clang -arch arm64 -o "$TMP/small-helper" "$TMP/h.c"
+new_app
+run Debug arm64 CMUX_NEXT_RB_HOST_HELPER="$TMP/small-helper"
+[[ $rc == 0 ]] || fail "Debug embed with the small helper failed" "$out"
+for h in "$host/Contents/Frameworks/cmux-remote-browser-host Helper"*.app; do
+  exe="$h/Contents/MacOS/$(basename "$h" .app)"
+  grep -aq rbh-small-helper-stub "$exe" || fail "$(basename "$h") does not run the small helper"
+  ! grep -aq rbh-host-only "$exe" || fail "$(basename "$h") is still a host copy"
+  ! grep -q NSPrincipalClass "$h/Contents/Info.plist" || fail "$(basename "$h") names a principal class"
+  codesign --verify "$h" || fail "$(basename "$h") not signed"
+done
+grep -aq rbh-host-only "$host/Contents/MacOS/cmux-remote-browser-host" || fail "the host executable is not the pinned host"
+grep -q RbShimApplication "$host/Contents/Info.plist" || fail "the host plist lost its principal class"
+grep -q 'com.manaflow.cmux-remote-browser-host.helper.renderer' "$host/Contents/Frameworks/cmux-remote-browser-host Helper (Renderer).app/Contents/Info.plist" ||
+  fail "the Renderer helper lost its bundle id"
+# A changed helper binary re-embeds (the stamp names it).
+printf 'const char *m="rbh-small-helper-stub2"; int main(void){return m[0]==0;}\n' > "$TMP/h.c"
+clang -arch arm64 -o "$TMP/small-helper" "$TMP/h.c"
+run Debug arm64 CMUX_NEXT_RB_HOST_HELPER="$TMP/small-helper"
+! grep -q 'already embedded' <<<"$out" || fail "a changed helper binary reused the old embed" "$out"
+grep -aq rbh-small-helper-stub2 "$host/Contents/Frameworks/cmux-remote-browser-host Helper.app/Contents/MacOS/cmux-remote-browser-host Helper" ||
+  fail "the changed helper binary was not embedded"
 
 # 2. Release: embeds the same layout (the iPhone host's browser tabs need it).
 new_app

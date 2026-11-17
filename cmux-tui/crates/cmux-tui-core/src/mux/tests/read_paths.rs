@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 use super::*;
 
-fn resource(mux: &Arc<Mux>, operation: &str, fields: Value) -> Value {
+pub(super) fn resource(mux: &Arc<Mux>, operation: &str, fields: Value) -> Value {
     let mut params = fields;
     params["machine"] = json!("current");
     params["session"] = json!("current");
@@ -24,16 +24,16 @@ fn resource(mux: &Arc<Mux>, operation: &str, fields: Value) -> Value {
 }
 
 #[derive(Debug, Default)]
-struct Touched {
-    read: BTreeSet<String>,
-    written: BTreeSet<String>,
+pub(super) struct Touched {
+    pub(super) read: BTreeSet<String>,
+    pub(super) written: BTreeSet<String>,
 }
 
 /// Runs `request` with an authorizer on the registry connection that
 /// records the tables its statements read and write. Setting an authorizer
 /// expires every prepared statement, so cached ones are prepared again and
 /// seen too.
-fn touched(mux: &Arc<Mux>, request: impl FnOnce()) -> Touched {
+pub(super) fn touched(mux: &Arc<Mux>, request: impl FnOnce()) -> Touched {
     let log = Arc::new(Mutex::new(Touched::default()));
     let sink = log.clone();
     mux.registry_connection

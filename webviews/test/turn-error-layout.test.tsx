@@ -1,9 +1,11 @@
 // Agent chat dogfood (2026-10-12): a failed turn drew its error inside the turn's footer row,
 // squeezed between "Worked for 42s" with Retry on the left and the time on the right, so a rate
 // limit read as a narrow column. The failure reads as the turn's answer does: its own block, above
-// the footer row that holds Worked for, Retry and the time (Codex, Claude desktop).
+// the footer row that holds Retry (Codex, Claude desktop). The row draws no time (Lawrence and
+// Lucas, 2026-11-11 standup: no time on hover).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -48,13 +50,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = {
@@ -83,7 +81,7 @@ test("a failed turn's error sits above its footer row, not inside it", async () 
   expect(note).not.toBeNull();
   expect(footer.contains(note)).toBe(false);
   expect(note.compareDocumentPosition(footer) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // The footer row keeps the turn's own line: its time and Retry.
-  expect(footer.querySelector(".cv-turn-time")).not.toBeNull();
+  // The footer row keeps the turn's own line: Retry, and no time.
+  expect(footer.querySelector(".cv-turn-time")).toBeNull();
   expect(footer.querySelector('[aria-label="Retry"]')).not.toBeNull();
 });

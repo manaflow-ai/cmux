@@ -88,8 +88,8 @@ fn native_owner_provisions_attaches_and_reads_context_over_real_entry() {
         methods,
         [
             json!("acp.trust.get"),
-            json!("_acpmux/web_modes"),
             json!("_acpmux/harnesses"),
+            json!("_acpmux/web_modes"),
             json!("acp.trust.get"),
             json!("session/new"),
             json!("_acpmux/web_modes")
@@ -155,7 +155,7 @@ fn native_owner_start_preserves_folder_trust() {
     let methods: Vec<_> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
     assert_eq!(
         methods,
-        [json!("_acpmux/web_modes"), json!("_acpmux/harnesses"), json!("acp.trust.get")]
+        [json!("_acpmux/harnesses"), json!("_acpmux/web_modes"), json!("acp.trust.get")]
     );
 }
 
@@ -383,6 +383,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    // `cmux device setup|start` for this Mac's own app only: it reaches the person's other Macs
+    // over ssh, never for a device on the owner link.
+    "device-setup",
     "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
@@ -396,6 +399,13 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    "apps-open-link",
+    // A web pane's call goes through the local page host's bridge (its app's grant, its page key):
+    // a remote owner link hosts no page, so the carrier does not take it.
+    "apps-page-call",
+    // The provider's change notice is the verified local app's, as its register and its result:
+    // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
+    "apps-provider-changed",
     "apps-provider-register",
     "apps-provider-result",
     "apps-run",
@@ -405,6 +415,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
+    // The app sends input by the id of a creating terminal only to its local daemon
+    // (`queuesCreatingInput`), so no owner link has such input to cancel: default deny
+    // (`native_terminal_cannot_cancel_creating_input`).
+    "cancel-creating-input",
     "client-hello",
     "close-screen",
     "close-screen-group",
@@ -427,6 +441,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-begin",
     "feed-local-handoff-done",
     "feed-local-list",
+    "float-pane",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
@@ -498,6 +513,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-command-context",
     "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",

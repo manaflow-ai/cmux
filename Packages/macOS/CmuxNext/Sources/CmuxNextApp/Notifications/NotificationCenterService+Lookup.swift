@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextNotifications
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
@@ -41,7 +42,7 @@ extension NotificationCenterService {
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, services.appActiveSource() else { return false }
-        return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
+        return services.windows.controllers.contains { ($0.focus.state.windowKey || $0.window?.holdsKeyboard(key: services.keyWindowSource()) == true) && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
     static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
@@ -218,8 +219,7 @@ extension NotificationCenterService {
         }
         // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
         // that request; a different owner-issued request rings again.
-        guard tab.attention != nil,
-              tab.attentionRingHiddenThrough.map({ $0 != tab.attentionGeneration }) ?? true else { return nil }
+        guard tab.attention != nil, !ringHides.isHidden(tab, owner: highlightKey(for: tab)) else { return nil }
         return Self.markRingBase | Self.attentionRingBase | (tab.attentionGeneration & ~(Self.markRingBase | Self.attentionRingBase))
     }
 
@@ -260,6 +260,8 @@ extension NotificationCenterService {
                             session: daemon?.identity?.session, id: workspace.id)
     }
 
+    func hideAttentionRing(of tab: TabModel) { ringHides.hide(tab, owner: highlightKey(for: tab)) }
+
     private func highlightKey(for tab: TabModel) -> HighlightKey {
         let daemon = services?.machines.daemon(forTab: tab)
         return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
@@ -283,7 +285,7 @@ extension NotificationCenterService {
         for tab in tabs where tab.markedUnread {
             dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
         }
-        for tab in tabs where tab.attention != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
+        for tab in tabs where tab.attention != nil { hideAttentionRing(of: tab) }
         guard newest > (dismissedHighlights[key] ?? 0) else { return }
         dismissedHighlights[key] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

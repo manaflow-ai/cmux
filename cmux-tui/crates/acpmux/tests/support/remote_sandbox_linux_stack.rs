@@ -76,6 +76,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         record: d.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     acpmux::trust::set(&trust, &d.join("work").to_string_lossy(), "trusted").unwrap();
     let mut command = daemon_env::tokio_command(&d, daemon_env::Agents::StandIn);

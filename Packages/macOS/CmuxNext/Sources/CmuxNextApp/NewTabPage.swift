@@ -23,8 +23,7 @@ struct NewTabPageHandler {
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, and the model picked on it, remembered on this Mac.
     var remember: (AgentPaneRememberedPick) -> Void = { _ in }
-    /// The page's style switch picked a template (`tabs.newTabTemplate`), or its edit mode removed or
-    /// moved a widget (`tabs.newTabWidgets.*`) or asked to add one.
+    /// The page's style switch picked a template (`tabs.newTabTemplate`).
     var edit: (AgentPaneNewTabEdit) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
@@ -35,6 +34,8 @@ struct NewTabPageHandler {
     var listProjects: (String?) async -> [String] = { _ in [] }
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
+    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
+    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -85,17 +86,20 @@ enum NewTabPage {
         BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
-    /// ``NewTabPlaces/places(_:current:excluding:icon:)`` over every machine's workspaces; `current` is
-    /// the workspace the page's window shows (the active window's when nil).
+    /// The bar's places from the rows that the places feed keeps (a page's open maps no workspace), with
+    /// each listed row's icon read here, as the strip draws it (a kept row has none); before the feed's
+    /// first rows, from one walk of every machine's workspaces. `current` is the workspace the page's window shows (the active
+    /// window's when nil). The web page lists the first rows of each list only; the native page ranks every row itself, so it
+    /// gets them all.
     static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
-        let sources = services.machines.allWorkspaces.map { workspace, _ in
-            NewTabPlaces.Source(id: workspace.id, name: workspace.displayName, tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs))
-        }
         let current = current ?? services.windows.active?.state.workspaceID
-        return NewTabPlaces(home: NSHomeDirectory()).places(sources, current: current, excluding: selectedID) {
-            AppServices.dataURL(services.tabFavicon($0))
-        }
+        let limit = services.settings?.snapshot.nativeNewTabPage == true ? nil : AgentPaneOmnibar.maximumEntries
+        return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { machine, id in
+            // The row's own machine, also while its feature is off: the walk gave each listed row its own tab's icon.
+            let tab = machine.flatMap { services.machines.anyDaemon(machine: $0) }?.store.tab(idOrResource: id)
+            return tab.flatMap { services.tabFavicon($0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
+        }, walk: { services.machines.allWorkspaces.map { workspace, daemon in services.newTabPlaces.mapped(workspace, machine: daemon.machineID) } })
     }
 
     /// The command line a terminal choice types: nil for an empty field,
@@ -130,12 +134,10 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
-            template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
-            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with (NewTabSparePool): the design and remembered choices; no tab
@@ -145,11 +147,9 @@ enum NewTabPage {
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
-            .withWeather(services)
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
@@ -185,6 +185,10 @@ enum NewTabPage {
             action: { [weak services] id in
                 // As the palette runs its row: an action that needs arguments asks for them there.
                 services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+            },
+            places: { [weak services] key in
+                guard let services, services.newTabPlaces.rows != nil else { return nil }
+                return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )
     }
@@ -208,17 +212,12 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick, the edit mode's ✕ and drag and the dots' quick actions, written as Settings would (a refusal is
-    /// logged; the next New Tab shows what the file says); + opens Settings on the widget rows
-    /// (the widgets are settings, not store items: extensibility-DESIGN.md).
+    /// The style switch's pick, written as Settings would (a refusal is logged; the next New Tab
+    /// shows what the file says).
     static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
         guard let settings = services.settings else { return }
         switch edit {
         case .template(let template): Task { await settings.saveNewTabTemplate(template) }
-        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
-        case .show(let widget): Task { await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) } }
-        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
-        case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
         }
     }
 
@@ -283,13 +282,6 @@ extension AgentPaneNewTab {
     func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
         var page = self
         page.allChats = shown ? nil : false
-        return page
-    }
-
-    /// The page told that `tabs.newTabWidgets.greeting` is set to false (``AgentPaneNewTab/headlineOff``).
-    func turningHeadlineOff(_ widgets: NewTabWidgetSettings?) -> AgentPaneNewTab {
-        var page = self
-        page.headlineOff = widgets?.greetingTurnedOff == true ? true : nil
         return page
     }
 }

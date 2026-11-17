@@ -42,6 +42,7 @@ mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
+pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
@@ -178,6 +179,8 @@ pub enum Input {
         policy: Option<String>,
         /// The harness its session runs on.
         harness: Option<String>,
+        /// Its lifetime (action_lifetime.rs), decided as it starts.
+        made: Option<crate::action_lifetime::Made>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -197,8 +200,8 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
-    /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (sidebar_choice.rs).
+    /// Where a subagent's workspace opens, sent at its start before it opens (a later
+    /// `control show|hide` reopens one the user closed there).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -212,8 +215,13 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
-    /// Workspace `key` is gone (it could not open, or a short task's idle
-    /// close closed it): the subagent stays hidden until `control show`.
+    /// `control show|hide` moved its workspace out of or into the "Chief's workspaces" group.
+    SubagentWorkspaceMoved {
+        id: String,
+        into_chief_group: bool,
+    },
+    /// Workspace `key` is gone (it could not open, or the user closed it): the
+    /// next `control show|hide` opens a new one.
     SubagentWorkspaceFailed {
         id: String,
         key: String,
@@ -411,6 +419,20 @@ pub enum Input {
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
+    /// The owner's `memory redescribe`: describe the images these note
+    /// lines name again (redescribe.rs). Answers `{"started": [ids],
+    /// "refused": [{"id", "why"}]}` at once; each new description rewrites
+    /// its note through the memory's change book when it arrives.
+    Redescribe {
+        notes: Vec<u64>,
+        reply: Sender<serde_json::Value>,
+    },
+    /// A new description of the image note line `note` names arrived (or failed).
+    Redescribed {
+        note: u64,
         image: Box<images::TurnImage>,
         description: Result<String, String>,
     },
@@ -1629,7 +1651,8 @@ impl Brain {
                 session_id,
                 policy,
                 harness,
-            } => self.sub_started(&id, session_id, policy, harness),
+                made,
+            } => self.sub_started(&id, session_id, policy, harness, made),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1642,6 +1665,19 @@ impl Brain {
                 self.sub_workspace_slot(&id, name, slot)
             }
             Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
+            Input::SubagentWorkspaceMoved {
+                id,
+                into_chief_group,
+            } => {
+                if let Some(made) = self.state.sub_mut(&id).and_then(|s| s.made.as_mut()) {
+                    made.visibility = Some(if into_chief_group {
+                        crate::action_lifetime::Visibility::Chief
+                    } else {
+                        crate::action_lifetime::Visibility::User
+                    });
+                    self.save();
+                }
+            }
             Input::SubagentWorkspaceShown { id, key, name, ws } => {
                 self.sub_workspace_opened(&id, key, name, ws, false)
             }
@@ -1801,6 +1837,14 @@ impl Brain {
                 let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Redescribe { notes, reply } => {
+                let _ = reply.send(self.redescribe(&notes));
+            }
+            Input::Redescribed {
+                note,
+                image,
+                description,
+            } => self.redescribed(note, &image, description),
             Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));

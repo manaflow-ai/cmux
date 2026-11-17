@@ -10,6 +10,7 @@ on:
       - Packages/Shared/CmuxAgentCursor/**
       - scripts/cmux_agent_cursor_vendor.py
       - tests/test_vendored_cmux_agent_cursor.py
+      - tests/git_fixture_env.py
       - .github/workflows/vendored-agent-cursor.yml
   workflow_dispatch:
 

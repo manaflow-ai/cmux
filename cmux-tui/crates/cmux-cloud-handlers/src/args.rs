@@ -132,7 +132,7 @@ pub fn machine_workspace(args: &Args, machine: &str) -> Checked<Option<String>> 
     required(args, "workspace", Said::with("machineWorkspaceRequired", [machine])).map(Some)
 }
 
-/// The network, rule or publication id these actions take in `--path`; `missing` names which.
+/// The publication id an action takes in `--path`; `missing` names it.
 pub fn id_argument(args: &Args, missing: &'static str) -> Checked<String> {
     required(args, "path", Said::key(missing))
 }
@@ -152,7 +152,8 @@ pub fn browser_path(args: &Args, names: &PortNames) -> Checked<String> {
 
 /// One text argument the action needs, by `check`: `publicKey` (scp), `contents` (file-write),
 /// `snapshot`, `linkId` (preview-revoke), `key` (api-key-revoke).
-pub fn needed(args: &Args, check: &str) -> Checked<String> {
+/// A missing `linkId` is refused as `portFailed` with the machine and port in `names`.
+pub fn needed(args: &Args, check: &str, names: &PortNames) -> Checked<String> {
     let raw = |name: &str, missing: Said| text(args, name).map(str::to_owned).ok_or(missing);
     match check {
         // Sent as given; only a blank one refuses.
@@ -167,7 +168,7 @@ pub fn needed(args: &Args, check: &str) -> Checked<String> {
         },
         "linkId" => match text(args, "linkId") {
             Some(id) if !id.is_empty() => Ok(id.to_owned()),
-            _ => Err(Said::with("portFailed", ["linkId is required"])),
+            _ => Err(names.said("portFailed", &["linkId is required"])),
         },
         "key" => required(args, "key", Said::key("apiKeyRequired")),
         _ => Err(Said::text(format!("unknown argument check {check}"))),
@@ -198,30 +199,6 @@ pub fn apply_machine_config(args: &Args, home: &str) -> Checked<Option<String>> 
         Some(path) if !path.is_empty() => Ok(Some(expanding_home(path, home))),
         _ => Err(Said::with("machineConfigUnreadable", ["--machine-config"])),
     }
-}
-
-/// `cloud firewall-create --path JSON`: the rule's `source` and `destination` (objects, `{}`
-/// when absent) and its `description`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct FirewallRule {
-    pub source: Value,
-    pub destination: Value,
-    pub description: Option<String>,
-}
-
-pub fn firewall_rule(args: &Args) -> Checked<FirewallRule> {
-    let refused = || Said::key("ruleJSONRequired");
-    let rule: Value =
-        text(args, "path").and_then(|json| serde_json::from_str(json).ok()).ok_or_else(refused)?;
-    let rule = rule.as_object().ok_or_else(refused)?;
-    // An endpoint is an object (its fields are the API model's, which the app decodes); `{}` when absent.
-    let side = |name: &str| match rule.get(name) {
-        None => Ok(Value::Object(Map::new())),
-        Some(endpoint @ Value::Object(_)) => Ok(endpoint.clone()),
-        Some(_) => Err(refused()),
-    };
-    let description = rule.get("description").and_then(Value::as_str).map(str::to_owned);
-    Ok(FirewallRule { source: side("source")?, destination: side("destination")?, description })
 }
 
 /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the

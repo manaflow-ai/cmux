@@ -11,6 +11,10 @@
 //! offer the install while the chat goes on), `seed.base_missing` (after one
 //! more try from the remote default branch's tip) or `seed.clone_failed`. A
 //! folder the failed seed made on the machine is removed before the copy.
+//! `--seed-only` (a Cloud chat start) never falls back: it answers
+//! `seed_refused` with the reason in words, `fallback_code`, and what the
+//! copy would send (`copy_files`, `copy_bytes`), and writes nothing, so the
+//! person decides whether the copy goes.
 //!
 //! `--since-last` sends only what changed since this Mac's last push of the
 //! same folder to the same machine folder ([`record`]): a delta bundle after
@@ -20,14 +24,18 @@
 //! `seed.since_mismatch` and `seed.machine_changed` are errors.
 //!
 //! The bundle is uploaded through `fs-v1` beside REMOTE
-//! (`REMOTE/../.cmux-seed-<id>.bundle`, inside the machine's fs roots), then
+//! (`REMOTE/../.cmux-seed-<id>.bundle`, inside the machine's fs roots), or
+//! through the content-addressed store when one is on (`--store
+//! PLATFORM|default`, the cmux credential on stdin, as `cmux link sync push`
+//! takes it) and the machine fetches from it ([`sync_cli::upload`]), then
 //! `git.seed.start` runs the seed as a job on the machine, and the job is
 //! read with one `git.seed.status` request every [`STATUS_EVERY`] until it
 //! ends or [`SEED_DEADLINE`] passes. That wait is inside this process. A start
 //! the machine refuses with `seed.filling` (another seed of the folder still
 //! fills its checkout) is tried again on the same beat until that fill ends.
 //!
-//! A start-chat copy ([`push`] with the chat's subpath) asks for the head first
+//! A start-chat copy ([`push`] with the chat's subpath; `--head-first SUBPATH` on the
+//! command line, `""` for the folder itself) asks for the head first
 //! (`head_first`, a whole seed without this Mac's sparse patterns or LFS): the machine
 //! checks out the root's files, the harness folders and the chat's folder, marks
 //! them on its sync barrier and says `head_ready: true`, then fills the rest
@@ -39,6 +47,12 @@
 //! sends a delta, since the machine refuses a delta into a checkout that is not
 //! whole yet; a job the machine forgot counts as done only when the folder's sync
 //! barrier says ready and no fill marker is left.
+//!
+//! A start-chat copy of a folder the machine has nothing of opens at its head too, when
+//! the machine serves `git-seed-hold-v2` ([`held`]): the machine holds the folder's sync
+//! barrier, this Mac sends the head, the machine marks it, and a detached `cmux link seed
+//! copy-rest` sends the rest and ends the hold. Its record keeps the hold's job as
+//! `filling` the same way.
 //!
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
@@ -63,9 +77,15 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
+mod fetch;
+mod held;
+mod hop;
 mod pull;
 mod record;
 
+pub(super) use hop::{
+    abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
+};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
@@ -80,10 +100,13 @@ use record::{Kept, Record};
 use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--since-last]
+[--since-last | --seed-only | --head-first SUBPATH] [--store PLATFORM|default] [--allow-large]
+       (--store: the bundle through the content-addressed store, the cmux credential on stdin)
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
+[--or-copy | --base-head SHA --base-index SHA --base-work SHA]
+       cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]
+       cmux link seed move --from-socket PATH --socket PATH [LOCAL_FOLDER] FROM_FOLDER TO_FOLDER";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -100,11 +123,21 @@ pub(super) struct SeedError {
     code: String,
     message: String,
     install_url: Option<String>,
+    /// A `--seed-only` refusal: what a copy would have sent instead.
+    refused: Option<Refused>,
+}
+
+/// Why a `--seed-only` push did not copy, and what the copy would send.
+#[derive(Clone, Debug)]
+struct Refused {
+    fallback_code: String,
+    files: u64,
+    bytes: u64,
 }
 
 impl SeedError {
     fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), install_url: None }
+        Self { code: code.into(), message: message.into(), install_url: None, refused: None }
     }
 
     /// A machine call or upload that failed, coded as the copy codes it.
@@ -112,6 +145,7 @@ impl SeedError {
         if let Some(seed) = error.downcast_ref::<Self>() {
             return Self {
                 install_url: seed.install_url.clone(),
+                refused: seed.refused.clone(),
                 ..Self::new(&seed.code, &seed.message)
             };
         }
@@ -123,6 +157,11 @@ impl SeedError {
         let mut line = json!({"ok": false, "error": self.message, "error_code": self.code});
         if let Some(url) = &self.install_url {
             line.set("install_url", json!(url));
+        }
+        if let Some(refused) = &self.refused {
+            line.set("fallback_code", json!(refused.fallback_code));
+            line.set("copy_files", json!(refused.files));
+            line.set("copy_bytes", json!(refused.bytes));
         }
         line
     }
@@ -141,10 +180,10 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
-/// The error code and message of a failed [`push`].
-pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
-    let error = SeedError::of(error);
-    (error.code, error.message)
+/// The answer line of a failed [`push`]: its code and message, and for a
+/// refused seed its `fallback_code` and what a copy would send.
+pub(super) fn failure(error: &anyhow::Error) -> Value {
+    SeedError::of(error).line()
 }
 
 /// What a push did.
@@ -198,21 +237,91 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return if args.is_empty() { 64 } else { 0 };
     }
-    let Some(command) = parse(args) else {
+    // The held copy's own child ([`held::copy_rest`]), never typed by a person.
+    if let ["copy-rest", "--socket", socket, "--job", job, local, remote] =
+        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
+    {
+        return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
+    }
+    // A folder from one machine to another as git, this Mac's folder untouched ([`hop`]): both
+    // passes at once, as `cmux link agent move --sync relay [--sync-seed-local]` runs them.
+    // LOCAL_FOLDER names the folder a seed from this Mac put on the first machine; without it
+    // the folder goes from the first machine's upstream (or back to the second's own record).
+    let moving = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] => {
+            Some((*from, *to, Some(*local), *from_root, *to_root))
+        }
+        ["move", "--from-socket", from, "--socket", to, from_root, to_root] => {
+            Some((*from, *to, None, *from_root, *to_root))
+        }
+        _ => None,
+    };
+    if let Some((from, to, local, from_root, to_root)) = moving {
+        let (from, to, local) = (Path::new(from), Path::new(to), local.map(Path::new));
+        let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
+        // One person's move from a shell: its own owner, apart from any chat's.
+        let owner = "cli";
+        let moved = hop_bulk(from, from_root, to, to_root, local, owner)
+            .and_then(|()| hop_frozen(from, from_root, to, to_root, local, owner))
+            .and_then(|()| land(local, to_root, owner));
+        return match moved {
+            Ok(_) => {
+                println!("{}", json!({"ok": true, "mode": "seed"}));
+                0
+            }
+            Err(error) => {
+                println!("{}", SeedError::of(&error).line());
+                1
+            }
+        };
+    }
+    let value_flags = [
+        "--socket",
+        "--repo",
+        "--ref",
+        "--head-first",
+        "--store",
+        "--base-head",
+        "--base-index",
+        "--base-work",
+    ];
+    let (args, allow_large) = sync_cli::size_cap::take_allow_large(args, &value_flags);
+    let Some(command) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A copy past the size limits goes whole only when asked; else as a first pass ([`sync_cli::size_cap`]).
+    if allow_large
+        && let Command::Push { local, .. } = &command
+        && let Err(error) = sync_cli::size_cap::allow(local)
+    {
+        println!("{}", SeedError::new("sync_failed", format!("{error:#}")).line());
+        return 1;
+    }
     let answer = match command {
         Command::Pull { socket, local, remote, base } => {
             let (line, code) = pull::run(&socket, &local, &remote, base);
             println!("{line}");
             return code;
         }
-        Command::Push { socket, local, remote, since_last } => {
+        Command::Fetch { socket, local, remote, adopt, find_root } => {
+            let (line, code) = fetch::run(&socket, &local, &remote, adopt, find_root);
+            println!("{line}");
+            return code;
+        }
+        Command::Push { socket, local, remote, since_last, seed_only, head_first, store } => {
+            if let Some(store) = store
+                && let Err(error) = sync_cli::store_from_stdin(&store, &mut std::io::stdin().lock())
+            {
+                println!("{}", SeedError::new("unauthorized", error).line());
+                return 1;
+            }
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
+            } else if seed_only {
+                push_seed_only(&socket, &local, &remote, head_first.as_deref())
             } else {
-                push(&socket, &local, &remote, None)
+                push(&socket, &local, &remote, head_first.as_deref())
             };
             pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
         }
@@ -233,15 +342,44 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 enum Command {
-    Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
-    Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
-    Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
+    Pull {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        base: pull::Base,
+    },
+    /// `head_first`: the chat's folder below LOCAL (`""` for LOCAL), as a start-chat copy.
+    Push {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        since_last: bool,
+        seed_only: bool,
+        head_first: Option<String>,
+        /// `--store PLATFORM|default`: the bundle through the content-addressed store.
+        store: Option<String>,
+    },
+    Clone {
+        socket: PathBuf,
+        repo: String,
+        git_ref: Option<String>,
+        remote: String,
+    },
+    /// Transfer to This Mac of a folder this Mac never had (`fetch.rs`).
+    Fetch {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        adopt: bool,
+        find_root: bool,
+    },
 }
 
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
-    let mut or_copy = false;
+    let (mut or_copy, mut seed_only, mut head_first, mut store) = (false, false, None, None);
+    let (mut adopt, mut find_root) = (false, false);
     let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
@@ -252,6 +390,11 @@ fn parse(args: &[String]) -> Option<Command> {
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
             "--or-copy" => or_copy = true,
+            "--seed-only" => seed_only = true,
+            "--adopt" => adopt = true,
+            "--find-root" => find_root = true,
+            "--head-first" => head_first = Some(rest.next()?.clone()),
+            "--store" => store = Some(rest.next()?.clone()),
             "--base-head" => head = Some(rest.next()?.clone()),
             "--base-index" => index = Some(rest.next()?.clone()),
             "--base-work" => work = Some(rest.next()?.clone()),
@@ -273,25 +416,45 @@ fn parse(args: &[String]) -> Option<Command> {
         _ => return None,
     };
     let plain = repo.is_none() && git_ref.is_none();
+    if head_first.is_some() && (action != "push" || since_last) {
+        return None;
+    }
+    if store.is_some() && action != "push" {
+        return None;
+    }
     match (action.as_str(), positional.as_slice()) {
-        ("pull", [local, remote]) if plain && !since_last => Some(Command::Pull {
+        ("pull", [local, remote]) if plain && !since_last && !adopt && !find_root => {
+            Some(Command::Pull {
+                socket: socket?,
+                local: PathBuf::from(local),
+                remote: absolute(remote)?,
+                base: match (base, or_copy) {
+                    (Some(_), true) => return None,
+                    (Some(base), false) => pull::Base::Given(base),
+                    (None, true) => pull::Base::RecordOrCopy,
+                    (None, false) => pull::Base::Record,
+                },
+            })
+        }
+        _ if base.is_some() || or_copy => None,
+        ("fetch", [local, remote]) if plain && !since_last && !seed_only => Some(Command::Fetch {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
-            base: match (base, or_copy) {
-                (Some(_), true) => return None,
-                (Some(base), false) => pull::Base::Given(base),
-                (None, true) => pull::Base::RecordOrCopy,
-                (None, false) => pull::Base::Record,
-            },
+            adopt,
+            find_root,
         }),
-        _ if base.is_some() || or_copy => None,
-        ("push", [local, remote]) if plain => Some(Command::Push {
+        _ if adopt || find_root => None,
+        ("push", [local, remote]) if plain && !(seed_only && since_last) => Some(Command::Push {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
             since_last,
+            seed_only,
+            head_first,
+            store,
         }),
+        _ if seed_only => None,
         ("clone", [remote]) if !since_last => {
             let repo = repo.filter(|repo| repo.split('/').count() == 2)?;
             Some(Command::Clone { socket: socket?, repo, git_ref, remote: absolute(remote)? })
@@ -307,23 +470,17 @@ struct Machine<'a> {
     id: Option<String>,
     /// False when it is another build without `git-seed-v1`.
     seeds: bool,
+    /// It serves `git-seed-hold-v2` ([`held`]).
+    holds: bool,
 }
 
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
-        let lacks = |capability: &str| {
-            identity
-                .as_ref()
-                .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
-        };
+        // The first contact after a lease waits for the link (`machine_gate::reach`).
+        let identity = machine_gate::reach(socket)
+            .map_err(|unreached| SeedError::new("sync_failed", unreached.to_string()))?;
+        let lacks = |capability: &str| machine_gate::outdated_identity(&identity, &[capability]);
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
             // `machine_outdated` only for an older build: a current one that does not serve
             // `fs-v1` on this connection names it instead (an update would change nothing).
@@ -331,11 +488,9 @@ impl<'a> Machine<'a> {
             return Err(SeedError::new(outdated.code(), outdated.message()));
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
-        let id = identity
-            .as_ref()
-            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
-            .map(str::to_owned);
-        Ok(Self { socket, id, seeds })
+        let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
+        let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
+        Ok(Self { socket, id, seeds, holds })
     }
 
     fn outdated() -> SeedError {
@@ -344,6 +499,42 @@ impl<'a> Machine<'a> {
             "the machine runs an older cmux-tui without git-seed-v1; update the machine",
         )
     }
+}
+
+/// A seeded or copied folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
+/// (`from_root`) to the one at `to` (`to_root`; `cmux link agent move --sync relay`): this Mac's
+/// record of `local` follows, so Bring Back Local from the new machine merges against the same
+/// seed. False when there is no record, or it is of another machine than `from`.
+pub(in crate::link) fn follow(
+    local: &Path,
+    from_root: &str,
+    to_root: &str,
+    from: &Path,
+    to: &Path,
+) -> anyhow::Result<bool> {
+    let local = std::fs::canonicalize(local)?;
+    let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
+    let id = |socket: &Path| {
+        machine_gate::reach(socket).ok()?.get("session_id")?.as_str().map(str::to_owned)
+    };
+    if kept.machine.is_some() {
+        let source = anyhow::Context::context(
+            id(from),
+            "the first machine did not say which machine it is",
+        )?;
+        if kept.machine.as_deref() != Some(source.as_str()) {
+            return Ok(false);
+        }
+    }
+    kept.machine =
+        Some(anyhow::Context::context(id(to), "the new machine did not say which machine it is")?);
+    // A copied folder's Bring Back Local merges against the copy's own base (`link-sync`), which
+    // the relay's copy of the machine's record still matches.
+    if kept.mode == Kept::Copy {
+        sync_cli::carry_base(&local, from_root, to_root)?;
+    }
+    record::save(&local, to_root, &kept)?;
+    Ok(true)
 }
 
 /// A full push: the seed, else the copy (module docs). With `head_first` (the
@@ -355,6 +546,28 @@ pub(super) fn push(
     remote: &str,
     head_first: Option<&str>,
 ) -> anyhow::Result<Pushed> {
+    push_full(socket, local, remote, head_first, true)
+}
+
+/// [`push`] with `--seed-only`: a seed the plan or the machine refuses is
+/// `seed_refused`, with the reason and what a copy would send, and nothing
+/// goes; the person decides whether the copy goes (the App asks).
+pub(super) fn push_seed_only(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+) -> anyhow::Result<Pushed> {
+    push_full(socket, local, remote, head_first, false)
+}
+
+fn push_full(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+    copy_ok: bool,
+) -> anyhow::Result<Pushed> {
     let machine = Machine::read(socket)?;
     let local = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
@@ -364,6 +577,9 @@ pub(super) fn push(
         Err(Attempt::Failed(error)) => return Err(error.into()),
         Err(Attempt::Fallback(why)) => why,
     };
+    if !copy_ok {
+        return Err(refusal(&local, fallback).into());
+    }
     // The copy's own lines follow; this one says why, so the card can tell
     // the person (and offer the App install) while the copy runs.
     let mut announce = json!({"phase": "copy", "fallback_code": fallback.code});
@@ -371,7 +587,33 @@ pub(super) fn push(
         announce.set("install_url", json!(url));
     }
     eprintln!("{}", json!({ "progress": announce }));
+    if let Some(subpath) = head_first
+        && let Some(hold) = held::take(&machine, &local, remote, subpath)?
+    {
+        return held::copy(&machine, &local, remote, subpath, hold, Some(fallback));
+    }
     copy(&machine, &local, remote, Some(fallback))
+}
+
+/// The `--seed-only` answer for a seed refused with `fallback`: its reason in
+/// words, then what a copy would send ([`sync_cli::copy_estimate`]).
+fn refusal(local: &Path, fallback: SeedError) -> SeedError {
+    let estimate = sync_cli::copy_estimate(local);
+    let (files, bytes) = estimate.as_ref().map_or((0, 0), |(files, bytes)| (*files, *bytes));
+    let what = match &estimate {
+        Ok(_) => format!(
+            "copying the folder instead would send {} ({})",
+            sync_cli::files_text(files),
+            sync_cli::bytes_text(bytes)
+        ),
+        Err(error) => format!("its size could not be read: {error:#}"),
+    };
+    SeedError {
+        code: "seed_refused".to_string(),
+        message: format!("The machine can't clone this folder: {}; {what}", fallback.message),
+        install_url: fallback.install_url.clone(),
+        refused: Some(Refused { fallback_code: fallback.code, files, bytes }),
+    }
 }
 
 /// [`push`] with `--since-last` (module docs), for `cmux link agent move
@@ -391,6 +633,12 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         return Err(no_previous("the last push of this folder went to another machine").into());
     }
     if record.mode == Kept::Copy {
+        // A held copy that answered at its head: its rest must be in before this one
+        // writes over the folder.
+        if record.filling.is_some() {
+            settle(&machine, remote, &mut record)?;
+            let _ = record::save(&local, remote, &record);
+        }
         return copy(&machine, &local, remote, None);
     }
     if !record.stash_known {
@@ -405,14 +653,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     // The full seed answered at its head: its fill must be done before a delta builds on it.
     if record.filling.is_some() {
         // Read before any shortcut: an unchanged delta never reaches the machine's own check.
-        let mut whole = || checkout_whole(machine.socket, remote);
-        settle_fill(
-            &mut machine_calls(machine.socket),
-            &mut pause,
-            &mut whole,
-            &mut record,
-            deadline(),
-        )?;
+        settle(&machine, remote, &mut record)?;
         let _ = record::save(&local, remote, &record);
     }
     let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
@@ -489,6 +730,12 @@ fn seed_full(
     }
 }
 
+/// [`settle_fill`] over the machine's own calls.
+fn settle(machine: &Machine<'_>, remote: &str, record: &mut Record) -> Result<(), SeedError> {
+    let mut whole = || checkout_whole(machine.socket, remote);
+    settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut whole, record, deadline())
+}
+
 /// The streamed copy, kept as this folder's last push.
 fn copy(
     machine: &Machine<'_>,
@@ -497,6 +744,19 @@ fn copy(
     fallback: Option<SeedError>,
 ) -> anyhow::Result<Pushed> {
     let summary = sync_cli::push(machine.socket, local, remote)?;
+    Ok(copied(machine, local, remote, &summary, fallback, None))
+}
+
+/// A copy's answer, kept as this folder's last push; `filling` is the held copy's job
+/// still sending the rest past its head ([`held`]).
+fn copied(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    summary: &sync_cli::Summary,
+    fallback: Option<SeedError>,
+    filling: Option<&str>,
+) -> Pushed {
     let record = Record {
         mode: Kept::Copy,
         machine: machine.id.clone(),
@@ -506,13 +766,14 @@ fn copy(
         work: None,
         stash: None,
         stash_known: false,
-        filling: None,
+        filling: filling.map(str::to_owned),
+        hop: None,
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
     let _ = record::save(local, remote, &record);
     let line = summary.json();
-    Ok(Pushed {
+    Pushed {
         mode: "copy",
         unchanged: summary.written == 0 && summary.deleted == 0,
         bundle_bytes: 0,
@@ -521,8 +782,8 @@ fn copy(
         skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
         fallback,
-        filling: false,
-    })
+        filling: filling.is_some(),
+    }
 }
 
 fn keep_seed(
@@ -548,6 +809,7 @@ fn seed_record(machine: Option<String>, planned: &Planned, filling: Option<&str>
         stash: planned.params.stash.clone(),
         stash_known: true,
         filling: filling.map(str::to_owned),
+        hop: None,
     }
 }
 
@@ -1160,6 +1422,31 @@ mod tests {
     }
 
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn parses_a_transfer_fetch_and_its_adopt_flag_only_there() {
+        let Some(Command::Fetch { local, remote, adopt, .. }) =
+            parse(&args(&["fetch", "--socket", "/s", "/new", "/home/w/a/", "--adopt"]))
+        else {
+            panic!("fetch");
+        };
+        assert_eq!((local.to_str(), remote.as_str(), adopt), (Some("/new"), "/home/w/a", true));
+        assert!(matches!(
+            parse(&args(&["fetch", "--socket", "/s", "/n", "/r"])),
+            Some(Command::Fetch { adopt: false, .. })
+        ));
+        assert!(parse(&args(&["fetch", "--socket", "/s", "/n", "relative"])).is_none());
+        assert!(parse(&args(&["fetch", "/n", "/r"])).is_none(), "no socket");
+        assert!(parse(&args(&["pull", "--socket", "/s", "/a", "/b", "--adopt"])).is_none());
+        assert!(parse(&args(&["push", "--socket", "/s", "/a", "/b", "--adopt"])).is_none());
+        assert!(parse(&args(&["fetch", "--socket", "/s", "/n", "/r", "--or-copy"])).is_none());
+        assert!(matches!(
+            parse(&args(&["fetch", "--socket", "/s", "/n", "/r/sub", "--find-root"])),
+            Some(Command::Fetch { find_root: true, adopt: false, .. })
+        ));
+        assert!(parse(&args(&["push", "--socket", "/s", "/a", "/b", "--find-root"])).is_none());
+        assert!(parse(&args(&["pull", "--socket", "/s", "/a", "/b", "--find-root"])).is_none());
+    }
 
     #[test]
     fn parses_pull_with_its_base_from_the_record_or_all_three_flags() {

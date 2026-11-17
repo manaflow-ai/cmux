@@ -12,15 +12,23 @@
 //! the watch ends that turn, so a person's send and an agent's `--wait` read the answer as from
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
-//! A chat whose app no longer runs it falls through to the refusal: Take Over runs it here.
+//! A chat whose app no longer runs it falls through to the refusal: Take Over runs it here. A
+//! chat its session registered by name (`acpmux register`, `register.rs`) is that name's address
+//! instead: while its app is not running it, a prompt is refused as `bridge.not_running`, which
+//! the outbox tries again (`acpmux send --no-wait` keeps it queued, `--status` says so) until the
+//! session runs again and registers, or the outbox's day runs out.
 //! Deliveries are kept in memory (the newest 256 answered ones too, so a resend is not delivered
 //! again). After a daemon restart, a delivered line the watch had not shown yet shows only its
-//! answer, as any other session's peer message does.
+//! answer, as any other session's peer message does. A prompt id is delivered at most once per
+//! session for good: the session's log records each delivery (`bridge_delivered`), and a resend of
+//! a recorded id the memory no longer holds (a restart, or past the kept 256) is answered as a
+//! duplicate without reaching the app. A peer's outbox resends an open delivery on every link
+//! (`open_delivery.rs`), so without this each restart put the same message in the app again.
 
 use super::{Hub, PromptOptions, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
@@ -61,6 +69,15 @@ static PENDING: LazyLock<Mutex<Deliveries>> = LazyLock::new(Default::default);
 
 fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The prompt ids each session's log records as delivered (`bridge_delivered`), by session id:
+/// read from the log once per session per daemon, then added to on each delivery.
+static DELIVERED: LazyLock<Mutex<HashMap<String, HashSet<String>>>> =
+    LazyLock::new(Default::default);
+
+fn delivered_ids() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
+    DELIVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Deliveries {
@@ -166,7 +183,7 @@ fn text_of(blocks: &[Value]) -> Option<String> {
 /// Where a bridged chat's prompt goes: the Claude Code session's inbox, or the Codex thread's
 /// queue.
 enum Target {
-    Claude { config: PathBuf, peer: crate::claude_peers::Peer },
+    Claude { config: PathBuf, peer: crate::claude_peers::Peer, token: Option<String> },
     Codex { home: PathBuf, thread: crate::codex_desktop::Thread },
 }
 
@@ -174,7 +191,11 @@ impl Target {
     /// What the delivery record and the prompt's answer say of the app.
     fn details(&self) -> Value {
         match self {
-            Target::Claude { peer, .. } => json!({"pid": peer.pid, "entrypoint": peer.entrypoint}),
+            Target::Claude { peer, token, .. } => json!({
+                "pid": peer.pid,
+                "entrypoint": peer.entrypoint,
+                "token": if token.is_some() { "registered" } else { "peer-key" },
+            }),
             Target::Codex { thread, .. } => {
                 json!({"thread": thread.id, "originator": thread.originator})
             }
@@ -184,9 +205,10 @@ impl Target {
     /// Delivers `wire` as message `uuid` from `sender`.
     async fn deliver(&self, wire: &str, uuid: &str, sender: &str) -> Result<(), String> {
         match self {
-            Target::Claude { config, peer } => {
+            Target::Claude { config, peer, token } => {
                 let from = crate::claude_peers::from_address(sender);
-                crate::claude_peers::deliver(config, peer, wire, uuid, &from).await
+                crate::claude_peers::deliver(config, peer, wire, uuid, &from, token.as_deref())
+                    .await
             }
             Target::Codex { home, thread } => {
                 crate::codex_desktop::deliver(home, &thread.id, wire, uuid).await.map(drop)
@@ -202,6 +224,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         blocks: &[Value],
+        client: &str,
         opts: &mut PromptOptions,
     ) -> Option<Result<Value, RpcError>> {
         let watching = session.meta().watching?;
@@ -215,6 +238,7 @@ impl Hub {
         if session.meta().tags.get("bridge").is_none_or(|t| t.value != family) {
             return None;
         }
+        let registered = super::register::is_registered(session);
         // A prompt that waits for the owner's approval (a shared chat's guest, `author.rs`) is
         // never delivered: the app would run it before anyone approved it. It goes the usual way,
         // which refuses it while the chat is watched, until the bridge holds prompts for approval.
@@ -227,25 +251,79 @@ impl Hub {
             if let Some(rx) = kept {
                 return Some(resent(session, &id, rx, opts).await);
             }
+            // One this daemon no longer holds (a restart, or evicted) but the log records: the
+            // app has it, so it is answered as a duplicate and never delivered again.
+            if self.delivered_before(session, &id).await {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(json!({"sessionId": session.id, "promptId": id, "duplicate": true}));
+                }
+                let mut reply = reply(&id, None, None);
+                if let Some(meta) =
+                    reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+                {
+                    meta.insert("duplicate".to_owned(), json!(true));
+                }
+                return Some(Ok(reply));
+            }
         }
         let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let acpmux_home = crate::config::home();
+        let chat_id = session.id.clone();
         let target = tokio::task::spawn_blocking(move || {
-            if !crate::claude_peers::enabled() {
+            // A chat its session registered is bridged whatever the setting says: the session
+            // asked for it from its own shell (`register.rs`).
+            if !registered && !crate::claude_peers::enabled() {
                 return None;
             }
-            // The app's own record must name an entrypoint (Claude Code) or originator (Codex)
-            // the setting lists: a tag alone is anyone's to set.
+            // A chat nobody registered: the app's own record must name an entrypoint (Claude
+            // Code) or originator (Codex) the setting lists, since a tag alone is anyone's to
+            // set. A registered chat never goes by an entrypoint (anyone's to write): only by the
+            // process its registration recorded, below.
             let listed = crate::claude_peers::listed_entrypoints();
             if family == "codex" {
+                // Only Claude Code sessions register (`register.rs`).
+                if registered {
+                    return None;
+                }
                 let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
                 return Some(Target::Codex { home: homes.codex, thread });
             }
-            crate::claude_peers::find(&homes.claude, &agent_session_id)
-                .filter(|p| p.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
-                .map(|peer| Target::Claude { config: homes.claude, peer })
+            let by_setting = |p: &crate::claude_peers::Peer| {
+                crate::claude_peers::enabled()
+                    && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+            };
+            if registered {
+                // A registered chat opens only with the token its session handed over, into the
+                // process that registration recorded (pid, inbox, start), while it is its
+                // conversation's only live claimant. A restarted session's new process has none
+                // until it registers again, so the send waits (`bridge.not_running`), never
+                // opening with the undocumented peer key, with the bridge setting on or off.
+                let live = crate::claude_peers::live(&homes.claude);
+                let (peer, token) =
+                    live.iter().filter(|p| p.session_id == agent_session_id).find_map(|p| {
+                        let started = crate::claude_peers::started_at(&homes.claude, p.pid);
+                        let token =
+                            crate::claude_peers::token_for(&acpmux_home, &chat_id, p, started)?;
+                        crate::claude_peers::sole_claimant(p, &live).then(|| (p.clone(), token))
+                    })?;
+                return Some(Target::Claude { config: homes.claude, peer, token: Some(token) });
+            }
+            let peer =
+                crate::claude_peers::find(&homes.claude, &agent_session_id).filter(by_setting)?;
+            let token = None;
+            Some(Target::Claude { config: homes.claude, peer, token })
         })
         .await
-        .ok()??;
+        .ok()
+        .flatten();
+        let Some(target) = target else {
+            // A registered name keeps its address while its app is closed: a send the outbox
+            // carries (here, or a peer's forwarded) waits and is tried again, instead of failing
+            // as a read-only chat's would. A person's own prompt still gets the read-only
+            // refusal, with Take Over.
+            return (registered && retried_client(client))
+                .then(|| Err(not_running(&session.meta().name)));
+        };
         let Some(text) = text_of(blocks) else {
             return Some(Err(RpcError::invalid_params(
                 "only text reaches a session another app runs: send it without attachments, or take the chat over",
@@ -254,7 +332,18 @@ impl Hub {
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
         // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
-        let wire = with_reply_hint(&text, reply_name(opts).as_deref());
+        let harness = sender_harness(opts);
+        let unverified =
+            opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
+                == Some("unverified");
+        let claude = matches!(target, Target::Claude { .. });
+        let wire = with_reply_hint(
+            &text,
+            reply_name(opts).as_deref(),
+            harness.as_deref(),
+            unverified,
+            claude,
+        );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -294,6 +383,9 @@ impl Hub {
             record.extend(more.clone());
         }
         self.append(session, "mux", "bridge_delivered", record);
+        if let Some(ids) = delivered_ids().get_mut(&session.id) {
+            ids.insert(prompt_id.clone());
+        }
         if let Some(f) = opts.on_accepted.take() {
             f(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
@@ -301,22 +393,95 @@ impl Hub {
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
     }
+
+    /// Whether `session`'s log records `prompt_id` as delivered. The first ask of a session reads
+    /// its log's `bridge_delivered` records (headers only, off the async threads); later ones
+    /// read the set that read made.
+    async fn delivered_before(self: &Arc<Self>, session: &Session, prompt_id: &str) -> bool {
+        if let Some(ids) = delivered_ids().get(&session.id) {
+            return ids.contains(prompt_id);
+        }
+        let hub = Arc::clone(self);
+        let id = session.id.clone();
+        let read = tokio::task::spawn_blocking(move || {
+            let mut ids = HashSet::new();
+            let scanned = hub.store.scan_heads(&id, &mut |head| {
+                if head.dir == "mux" && head.kind == "bridge_delivered" {
+                    let rec = head.record();
+                    let prompt = rec.as_ref().and_then(|r| r.msg.get("promptId")?.as_str());
+                    if let Some(prompt) = prompt {
+                        ids.insert(prompt.to_owned());
+                    }
+                }
+                true
+            });
+            scanned.ok().map(|()| ids)
+        })
+        .await
+        .ok()
+        .flatten();
+        // A log that could not be read is read again on the next ask, not taken as empty.
+        let Some(ids) = read else { return false };
+        // A delivery made while the log was read added nothing (no set yet): merge, never replace.
+        let mut all = delivered_ids();
+        let known = all.entry(session.id.clone()).or_default();
+        known.extend(ids);
+        known.contains(prompt_id)
+    }
 }
 
-/// `text` as the app reads it: an agent's message ends with how to answer that agent. Claude
-/// Code's own messaging cannot reach an `acpmux:` address, and its `acpmux send` from the app's
-/// shell is bound to this chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox
-/// under the chat's name. The person's prompt goes as typed.
-fn with_reply_hint(text: &str, agent: Option<&str>) -> String {
-    match agent.map(str::trim).filter(|a| !a.is_empty()) {
-        Some(agent) => {
-            let quoted = agent.replace('\'', "'\\''");
-            format!(
-                "{text}\n\n[From {agent}, an acpmux session. Answer it with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
-            )
-        }
-        None => text.to_owned(),
+/// `text` as the app reads it: an agent's message opens with the line every harness reads ahead
+/// of another agent's message (`prompt_attribution::agent_line`: its name, and its harness when
+/// the daemon bound one) and ends with how to answer that agent. Claude Code's own messaging
+/// cannot reach an `acpmux:` address, and its `acpmux send` from the app's shell is bound to this
+/// chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox under the chat's name.
+/// The person's prompt goes as typed.
+/// A sender acpmux could not bind (`unverified`) reads as the program it claims to be, as on the
+/// ACP path (`prompt_attribution::unverified_line`).
+///
+/// Claude Code (`claude`) puts its own text around every message that reaches it this way:
+/// "Another Claude session sent a message:" before it, and after it a paragraph saying a peer is
+/// not the user and cannot grant permissions. Nothing turns those off, and its terminal shows
+/// them on every message. So a Claude Code session gets the sender and how to answer as one line
+/// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
+/// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
+/// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
+fn with_reply_hint(
+    text: &str,
+    agent: Option<&str>,
+    harness: Option<&str>,
+    unverified: bool,
+    claude: bool,
+) -> String {
+    let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        return text.to_owned();
+    };
+    let quoted = agent.replace('\'', "'\\''");
+    let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    let line = if unverified {
+        super::prompt_attribution::unverified_line(Some(&who))
+    } else {
+        super::prompt_attribution::agent_line(&who)
+    };
+    if claude {
+        let line = line.trim_end_matches(':');
+        return format!(
+            "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
+        );
     }
+    format!(
+        "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+    )
+}
+
+/// The sender's harness the daemon bound on the prompt's provenance (`fromHarness`).
+fn sender_harness(opts: &PromptOptions) -> Option<String> {
+    opts.provenance
+        .as_ref()?
+        .get(crate::prompt_provenance::FROM_HARNESS)?
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// Who the app's answer goes to: the chat a verified session message came from (a caller token's
@@ -333,6 +498,23 @@ fn reply_name(opts: &PromptOptions) -> Option<String> {
         .filter(|n| !n.trim().is_empty())
         .map(str::to_owned)
         .or_else(|| opts.agent.clone())
+}
+
+/// A client whose refused prompt is tried again: this daemon's outbox, or a peer daemon
+/// forwarding its outbox's send (`hub/prompt_line.rs` names the same prefixes).
+fn retried_client(client: &str) -> bool {
+    ["acpmux-outbox#", "acpmux-peer#"].iter().any(|p| client.starts_with(p))
+}
+
+/// A registered chat's app is not running it now: tried again (`server/outbox.rs` `next`).
+fn not_running(name: &str) -> RpcError {
+    RpcError::new(
+        -32000,
+        format!(
+            "bridge.not_running: {name}'s app is not running it now; the message waits and is tried again"
+        ),
+    )
+    .with_data(json!({"reason": "bridge.not_running", "retryable": true}))
 }
 
 fn undelivered(e: &str) -> RpcError {
@@ -378,6 +560,12 @@ fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
             "bridged": bridged.unwrap_or(json!(true)),
         }},
     })
+}
+
+/// Tests: forget what this process knows of `session_id`'s deliveries, as a restart does.
+#[cfg(test)]
+fn forget_delivered_ids(session_id: &str) {
+    delivered_ids().remove(session_id);
 }
 
 #[cfg(test)]

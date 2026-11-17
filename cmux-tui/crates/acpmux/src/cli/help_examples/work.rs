@@ -296,15 +296,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "desktop",
         &[
-            ("Give every desktop app here the cmux tools", "acpmux desktop link"),
+            ("Give every agent app here the cmux tools", "acpmux desktop link"),
             ("See which apps have the cmux tools", "acpmux desktop status"),
         ],
     ),
     (
         "desktop link",
         &[
-            ("Give Claude desktop, Claude Code and Codex the cmux tools", "acpmux desktop link"),
+            (
+                "Give Claude, Codex, OpenCode, Gemini CLI, Qwen Code and pi the cmux tools",
+                "acpmux desktop link",
+            ),
             ("See what linking Codex would change", "acpmux desktop link --app codex --dry-run"),
+            ("Give only OpenCode the cmux tools", "acpmux desktop link --app opencode"),
         ],
     ),
     (

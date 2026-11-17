@@ -83,7 +83,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
     (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
      "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
-    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
+    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/action-catalog.json",
+      "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (SETTINGS_EXPORTS,
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),
@@ -96,7 +97,7 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "web/scripts/export-docs-shortcuts.ts"),
     (("cmux-tui/crates/cmux-app-host/generated/*",),
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
-     r"|cmux-tui/crates/cmux-app-host/tools/|" + ACTIONS_INPUTS,
+     r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,
      "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"),
     (("cmux-tui/bindings/*/.cmux-resource-api.json", "cmux-tui/bindings/*.cmux-sdk-manifest.json",
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",

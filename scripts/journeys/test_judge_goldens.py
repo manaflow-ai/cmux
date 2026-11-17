@@ -335,8 +335,9 @@ class RealJudgeTests(unittest.TestCase):
     def test_the_real_video_judge_reproduces_its_own_bless(self):
         try:
             import numpy  # noqa: F401
-        except ImportError:
-            self.skipTest("numpy is not installed (run with the VM venv)")
+            import imageio_ffmpeg  # noqa: F401 - video_judge.ffmpeg_exe's ffmpeg; its unit tests fail without it
+        except ImportError as missing:
+            self.skipTest(f"{missing.name} is not installed (run with the VM venv)")
         import test_video_judge_classes as classes
         w = Workspace()
         try:

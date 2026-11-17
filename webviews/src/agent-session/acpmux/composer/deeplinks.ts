@@ -8,14 +8,16 @@ import { appHref, safeHref } from "../replyHref";
 
 export type Deeplink = { start: number; end: number; href: string };
 
-// A link starts at a word boundary (not inside a path or another URL) and runs to the first space
-// or bracket; trailing sentence punctuation stays text, as chips/paths.ts reads a URL.
+// A link starts at a word boundary (not inside a path or another URL) and runs to the first space,
+// bracket or U+FFFC (the draft's reading of an attachment or other leaf placed in the text, which
+// is never part of a URL: an image pasted right after a link had turned the link back into plain
+// text, Leo 2026-11-09); trailing sentence punctuation stays text, as chips/paths.ts reads a URL.
 const DEEPLINK =
-  /(?<![\w/.:~@+-])(?:cmux(?:-[a-z0-9-]+)?:\/\/|https:\/\/(?:www\.)?cmux\.com(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/deeplink\/)[^\s<>()"'`[\]]*/g;
+  /(?<![\w/.:~@+-])(?:cmux(?:-[a-z0-9-]+)?:\/\/|https:\/\/(?:www\.)?cmux\.com(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/deeplink\/)[^\s<>()"'`[\]\uFFFC]*/g;
 
 /// Where the run of link characters that holds `index` starts: the character after the last space or
-/// bracket before it (the characters DEEPLINK ends a link at).
-const RUN_END = /[\s<>()"'`[\]]/;
+/// bracket or leaf before it (the characters DEEPLINK ends a link at).
+const RUN_END = /[\s<>()"'`[\]\uFFFC]/;
 function runStart(text: string, index: number): number {
   let at = index;
   while (at > 0 && !RUN_END.test(text[at - 1]!)) at -= 1;
@@ -36,4 +38,17 @@ export function deeplinks(text: string): Deeplink[] {
     if (href) out.push({ start: match.index!, end: match.index! + value.length, href });
   }
   return out;
+}
+
+/// A paste of `text` with a space after it when it ends in a cmux deeplink and `next` (the draft's
+/// character after the caret, "" at the line's end) is not already a space: the link's chip ends at
+/// the first space, so a key typed right after the paste joined the link and redrew it (Leo,
+/// 2026-11-12: "pasting these types of links that get visually formatted should be automatically
+/// adding a space after when pasting"). Trailing punctuation already ends a link, so it gets none.
+/// `pastedFrom` is where the paste starts in `text`: a link begun before it is one the person is
+/// editing (a paste into its middle), never split with a space.
+export function spacedAfterDeeplink(text: string, next: string, pastedFrom = 0): string {
+  if (/\s$/.test(text) || /^\s/.test(next)) return text;
+  const last = deeplinks(text).at(-1);
+  return last && last.end === text.length && last.start >= pastedFrom ? `${text} ` : text;
 }

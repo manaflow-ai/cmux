@@ -91,6 +91,17 @@ import Testing
         #expect(Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#eeeeee" } }"##).corrected.isEmpty)
     }
 
+    /// `cmux theme export --save NAME --use` copies the settings' own edits: text they already
+    /// show under 4.5:1 stays as it is, so the generated file changes nothing.
+    @Test func textTheSettingsAlreadyShowIsNotCorrected() {
+        let edits: JSONValue = .object(["Nord/background": "#222222", "Nord/foreground": "#333333"])
+        let base: JSONValue = .object(["appearance": .object(["theme": "Nord", "themeEdits": edits])])
+        let overlay = Self.overlay(##"{ "appearance.theme": "Nord", "appearance.themeEdits": { "Nord/background": "#222222", "Nord/foreground": "#333333" } }"##, base: base)
+        #expect(overlay.corrected.isEmpty)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.applied(to: base) == base)
+    }
+
     /// The copy-paste example in skills/cmux-customization/SKILL.md ("Rice cmux") applies whole.
     @Test func theSkillExampleAppliesWithNoRefusals() {
         let overlay = Self.overlay(#"""
@@ -145,7 +156,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        #expect(names.contains("harbor"))
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)
@@ -195,7 +206,7 @@ import Testing
 
     static func controller(_ home: Home, config: String, design: DesignSettings = DesignSettings()) throws -> SettingsController {
         try Data(config.utf8).write(to: home.config)
-        return SettingsController(registry: .standard(), design: design, fileURL: home.config,
+        return SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: design, fileURL: home.config,
                                   managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
     }
 

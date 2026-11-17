@@ -56,6 +56,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Snapshot order of this stream; only the reader thread touches it.
     private final class SequencerBox: Sendable {
         let value = Mutex(TerminalSnapshotSequencer())
+        /// This attachment's first live output was seen (the launch's `first_shell_live` mark, once per attachment).
+        let sawOutput = Mutex(false)
     }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
@@ -111,7 +113,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
@@ -163,7 +168,11 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject)) }
+                    if case .output = event {
+                        TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject))
+                        // A shell's first live output (not a replay): the launch keeps the first of these (bare launch, piece 8).
+                        if !sequencer.sawOutput.withLock({ seen in defer { seen = true }; return seen }) { DaemonLaunchTimings.shared.mark("first_shell_live") }
+                    }
                     queue.push(event)
                 }
             },
@@ -212,7 +221,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         control.value.withLock { control in
             control.lease = response.lease
@@ -237,7 +249,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
     }
 

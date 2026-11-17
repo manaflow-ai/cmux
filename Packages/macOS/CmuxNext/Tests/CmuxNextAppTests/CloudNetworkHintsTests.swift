@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDaemonService
 import CmuxNextCloud
 import Foundation
 import Testing
@@ -11,9 +12,9 @@ import Testing
 struct CloudNetworkHintsTests {
     @Test func theRefusalComesFromTheIDArgument() throws {
         #expect(throws: ActionFailure(message: CloudStrings.publicationRequired)) {
-            try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string("  ")]), CloudStrings.publicationRequired)
+            try CloudHandlerRules().id(ActionInvocation(arguments: ["path": .string("  ")]), missing: "publicationRequired")
         }
-        #expect(try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string(" pub-1 ")]), CloudStrings.publicationRequired) == "pub-1")
+        #expect(try CloudHandlerRules().id(ActionInvocation(arguments: ["path": .string(" pub-1 ")]), missing: "publicationRequired") == "pub-1")
     }
 
     /// Attach and detach take no required id: none is the joined team's network, the only one

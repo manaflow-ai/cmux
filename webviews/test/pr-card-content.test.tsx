@@ -5,6 +5,7 @@
 // card showed "GitHub rate limit · resets 9:11 PM" because every hover called GitHub.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -45,7 +46,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -103,7 +105,7 @@ async function card(answer: Record<string, unknown>, url = PR_URL, known = KNOWN
   const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   // The card words every age in the pane's language, so the pane's language is pinned here
-  // rather than left to the runner's (REVIEW.md: a test must not read the machine).
+  // rather than left to the runner's (a test must not read the machine).
   setPaneLanguage("en");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
   const { PullRequestCardBody } = await import("../src/agent-session/acpmux/chips/PullRequestCard");

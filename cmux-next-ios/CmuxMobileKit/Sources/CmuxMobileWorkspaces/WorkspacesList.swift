@@ -55,6 +55,8 @@ public struct WorkspacesList: View {
     @State private var bulkClosing: BulkClose?
     /// Set Icon…: the workspace whose icon picker is open.
     @State private var iconPicking: Workspace?
+    /// New Task…: the task composer is open.
+    @State private var composingTask = false
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -157,6 +159,15 @@ public struct WorkspacesList: View {
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
     private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
 
+    /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
+    private var launchState: WorkspacesLaunchState {
+        WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
+                                      hasWorkspaces: !store.activeWorkspaces.isEmpty, isOffline: store.isOffline)
+    }
+
+    /// The list's own placeholder rows fill the page (Macs known, no rows yet).
+    private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
+
     public var body: some View {
         groupDialogs(page)
     }
@@ -190,6 +201,20 @@ public struct WorkspacesList: View {
             }
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
+            }
+            #if DEBUG
+            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
+            .task {
+                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
+                      !creator.taskMacs.isEmpty else { return }
+                DebugLaunch.openedNewTask = true
+                composingTask = true
+            }
+            #endif
+            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
+            .fullScreenCover(isPresented: $composingTask) {
+                TaskComposerScreen(creator: creator, sameNames: sameNames,
+                                   started: { made in startedTask(made) }, close: { composingTask = false })
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
@@ -245,6 +270,7 @@ public struct WorkspacesList: View {
                 Button("Delete Group", role: .destructive) {
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { (target: GroupTarget) in
                 Text(deleteGroupMessage(target))
             }
@@ -268,7 +294,13 @@ public struct WorkspacesList: View {
         if let mac = scopedMac {
             return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
-        if showsUpdating && isRefreshing { return "Updating…" }
+        let state = launchState
+        // One loading indicator at a time: over the placeholder rows the page already says it loads.
+        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
+        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
+        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
@@ -310,8 +342,19 @@ public struct WorkspacesList: View {
         open(workspace)
     }
 
-    /// Opens a workspace: a needs-you one on its waiting tab, else the
-    /// last tab used here (`AppStore.openingTab`). Clears its "Done".
+    /// New Task…: opens the composer.
+    func startNewTask() { composingTask = true }
+
+    /// New Task started: one workspace opens at once; several stay in the list, each row
+    /// spinning until its Mac answers.
+    func startedTask(_ made: [Workspace]) {
+        guard made.count == 1, let workspace = made.first else { return }
+        open(workspace)
+    }
+
+    /// Opens a workspace: a needs-you one on its waiting tab, else the tab left on screen
+    /// there in this launch, else the active tab of its layout's top-left pane
+    /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         if status == .offline {
             theme.haptics.warning()
@@ -319,7 +362,7 @@ public struct WorkspacesList: View {
             return
         }
         if let tab = tab ?? (status == .needsYou ? ws.agentTab(for: .needsYou) : nil) {
-            store.noteOpened(tabID: tab.id, in: ws.id)
+            store.requestOpen(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
         // Its tabs come from its Mac: opening a workspace links that Mac.
@@ -328,14 +371,17 @@ public struct WorkspacesList: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch store.teamDataState {
-        case .loading where store.activeWorkspaces.isEmpty || macs.isEmpty:
-            skeleton
-        case .failed:
-            EmptyState(symbol: "cloud", title: "Couldn't load workspaces",
+        switch launchState {
+        case .firstLoad(let offline):
+            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .failed(let offline):
+            EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
+                       message: offline ? "This iPhone is offline. Workspaces load when it's back online."
+                           : "cmux couldn't reach the service. It tries again on its own.",
+                       // The offline pill is status only: Retry stays here (the one on screen).
                        retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
-        case .loading, .loaded:
+        case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
                     email: accountEmail,
@@ -351,8 +397,9 @@ public struct WorkspacesList: View {
         }
     }
 
-    private var skeleton: some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8) }
+    /// The first load's placeholder rows, captioned with what they wait for.
+    private func skeleton(_ caption: LocalizedStringKey) -> some View {
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
     }
@@ -369,7 +416,7 @@ public struct WorkspacesList: View {
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
                 if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton }
+                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
                 } else if inbox.isEmpty {
                     emptyState
                 }
@@ -613,7 +660,7 @@ public struct WorkspacesList: View {
                 .padding(.bottom, 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         // From the screen edge, as the rows: the chevron in their gutter, the
         // name at their titles' x.
         .accessibilityAddTraits(.isHeader)
@@ -695,6 +742,7 @@ public struct WorkspacesList: View {
                         }
                     }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
             }
@@ -704,6 +752,7 @@ public struct WorkspacesList: View {
                     theme.haptics.impactLight()
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.close(ws) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { ws in
                 Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
             }
@@ -827,7 +876,7 @@ public struct WorkspacesList: View {
             .frame(minHeight: 32)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
         .background { FrameProbe(id: "fold.\(fold.mac.id)") { rowFrames.rows["fold.\(fold.mac.id)"] = WeakProbe(view: $0) } }
@@ -953,7 +1002,8 @@ public struct WorkspacesList: View {
             recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
-            agentDestinations: NewAgentChatDestination.all(creator)
+            agentDestinations: NewAgentChatDestination.all(creator),
+            canStartTask: !creator.taskMacs.isEmpty
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -1064,6 +1114,8 @@ struct WorkspacesToolbar: View, Equatable {
         var canNewGroup: Bool
         /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
         var agentDestinations: [NewAgentChatDestination] = []
+        /// New Task… can start agents on some Mac now.
+        var canStartTask = false
     }
 
     let model: Model
@@ -1087,6 +1139,8 @@ struct WorkspacesToolbar: View, Equatable {
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
                                        agentDestinations: model.agentDestinations,
+                                       canStartTask: model.canStartTask,
+                                       newTask: { host.startNewTask() },
                                        createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
@@ -1811,6 +1865,9 @@ struct NewWorkspaceButton: View, Equatable {
     let newGroup: () -> Void
     /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
     var agentDestinations: [NewAgentChatDestination] = []
+    /// New Task… (the task composer): offered when some Mac can start agents now.
+    var canStartTask = false
+    var newTask: () -> Void = {}
     /// Creates on a named Mac (New Agent Chat on…).
     var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
@@ -1819,7 +1876,7 @@ struct NewWorkspaceButton: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
             && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
-            && a.agentDestinations == b.agentDestinations
+            && a.agentDestinations == b.agentDestinations && a.canStartTask == b.canStartTask
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1859,6 +1916,13 @@ struct NewWorkspaceButton: View, Equatable {
     }
 
     @ViewBuilder private var menu: some View {
+        if canStartTask {
+            // New Task…: a prompt, the agents that run it and where, in one sheet.
+            Section {
+                Button("New Task…", systemImage: "text.badge.plus") { newTask() }
+                    .accessibilityIdentifier("workspaces.newTask")
+            }
+        }
         if let mac = target, let options {
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }
@@ -1997,5 +2061,13 @@ struct NewWorkspaceButton: View, Equatable {
         directory == "~" ? "Home" : (directory as NSString).lastPathComponent
     }
 }
+
+#if DEBUG
+/// DEBUG launch arguments that act once per launch.
+@MainActor
+final class DebugLaunch {
+    static var openedNewTask = false
+}
+#endif
 
 #endif

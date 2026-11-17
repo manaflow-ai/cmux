@@ -1347,6 +1347,12 @@ fn writer_loop<O, P, F>(
             }
         }
     }
+    // A failure some paths record without a completion (an interrupted
+    // batch): the app loop checks the writer's health after each wait and
+    // may be blocked with no timeout.
+    if control.failure().is_some() {
+        on_ready();
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

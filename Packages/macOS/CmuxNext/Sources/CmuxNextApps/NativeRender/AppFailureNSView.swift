@@ -36,7 +36,7 @@ final class AppFailureNSView: NSView {
         raw.focusRingType = .none
         reloadButton.target = self
         reloadButton.action = #selector(reload)
-        reloadButton.toolTip = AppsStrings.reloadHelp
+        reloadButton.themedToolTip = AppsStrings.reloadHelp
         copyButton.target = self
         copyButton.action = #selector(copyError)
         detailsButton.target = self

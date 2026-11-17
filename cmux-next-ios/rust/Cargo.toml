@@ -27,9 +27,12 @@ cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
+# Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
+cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
+flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
@@ -43,6 +46,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+# Web link addresses (the phone decides which device opens a link, link_side).
+url = "2"
 webrtc = "0.17"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"

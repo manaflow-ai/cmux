@@ -80,25 +80,29 @@ package nonisolated enum WindowImageLayer: Sendable {
     }
 
     /// A Chromium page's layers, bottom first: its docked DevTools (Chromium's image of them, or
-    /// ``notCaptured(_:)`` stripes without one), then the page's own image in its own area. DevTools
-    /// go first: in device mode they take the whole view and the page sits inside them.
+    /// ``notCaptured(_:)`` stripes without one), then the page's own image in its own area, or stripes
+    /// when Chromium gave none (its renderer waits in an alert, a confirm, a prompt or Leave site: the
+    /// window's own pixels there are blank, a black page, while the screen shows the page behind the
+    /// dialog). DevTools go first: in device mode they take the whole view and the page sits inside them.
     ///
     /// - Parameters:
-    ///   - image: Chromium's image of the page, the size of the page's own area.
+    ///   - image: Chromium's image of the page, the size of the page's own area; nil when it gave none.
     ///   - rect: The page's own area in window coordinates (beside docked DevTools, only its part).
     ///   - holes: Where the page window shows the window instead (window coordinates).
-    ///   - clip: The page window's shape (window coordinates), which DevTools share; nil for none.
+    ///   - clip: The page window's shape (window coordinates), for the page's image only; nil for none.
     ///   - devTools: The docked DevTools' area (window coordinates) and Chromium's image of them;
     ///     nil with none docked.
     /// - Returns: The layers to paint.
-    package static func chromiumPage(_ image: CGImage, _ rect: NSRect, holes: [NSRect] = [], clip: CGPath? = nil,
+    package static func chromiumPage(_ image: CGImage?, _ rect: NSRect, holes: [NSRect] = [], clip: CGPath? = nil,
                                      devTools: (area: NSRect, image: CGImage?)? = nil) -> [WindowImageLayer] {
         let shape = WindowImageClip(clip)
         var layers: [WindowImageLayer] = []
         if let devTools {
-            layers.append(devTools.image.map { .page($0, devTools.area, clip: shape) } ?? .notCaptured(devTools.area))
+            // Not the page window's clip: it is worked out from the page's own area, so it holds no
+            // part of DevTools beside the page and would cut their whole image away.
+            layers.append(devTools.image.map { .page($0, devTools.area) } ?? .notCaptured(devTools.area))
         }
-        layers.append(.page(image, rect, holes: holes, clip: shape))
+        layers.append(image.map { .page($0, rect, holes: holes, clip: shape) } ?? .notCaptured(rect))
         return layers
     }
 

@@ -4,6 +4,7 @@
  * the memory layer runs the same ledger in process for tests.
  */
 import { SnapshotCaptureResult, type SnapshotCaptureCommand } from "./snapshot-capture.ts";
+import type { AgentSlotOutcome } from "./agent-slots.ts";
 import { MeshCreationResult, type MeshCreationCommand } from "./mesh-creation.ts";
 import { Context, Data, Effect, Layer, Schema } from "effect";
 import { GeneratedCreationPage, type GeneratedCreation } from "../domain/generated-creation.ts";
@@ -43,6 +44,11 @@ export interface TenantLimitsService {
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
+  /** An agent key's live-VM budget, admitted atomically (agent-slots.ts): false at `limit`. */
+  readonly admitAgentSlot: (tenantId: TenantId, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, slotId: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  readonly settleAgentSlot: (tenantId: TenantId, agent: string, slotId: string, outcome: AgentSlotOutcome) => Effect.Effect<void, LimitsUnavailable>;
+  readonly bindAgentCreation: (tenantId: TenantId, agent: string, creationKey: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
+  readonly forgetAgentVm: (tenantId: TenantId, vmId: string, creationKey: string | null) => Effect.Effect<void, LimitsUnavailable>;
   readonly listGenerated: (tenantId: TenantId, scope: string, cursor: string | undefined, limit: number, pending?: boolean) => Effect.Effect<GeneratedCreationPage, LimitsUnavailable>;
   readonly begin: (tenantId: TenantId, key: string, fingerprint: string, clientFingerprint?: string, generated?: GeneratedCreation) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
   readonly advance: (tenantId: TenantId, key: string, progress: IdempotencyProgress) => Effect.Effect<void, LimitsUnavailable>;
@@ -51,6 +57,16 @@ export interface TenantLimitsService {
   readonly lock: (tenantId: TenantId, key: string, holder: string, leaseMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
   /** Releases the lock if `holder` holds it; best effort (the lease ends it otherwise). */
   readonly unlock: (tenantId: TenantId, key: string, holder: string) => Effect.Effect<void>;
+  /** `lock`, unless coverage `coverageKey` already applied change `need`: then "covered", and nothing is taken. */
+  readonly lockUnlessCovered: (
+    tenantId: TenantId, key: string, holder: string, leaseMs: number, coverageKey: string, need: number,
+  ) => Effect.Effect<"taken" | "busy" | "covered", LimitsUnavailable>;
+  /** Counts one more change that needs an apply under coverage `key`; answers its number. */
+  readonly coverageWant: (tenantId: TenantId, key: string) => Effect.Effect<number, LimitsUnavailable>;
+  /** The number of the latest change counted under `key`. */
+  readonly coverageWanted: (tenantId: TenantId, key: string) => Effect.Effect<number, LimitsUnavailable>;
+  /** Records that an apply covering every change up to `upTo` landed. */
+  readonly coverageApplied: (tenantId: TenantId, key: string, upTo: number) => Effect.Effect<void, LimitsUnavailable>;
 }
 
 export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimits, TenantLimitsService>() {}
@@ -73,12 +89,20 @@ interface LedgerHandle {
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean>;
+  settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void>;
+  bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void>;
+  forgetAgentVm(vmId: string, creationKey: string | null): Promise<void>;
   listGenerated(scope: string, cursor: string | undefined, limit: number, pending?: boolean): Promise<GeneratedCreationPage>;
   begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin>;
   advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void>;
   abandon(key: string, nowMs: number): Promise<void>;
   lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
   unlock(key: string, holder: string): Promise<void>;
+  lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered">;
+  coverageWant(key: string): Promise<number>;
+  coverageWanted(key: string): Promise<number>;
+  coverageApplied(key: string, upTo: number): Promise<void>;
 }
 
 const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLimitsService => {
@@ -108,6 +132,10 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
     // Releases are best effort: an unreleased reservation lapses on its own.
     release: (tenantId, reservationId) => call((ledger) => ledger.release(reservationId))(tenantId).pipe(Effect.ignore),
+    admitAgentSlot: (tenantId, agent, limit, ownedVmIds, slotId) => call((ledger, now) => ledger.admitAgentSlot(agent, limit, ownedVmIds, now, slotId))(tenantId),
+    settleAgentSlot: (tenantId, agent, slotId, outcome) => call((ledger, now) => ledger.settleAgentSlot(agent, slotId, outcome, now))(tenantId),
+    bindAgentCreation: (tenantId, agent, creationKey, vmId) => call((ledger, now) => ledger.bindAgentCreation(agent, creationKey, vmId, now))(tenantId),
+    forgetAgentVm: (tenantId, vmId, creationKey) => call((ledger) => ledger.forgetAgentVm(vmId, creationKey))(tenantId),
     listGenerated: (tenantId, scope, cursor, limit, pending) => call((ledger) => ledger.listGenerated(scope, cursor, limit, pending))(tenantId),
     begin: (tenantId, key, fingerprint, clientFingerprint, generated) => call((ledger, now) => ledger.begin(key, fingerprint, now, clientFingerprint, generated))(tenantId),
     advance: (tenantId, key, progress) => call((ledger, now) => ledger.advance(key, progress, now))(tenantId),
@@ -115,6 +143,11 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
     lock: (tenantId, key, holder, leaseMs) => call((ledger, now) => ledger.lock(key, holder, leaseMs, now))(tenantId),
     unlock: (tenantId, key, holder) => call((ledger) => ledger.unlock(key, holder))(tenantId).pipe(Effect.ignore),
+    lockUnlessCovered: (tenantId, key, holder, leaseMs, coverageKey, need) =>
+      call((ledger, now) => ledger.lockUnlessCovered(key, holder, leaseMs, now, coverageKey, need))(tenantId),
+    coverageWant: (tenantId, key) => call((ledger) => ledger.coverageWant(key))(tenantId),
+    coverageWanted: (tenantId, key) => call((ledger) => ledger.coverageWanted(key))(tenantId),
+    coverageApplied: (tenantId, key, upTo) => call((ledger) => ledger.coverageApplied(key, upTo))(tenantId),
   };
 };
 
@@ -152,6 +185,16 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         release: async (reservationId) => {
           await stub.release(reservationId);
         },
+        admitAgentSlot: (agent, limit, ownedVmIds, nowMs, slotId) => decoded(Schema.Boolean)(stub.admitAgentSlot(agent, limit, [...ownedVmIds], nowMs, slotId)),
+        settleAgentSlot: async (agent, slotId, outcome, nowMs) => {
+          await stub.settleAgentSlot(agent, slotId, outcome, nowMs);
+        },
+        bindAgentCreation: async (agent, creationKey, vmId, nowMs) => {
+          await stub.bindAgentCreation(agent, creationKey, vmId, nowMs);
+        },
+        forgetAgentVm: async (vmId, creationKey) => {
+          await stub.forgetAgentVm(vmId, creationKey);
+        },
         listGenerated: (scope, cursor, limit, pending) => decoded(GeneratedCreationPage)(stub.listGenerated(scope, cursor, limit, pending)),
         begin: (key, fingerprint, nowMs, clientFingerprint, generated) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs, clientFingerprint, generated)),
         advance: async (key, progress, nowMs) => {
@@ -164,6 +207,13 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         lock: (key, holder, leaseMs, nowMs) => decoded(Schema.Boolean)(stub.lock(key, holder, leaseMs, nowMs)),
         unlock: async (key, holder) => {
           await stub.unlock(key, holder);
+        },
+        lockUnlessCovered: (key, holder, leaseMs, nowMs, coverageKey, need) =>
+          decoded(Schema.Literal("taken", "busy", "covered"))(stub.lockUnlessCovered(key, holder, leaseMs, nowMs, coverageKey, need)),
+        coverageWant: (key) => decoded(Schema.Number)(stub.coverageWant(key)),
+        coverageWanted: (key) => decoded(Schema.Number)(stub.coverageWanted(key)),
+        coverageApplied: async (key, upTo) => {
+          await stub.coverageApplied(key, upTo);
         },
       };
     }),

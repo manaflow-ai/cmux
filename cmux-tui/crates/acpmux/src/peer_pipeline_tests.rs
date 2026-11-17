@@ -146,18 +146,23 @@ async fn link_once_then(
         out_rx
     });
     let mut lists = Vec::new();
-    loop {
+    // Ready, and listed: a link after a far restart reads its list after it is ready. `took`
+    // runs until both, the handshake's round trips and the list's.
+    let (mut ready, mut listed) = (false, false);
+    while !ready || !listed {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(30), notices.recv())
             .await
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
             PeerNotice::Sessions(rows) => lists.push(
-                rows.iter()
+                crate::peer::parse_rows(&rows)
+                    .iter()
                     .map(|r| r["sessionId"].as_str().unwrap_or_default().to_owned())
                     .collect(),
             ),
-            PeerNotice::Connected => break,
+            PeerNotice::Listed => listed = true,
+            PeerNotice::Connected => ready = true,
             _ => {}
         }
     }

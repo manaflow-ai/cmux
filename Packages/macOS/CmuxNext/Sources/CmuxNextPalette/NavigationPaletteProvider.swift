@@ -119,7 +119,10 @@ public final class NavigationPaletteProvider: PaletteProvider {
                 keywords: [PaletteStrings.tabKeyword, entry.url, entry.cwd, entry.agent].compactMap { $0 } + sessionWords(entry.sessionID)
                     + entry.keywords,
                 primary: open, secondary: copySession(entry.sessionID), frecencyKey: entry.itemID, rankBias: tabBias + recencyBoost)
-            item.actionRefs = [PaletteActionRef("tab.focus", target: ActionTargetRef(kind: .tab, id: entry.id), title: open.title)]
+            // Close Tab as on the plain tab list's rows, which Cmd-Shift-P listed before it took these (`palette.run`).
+            let target = ActionTargetRef(kind: .tab, id: entry.id)
+            item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: open.title),
+                               PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
         }
         return item
     }

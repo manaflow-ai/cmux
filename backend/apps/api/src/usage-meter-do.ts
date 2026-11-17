@@ -5,13 +5,13 @@ import { BILLABLE_METERS, BILLABLE_METERS_SQL, billedMetersSql, ceilingUsd, MONE
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextMonthStart, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
-import { billedLevelMicros, type IncludedMode, type UsagePriceSet } from "./billing-catalog.ts"
+import { billedLevelMicros, teamCapUnpaidMaxPools, type IncludedMode, type UsagePriceSet } from "./billing-catalog.ts"
 import { addPeriodSpend, ensurePeriodSpendTable, periodSpend, teamCapState, type TeamCap } from "./team-cap.ts"
 import { usagePriceSet } from "./billing-usage-sync.ts"
 import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type ChiefCallCap, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
 import { autoReloadDecision, chargeSavedCard, endRun, failAutoReload, monthReloaded, readAutoReload, startRun, writeAutoReload, type AutoReloadSettings } from "./credits-autoreload.ts"
 import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
-import { currentBillable, ensureBillingTables, markBillable, PASS_THROUGH_BP, periodMarkupBp, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
+import { currentBillable, ensureBillingTables, markBillable, markPaidInvoice, PASS_THROUGH_BP, periodMarkupBp, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
@@ -95,6 +95,12 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     markBillable(this.ctx.storage.sql, subscription, periodEnd, now, info)
     // Seeds the period's running spend for the team cap once (team-cap.ts), off the model router's path.
     if (info?.period_start !== undefined) periodSpend(this.ctx.storage.sql, info.period_start, periodEnd, now)
+  }
+
+  /** The usage sync saw a paid renewal invoice (`paidAt` in s) of this team's subscription: the raise lock lifts (team-cap.ts). */
+  async markPaidInvoice(entity: string, subscription: string, invoice: string, amountPaid: number, paidAt: number): Promise<void> {
+    this.bind(entity)
+    markPaidInvoice(this.ctx.storage.sql, invoice, subscription, amountPaid, paidAt, Date.now())
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
@@ -188,7 +194,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const state = this.bind(entity).currentState
     const now = Date.now()
     // `capSet`: the team spending cap applies (teamCapApplies, price set v2), checked in the reservation's transaction.
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime, capSet ? { set: capSet, admin_cap_usd: state.team_cap_usd } : undefined)
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime, capSet ? { set: capSet, admin_cap_usd: state.team_cap_usd, unpaid_max_pools: teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS) } : undefined)
     if (r.ok) this.scheduleAlarm()
     return r
   }
@@ -519,8 +525,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * open calls at their reserved maximum, at billed prices (the model overage above the pool x the period's pinned
    * markup; at cost without a billable mark, which has no overage billed), plus Cloud machine time at list when
    * `machineTime` (the caller passes poolsMachineTime(set), as for level()).
-   * `cap_usd`: the admin's cap (usage.cap.set), else under v2 for a per-seat (Team) team whose seats the usage sync
-   * marked, twice the pool (2 x 25 USD x seats); else null (no cap: `under`).
+   * `cap_usd`: the admin's cap (usage.cap.set), else under v2 for any account the usage sync marked with a pool (a
+   * personal plan per team, a Team per seat), twice the pool; else null (no cap: `under`). Until the account's first
+   * paid renewal invoice the cap counts up to TEAM_CAP_UNPAID_MAX_POOLS x the pool (default 4), whatever the admin set
+   * (`raise_locked`): a new account cannot raise its way past the abuse guard.
    * Two caps refuse model calls, and the stricter one wins: this cap (billing period, billed prices) and the A18 hard
    * cap (`check`, summarize: the UTC month at cost over every meter against min(admin cap, AUTOMATION_CAP_CEILING_USD)).
    * The deployment ceiling is an operator brake on model calls only; it is not this cap and pauses no machine.
@@ -529,8 +537,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   async teamCap(entity: string, machineTime = false, set: UsagePriceSet = usagePriceSet(this.env)): Promise<TeamCap> {
     const now = Date.now()
     if (!this.isBound(entity)) return { state: "under", spent_usd: 0, cap_usd: null, period_end: nextMonthStart(now) }
-    const { state, spent_usd, cap_usd, period_end } = teamCapState(this.ctx.storage.sql, now, BILLABLE_GRACE_MS, machineTime, set, this.bind(entity).currentState.team_cap_usd)
-    return { state, spent_usd, cap_usd, period_end }
+    const { state, spent_usd, cap_usd, period_end, raise_locked } = teamCapState(this.ctx.storage.sql, now, BILLABLE_GRACE_MS, machineTime, set, this.bind(entity).currentState.team_cap_usd, 0, teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS))
+    return { state, spent_usd, cap_usd, period_end, ...(raise_locked ? { raise_locked } : {}) }
   }
 
   protected override nextWakeAt(): number | null {

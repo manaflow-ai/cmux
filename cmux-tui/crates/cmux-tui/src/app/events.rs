@@ -43,6 +43,11 @@ pub(super) enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     GraphicsWriterReady,
     PtyFailuresReady,
+    /// Another thread changed state the loop reads after each wait (a
+    /// termination signal, a mux shutdown, a sidebar document that fell back
+    /// to timed reads). It carries no work: the loop wakes, checks that
+    /// state and computes its next idle wait.
+    Wake,
     /// A status bar command segment produced new output; redraw the bar.
     StatusCommandsUpdated,
     PtyOperationFailed(PtyOperationFailure),
@@ -215,11 +220,18 @@ pub(super) struct SessionEventWorker {
     pub(super) start: Arc<AtomicBool>,
     pub(super) stop: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     pub(super) mux: Option<JoinHandle<()>>,
+    /// How often the paused worker woke before it started.
+    #[cfg(test)]
+    pub(super) paused_wakes: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl SessionEventWorker {
     pub(super) fn activate(&self) {
         self.start.store(true, Ordering::Release);
+        // A paused worker parks until this; see `start_ordered_session_inner`.
+        if let Some(mux) = &self.mux {
+            mux.thread().unpark();
+        }
     }
 
     pub(super) fn stop_and_join(&mut self) {

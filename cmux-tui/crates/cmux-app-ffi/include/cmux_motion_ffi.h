@@ -1,6 +1,6 @@
 /* cmux-motion's C ABI (cmux-tui/crates/cmux-app-ffi/src/motion.rs): the
- * closed-form spring, the spec's motion tokens, the structural bounce rule
- * and the ui.animations.* switches, and the tab strip's tweens and geometry
+ * closed-form spring, the spec's motion tokens and the ui.animations.*
+ * switches, and the tab strip's tweens and geometry
  * (Chrome's strip motion), the color transition's curves and color mix, and
  * the hover rules (cmux-app-ffi/src/hover.rs, cmux-motion src/hover: the hover
  * card machine, tooltip hover intent, the safe triangle, the row card's
@@ -160,12 +160,12 @@ typedef struct {
 
 /*
  The host's settings for one resolve: `speed` 0 fast, 1 normal, 2 off;
- `bounce` 0 none, 1 subtle; the three `ui.animations.*` switches.
+ the three `ui.animations.*` switches. No field sets a bounce: every
+ spring token is critically damped (Lawrence 2026-11-10).
  */
 typedef struct {
     uint8_t speed;
     bool reduce_motion;
-    uint8_t bounce;
     bool pane_animations;
     bool new_tab;
     bool new_workspace;
@@ -352,9 +352,9 @@ uint32_t cmux_motion_ffi_abi_version(void);
 
 /*
  The spring token `token` (`MotionSpring` order: 0 move, 1 appear, 2
- disappear, 3 settle, 4 scroll, 5 screen, 6 track, 7 selection, 8 panel,
- 9 pinDrag, 10 zoom, 11 exit, 12 tabOpen; the macOS `MotionSpring` declares its
- cases in this order) at speed `fast` from the spec, before the policy. Returns
+ disappear, 3 settle, 4 scroll, 5 track, 6 selection, 7 panel, 8 pinDrag,
+ 9 zoom, 10 exit, 11 tabOpen; the macOS `MotionSpring` declares its cases
+ in this order) at speed `fast` from the spec, before the policy. Returns
  false for an unknown token.
 
  # Safety
@@ -363,17 +363,11 @@ uint32_t cmux_motion_ffi_abi_version(void);
 bool cmux_motion_spring_base(uint8_t token, CmuxMotionSpring *out);
 
 /*
- True when spring token `token` is structural (follows the bounce).
- */
-bool cmux_motion_spring_is_structural(uint8_t token);
-
-/*
  Resolves `base` (a token's speed-`fast` tuning, possibly a host
- override) under `policy`: a structural spring is critically damped with
- bounce none and takes the subtle bounce with bounce subtle; then the
- speed scales the response. The same rule as `MotionPolicy::spring`.
+ override) under `policy`: the speed scales the response and the damping
+ fraction stays. The same rule as `MotionPolicy::spring`.
  */
-CmuxMotionSpring cmux_motion_resolve(CmuxMotionSpring base, bool structural, CmuxMotionPolicy policy);
+CmuxMotionSpring cmux_motion_resolve(CmuxMotionSpring base, CmuxMotionPolicy policy);
 
 /*
  Advances `state` by `dt` seconds on `spring` in closed form (exact at

@@ -8,7 +8,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
-    /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// keychain would prompt on every rebuild. Every other build keeps
+    /// Chromium's key in cmux's own item (`CEFKeychainItem`), and falls back to
+    /// this when the fork does not take that item (`CEFRuntime.applyKeychainItem`).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -39,6 +41,16 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
 
+    /// Pages draw overlay scrollbars whatever the system's scroller style. Chromium's default
+    /// (`OverlayScrollbar` mode `device`) follows `NSScroller.preferredScrollerStyle`, which flips
+    /// whenever a mouse comes or goes, Universal Control's shared mouse included: a classic scrollbar
+    /// took its width from every scrolling page and the page reflowed on each flip (Leo 2026-11-15:
+    /// "our chromium browser also has a bt of layout shif tfor some reason idk why"). Mode `overlay`
+    /// forces them (ui/native_theme/features/native_theme_features.cc, `ShouldUseOverlayScrollbar`),
+    /// the native views' SCROLLBARS-THIN rule (SystemScrollers.nativeStyle). The shim merges it
+    /// into CEF's feature list.
+    static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -49,20 +61,30 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
-        // Web notifications must not make CEF's Alerts helper request a
-        // separate macOS notification authorization. DesktopNotifier owns the
-        // one app-level authorization request when cmux posts a banner.
-        result.append("disable-notifications")
-        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
-        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
-        // authorization for the app and its Alerts helper on the first launch, with no action of
-        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        // Web notifications must not make CEF's Alerts helper request a separate macOS
+        // notification authorization: DesktopNotifier owns the one app-level request, made when
+        // cmux posts a banner. Chromium's macOS notification bridge, made for the profile at
+        // startup while SystemNotifications is on, asked macOS for authorization for the app and
+        // its Alerts helper on the first launch, with no action of the person
+        // (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        //
+        // Never add `disable-notifications` here: it takes `Notification` and `PushManager` out
+        // of every page, which no desktop Chrome does, and bot checks read that as automation.
+        // Akamai Bot Manager then served its challenge page again and again (godaddy.com reloaded
+        // about twice per second, then "Access Denied"; Chrome with the two interfaces deleted
+        // does the same). Pages keep the interfaces and read the permission as `default`, also
+        // after they ask (the shim ends the request unanswered, permission_prompt_policy.h),
+        // so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
+        // Chromium counts prompts that end unanswered and blocks the site for a week after four
+        // (its embargo). No switch or feature turns that count off (permission_decision_auto_blocker.cc),
+        // so the shim clears the site's own count before it ends a request (shim_permissions.mm).
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
         // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
@@ -197,6 +219,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        #if DEBUG
+        // Verification of the real keychain path (cmux's own item) in a development bundle.
+        let realKeychain = environment["CMUX_NEXT_REAL_KEYCHAIN"] == "1"
+        #else
+        let realKeychain = false
+        #endif
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -209,7 +237,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            useMockKeychain: dev,
+            useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,

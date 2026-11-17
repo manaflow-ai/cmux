@@ -2,10 +2,21 @@
 //! from parity, drops frames that miss their deadline, and releases a frame
 //! only when its reference frame was released (so a frame that predicts from
 //! a lost frame is never decoded and shown corrupted).
+//!
+//! Nothing waits on a timer: a frame goes out in the call that completes it.
+//! A complete frame that depends on no waiting older frame (a keyframe, a
+//! tile, or one whose reference is already released) goes out at once and
+//! drops the older incomplete frames, which could never be shown after it.
+//! A complete frame whose reference still waits for repair waits with it, up
+//! to the deadline: skipping it would break the chain and cost a recovery
+//! round trip, longer than the repair.
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, REF_NONE, flags};
+use cmux_rd_proto::{
+    DatagramHeader, DatagramKind, FrameBody, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE,
+    flags,
+};
 
 use crate::fec;
 
@@ -29,10 +40,19 @@ pub enum FrameLoss {
 #[derive(Debug)]
 struct Pending {
     first_seen_us: u64,
+    last_seen_us: u64,
+    highest_index: u16,
+    last_nack_us: Option<u64>,
     flags: u8,
     count: u16,
     shard_len: Option<usize>,
     shards: Vec<Option<Vec<u8>>>,
+    /// Received payload bytes counted against [`MAX_PENDING_BYTES`] (shards
+    /// rebuilt from parity are not counted).
+    held: usize,
+    /// The rebuilt body once the frame is decodable (`Err`: it did not
+    /// rebuild or parse). Kept so a frame is rebuilt once.
+    body: Option<Result<FrameBody, ()>>,
 }
 
 /// Reassembly state for one display stream.
@@ -118,10 +138,15 @@ impl Reassembler {
         let total = usize::from(header.count) + usize::from(header.fec_count);
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
             first_seen_us: now_us,
+            last_seen_us: now_us,
+            highest_index: header.index,
+            last_nack_us: None,
             flags: header.flags,
             count: header.count,
             shard_len: None,
             shards: vec![None; total],
+            held: 0,
+            body: None,
         });
         // Every shard of a frame has the same length (the session's shard size); a shard
         // of another length is refused, and pending payload bytes are capped.
@@ -134,7 +159,10 @@ impl Reassembler {
             && slot.is_none()
         {
             entry.shard_len = Some(payload.len());
+            entry.last_seen_us = now_us;
+            entry.highest_index = entry.highest_index.max(header.index);
             self.pending_bytes += payload.len();
+            entry.held += payload.len();
             *slot = Some(payload.to_vec());
         }
         self.expire(now_us);
@@ -159,6 +187,60 @@ impl Reassembler {
                 let missing =
                     (0..p.count).filter(|&i| p.shards[usize::from(i)].is_none()).collect();
                 (frame, missing)
+            })
+            .collect()
+    }
+
+    /// The next missing-shard request: first after the reorder grace, then
+    /// at the retry cadence. Each frame has its own deadline, so feedback
+    /// for another frame cannot delay this frame's first repair request.
+    pub fn next_nack_us(&self, after_us: u64, retry_us: u64) -> Option<u64> {
+        self.pending
+            .values()
+            .filter(|p| !Self::decodable(p))
+            .map(|p| Self::nack_at(p, after_us, retry_us))
+            .min()
+    }
+
+    fn nack_at(p: &Pending, after_us: u64, retry_us: u64) -> u64 {
+        // A large frame may still be arriving after the reorder grace. An
+        // observed gap can be requested now; its unseen tail only becomes
+        // a gap after arrivals stop for a grace period.
+        let observed_gap = p.shards.iter().take(Self::observed_data(p)).any(Option::is_none);
+        let gap_at =
+            if observed_gap { p.first_seen_us } else { p.last_seen_us }.saturating_add(after_us);
+        p.last_nack_us.map_or(gap_at, |last| gap_at.max(last.saturating_add(retry_us.max(1))))
+    }
+
+    fn observed_data(p: &Pending) -> usize {
+        (usize::from(p.highest_index) + 1).min(usize::from(p.count))
+    }
+
+    /// Takes the due NACKs that fit in one feedback packet. Only requests
+    /// actually returned advance their retry deadlines. Repaired frames
+    /// disappear from this schedule as soon as their data is complete.
+    pub fn take_nacks(&mut self, now_us: u64, after_us: u64, retry_us: u64) -> Vec<Nack> {
+        self.pending
+            .iter_mut()
+            .filter(|(_, p)| !Self::decodable(p) && now_us >= Self::nack_at(p, after_us, retry_us))
+            .take(MAX_NACK_FRAMES)
+            .map(|(&frame, p)| {
+                let end = if now_us >= p.last_seen_us.saturating_add(after_us) {
+                    p.count
+                } else {
+                    Self::observed_data(p) as u16
+                };
+                let indexes = p
+                    .shards
+                    .iter()
+                    .take(usize::from(end))
+                    .enumerate()
+                    .filter(|(_, shard)| shard.is_none())
+                    .map(|(i, _)| i as u16)
+                    .take(MAX_NACK_INDEXES)
+                    .collect();
+                p.last_nack_us = Some(now_us);
+                Nack { frame, indexes }
             })
             .collect()
     }
@@ -200,25 +282,49 @@ impl Reassembler {
         }
     }
 
-    /// The frame to try next: the oldest pending frame, or a decodable
-    /// keyframe that lets the viewer skip older incomplete frames.
-    fn next_candidate(&self) -> Option<u32> {
+    /// The frame to try next: the oldest pending frame if it is decodable,
+    /// else the oldest decodable frame that needs none of the older waiting
+    /// frames (a keyframe, a tile, or a frame whose reference was released).
+    fn next_candidate(&mut self) -> Option<u32> {
         let (&oldest, p) = self.pending.iter().next()?;
         if Self::decodable(p) {
             return Some(oldest);
         }
-        self.pending
-            .iter()
+        let (last_released, recent) = (self.last_released, &self.released_recent);
+        for (&frame, p) in self.pending.iter_mut().skip(1) {
+            if !Self::decodable(p) {
+                continue;
+            }
             // A tile frame is standalone too, so a complete one skips older gaps.
-            .find(|(_, p)| Self::decodable(p) && p.flags & (flags::KEYFRAME | flags::TILE) != 0)
-            .map(|(&f, _)| f)
+            if p.flags & (flags::KEYFRAME | flags::TILE) != 0 {
+                return Some(frame);
+            }
+            let recovery = p.flags & flags::RECOVERY != 0;
+            let Ok(body) = Self::assemble(p) else { continue };
+            if body.ref_frame == REF_NONE
+                || (last_released != 0 && body.ref_frame == last_released)
+                || (recovery && recent.contains(&body.ref_frame))
+            {
+                return Some(frame);
+            }
+        }
+        None
+    }
+
+    /// Rebuilds and parses a decodable frame's body, once.
+    fn assemble(p: &mut Pending) -> &Result<FrameBody, ()> {
+        p.body.get_or_insert_with(|| {
+            let count = usize::from(p.count);
+            fec::reconstruct(&mut p.shards, count).map_err(|_| ())?;
+            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
+            FrameBody::decode(&bytes).map_err(|_| ())
+        })
     }
 
     /// Removes a pending frame and releases its bytes from the budget.
     fn take_pending(&mut self, frame: &u32) -> Option<Pending> {
         let p = self.pending.remove(frame)?;
-        let held: usize = p.shards.iter().flatten().map(Vec::len).sum();
-        self.pending_bytes = self.pending_bytes.saturating_sub(held);
+        self.pending_bytes = self.pending_bytes.saturating_sub(p.held);
         Some(p)
     }
 
@@ -237,13 +343,8 @@ impl Reassembler {
                 self.lose(f);
             }
             let Some(mut p) = self.take_pending(&frame) else { break };
-            let count = usize::from(p.count);
-            if fec::reconstruct(&mut p.shards, count).is_err() {
-                self.lose(frame);
-                continue;
-            }
-            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
-            let Ok(body) = FrameBody::decode(&bytes) else {
+            Self::assemble(&mut p);
+            let Some(Ok(body)) = p.body.take() else {
                 self.lose(frame);
                 continue;
             };
