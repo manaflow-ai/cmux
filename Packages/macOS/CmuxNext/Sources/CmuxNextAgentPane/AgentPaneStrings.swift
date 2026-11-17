@@ -355,6 +355,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .module)
     }
 
+    /// Connect GitHub while a connection it can't resume is pending (started in Settings or in another launch).
+    static var gitHubConnectPendingMessage: String {
+        String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
+    }
+
     /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
     static var gitHubFolderCloudOnlyMessage: String {
         String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)
