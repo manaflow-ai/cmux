@@ -94,6 +94,12 @@ pub(super) fn sections(package: &Package) -> Vec<Section> {
                 .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
                 .collect()
         };
+    // One section per contribution id, the first entry's: a repeated id
+    // hashes to the same section id, and two adds of one id in a placement
+    // would fail the document transaction for every app placed with it.
+    let mut seen = std::collections::HashSet::new();
+    let entries: Vec<(&str, &Value)> =
+        entries.into_iter().filter(|(id, _)| seen.insert(*id)).collect();
     entries
         .into_iter()
         .map(|(id, options)| {
@@ -253,6 +259,7 @@ mod tests {
                 "export": "render", "title": "Recent PRs",
                 "options": {"defaultRegion": "bottom", "maxRows": 8}
             }}}),
+            fragment: None,
         }
     }
 

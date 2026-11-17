@@ -11,12 +11,19 @@ const MAIN_LIMIT: u64 = 2 * 1024 * 1024;
 #[derive(Debug)]
 pub struct PackageReport {
     pub manifest: Option<Value>,
+    /// The catalog fragment (`catalog: "<file>"`) as validated, so a
+    /// consumer keeps it in memory instead of reading the file again.
+    pub catalog: Option<Value>,
     pub issues: Vec<Issue>,
 }
 
 impl PackageReport {
     pub fn is_valid(&self) -> bool {
         crate::is_valid(&self.issues)
+    }
+
+    fn refused(code: &'static str, message: String) -> Self {
+        Self { manifest: None, catalog: None, issues: vec![Issue::error("", code, message)] }
     }
 }
 
@@ -27,45 +34,53 @@ pub fn validate_package(dir: &Path) -> PackageReport {
 
 /// Validates the manifest `dir/<file_name>` (for example `cmux-app.v2.json`
 /// while a package still ships a v1 `cmux-app.json`) and the files it
-/// references, the catalog fragment included.
+/// references, the catalog fragment included. At most one byte past the
+/// manifest limit is read: a manifest over it is refused on its size, with
+/// nothing parsed (base: a manifest of any size was read, parsed and
+/// schema-checked in full, on every local reload pass).
 pub fn validate_package_file(dir: &Path, file_name: &str) -> PackageReport {
-    let path = dir.join(file_name);
-    let raw = match std::fs::read(&path) {
-        Ok(raw) => raw,
-        Err(_) => {
-            return PackageReport {
-                manifest: None,
-                issues: vec![Issue::error(
-                    "",
-                    "manifest.missing",
-                    format!("{file_name} not found"),
-                )],
-            };
-        }
+    let Some(raw) = read_limited(&dir.join(file_name), MANIFEST_LIMIT) else {
+        return PackageReport::refused("manifest.missing", format!("{file_name} not found"));
     };
-    let mut issues = Vec::new();
     if raw.len() as u64 > MANIFEST_LIMIT {
-        issues.push(Issue::error(
-            "",
+        return PackageReport::refused(
             "limit.manifest",
             format!("{file_name} is larger than 64 KiB"),
-        ));
+        );
     }
+    let mut issues = Vec::new();
     let manifest: Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
         Err(e) => {
             issues.push(Issue::error("", "json.invalid", e.to_string()));
-            return PackageReport { manifest: None, issues };
+            return PackageReport { manifest: None, catalog: None, issues };
         }
     };
     issues.extend(crate::validate_manifest(&manifest));
     if crate::is_valid(&issues) {
         issues.extend(referenced_files(dir, &manifest));
     }
+    let mut catalog = None;
     if crate::is_valid(&issues) {
-        issues.extend(catalog_file(dir, &manifest));
+        let (fragment, found) = catalog_file(dir, &manifest);
+        catalog = fragment;
+        issues.extend(found);
     }
-    PackageReport { manifest: Some(manifest), issues }
+    PackageReport { manifest: Some(manifest), catalog, issues }
+}
+
+/// Bytes a catalog fragment may hold: four manifests' worth (it lists every
+/// op with its input schema). Past it the fragment is refused unread.
+const CATALOG_LIMIT: u64 = 4 * MANIFEST_LIMIT;
+
+/// `path`'s first `limit + 1` bytes (one past the limit says it is over);
+/// `None` when it cannot be opened or read.
+fn read_limited(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut raw = Vec::new();
+    file.take(limit + 1).read_to_end(&mut raw).ok()?;
+    Some(raw)
 }
 
 fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
@@ -142,14 +157,23 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     out
 }
 
-fn catalog_file(dir: &Path, m: &Value) -> Vec<Issue> {
-    let Some(rel) = m["catalog"].as_str() else { return Vec::new() };
-    let parsed = std::fs::read(dir.join(rel))
-        .map_err(|e| e.to_string())
-        .and_then(|raw| serde_json::from_slice::<Value>(&raw).map_err(|e| e.to_string()));
+/// The catalog fragment, parsed, and its issues.
+fn catalog_file(dir: &Path, m: &Value) -> (Option<Value>, Vec<Issue>) {
+    let Some(rel) = m["catalog"].as_str() else { return (None, Vec::new()) };
+    let parsed = read_limited(&dir.join(rel), CATALOG_LIMIT)
+        .ok_or_else(|| format!("{rel} cannot be read"))
+        .and_then(|raw| {
+            if raw.len() as u64 > CATALOG_LIMIT {
+                return Err(format!("{rel} is larger than {} KiB", CATALOG_LIMIT >> 10));
+            }
+            serde_json::from_slice::<Value>(&raw).map_err(|e| e.to_string())
+        });
     match parsed {
-        Ok(catalog) => crate::validate_catalog(m, &catalog),
-        Err(e) => vec![Issue::error("/catalog", "catalog.json", e)],
+        Ok(catalog) => {
+            let issues = crate::validate_catalog(m, &catalog);
+            (Some(catalog), issues)
+        }
+        Err(e) => (None, vec![Issue::error("/catalog", "catalog.json", e)]),
     }
 }
 
@@ -186,5 +210,15 @@ mod tests {
             let codes: Vec<&str> = report.issues.iter().map(|i| i.code).collect();
             assert_eq!(codes, ["limit.manifest"], "{:?}", report.issues);
         }
+    }
+
+    #[test]
+    fn read_limited_stops_one_byte_past_the_limit() {
+        let dir = dir();
+        let path = dir.join("big");
+        std::fs::write(&path, vec![b'a'; 1 << 20]).unwrap();
+        let raw = read_limited(&path, 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(raw.map(|r| r.len()), Some(1025));
     }
 }

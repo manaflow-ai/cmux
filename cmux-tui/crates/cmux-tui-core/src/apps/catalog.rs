@@ -22,6 +22,12 @@ pub struct Package {
     pub source: Source,
     pub dir: PathBuf,
     pub manifest: Value,
+    /// The catalog fragment (`catalog: "<file>"`) as the validator read it
+    /// when the package loaded. `apps-list` asks every package for its
+    /// palette commands under the supervisor lock: read from disk there,
+    /// each list read and parsed every app's fragment while every other apps
+    /// request waited.
+    pub fragment: Option<std::sync::Arc<Value>>,
 }
 
 impl Package {
@@ -67,10 +73,10 @@ impl Package {
             .collect()
     }
 
-    /// The app's catalog fragment (`catalog: "<file>"`).
-    fn catalog_fragment(&self) -> Option<Value> {
-        let file = self.manifest.get("catalog").and_then(Value::as_str)?;
-        self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+    /// The app's catalog fragment (`catalog: "<file>"`), as loaded.
+    fn catalog_fragment(&self) -> Option<&Value> {
+        self.manifest.get("catalog").and_then(Value::as_str)?;
+        self.fragment.as_deref()
     }
 
     /// The fragment's `family` and the entry of `op`.
@@ -355,7 +361,19 @@ pub fn load(sources: &Sources) -> Catalog {
                     }
                     catalog.packages.insert(package.id.clone(), package);
                 }
-                Ok(_) => {}
+                // A second folder with a loaded id is refused with the folder
+                // that has it, so a person whose saves there change nothing
+                // can see why (base: it was dropped without a word).
+                Ok(package) => {
+                    let first = catalog
+                        .packages
+                        .get(&package.id)
+                        .map(|p| p.dir.display().to_string())
+                        .unwrap_or_default();
+                    catalog
+                        .rejected
+                        .push((dir, format!("{}: already loaded from {first}", package.id)));
+                }
                 Err(issue) => catalog.rejected.push((dir, issue)),
             }
         }
@@ -452,6 +470,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
             .map(|i| format!("{} {}: {}", i.path, i.code, i.message))
             .unwrap_or_default());
     }
+    let fragment = report.catalog.map(std::sync::Arc::new);
     let manifest = report.manifest.ok_or("no manifest")?;
     let id = manifest["id"].as_str().unwrap_or_default().to_string();
     let publisher = id.split('/').next().unwrap_or_default();
@@ -486,6 +505,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         source,
         dir: dir.to_path_buf(),
         manifest,
+        fragment,
     };
     // A fragment may not define an op the backend catalog owns: such an op
     // is served only through serves.ops, with the backend's policy (fail
@@ -522,6 +542,7 @@ mod tests {
             source: Source::Bundled,
             dir: dir.clone(),
             manifest: json!({ "catalog": "catalog.json" }),
+            fragment: Some(std::sync::Arc::new(catalog.clone())),
         };
         let export = package.export_for_op("notes.open");
         let commands = package.palette_commands();
