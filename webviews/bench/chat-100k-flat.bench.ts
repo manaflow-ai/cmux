@@ -81,6 +81,7 @@ const RESIZE_WIDTHS = [700, 620, 540, 460];
 // after it: a burst's drain is read as a time, not folded into the idle CPU.
 const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
+const SETTLE_HEAP = process.env.SETTLE_HEAP === "1";
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
@@ -599,11 +600,18 @@ try {
       }
       const settleFrom = performance.now();
       const settleSamples: number[] = [];
+      // PROFILE, WAKES or SETTLE_HEAP=1: the renderer's V8 heap in use after each sample (the pages share one isolate), so a sample
+      // that a collection drove reads as a drop in it.
+      const settleHeap: number[] | undefined = profile || WAKES || SETTLE_HEAP ? [] : undefined;
       let settleS = SETTLE_MAX_S;
       for (let quietSince = -1; (performance.now() - settleFrom) / 1000 < SETTLE_MAX_S;) {
         const sampleFrom = performance.now();
         const pct = await window(1);
         settleSamples.push(pct);
+        if (settleHeap) {
+          const { usedSize } = (await pages.at(-1)!.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+          settleHeap.push(usedSize / 2 ** 20);
+        }
         if (pct > SETTLE_PCT) quietSince = -1;
         else if (quietSince < 0) quietSince = sampleFrom;
         else {
@@ -614,6 +622,7 @@ try {
       console.log(
         `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
       );
+      if (settleHeap) console.log(`  ${name}: settle heap MB ${settleHeap.map((v) => v.toFixed(0)).join(", ")}`);
       if (settleProfiled.length) {
         fs.mkdirSync(profile!, { recursive: true });
         const self = new Map<string, number>();
