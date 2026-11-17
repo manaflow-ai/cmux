@@ -6455,6 +6455,64 @@ class GuardGroupPerStep(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
             self.judge(github)
 
+    # feat-cmux-next job 133860622386 (run 44030379505, 2026-11-17 at 8cd2edf828): every red step is echoed as an
+    # `##[error]STEP` annotation, and one guard's name says "timeout". test_reds.TRUNCATED's `[Tt]imeout` read that
+    # annotation as a cut-short run, so every PR with the base's red guard group was refused "a failure no parser names
+    # is never a base red" before guard_group compared its steps (cmux#45075, cmux#44814).
+    RATCHET = "Validate short timeout ratchet"
+    RATCHET_FINDINGS = (
+        f"{RATCHET} :: Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+CatalogCall.swift:"
+        "swift-duration: 1 new short timeout(s); add a reason or remove the timeout",
+        f"{RATCHET} :: cmux-tui/crates/acpmux/src/cli/send_relay.rs:rust-duration: 2 hits, allowlist says 1; "
+        "a new short timeout was added",
+        "Validate test determinism gate :: tests/test_cmux_next_base_merge_carry.py: git-write-without-fixture",
+    )
+
+    def ratchet_lines(self, kind, findings=RATCHET_FINDINGS):
+        steps = [self.RATCHET, "Validate test determinism gate", *findings]
+        return ([f"##[error]{step}" for step in steps] + [f"guard red step ({kind}): {step}" for step in steps])
+
+    def test_a_guard_step_named_timeout_is_no_cut_short_run(self):
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["cmux-tui/crates/cmux-tui/src/spare_warm.rs",
+                                           "scripts/cmux-next/cloud-journey.ts"], number=44814)
+        text = self.judge(github)
+        self.assertIn(f"excused '{GUARD_GROUP}'", text)
+        self.assertIn(self.RATCHET, text)
+
+    def test_a_guard_finding_in_a_file_the_pr_changes_is_not_excused(self):
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["cmux-tui/crates/acpmux/src/cli/send_relay.rs"], number=44814)
+        with self.assertRaisesRegex(excuse.Refused, r"#44814 changes .*send_relay\.rs"):
+            self.judge(github)
+
+    def test_a_guard_finding_the_pr_changed_is_not_excused(self):
+        # The PR adds a third timeout to a file the base already lists: its finding line differs from the base's.
+        mine = (*self.RATCHET_FINDINGS[:1],
+                f"{self.RATCHET} :: cmux-tui/crates/acpmux/src/cli/send_relay.rs:rust-duration: 3 hits, "
+                "allowlist says 1; a new short timeout was added", *self.RATCHET_FINDINGS[2:])
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new", mine),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["scripts/x.py"], number=44814)
+        with self.assertRaisesRegex(excuse.Refused, "3 hits"):
+            self.judge(github)
+
+    def test_a_guard_step_that_timed_out_is_still_cut_short(self):
+        github = GuardGroupGitHub(
+            ["##[error]Validate fleet rule lints timed out after 600s", *self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        with self.assertRaisesRegex(excuse.Refused, "timed out after 600s.*never a base red"):
+            self.judge(github)
+
     def test_a_red_outside_the_guard_comparison_is_refused(self):
         github = GuardGroupGitHub(["guard red step (new): Lint every workflow",
                                    "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
@@ -10690,7 +10748,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
-    "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
+    "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
     "owned_unnamed", "cited_red", "compile_errors_verdict", "setup_errors"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
