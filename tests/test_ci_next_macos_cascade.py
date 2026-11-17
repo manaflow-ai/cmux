@@ -2506,6 +2506,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     # separate, explicitly selected compatibility lane and is not changed by
     # cmux#43103.
     BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-26(?:['\"]|$)")
+    # The repository variables that name a macOS 26 Blacksmith label. MACOS_RUNNER_15, _DISPLAY, _DUAL_XCODE and
+    # _BACKGROUND name the macOS 15 lane, and MACOS_RUNNER_PR is that lane's pull-request runner (read beside
+    # fromJSON(vars.RUNNER_POOLS).macos_15), which this switch leaves alone.
+    MACOS_26_RUNNER_VARIABLE = re.compile(r"\bvars\.MACOS_RUNNER_(?:26_LARGE|26|IOS|TESTS)\b")
     # Jobs no pull request runs, with why they still name Blacksmith macOS while the switch is off.
     NOT_A_PR_JOB = {
         "dev-landing-compile": "the DEV landing compile (dispatch only) takes dev_landing_place.py's own Blacksmith pick",
@@ -2544,14 +2548,19 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
         "stable-next.yml sign: runs-on[0]",
+        # Handled separately: the build's runs-on is being changed by its own FFI-only placement override; its
+        # `inputs.rescue == 'blacksmith'` branch is the build rescue's explicit opt-in.
+        "app-ffi-release.yml build: runs-on[0]",
     })
 
     def blacksmith_labels(self, expression: str, switch: tuple[str, ...]) -> set[str]:
         from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
         # The repository sets the side lane variable (.github/single-host-fallbacks.json): the switch's owned route.
+        # The fork clause ends at its own literal: `.*?` used to run on past a Linux fork clause's `||` to the next
+        # macOS literal, cutting a parenthesis, and the expression fell to the literal scan below (swift-canary).
         text = re.sub(
             r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
-            r"github\.repository.*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
+            r"github\.repository[^|]*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
             "false", expression,
         ).replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
         # reload-build's explicit-ref path keeps an untrusted revision on the
@@ -2562,6 +2571,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
             r"needs\.resolve-ref\.outputs\.trusted_ref != 'true' && fromJSON\(vars\.RUNNER_POOLS\)\.macos_26",
             "false", text,
         )
+        # A runner variable that holds a macOS 26 Blacksmith label (each does on 2026-11-17) is that label
+        # whenever it is set: read ahead of the gate it wins, as `vars.MACOS_RUNNER_26 || (<gate> || <pool>)` did on
+        # stable-next's re-runs. Unknown to the resolver, it used to pass.
+        text = self.MACOS_26_RUNNER_VARIABLE.sub("'blacksmith-6vcpu-macos-26'", text)
         try:
             labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
             return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
