@@ -367,32 +367,43 @@ pub(super) fn rename_id(dir: &Path, old: &str, new: &str) -> Result<bool, String
     Ok(changed)
 }
 
+/// The leading spaces of `line`.
+fn indent_of(line: &str) -> &str {
+    line.strip_suffix(line.trim_start()).unwrap_or_default()
+}
+
 /// `manifest` (its text) with `"repository"` set to `url`, or removed when `url` is `None`;
 /// the other lines stay as they are. `None` when the text is not a JSON object.
 pub(super) fn with_repository(manifest: &str, url: Option<&str>) -> Option<String> {
     let mut value: Value = serde_json::from_str(manifest).ok()?;
     let object = value.as_object_mut()?;
     let has = object.contains_key("repository");
-    let mut lines: Vec<String> = manifest.lines().map(str::to_string).collect();
     let is_field = |line: &str| line.trim_start().starts_with("\"repository\":");
+    let field = |indent: &str, url: &str, comma: &str| {
+        format!("{indent}\"repository\": {}{comma}", Value::from(url))
+    };
+    let mut lines: Vec<String> = Vec::new();
     match (has, url) {
         (false, None) => return Some(manifest.to_string()),
         (true, Some(url)) => {
-            for line in &mut lines {
-                if is_field(line) {
-                    let indent = &line[..line.len() - line.trim_start().len()];
+            for line in manifest.lines() {
+                lines.push(if is_field(line) {
                     let comma = if line.trim_end().ends_with(',') { "," } else { "" };
-                    *line = format!("{indent}\"repository\": {}{comma}", Value::from(url));
-                }
+                    field(indent_of(line), url, comma)
+                } else {
+                    line.to_string()
+                });
             }
         }
         (true, None) => {
-            if let Some(at) = lines.iter().position(|line| is_field(line)) {
-                let had_comma = lines[at].trim_end().ends_with(',');
-                lines.remove(at);
-                if !had_comma
-                    && let Some(prev) =
-                        lines[..at].iter_mut().rev().find(|line| !line.trim().is_empty())
+            for line in manifest.lines() {
+                if !is_field(line) {
+                    lines.push(line.to_string());
+                    continue;
+                }
+                // The field was last: the comma before it goes too.
+                if !line.trim_end().ends_with(',')
+                    && let Some(prev) = lines.iter_mut().rev().find(|line| !line.trim().is_empty())
                     && prev.trim_end().ends_with(',')
                 {
                     let trimmed = prev.trim_end().trim_end_matches(',').to_string();
@@ -401,19 +412,20 @@ pub(super) fn with_repository(manifest: &str, url: Option<&str>) -> Option<Strin
             }
         }
         (false, Some(url)) => {
-            let at = lines.iter().position(|line| line.trim_start().starts_with("\"id\":"));
-            let line = match at {
-                Some(at) => {
-                    let indent =
-                        lines[at][..lines[at].len() - lines[at].trim_start().len()].to_string();
-                    if !lines[at].trim_end().ends_with(',') {
-                        lines[at].push(',');
-                    }
-                    (at + 1, format!("{indent}\"repository\": {},", Value::from(url)))
+            let mut placed = false;
+            for line in manifest.lines() {
+                if !placed && line.trim_start().starts_with("\"id\":") {
+                    let comma = if line.trim_end().ends_with(',') { "" } else { "," };
+                    lines.push(format!("{line}{comma}"));
+                    lines.push(field(indent_of(line), url, ","));
+                    placed = true;
+                } else {
+                    lines.push(line.to_string());
                 }
-                None => (1, format!("  \"repository\": {},", Value::from(url))),
-            };
-            lines.insert(line.0, line.1);
+            }
+            if !placed {
+                lines.insert(lines.len().min(1), field("  ", url, ","));
+            }
         }
     }
     let mut out = lines.join("\n");
