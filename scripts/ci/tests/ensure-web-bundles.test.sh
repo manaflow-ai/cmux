@@ -117,8 +117,9 @@ for host in "Linux x86_64 linux-x64" "Linux aarch64 linux-arm64" "Darwin arm64 d
   chmod +x "$WORK/bin/uname" "$WORK/bin/node" "$WORK/bin/curl"
   rm -rf "$WORK/state" "$WORK/cache" "$WORK/urls"; mkdir -p "$WORK/state"
   run > "$WORK/out" 2>&1 || true
-  grep -qx "https://nodejs.org/dist/v24.11.1/node-v24.11.1-$want.tar.gz" "$WORK/urls" 2> /dev/null ||
-    fail "$kernel $machine must download node-v24.11.1-$want: $(cat "$WORK/urls" 2> /dev/null)"
+  # Any pinned version (the pin may move); only the OS and CPU part is under test.
+  grep -qE "^https://nodejs.org/dist/v[0-9.]+/node-v[0-9.]+-$want\.tar\.gz$" "$WORK/urls" 2> /dev/null ||
+    fail "$kernel $machine must download node-vX-$want: $(cat "$WORK/urls" 2> /dev/null)"
 done
 rm -f "$WORK/bin/uname" "$WORK/bin/curl"
 printf '#!/bin/sh\necho v24.11.1\n' > "$WORK/bin/node"
