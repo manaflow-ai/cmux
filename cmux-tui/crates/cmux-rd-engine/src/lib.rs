@@ -10,6 +10,8 @@
 //! clock in microseconds, and each source keeps its own I/O loop, capture
 //! and encoder.
 
+mod outage;
+
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
@@ -326,6 +328,8 @@ struct StreamState {
     /// viewer's cumulative acknowledgement round trip on carriers that do
     /// not expose a path probe (the development socket/proxy path).
     sent_at_us: BTreeMap<u32, u64>,
+    /// Bytes of the stream's last keyframe: what starting over costs (D12).
+    last_keyframe_bytes: usize,
 }
 
 impl StreamState {
@@ -343,6 +347,7 @@ impl StreamState {
             probe_from_us: None,
             probes: 0,
             sent_at_us: BTreeMap::new(),
+            last_keyframe_bytes: 0,
         }
     }
 
@@ -441,54 +446,6 @@ impl MediaEngine {
             && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
         {
             self.cc.on_departed(header.transport_seq, now_us);
-        }
-    }
-
-    /// D12: an outage ended (`Output::outage_ended`) and the host dropped `stale`,
-    /// the datagrams from `encoded` still queued in its pacer. They are retired from
-    /// the controller and the loss meter (a datagram never sent is not loss), their
-    /// frames leave the NACK history (the viewer cannot be repaired into a frame half
-    /// of which never left), and each stream that lost a frame starts over from a
-    /// keyframe of the newest picture: `out.encode` becomes that keyframe when it
-    /// is for such a stream, and is asked for when there is none.
-    pub fn retire_unsent(&mut self, stale: &[Vec<u8>], out: &mut Output, now_us: u64) {
-        let mut dropped: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
-        for d in stale {
-            let Ok((header, _)) = DatagramHeader::decode(d) else { continue };
-            if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
-                continue;
-            }
-            self.cc.on_dropped(header.transport_seq);
-            self.loss_meter.forget(header.transport_seq);
-            let frames = dropped.entry(header.stream).or_default();
-            if frames.last() != Some(&header.frame) {
-                frames.push(header.frame);
-            }
-        }
-        for (&stream, frames) in &dropped {
-            let Some(state) = self.streams.get_mut(&stream) else { continue };
-            for frame in frames {
-                state.history.remove(frame);
-                state.sent_at_us.remove(frame);
-            }
-            state.force_idr = Some(IdrReason::Outage);
-            state.probe_from_us = None;
-            state.probes = 0;
-        }
-        // The outage end already cleared every gate's in-flight count.
-        match out.encode.as_mut() {
-            Some(req) if dropped.contains_key(&req.stream) => {
-                req.force_idr = true;
-                req.idr_reason = Some(IdrReason::Outage);
-            }
-            Some(_) => {}
-            None => {
-                let Some((&stream, _)) = dropped.iter().next() else { return };
-                let Some(state) = self.streams.get_mut(&stream) else { return };
-                let full = state.full();
-                let action = state.gate.damage(full, now_us);
-                out.encode = self.request(stream, action);
-            }
         }
     }
 
@@ -683,6 +640,9 @@ impl MediaEngine {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
             self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
+        }
+        if enc.idr && !tile {
+            state.last_keyframe_bytes = packets.datagrams.iter().map(Vec::len).sum();
         }
         state.history.insert(req.frame, packets.datagrams.clone());
         state.sent_at_us.insert(req.frame, now_us);

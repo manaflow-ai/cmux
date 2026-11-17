@@ -1,13 +1,14 @@
-//! D12 detector, host half: when an outage ends, what queued in the pacer during it never
-//! goes out, its missing receipts are not loss, and the newest frame goes out next as a
-//! keyframe.
+//! D12 detector, host half: when an outage ends, a queued frame that never started goes
+//! no further when it is larger than a keyframe (its missing receipts are not loss and the
+//! newest frame goes out next as a keyframe); a frame that started finishes, and a queue
+//! smaller than a keyframe goes out as it is, with no keyframe.
 
 use super::*;
 use crate::carrier::{Carrier, Incoming};
 use crate::wire::Control;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
 use cmux_rd_core::session::StartRequest;
-use cmux_rd_proto::{flags, Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent};
+use cmux_rd_proto::{flags, Arrival, Feedback, InputEvent};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
@@ -33,9 +34,10 @@ impl Desktop for QuietDesktop {
     }
 }
 
-/// The first frame is a large keyframe (many datagrams, so the pacer holds most of
-/// it); later frames are small. Records each encode's `force_idr`.
+/// Encodes the n-th frame at `sizes[n]` bytes (the last size after that). Records
+/// each encode's `force_idr`.
 struct SizedEncoder {
+    sizes: Vec<usize>,
     forced: Arc<Mutex<Vec<bool>>>,
 }
 
@@ -45,7 +47,7 @@ impl FrameSource for SizedEncoder {
     }
     fn encode(&mut self, force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
         let mut forced = self.forced.lock().expect("lock");
-        let len = if forced.len() == 1 { 60_000 } else { 800 };
+        let len = self.sizes[forced.len().min(self.sizes.len() - 1)];
         forced.push(force_idr);
         out.extend((0..len).map(|i| i as u8));
         Ok(force_idr)
@@ -114,8 +116,31 @@ fn send_next_frame(session: &mut MediaSession, carrier: &mut RecordingCarrier) {
     panic!("no frame was sent");
 }
 
-#[test]
-fn an_outage_end_drops_the_queued_datagrams_and_sends_the_newest_frame() {
+struct Outage {
+    session: MediaSession,
+    carrier: RecordingCarrier,
+    table: SessionTable,
+    id: SessionId,
+    viewer: Principal,
+    forced: Arc<Mutex<Vec<bool>>>,
+    /// Datagrams sent before the outage ended.
+    sent: usize,
+    /// The frame that started before the radio went away, and the one queued behind it.
+    started_frame: u32,
+    unstarted_frame: u32,
+}
+
+impl Outage {
+    fn feedback(&mut self, arrivals: Vec<Arrival>, acked_frame: u32) {
+        let d = feedback(arrivals, acked_frame);
+        self.session.on_datagram(&mut self.carrier, &d, &self.table, self.id, &self.viewer);
+    }
+}
+
+/// A small keyframe answered at once; then a 200 KB frame the pacer starts, and a frame
+/// of `unstarted` bytes queued behind it; the radio goes away for longer than the outage
+/// threshold and the started frame's head is answered at once when it is back.
+fn outage_with_queue(unstarted: usize) -> Outage {
     let forced = Arc::new(Mutex::new(Vec::new()));
     let cfg = SessionCfg {
         display: String::new(),
@@ -132,14 +157,17 @@ fn an_outage_end_drops_the_queued_datagrams_and_sends_the_newest_frame() {
         settle_us: 0,
         upstream_record: None,
         upstream_record_max_bytes: 0,
-        frames_in_flight: 2,
+        frames_in_flight: 3,
         input_frame_now: false,
         max_width: None,
         capture: crate::capture_backend::CaptureBackend::default(),
     };
     let mut session = MediaSession::with_desktop(
         Box::new(QuietDesktop(UnixStream::pair().expect("socket pair"))),
-        Box::new(SizedEncoder { forced: forced.clone() }),
+        Box::new(SizedEncoder {
+            sizes: vec![800, 200_000, unstarted, 800],
+            forced: forced.clone(),
+        }),
         &cfg,
         1200,
         &[],
@@ -170,64 +198,119 @@ fn an_outage_end_drops_the_queued_datagrams_and_sends_the_newest_frame() {
             now_ms: 0,
         })
         .expect("session starts");
-    let mut carrier = RecordingCarrier::default();
+    let mut t = Outage {
+        session,
+        carrier: RecordingCarrier::default(),
+        table,
+        id,
+        viewer,
+        forced,
+        sent: 0,
+        started_frame: 0,
+        unstarted_frame: 0,
+    };
 
     // The path works: a small first frame is answered at once.
-    let first = session.engine.start(now_us()).expect("first frame");
-    session.encoder.submit(first);
-    send_next_frame(&mut session, &mut carrier);
-    let answered: Vec<Arrival> = carrier
+    let first = t.session.engine.start(now_us()).expect("first frame");
+    t.session.encoder.submit(first);
+    send_next_frame(&mut t.session, &mut t.carrier);
+    let answered: Vec<Arrival> = t
+        .carrier
         .sent
         .iter()
         .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 1_000 })
         .collect();
-    let first_frame = header(&carrier.sent[0]).frame;
-    session.on_datagram(&mut carrier, &feedback(answered, first_frame), &table, id, &viewer);
-    let before = carrier.sent.len();
+    let first_frame = header(&t.carrier.sent[0]).frame;
+    t.feedback(answered, first_frame);
+    let before = t.carrier.sent.len();
 
-    // A large frame: the pacer sends its head at once and holds the rest.
+    // A large frame: the pacer sends its head at once and holds the rest; the next
+    // frame queues behind it.
     std::thread::sleep(Duration::from_millis(20));
-    let whole = Rect { x: 0, y: 0, width: 640, height: 480 };
-    let large = session.engine.damage(0, whole, now_us()).expect("second frame");
-    session.encoder.submit(large);
-    send_next_frame(&mut session, &mut carrier);
-    let sent_first = carrier.sent[before..].to_vec();
-    let queued = session.pacer.as_ref().map_or(0, Pacer::queued_bytes);
-    assert!(queued > 0, "the pacer holds part of the frame");
-    let stale_frame = header(&sent_first[0]).frame;
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let large = t.session.engine.damage(0, small, now_us()).expect("second frame");
+    t.session.encoder.submit(large);
+    send_next_frame(&mut t.session, &mut t.carrier);
+    t.started_frame = header(&t.carrier.sent[before]).frame;
+    std::thread::sleep(Duration::from_millis(20));
+    let next = t.session.engine.damage(0, small, now_us()).expect("third frame");
+    t.unstarted_frame = next.frame;
+    t.session.encoder.submit(next);
+    send_next_frame(&mut t.session, &mut t.carrier);
+    let head = t.carrier.sent[before..].to_vec();
+    assert!(
+        head.iter().all(|d| header(d).frame == t.started_frame),
+        "the third frame has not started"
+    );
 
     // The radio goes away for longer than the outage threshold, then the head's
     // receipts arrive at once.
     std::thread::sleep(Duration::from_millis(150));
-    let arrivals = sent_first
+    let arrivals = head
         .iter()
-        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 170_000 })
+        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 190_000 })
         .collect();
-    session.on_datagram(&mut carrier, &feedback(arrivals, first_frame), &table, id, &viewer);
-    assert_eq!(session.pacer.as_ref().map_or(0, Pacer::queued_bytes), 0, "queue emptied");
-    assert!(session.paced_logs.is_empty());
-    session.send_paced(&mut carrier).expect("send paced");
-    assert_eq!(
-        carrier.sent.len(),
-        before + sent_first.len(),
-        "a datagram queued through the outage went out after it"
-    );
+    t.feedback(arrivals, first_frame);
+    t.sent = t.carrier.sent.len();
+    t
+}
 
-    // The newest frame goes out next, as a keyframe.
-    send_next_frame(&mut session, &mut carrier);
-    let fresh: Vec<Vec<u8>> = carrier.sent[before + sent_first.len()..].to_vec();
+fn queued_frames(session: &MediaSession) -> Vec<u32> {
+    let mut frames: Vec<u32> = session
+        .pacer
+        .as_ref()
+        .map_or(Vec::new(), |p| p.queued().map(|d| header(d).frame).collect());
+    frames.dedup();
+    frames
+}
+
+#[test]
+fn an_outage_end_drops_an_unstarted_frame_larger_than_a_keyframe_and_finishes_the_started_one() {
+    let mut t = outage_with_queue(60_000);
+    assert_eq!(queued_frames(&t.session), vec![t.started_frame], "only the started frame stays");
+    assert_eq!(t.session.paced_logs.iter().filter(|l| l.frame.1 == t.unstarted_frame).count(), 0);
+
+    // The started frame finishes, then the newest frame goes out as a keyframe.
+    while !t.session.pacer.as_ref().is_some_and(Pacer::is_empty) {
+        std::thread::sleep(Duration::from_millis(2));
+        t.session.send_paced(&mut t.carrier).expect("send paced");
+    }
+    let rest = t.carrier.sent[t.sent..].to_vec();
+    assert!(rest.iter().all(|d| header(d).frame == t.started_frame), "a dropped datagram went out");
+    send_next_frame(&mut t.session, &mut t.carrier);
+    let fresh = t.carrier.sent[t.sent + rest.len()..].to_vec();
     let h = header(&fresh[0]);
-    assert!(h.frame > stale_frame, "{} after {stale_frame}", h.frame);
+    assert!(h.frame > t.unstarted_frame, "{} after {}", h.frame, t.unstarted_frame);
     assert_ne!(h.flags & flags::KEYFRAME, 0, "the next frame is a keyframe");
-    assert_eq!(forced.lock().expect("lock").as_slice(), &[true, false, true]);
+    assert_eq!(t.forced.lock().expect("lock").as_slice(), &[true, false, false, true]);
 
-    // Its receipts, then a quiet feedback after the reorder grace: no loss.
-    let fresh_arrivals = fresh
+    // Their receipts, then a quiet feedback after the reorder grace: no loss.
+    let arrivals = rest
         .iter()
-        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 180_000 })
+        .chain(&fresh)
+        .map(|d| Arrival { transport_seq: header(d).transport_seq, arrival_us: 200_000 })
         .collect();
-    session.on_datagram(&mut carrier, &feedback(fresh_arrivals, h.frame), &table, id, &viewer);
+    t.feedback(arrivals, h.frame);
     std::thread::sleep(Duration::from_millis(120));
-    session.on_datagram(&mut carrier, &feedback(Vec::new(), h.frame), &table, id, &viewer);
-    assert_eq!(session.engine.stats().loss, 0.0, "dropped datagrams read as loss");
+    t.feedback(Vec::new(), h.frame);
+    assert_eq!(t.session.engine.stats().loss, 0.0, "dropped datagrams read as loss");
+}
+
+#[test]
+fn an_outage_end_sends_a_queue_smaller_than_a_keyframe_and_forces_none() {
+    let mut t = outage_with_queue(100);
+    assert_eq!(queued_frames(&t.session), vec![t.started_frame, t.unstarted_frame]);
+    while !t.session.pacer.as_ref().is_some_and(Pacer::is_empty) {
+        std::thread::sleep(Duration::from_millis(2));
+        t.session.send_paced(&mut t.carrier).expect("send paced");
+    }
+    assert_eq!(header(t.carrier.sent.last().expect("sent")).frame, t.unstarted_frame);
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    if let Some(req) = t.session.engine.damage(0, small, now_us()) {
+        t.session.encoder.submit(req);
+    }
+    send_next_frame(&mut t.session, &mut t.carrier);
+    let h = header(t.carrier.sent.last().expect("sent"));
+    assert_eq!(h.flags & flags::KEYFRAME, 0, "no keyframe without a drop");
+    assert_eq!(t.forced.lock().expect("lock").as_slice(), &[true, false, false, false]);
 }

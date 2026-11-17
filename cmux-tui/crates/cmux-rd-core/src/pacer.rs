@@ -116,13 +116,30 @@ impl Pacer {
         self.budget_bytes = 0.0;
     }
 
-    /// Takes everything still queued, in order, so the caller can retire it (an
-    /// outage ended and what queued during it is stale, D12). The next frame
-    /// pushed goes at once, as on an idle pacer.
-    pub fn take_queued(&mut self) -> Vec<Vec<u8>> {
-        self.queued_bytes = 0;
-        self.budget_bytes = 0.0;
-        self.queue.drain(..).collect()
+    /// What is queued, in send order (to decide what an outage end drops, D12).
+    pub fn queued(&self) -> impl Iterator<Item = &[u8]> {
+        self.queue.iter().map(Vec::as_slice)
+    }
+
+    /// Takes the queued datagrams `stale` picks, in order, so the caller can retire
+    /// them (an outage ended and they are stale, D12); the rest keep their place and
+    /// pacing. When nothing is left the next frame pushed goes at once.
+    pub fn take_where(&mut self, mut stale: impl FnMut(&[u8]) -> bool) -> Vec<Vec<u8>> {
+        let mut taken = Vec::new();
+        let mut kept = VecDeque::with_capacity(self.queue.len());
+        for d in self.queue.drain(..) {
+            if stale(&d) {
+                self.queued_bytes -= d.len();
+                taken.push(d);
+            } else {
+                kept.push_back(d);
+            }
+        }
+        self.queue = kept;
+        if self.queue.is_empty() {
+            self.budget_bytes = 0.0;
+        }
+        taken
     }
 }
 
@@ -202,11 +219,12 @@ mod tests {
     }
 
     #[test]
-    fn taking_the_queue_leaves_an_idle_pacer_that_sends_the_next_frame_at_once() {
+    fn taking_the_whole_queue_leaves_an_idle_pacer_that_sends_the_next_frame_at_once() {
         let mut p = Pacer::new();
         p.push_frame(frame(100), 10_000_000, 16_667, 0);
         let first = p.due(0).len();
-        let stale = p.take_queued();
+        assert_eq!(p.queued().count(), 100 - first);
+        let stale = p.take_where(|_| true);
         assert_eq!(first + stale.len(), 100);
         assert_eq!(stale[0][0], first as u8, "the unsent tail, in order");
         assert!(p.is_empty());
@@ -214,6 +232,19 @@ mod tests {
         assert_eq!(p.next_deadline_us(), None);
         p.push_frame(frame(2), 10_000_000, 16_667, 1_000);
         assert_eq!(p.due(1_000).len(), 2, "the newest frame is not paced behind the stale one");
+    }
+
+    #[test]
+    fn taking_part_of_the_queue_keeps_the_rest_in_order() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(10), 10_000_000, 16_667, 0);
+        p.push_frame(vec![vec![0xee; 1200]; 5], 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        let stale = p.take_where(|d| d[0] == 0xee);
+        assert_eq!(stale.len(), 5);
+        assert_eq!(p.queued_bytes(), (10 - first) * 1152);
+        let rest: Vec<u8> = p.queued().map(|d| d[0]).collect();
+        assert_eq!(rest, (first as u8..10).collect::<Vec<_>>());
     }
 
     #[test]
