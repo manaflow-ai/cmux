@@ -3835,8 +3835,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     {
       const t0 = Date.now();
       try {
-        const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
-        const probe = await syncStoreProbe(platform, install.token, tag);
+        // A backend whose client-config names no platform origin (a local or fake API) has no store to check.
+        const config = await api.raw("GET", "/v1/client-config", undefined, 30_000);
+        let platform: string | null = null;
+        try { platform = config.status === 200 ? clientPlatformOrigin(config.body) : null; } catch {}
+        const probe: SyncStoreProbe = platform
+          ? await syncStoreProbe(platform, install.token, tag)
+          : { skip: "no store on this backend", detail: `client-config answered ${config.status} with no https platform_origin` };
         J.record({ step: "sync store", status: probe.skip ? "skip" : "pass", ms: Date.now() - t0, detail: probe.skip ? `${probe.skip}: ${probe.detail}` : probe.detail });
       } catch (error) {
         J.record({ step: "sync store", status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
