@@ -60,6 +60,8 @@ struct AgentTabContent {
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
+        // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
+        view.drawsLastPage = { [weak pane, weak view] in if let pane, let view, pane.currentTabKey == key, pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)

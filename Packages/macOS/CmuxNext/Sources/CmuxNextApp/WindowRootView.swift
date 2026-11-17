@@ -328,8 +328,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
 
-    /// Keeps the outgoing content until an unpainted top page paints.
-    let paintHold = PanePaintHold(owner: "window.paint-hold")
+    /// Keeps the outgoing content until its unpainted pages paint, two frames of its screen at most (then their pictures).
+    let paintHold = PanePaintHold(owner: "window.paint-hold", frames: 2)
 
     /// Replaces the shown content. A workspace's view stays in the window, hidden (its controller
     /// keeps it mounted and removes it at teardown), so a switch moves no view out of the window or

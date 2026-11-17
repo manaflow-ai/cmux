@@ -41,11 +41,6 @@ extension PaneContentView {
         PageWebView.syncChromiumVisibility(in: content)
     }
 
-    /// Whether `view` replacing `hosted` waits for its first frame.
-    func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
-        PanePaintHold.holds(view, replacing: hosted)
-    }
-
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
     /// A strip that hides with this swap stays, and `outgoing` keeps its place under it: the pane changes in
     /// one frame, when the swap shows (cx-f6i7).
