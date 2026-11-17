@@ -1607,6 +1607,13 @@ def main():
                 json.dump(report, handle, indent=2)
             print(f"bench-memory: wrote {args.out}")
         if scratch:
+            try:
+                with open(os.path.join(scratch, "app.log"), errors="replace") as handle:
+                    lines = handle.read().splitlines()
+                for line in [l for l in lines if "FATAL" in l or "Check failed" in l or "CHECK" in l][-20:] + lines[-60:]:
+                    print("DIAG app.log: " + line[:600])
+            except OSError as error:
+                print(f"DIAG app.log: {error}")
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
             shutil.rmtree(diff_scratch, ignore_errors=True)

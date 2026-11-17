@@ -333,7 +333,8 @@ class DeferredPageResource : public CefResourceHandler {
   void Poll() {
     // One UI turn first (UITurnTask comes back here on TID_FILE_USER_BLOCKING).
     if (!ui_turn_done_.load() && !g_page_requests_stopping.load() && CefPostTask(TID_UI, new UITurnTask(this))) return;
-    std::string frame_url = CurrentFrameURL();
+    // A request that waits for no frame may have none (JudgePageRequest's frameless kAllow).
+    std::string frame_url = wait_for_frame_ && frame_ ? CurrentFrameURL() : std::string();
     const bool settled = !wait_for_frame_ || !browser_ || (!frame_url.empty() && frame_url != "about:blank") ||
                          waited_ms_ >= kDeferredPageWaitMs;
     // No new poll once the shim shuts CEF down (CefPostDelayedTask then crashes): judge now.
