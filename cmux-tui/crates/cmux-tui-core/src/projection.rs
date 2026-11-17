@@ -34,8 +34,6 @@ const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct ServeLine {
-    #[serde(default)]
-    id: Value,
     cmd: String,
     name: String,
     at: String,

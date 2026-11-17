@@ -15,7 +15,7 @@ fn only_a_projection_serve_line_is_a_projection_frame() {
 
 #[test]
 fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
-    let home = tempfile::tempdir().unwrap();
+    let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![home.path().to_path_buf()];
     let inside = home.path().join("work").join("chat");
     assert!(mount_point(inside.to_str().unwrap(), &roots).is_ok());
@@ -27,7 +27,7 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
 
 #[test]
 fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
-    let home = tempfile::tempdir().unwrap();
+    let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![home.path().to_path_buf()];
     let at = home.path().join("p");
     let line = |name: &str| {
@@ -54,7 +54,7 @@ fn a_dial_mounts_its_manifest_and_reads_ask_the_mac() {
         eprintln!("skipping: no FUSE here");
         return;
     }
-    let home = tempfile::tempdir().unwrap();
+    let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![std::fs::canonicalize(home.path()).unwrap()];
     let at = roots[0].join("work").join("chat");
     let items = vec![
