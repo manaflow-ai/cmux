@@ -109,3 +109,22 @@ test("a start another chat's selection overtook is superseded, not failed", asyn
     client.close();
   }
 });
+
+test("the start card says an unclassified plain reason in its sentence; raw text stays under Details", async () => {
+  const { startFailureView } = await import("../src/agent-session/acpmux/startFailure");
+  const plain = startFailureView(translate, {
+    harness: "claude-sr2",
+    name: "Claude Code (sr2 internal)",
+    error: "the subrouter has no account free for this model right now",
+  });
+  expect(plain.sentence).toBe(
+    "Couldn't start Claude Code (sr2 internal): the subrouter has no account free for this model right now",
+  );
+  const raw = startFailureView(translate, {
+    harness: "claude-sr2",
+    name: "Claude Code (sr2 internal)",
+    error: "internal error: thread 'main' panicked at src/session.rs:42:5",
+  });
+  expect(raw.sentence).toBe("Claude Code (sr2 internal) couldn’t start.");
+  expect(raw.detail).toContain("panicked");
+});
