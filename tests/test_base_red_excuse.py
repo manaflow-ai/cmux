@@ -13828,7 +13828,9 @@ class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
         view = self.view(self.CHECKS, "head", base=False)
         self.assertIsNot(view, excuse.UNPLACED)
         statuses = {str(view.steps[k]["name"]): status for k, status, _ in view.sections}
-        self.assertEqual(statuses.get("Package conventions lint"), "errored")
+        # The warn-only lint's ERRORED section is out of the head's view: the rollup's whole list leaves it out, so its
+        # outcome was not a failure (failed_view, rollup_named). Without that list it stays (the test below).
+        self.assertNotIn("Package conventions lint", statuses)
         self.assertEqual(statuses.get("Fail on any red check"), "failed")
         with self.assertRaises(excuse.Refused) as said:
             excuse.guard_tests(view)
