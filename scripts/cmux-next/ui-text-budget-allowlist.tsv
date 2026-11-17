@@ -194,7 +194,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer/Resources/Localizable.xc
 Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer/Resources/Localizable.xcstrings	sessionMove.dialog.terminalLine	19	12
 Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer/Resources/Localizable.xcstrings	sessionMove.endTerminals.title	7	6
 Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer/Resources/Localizable.xcstrings	sessionMove.handoff.running	15	12
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings	settings.workspaceHibernation.hiddenChatDiscard.help	39	25
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.agents.icon.help	32	25
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.theme.file.invalidName	11	6
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings	settingsPage.theme.file.shippedName	9	6
@@ -213,8 +212,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/Localizable.xcstrings	
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/Localizable.xcstrings	updater.secondCopy.switchLine	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceNaming/Resources/WorkspaceNaming.xcstrings	workspaceNaming.nameFromActivity.oldDaemon	14	6
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Resources/Localizable.xcstrings	chiefCall.status.microphoneDenied	14	12
-schemas/settings/source/hang-reports.json	settings.diagnostics.usagePatterns.help	62	60
-schemas/settings/source/sidebar.json	settings.sidebar.groupPalette.help	71	60
 schemas/settings/source/sidebar.json	settings.sidebar.priorityView.enabled.summary	11	10
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.alternating	15	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.cap	17	12
