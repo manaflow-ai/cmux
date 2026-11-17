@@ -48,7 +48,7 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
 
-# The code-sign clone sweep (src/sign_clone_sweep.rs): confstr and
+# The code-sign clone sweep (src/sign_clone_sweep.rs): confstr, statvfs and
 # proc_pidinfo for this process, EBUSY.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

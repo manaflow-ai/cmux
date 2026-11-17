@@ -29,8 +29,8 @@
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
-//! `sign_clone_sweep` removes the Chromium code-sign clones that earlier
-//! launches left in the per-user temp folder (include/cmux_sign_clone_sweep.h).
+//! `sign_clone_sweep` removes the Chromium code-sign clones that cmux apps
+//! left in the per-user temp folder (include/cmux_sign_clone_sweep.h).
 
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
