@@ -91,6 +91,9 @@ import Testing
         #expect(dev.billingOrigin(launchOverride: "") == nil)
         #expect(dev.billingOrigin(launchOverride: "cmux-staging.vercel.app") == nil)
         #expect(dev.billingOrigin(launchOverride: "file:///tmp") == nil)
+        #expect(dev.billingOrigin(launchOverride: "http://127.0.0.1:4517") == URL(string: "http://127.0.0.1:4517")!)
+        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app/api") == nil)
+        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app?x=1") == nil)
         let production = TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: nil)
         #expect(production.billingOrigin(launchOverride: nil) == web)
     }

@@ -84,12 +84,14 @@ public enum TeamCreationRoute: Equatable, Sendable {
     /// the development Stack project, whose sessions staging (`https://cmux-staging.vercel.app`)
     /// and the per-tag development web stacks accept, so `CMUX_MOBILE_BILLING_ORIGIN` points the
     /// plans screen at one of them for a real App Store Sandbox purchase in a simulator.
-    /// Only http(s) origins count; anything else keeps ``billingOrigin``.
+    /// Only a bare http(s) origin counts (no path, query or fragment, since the billing API
+    /// appends its own paths); anything else keeps ``billingOrigin``.
     /// - Parameter launchOverride: The `CMUX_MOBILE_BILLING_ORIGIN` value; the caller passes it
     ///   only in DEBUG builds.
     public func billingOrigin(launchOverride: String?) -> URL? {
         if let launchOverride, let url = URL(string: launchOverride),
-           let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host() != nil {
+           let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host() != nil,
+           url.path().isEmpty || url.path() == "/", url.query() == nil, url.fragment() == nil {
             return url
         }
         return billingOrigin
