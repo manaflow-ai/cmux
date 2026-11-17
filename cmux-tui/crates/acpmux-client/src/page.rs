@@ -195,6 +195,7 @@ struct Question {
     in_flight: bool,
     complete: bool,
     failed: bool,
+    closed: bool,
     rows: usize,
     created: u64,
 }
@@ -284,16 +285,24 @@ impl ListDriver {
         // Client::disconnected deliberately retains held rows and wanted keys. A page host may
         // reconnect the same driver without ever showing an empty list.
         self.client.disconnected();
+        let mut remove = Vec::new();
         for (id, question) in self.questions.iter_mut() {
             if question.in_flight {
                 question.in_flight = false;
-                question.failed = true;
-                self.synthetic.push_back(ListEvent::Error {
-                    sid: Some(question.sid.clone()),
-                    id: Some(id.clone()),
-                    code: "list.lost".into(),
-                });
+                if question.closed {
+                    remove.push(id.clone());
+                } else {
+                    question.failed = true;
+                    self.synthetic.push_back(ListEvent::Error {
+                        sid: Some(question.sid.clone()),
+                        id: Some(id.clone()),
+                        code: "list.lost".into(),
+                    });
+                }
             }
+        }
+        for id in remove {
+            self.questions.remove(&id);
         }
         for sid in self.slots.keys() {
             let already_queued = self.synthetic.iter().any(|event| {
@@ -362,6 +371,9 @@ impl ListDriver {
     }
 
     pub fn close(&mut self, sid: &str) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
         self.slots.remove(sid);
         self.heads.remove(sid);
         if let Some(old) = self.members.remove(sid) {
@@ -372,7 +384,19 @@ impl ListDriver {
                 }
             }
         }
-        self.questions.retain(|_, question| question.sid != sid);
+        let mut remove_questions = Vec::new();
+        for (id, question) in &mut self.questions {
+            if question.sid == sid {
+                if question.in_flight {
+                    question.closed = true;
+                } else {
+                    remove_questions.push(id.clone());
+                }
+            }
+        }
+        for id in remove_questions {
+            self.questions.remove(&id);
+        }
         self.resuming.remove(sid);
         self.client
             .unsubscribe(sid)
@@ -386,7 +410,13 @@ impl ListDriver {
         if question.sid != sid {
             return Err(DriverError::Invalid(InvalidCode::Sid));
         }
-        self.questions.remove(id);
+        if self.questions.get(id).is_some_and(|question| question.in_flight) {
+            if let Some(question) = self.questions.get_mut(id) {
+                question.closed = true;
+            }
+        } else {
+            self.questions.remove(id);
+        }
         Ok(())
     }
 
@@ -395,6 +425,9 @@ impl ListDriver {
         sid: &str,
         keys: impl IntoIterator<Item = ListKey>,
     ) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
         let keys: Vec<_> = keys.into_iter().take(MAX_WANTED_KEYS + 1).collect();
         if keys.len() > MAX_WANTED_KEYS {
             return Err(DriverError::Limit("list.wants"));
@@ -410,6 +443,13 @@ impl ListDriver {
         sid: &str,
         keys: impl IntoIterator<Item = ListKey>,
     ) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
+        let keys: Vec<_> = keys.into_iter().take(MAX_WANTED_KEYS + 1).collect();
+        if keys.len() > MAX_WANTED_KEYS {
+            return Err(DriverError::Limit("list.wants"));
+        }
         self.client
             .unwant(sid, keys)
             .map_err(|error| DriverError::Invalid(InvalidCode::Protocol(error.to_string())))
@@ -417,6 +457,10 @@ impl ListDriver {
 
     /// Starts one bounded question. The returned id is opaque and is safe to expose to a page.
     pub fn page(&mut self, request: PageRequest) -> Result<String, DriverError> {
+        if self.questions.values().any(|question| question.sid == request.sid && question.in_flight)
+        {
+            return Err(DriverError::Busy);
+        }
         if !self.slots.contains_key(&request.sid) {
             return Err(DriverError::Invalid(InvalidCode::Sid));
         }
@@ -444,10 +488,6 @@ impl ListDriver {
         }
         if self.questions.values().filter(|question| !question.complete && !question.failed).count()
             >= MAX_QUESTIONS
-        {
-            return Err(DriverError::Busy);
-        }
-        if self.questions.values().any(|question| question.sid == request.sid && question.in_flight)
         {
             return Err(DriverError::Busy);
         }
@@ -520,6 +560,7 @@ impl ListDriver {
                 in_flight: true,
                 complete: false,
                 failed: false,
+                closed: false,
                 rows: 0,
                 created,
             },
@@ -586,59 +627,63 @@ impl ListDriver {
                 break;
             }
         }
-        while bytes < MAX_BATCH_BYTES {
-            let next = if let Some(deferred) = self.deferred.pop_front() {
-                Some((deferred.change, deferred.event))
-            } else {
-                let Some(change) = self.client.next_change_uncredited() else { break };
-                match self.project(change.change.clone()) {
-                    Ok(Some(event)) => Some((change, event)),
-                    Ok(None) => {
-                        self.client.acknowledge_change(&change);
-                        continue;
+        // Synthetic driver events have priority. If one remains because it did not fit,
+        // leave all handle changes queued for the next batch so the driver event stays first.
+        if self.synthetic.is_empty() {
+            while bytes < MAX_BATCH_BYTES {
+                let next = if let Some(deferred) = self.deferred.pop_front() {
+                    Some((deferred.change, deferred.event))
+                } else {
+                    let Some(change) = self.client.next_change_uncredited() else { break };
+                    match self.project(change.change.clone()) {
+                        Ok(Some(event)) => Some((change, event)),
+                        Ok(None) => {
+                            self.client.acknowledge_change(&change);
+                            continue;
+                        }
+                        Err(error) => {
+                            self.client.acknowledge_change(&change);
+                            self.synthetic.push_back(ListEvent::Error {
+                                sid: change_sid(&change.change),
+                                id: None,
+                                code: error_code(&error),
+                            });
+                            break;
+                        }
                     }
-                    Err(error) => {
+                };
+                let Some((change, event)) = next else { break };
+                let event_bytes = match serde_json::to_vec(&event) {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
                         self.client.acknowledge_change(&change);
                         self.synthetic.push_back(ListEvent::Error {
                             sid: change_sid(&change.change),
                             id: None,
-                            code: error_code(&error),
+                            code: "list.protocol".into(),
                         });
-                        continue;
+                        break;
                     }
-                }
-            };
-            let Some((change, event)) = next else { break };
-            let event_bytes = match serde_json::to_vec(&event) {
-                Ok(bytes) => bytes,
-                Err(_) => {
+                };
+                if event_bytes.len() > MAX_REPLY_BYTES {
                     self.client.acknowledge_change(&change);
                     self.synthetic.push_back(ListEvent::Error {
                         sid: change_sid(&change.change),
                         id: None,
-                        code: "list.protocol".into(),
+                        code: "list.reply".into(),
                     });
                     break;
                 }
-            };
-            if event_bytes.len() > MAX_REPLY_BYTES {
-                self.client.acknowledge_change(&change);
-                self.synthetic.push_back(ListEvent::Error {
-                    sid: change_sid(&change.change),
-                    id: None,
-                    code: "list.reply".into(),
-                });
-                break;
-            }
-            if !events.is_empty() && bytes.saturating_add(event_bytes.len()) > MAX_BATCH_BYTES {
-                self.deferred.push_front(DeferredChange { change, event });
-                break;
-            }
-            bytes = bytes.saturating_add(event_bytes.len());
-            changes.push(change);
-            events.push(event);
-            if bytes >= MAX_BATCH_BYTES {
-                break;
+                if !events.is_empty() && bytes.saturating_add(event_bytes.len()) > MAX_BATCH_BYTES {
+                    self.deferred.push_front(DeferredChange { change, event });
+                    break;
+                }
+                bytes = bytes.saturating_add(event_bytes.len());
+                changes.push(change);
+                events.push(event);
+                if bytes >= MAX_BATCH_BYTES {
+                    break;
+                }
             }
         }
         if events.is_empty() {
@@ -717,11 +762,19 @@ impl ListDriver {
                 event
             }
             Change::Page(page) => {
-                let Some((id, question)) = self
+                let Some((id, closed)) = self
                     .questions
-                    .iter_mut()
+                    .iter()
                     .find(|(_, question)| question.sid == page.sid && question.in_flight)
+                    .map(|(id, question)| (id.clone(), question.closed))
                 else {
+                    return Ok(None);
+                };
+                if closed {
+                    self.questions.remove(&id);
+                    return Ok(None);
+                }
+                let Some(question) = self.questions.get_mut(&id) else {
                     return Ok(None);
                 };
                 question.in_flight = false;
@@ -843,16 +896,26 @@ impl ListDriver {
                 ListEvent::Off { sid, code: "unsupported".into() }
             }
             Change::Error { sid, code, .. } => {
+                let mut closed_question = false;
                 let question_id = sid.as_ref().and_then(|sid| {
-                    self.questions
-                        .iter_mut()
+                    let id = self
+                        .questions
+                        .iter()
                         .find(|(_, question)| question.sid == sid.as_str() && question.in_flight)
-                        .map(|(id, question)| {
-                            question.in_flight = false;
-                            question.failed = true;
-                            id.clone()
-                        })
+                        .map(|(id, _)| id.clone())?;
+                    if self.questions.get(&id).is_some_and(|question| question.closed) {
+                        self.questions.remove(&id);
+                        closed_question = true;
+                        return None;
+                    }
+                    let question = self.questions.get_mut(&id)?;
+                    question.in_flight = false;
+                    question.failed = true;
+                    Some(id)
                 });
+                if closed_question {
+                    return Ok(None);
+                }
                 ListEvent::Error { sid, id: question_id, code }
             }
             Change::ResumeEnd { sid, .. } => {
@@ -1141,6 +1204,7 @@ mod tests {
                 in_flight: true,
                 complete: false,
                 failed: false,
+                closed: false,
                 rows: 0,
                 created: 1,
             },
@@ -1157,6 +1221,79 @@ mod tests {
         assert!(matches!(event, ListEvent::Error { id: Some(id), .. } if id == "q"));
         assert!(!driver.questions["q"].in_flight);
         assert!(driver.questions["q"].failed);
+    }
+
+    #[test]
+    fn closing_in_flight_question_tombstones_until_reply_then_frees_slot() {
+        let mut driver = ListDriver::new();
+        driver.slots.insert("s".into(), "all".into());
+        driver.heads.insert(
+            "s".into(),
+            Head {
+                slot: "all".into(),
+                before_key: Some(ListKey {
+                    last_activity: 1,
+                    chat_id: "head".into(),
+                    origin: "local".into(),
+                    past: false,
+                }),
+                edition: 0,
+                rows: Vec::new(),
+                stopped: false,
+            },
+        );
+        driver.questions.insert(
+            "q".into(),
+            Question {
+                sid: "s".into(),
+                kind: PageKind::Older,
+                request: Page::new("s", "list", crate::wire::PageSide::Before, 1),
+                in_flight: true,
+                complete: false,
+                failed: false,
+                closed: false,
+                rows: 0,
+                created: 1,
+            },
+        );
+        driver.close_question("s", "q").unwrap();
+        assert!(driver.questions["q"].closed);
+        assert_eq!(
+            driver.page(PageRequest {
+                sid: "s".into(),
+                kind: PageKind::Older,
+                key: None,
+                folder: None,
+                cold: false,
+            }),
+            Err(DriverError::Busy)
+        );
+        let page = crate::wire::PageResult {
+            sid: "s".into(),
+            rows: Vec::new(),
+            has_before: false,
+            has_after: false,
+            cold_unread: false,
+            deeper: Vec::new(),
+            before_key: None,
+            after_key: None,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        assert!(driver.project(Change::Page(page)).unwrap().is_none());
+        assert!(!driver.questions.contains_key("q"));
+        assert!(
+            driver
+                .page(PageRequest {
+                    sid: "s".into(),
+                    kind: PageKind::Older,
+                    key: None,
+                    folder: None,
+                    cold: false,
+                })
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1242,6 +1379,12 @@ mod tests {
                 stopped: false,
             },
         );
+        let old_key = RowRef { origin: "local".into(), chat_id: "old".into() };
+        driver.heads.get_mut("s").unwrap().rows.push(old_key.clone());
+        driver.members.entry("s".into()).or_default().insert(old_key.clone());
+        driver
+            .row_values
+            .insert(old_key, json!({"chatId":"old", "origin":"local", "updatedMs": 0}));
         driver.questions.insert(
             "q".into(),
             Question {
@@ -1251,11 +1394,12 @@ mod tests {
                 in_flight: true,
                 complete: false,
                 failed: false,
+                closed: false,
                 rows: 0,
                 created: 1,
             },
         );
-        let rows = (0..200).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
+        let rows = (1..=201).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
         let page = crate::wire::PageResult {
             sid: "s".into(),
             rows,
@@ -1275,8 +1419,13 @@ mod tests {
             rest: Vec::new(),
         };
         let event = driver.project(Change::Page(page)).unwrap().unwrap();
-        assert!(matches!(event, ListEvent::Rows { complete: false, .. }));
+        assert!(
+            matches!(&event, ListEvent::Rows { complete: false, remove, .. } if remove == &vec![RowRef { origin: "local".into(), chat_id: "old".into() }])
+        );
         assert!(driver.heads["s"].stopped);
+        assert!(
+            matches!(driver.questions["q"].request.before.as_ref(), Some(Position::List(ListKey { chat_id, .. })) if chat_id == "older")
+        );
         assert_eq!(
             driver.page(PageRequest {
                 sid: "s".into(),
@@ -1287,5 +1436,84 @@ mod tests {
             }),
             Err(DriverError::Limit("list.limit"))
         );
+    }
+
+    #[test]
+    fn list_batch_fixture_bytes_are_the_driver_json() {
+        let row = |chat_id: &str, session_id: &str, updated_ms: u64| json!({"origin":"local", "chatId":chat_id, "sessionId":session_id, "updatedMs":updated_ms});
+        let batch = ListBatch {
+            number: 17,
+            events: vec![
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "all".into(),
+                    upserts: vec![row("chat-b", "session-b", 42), row("chat-a", "session-a", 42)],
+                    remove: Vec::new(),
+                    complete: false,
+                },
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "live".into(),
+                    upserts: vec![row("chat-live", "session-live", 43)],
+                    remove: Vec::new(),
+                    complete: false,
+                },
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "all".into(),
+                    upserts: vec![row("chat-old", "session-old", 10)],
+                    remove: vec![RowRef { origin: "local".into(), chat_id: "chat-a".into() }],
+                    complete: false,
+                },
+                ListEvent::Page {
+                    sid: "fixture-sid".into(),
+                    id: "q-older".into(),
+                    rows: Vec::new(),
+                    has_before: true,
+                    has_after: false,
+                    complete: false,
+                    cold_unread: false,
+                    deeper: Vec::new(),
+                    missing: Vec::new(),
+                    unknown: Vec::new(),
+                },
+                ListEvent::Page {
+                    sid: "fixture-sid".into(),
+                    id: "q-family".into(),
+                    rows: vec![row("chat-family", "session-family", 7)],
+                    has_before: false,
+                    has_after: false,
+                    complete: false,
+                    cold_unread: false,
+                    deeper: vec![RowRef { origin: "local".into(), chat_id: "chat-child".into() }],
+                    missing: Vec::new(),
+                    unknown: Vec::new(),
+                },
+                ListEvent::On { sid: "fixture-sid".into() },
+                ListEvent::Off { sid: None, code: "lost".into() },
+                ListEvent::Error { sid: None, id: None, code: "list.protocol".into() },
+            ],
+        };
+        let expected = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../webviews/src/agent-session/acpmux/session-list/fixtures/v2-session-list-batch.bin"
+        ));
+        assert_eq!(batch.json().unwrap().as_slice(), expected);
+    }
+
+    #[test]
+    fn wanted_keys_for_unknown_sid_are_rejected_as_sid() {
+        let mut driver = ListDriver::new();
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "chat".into(),
+            origin: "local".into(),
+            past: false,
+        };
+        assert_eq!(
+            driver.want("missing", [key.clone()]),
+            Err(DriverError::Invalid(InvalidCode::Sid))
+        );
+        assert_eq!(driver.unwant("missing", [key]), Err(DriverError::Invalid(InvalidCode::Sid)));
     }
 }

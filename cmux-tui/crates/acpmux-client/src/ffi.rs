@@ -805,7 +805,11 @@ pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u
     })
 }
 
-/// Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
+/// Opens a list subscription from `{ "sid": ..., "view": ... }` and returns `{ "sid": ... }`.
+/// A successful call returns `ACPMUX_CLIENT_OK`; an over-limit call returns
+/// `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), an unsupported view returns
+/// `ACPMUX_PAGE_ERR_REQUEST` (`list.request`), and a malformed request is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -817,6 +821,9 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -836,7 +843,11 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
     })
 }
 
-/// Closes a page list subscription from `{ "sid": ... }`.
+/// Closes a page list subscription from `{ "sid": ... }`, or one question from
+/// `{ "sid": ..., "id": ... }`. A missing sid or question returns
+/// `ACPMUX_PAGE_ERR_SID` (`list.sid`); an oversized request returns
+/// `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), and malformed JSON is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -847,6 +858,9 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -868,7 +882,10 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
     })
 }
 
-/// Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
+/// Adds wanted keys from `{ "sid": ..., "keys": [...] }`. An unknown sid returns
+/// `ACPMUX_PAGE_ERR_SID` (`list.sid`); more than 4,096 keys or a request over 1 MiB
+/// returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), and malformed JSON is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -898,7 +915,10 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
     })
 }
 
-/// Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
+/// Removes wanted keys from `{ "sid": ..., "keys": [...] }`. An unknown sid returns
+/// `ACPMUX_PAGE_ERR_SID` (`list.sid`); more than 4,096 keys or a request over 1 MiB
+/// returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), and malformed JSON is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -928,7 +948,12 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
     })
 }
 
-/// Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
+/// Starts a bounded page question from a page request, returning `{ "id": ... }`.
+/// A busy sid returns `ACPMUX_PAGE_ERR_BUSY` (`list.busy`); row or question bounds
+/// return `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`); a missing sid returns
+/// `ACPMUX_PAGE_ERR_SID` (`list.sid`); an invalid page contract returns
+/// `ACPMUX_PAGE_ERR_REQUEST` (`list.request`); and malformed JSON is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -962,7 +987,11 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
     })
 }
 
-/// Requests the next page of `{ "id": ... }`; continuation remains in Rust.
+/// Requests the next page of `{ "sid": ..., "id": ... }`; continuation remains in Rust.
+/// A sid with an in-flight question returns `ACPMUX_PAGE_ERR_BUSY` (`list.busy`);
+/// a question past 200 rows returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), a missing
+/// sid or question returns `ACPMUX_PAGE_ERR_SID` (`list.sid`), and malformed JSON is
+/// `ACPMUX_CLIENT_ERR_INVALID`.
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -973,6 +1002,9 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -996,8 +1028,10 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
 /// `acpmux_client_bytes_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_error_code(status: i32, out: *mut Bytes) -> i32 {
-    let Some(code) = page_error_text(status) else {
-        return ACPMUX_CLIENT_ERR_INVALID;
-    };
-    output(out, code.as_bytes().to_vec())
+    guarded(|| {
+        let Some(code) = page_error_text(status) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        output(out, code.as_bytes().to_vec())
+    })
 }
