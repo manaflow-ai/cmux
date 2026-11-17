@@ -228,6 +228,10 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
       if (event.name !== "LayoutInvalidationTracking") continue;
       const data = event.args?.data ?? {};
       if (typeof data.nodeId !== "number") continue;
+      // A node the edit removed (the editor's old text node, its trailing break) is gone from the
+      // document by the time it is resolved, so it cannot be placed; its parent's own "Text changed"
+      // or "Added to layout" event says where the layout happened.
+      if (data.reason === "Removed from layout") continue;
       ids.push(data.nodeId);
       reasons.set(data.nodeId, String(data.reason ?? ""));
     }
