@@ -252,6 +252,40 @@ pub(crate) fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
     None
 }
 
+/// The rollout of Codex thread `id` under `root`, plain (`-<id>.jsonl`) or compressed by Codex's
+/// local thread store compression (`-<id>.jsonl.zst`, which Codex applies to a thread's rollout
+/// minutes after it is written): the one written last when both are there. A fork copies it
+/// (`hub/fork_at.rs`); with only plain rollouts found, a chat whose rollout Codex compressed
+/// could not fork mid-turn and fell back to acpmux's transcript (#44987).
+pub(crate) fn find_codex_rollout(root: &Path, id: &str) -> Option<PathBuf> {
+    let (plain, compressed) = (format!("-{id}.jsonl"), format!("-{id}.jsonl.zst"));
+    let mut found: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut dirs = vec![(root.join("sessions"), 0)];
+    while let Some((dir, depth)) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() && depth < 3 {
+                dirs.push((path, depth + 1));
+                continue;
+            }
+            let is_rollout = kind.is_file()
+                && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                    n.starts_with("rollout-") && (n.ends_with(&plain) || n.ends_with(&compressed))
+                });
+            if !is_rollout {
+                continue;
+            }
+            let written =
+                entry.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            if found.as_ref().is_none_or(|(at, _)| written > *at) {
+                found = Some((written, path));
+            }
+        }
+    }
+    found.map(|(_, path)| path)
+}
+
 /// The cwd in the first records that carry one: a Claude line's `cwd`, or
 /// Codex's `session_meta` payload. Reads at most 200 lines.
 fn recorded_cwd(family: &str, file: &Path) -> Option<PathBuf> {

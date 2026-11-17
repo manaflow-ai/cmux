@@ -192,20 +192,35 @@ pub(super) fn codex_rollout_through_checked(
     expected: Option<usize>,
 ) -> anyhow::Result<String> {
     let file = crate::adopt::is_bare_id(parent)
-        .then(|| crate::adopt::find_codex(store, parent))
+        .then(|| crate::adopt::find_codex_rollout(store, parent))
         .flatten()
         .ok_or_else(|| anyhow::anyhow!("no Codex rollout for thread {parent}"))?;
     let name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let compressed = name.ends_with(".zst");
     let stem = name
+        .strip_suffix(".zst")
+        .unwrap_or(name)
         .strip_suffix(&format!("{parent}.jsonl"))
         .ok_or_else(|| anyhow::anyhow!("unexpected Codex rollout name {name}"))?;
     let id = uuid::Uuid::now_v7().to_string();
+    // The copy is plain JSONL whatever the chat's rollout is: Codex reads both.
     let copy_name = format!("{stem}{id}.jsonl");
     let mut lines = Vec::new();
     let mut turns = 0;
     let (mut user, mut answer, mut complete) = (false, false, true);
-    for line in BufReader::new(std::fs::File::open(&file)?).lines() {
-        let line = line?;
+    let source: Box<dyn std::io::Read> = if compressed {
+        Box::new(zstd::stream::read::Decoder::new(std::fs::File::open(&file)?)?)
+    } else {
+        Box::new(std::fs::File::open(&file)?)
+    };
+    for line in BufReader::new(source).lines() {
+        let line = match line {
+            Ok(line) => line,
+            // A compressed rollout Codex is still writing ends in an unfinished frame: the
+            // copy holds every whole line before it.
+            Err(_) if compressed && expected.is_none() => break,
+            Err(e) => return Err(e.into()),
+        };
         let mut record: Value = match serde_json::from_str(&line) {
             Ok(record) => record,
             Err(e) if expected.is_some() => return Err(e.into()),

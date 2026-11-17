@@ -4,10 +4,13 @@
 //! only) forks through an earlier turn instead of the chat's end (`fork_at.rs`).
 //!
 //! A chat whose turn runs forks now, as it is (never "fork when the turn ends"):
-//! a Claude or Codex chat resumes a copy of its transcript as it stands, another
-//! agent forks by its own `session/fork`, and one that fails that mid-turn (OMP)
+//! a Claude or Codex chat resumes a copy of its transcript as it stands (a Codex
+//! rollout compressed or not), a Codex chat with no rollout to copy and another
+//! agent fork by its own `session/fork`, and one that fails that mid-turn (OMP)
 //! gets a new agent session that reads the chat's transcript with its first
-//! prompt. The fork is idle: its copy of the running turn ends there as
+//! prompt, and says so. A chat in its first turn that its agent has stored nothing
+//! of yet starts from the chat's transcript too, which is then the whole chat, and
+//! says nothing. The fork is idle: its copy of the running turn ends there as
 //! cancelled, a tool call still running shown failed. The chat is not touched.
 
 use super::*;
@@ -394,6 +397,38 @@ impl Hub {
         } else {
             None
         };
+        // A working Claude or Codex chat: a copy of its transcript as it stands now. A copy that
+        // fails (nothing stored yet) leaves `working_uncopied`: a Codex chat is then forked by its
+        // agent (`session/fork`, below), which reads Codex's own store, before acpmux's transcript.
+        let mut working_uncopied = false;
+        let working_copy = if !empty
+            && target.is_none()
+            && cut.is_none()
+            && running.is_some()
+            && turn_cut.is_some()
+            && cwd == parent_meta.cwd
+        {
+            let homes = self.harness_homes().with_env(&[&fork_env]);
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            let copy = match turn_cut {
+                Some(crate::config::TurnCut::Codex) => {
+                    super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX)
+                }
+                _ => super::fork_at::claude_transcript_now(&homes.claude, &sid),
+            };
+            rules_at_copy = Some(session.read_meta(rules_of));
+            drop(handoff);
+            match copy {
+                Ok(copy) => Some(copy),
+                Err(e) => {
+                    tracing::info!(session = %session.id, "no copy of a working chat's transcript: {e}");
+                    working_uncopied = true;
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let made = if empty {
             turn_count = 0;
             Made::Empty
@@ -462,27 +497,16 @@ impl Hub {
             rules_at_copy = Some(session.read_meta(rules_of));
             drop(handoff);
             Made::Copy(copy)
-        } else if running.is_some() && turn_cut.is_some() && cwd == parent_meta.cwd {
-            // A working Claude or Codex chat: a copy of its transcript as it stands now.
-            let homes = self.harness_homes().with_env(&[&fork_env]);
-            let handoff = session.input_handoff.clone().lock_owned().await;
-            let copy = match turn_cut {
-                Some(crate::config::TurnCut::Codex) => {
-                    super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX)
-                }
-                _ => super::fork_at::claude_transcript_now(&homes.claude, &sid),
-            };
-            rules_at_copy = Some(session.read_meta(rules_of));
-            drop(handoff);
-            match copy {
-                Ok(copy) => Made::Copy(copy),
-                // Nothing stored yet (its first turn just began): acpmux's transcript.
-                Err(e) => {
-                    tracing::info!(session = %session.id, "fork of a working chat from acpmux's transcript: {e}");
-                    note = Some(fresh_note(&parent_meta.harness));
-                    Made::Fresh
-                }
-            }
+        } else if let Some(copy) = working_copy {
+            Made::Copy(copy)
+        } else if working_uncopied && parent_meta.turn_count <= 1 {
+            // Its first turn runs (a turn counts from its start) and its agent has stored nothing to copy or fork yet (Codex
+            // writes a thread's rollout once the turn starts in it): acpmux's transcript is the
+            // whole chat, so the fork starts from it and loses nothing, and says nothing.
+            Made::Fresh
+        } else if working_uncopied && is_claude {
+            note = Some(fresh_note(&parent_meta.harness));
+            Made::Fresh
         } else if let Some(copy) = idle_codex_copy {
             Made::Copy(copy)
         } else if is_claude {
