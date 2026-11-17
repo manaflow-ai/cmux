@@ -45,7 +45,7 @@ impl Reference {
         let repo = pieces.remove(0).trim_end_matches(".git").to_owned();
         // `github.com/OWNER/REPO/tree/REF/PATH` (a browser's address).
         if pieces.first() == Some(&"tree") && pieces.len() >= 2 && git_ref.is_none() {
-            git_ref = Some(pieces[1].to_owned());
+            git_ref = pieces.get(1).map(|piece| (*piece).to_owned());
             pieces.drain(..2);
         }
         let path = pieces.join("/");

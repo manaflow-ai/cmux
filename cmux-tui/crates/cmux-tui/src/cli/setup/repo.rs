@@ -207,7 +207,7 @@ impl CliApps<'_> {
             let error = String::from_utf8_lossy(&output.stderr);
             let message = serde_json::from_str::<Value>(error.trim())
                 .ok()
-                .and_then(|value| value["error"]["message"].as_str().map(str::to_owned))
+                .and_then(|value| at(&value, "/error/message").as_str().map(str::to_owned))
                 .unwrap_or_else(|| error.trim().to_owned());
             return Err(message);
         }
@@ -341,7 +341,7 @@ fn app_id(info: &Value) -> Option<String> {
 
 fn is_installed(info: &Value) -> bool {
     let listing = info.get("data").unwrap_or(info);
-    listing["install"]["installed"] == json!(true) || listing["installed"] == json!(true)
+    at(listing, "/install/installed") == &json!(true) || listing["installed"] == json!(true)
 }
 
 /// The consent card: the plan, the source and every extension with what it
@@ -413,8 +413,8 @@ pub(super) fn card_text(card: &Value) -> String {
         "{} ({}) from {} at {}",
         setup["name"].as_str().unwrap_or_default(),
         setup["id"].as_str().unwrap_or_default(),
-        card["source"]["reference"].as_str().unwrap_or_default(),
-        card["source"]["commit"].as_str().unwrap_or_default().get(..12).unwrap_or_default(),
+        at(card, "/source/reference").as_str().unwrap_or_default(),
+        at(card, "/source/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default(),
     )];
     if card["reviewed"] != json!(true) {
         lines.push("Not reviewed by cmux: it comes straight from the repo.".to_owned());
@@ -478,7 +478,7 @@ pub(super) fn card_text(card: &Value) -> String {
     }
     lines.push(format!(
         "Undo: cmux setup remove {}",
-        card["source"]["reference"]
+        at(card, "/source/reference")
             .as_str()
             .unwrap_or_default()
             .split('@')
@@ -486,6 +486,16 @@ pub(super) fn card_text(card: &Value) -> String {
             .unwrap_or_default()
     ));
     lines.join("\n")
+}
+
+/// The value at a JSON pointer (`/source/commit`), or null.
+fn at<'a>(value: &'a Value, pointer: &str) -> &'a Value {
+    value.pointer(pointer).unwrap_or(&Value::Null)
+}
+
+/// A commit's first 12 hex digits (all of it when shorter).
+fn short(commit: &str) -> &str {
+    commit.get(..12).unwrap_or(commit)
 }
 
 fn now_ms() -> u64 {
@@ -512,7 +522,7 @@ pub(super) fn install(
     let extensions = extension_rows(apps, &plan);
     let card = card(&plan, &reference, &checkout.commit, &extensions);
     consent(output, &card, "Install", yes)?;
-    let label = format!("setup {} at {}", read.manifest.id, &checkout.commit[..12]);
+    let label = format!("setup {} at {}", read.manifest.id, short(&checkout.commit));
     let installed = customize.install_setup(&read, &label, "cli", now_ms())?;
     let (extension_receipts, extension_errors) = install_extensions(apps, &extensions, &[]);
     let receipt = Receipt {
@@ -639,7 +649,7 @@ fn apply_update(
     let card = card(&plan, &reference, &checkout.commit, &extensions);
     consent(output, &card, "Update", yes)?;
     customize.remove_setup(&receipt, "cli", now_ms())?;
-    let label = format!("setup {} at {}", read.manifest.id, &checkout.commit[..12]);
+    let label = format!("setup {} at {}", read.manifest.id, short(&checkout.commit));
     let installed = customize.install_setup(&read, &label, "cli", now_ms())?;
     let (mut extension_receipts, extension_errors) =
         install_extensions(apps, &extensions, &receipt.extensions);
