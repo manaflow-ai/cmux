@@ -1,0 +1,61 @@
+name: Billing nightly
+
+# feat-cmux-next's half of the Billing nightly. GitHub runs schedules only from
+# the default branch, so main's billing-nightly.yml holds the tick: its
+# `storekit` job dispatches this file on feat-cmux-next every night, as
+# ios-reliability-matrix.yml does. A dispatch runs this branch's file, never
+# main's, so the two share a name and nothing else.
+#
+# - lane: billing.yml in full on feat-cmux-next's tip: every billing web,
+#   database and typecheck step, the iOS billing packages, and the StoreKit
+#   Testing slot (BillingStoreKitTests: SKTestSession against a .storekit
+#   file; buy, renew, expire, billing retry, refund, ask to buy, interrupted
+#   purchase). The slot skips until the rewritten iOS billing client adds that
+#   target (scripts/ci/billing_lane.py storekit_target).
+# - alert: one "Billing nightly (feat-cmux-next) is red" issue, opened on a red
+#   night, rewritten on later reds and closed by the next green, with main's
+#   scripts/ci/billing_nightly.py. No secrets: Slack hears about main's nightly.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lane:
+    name: lane
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    uses: ./.github/workflows/billing.yml
+    permissions:
+      contents: read
+
+  alert:
+    name: alert
+    needs: [lane]
+    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      # The alert script lives with the tick on main.
+      - name: Checkout main's alert script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+          sparse-checkout: scripts/ci/billing_nightly.py
+          sparse-checkout-cone-mode: false
+
+      - name: Open, update or close the red-nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/billing_nightly.py alert --title "Billing nightly (feat-cmux-next) is red" --workflow billing-nightly.yml

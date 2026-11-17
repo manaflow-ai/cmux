@@ -164,12 +164,18 @@ on:
       - "cmux-next-ios/project.yml"
       - "cmux-next-ios/*/Package.swift"
   workflow_dispatch:
+  # billing-nightly.yml (dispatched from main's schedule) runs every job here
+  # on feat-cmux-next's tip, the StoreKit slot included; a called workflow sees
+  # the caller's workflow_dispatch event, which billing_lane.py routes to every job.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: billing-${{ github.ref }}
+  # github.workflow is the caller's name when billing-nightly.yml calls this,
+  # so a push or dispatch here never queues against (and cancels) the nightly.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
