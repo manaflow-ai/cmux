@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "build": "4404156898901",
+  "notes": "notes/4404156898901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45219,
+      "title": "feat(webviews): search home creation commands",
+      "author": "Lucas Ribeiro",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45219/hv-0d4d9033489b-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 45251,
+      "title": "measure: mcp-fanout fetches a pinned Node when the bench Mac has no npm",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
