@@ -117,7 +117,6 @@ import {
   type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
-import { afterPaint } from "../../protocol/intents/schedule";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import { FoldRide } from "./conversation/foldRide";
 import { deliberateClick } from "./conversation/useAnchoredCollapse";
@@ -1153,6 +1152,9 @@ const WARM_VIEWPORTS = 1;
 /// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
+
+/// The history key a transcript's first render defers from (`historyShown`): no chat's.
+const NO_HISTORY = "\u0000no history";
 
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
@@ -3837,8 +3839,6 @@ function TranscriptView({
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
   const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
-  /// The chat whose first frame with rows has painted, so its warm rows and history mount (`historyShown`).
-  const [historyFor, setHistoryFor] = useState<string>();
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -4306,17 +4306,6 @@ function TranscriptView({
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
-  // A chat's first frame with rows paints the rows in view alone: the warm rows and the history above
-  // (below) mount once that frame has painted (`historyFor`, set after the paint), before a reader can
-  // scroll. Built in the commit that drew the view, or in a deferred render React ran before that
-  // frame, they cost every cold open five viewports of rows built and measured before its newest
-  // message showed (CMUX-571, chat-open bench: most of the time from the attach to the newest message).
-  const historyKey = rows.length > 0 ? (sessionId ?? "") : undefined;
-  const historyShown = historyKey !== undefined && historyFor === historyKey;
-  useEffect(() => {
-    if (historyKey === undefined || historyFor === historyKey) return;
-    return afterPaint(() => setHistoryFor(historyKey));
-  }, [historyKey, historyFor]);
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
   // frames as the rest of them are.
   const warm = visibleLayoutRange(
@@ -4329,12 +4318,19 @@ function TranscriptView({
   // its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
+  // The chat's first rows paint the view alone: its history mounts in the deferred render React runs
+  // right after that commit (`historyShown`), before a reader can scroll, so the open's first frame
+  // builds and measures one viewport of rows, not five (CMUX-571: a cold open spent most of the time
+  // from its attach to the newest message building rows above the view).
+  // A transcript that mounts with its rows defers them as well (`NO_HISTORY` is its first value).
+  const historyKey = rows.length > 0 ? (sessionId ?? "") : undefined;
+  const historyShown = useDeferredValue(historyKey, NO_HISTORY) === historyKey;
   const history =
     renderFollowing && historyShown
       ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
       : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(!historyShown || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -5078,10 +5074,7 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        // At the latest row, written as a following view settles there (rounded up, its fraction
-        // kept): the floored offset rested a pixel short until the next pass settled it, and a first
-        // commit already drawn at the end (`opensAtEnd`) has no next pass.
-        if (at < 0) settleFollowBottom(node, top);
+        if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
