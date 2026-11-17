@@ -724,7 +724,9 @@ impl MediaEngine {
                 self.ack_rtts.pop_front();
             }
         }
-        let mut budget = MAX_RESENDS_PER_FEEDBACK;
+        // While the path is away (D12) a resend only joins the hold and lands in its
+        // burst; the viewer asks again once the path is back.
+        let mut budget = if self.cc.frozen() { 0 } else { MAX_RESENDS_PER_FEEDBACK };
         for nack in &fb.nacks {
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
             for &i in &nack.indexes {
@@ -768,6 +770,12 @@ impl MediaEngine {
             }
             let Some(from) = state.probe_from_us else { continue };
             if now_us < from.saturating_add(TAIL_PROBE_US) {
+                continue;
+            }
+            if self.cc.frozen() {
+                // The path is away (D12): a probe would only join the hold. The wait
+                // starts over when it is back, and a long hold spends no probes.
+                state.probe_from_us = Some(now_us);
                 continue;
             }
             if state.probes < TAIL_PROBES {

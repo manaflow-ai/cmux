@@ -503,3 +503,60 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
 }
+
+/// D12 + D6: while the path is away, a NACK gets no resend (it would only join the
+/// hold and land in its burst); once a datagram sent after the outage arrives, it does.
+#[test]
+fn no_repair_is_sent_while_the_path_is_away() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
+        sent.iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: at,
+            })
+            .collect()
+    };
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: arrived(&sent, 5_000),
+            ..Feedback::default()
+        }),
+        false,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let second = e.damage(0, small, 20_000).expect("second");
+    let sent = send(&mut e, &second, false, 6_000, 20_000);
+    // The radio was away for 400 ms; the head of the frame arrives at once and the
+    // viewer asks for the rest.
+    let nack = Nack { frame: second.frame, indexes: vec![2, 3] };
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&sent[..2], 420_000),
+            nacks: vec![nack.clone()],
+            ..Feedback::default()
+        }),
+        false,
+        424_000,
+    );
+    assert!(out.outage_ended.is_some());
+    assert!(out.datagrams.is_empty(), "resent into the hold: {}", out.datagrams.len());
+    // A datagram sent after the outage arrives: the path is up, the NACK is answered.
+    let third = e.damage(0, small, 430_000).expect("third");
+    let fresh = send(&mut e, &third, false, 500, 430_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&fresh, 435_000),
+            nacks: vec![nack],
+            ..Feedback::default()
+        }),
+        false,
+        440_000,
+    );
+    assert_eq!(out.datagrams.len(), 2, "the NACK is answered once the path is back");
+}
