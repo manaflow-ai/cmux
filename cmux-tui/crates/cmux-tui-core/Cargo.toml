@@ -88,6 +88,8 @@ parking_lot = { workspace = true, features = ["arc_lock"] }
 arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+# cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
+cmux-signed-bundle.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true

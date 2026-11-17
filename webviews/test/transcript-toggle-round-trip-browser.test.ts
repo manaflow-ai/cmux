@@ -84,10 +84,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
     ).join("\n\n");
   const output = (lines: number) =>
     Array.from({ length: lines }, (_, index) => `line ${index + 1}: the keeper trimmed the wick`).join("\n");
+  // A call that opens to its output: a search (a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts). Its title keeps the id, which the cases match.
   const read = (id: string, lines = 30) => ({
     kind: "tool",
     text: "",
-    tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: output(lines) },
+    tool: { id, title: `Search src/${id}.ts`, kind: "search", status: "completed", output: output(lines) },
   });
   const execute = (id: string, command: string) => ({
     kind: "tool",

@@ -35,7 +35,7 @@ import PackageDescription
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
-//   CmuxNextMobile -> Daemon, CMUXMobileCore (phone host model, pairing and the mobile.* compat adapter; no UI)
+//   CmuxNextMobile -> Daemon (phone host model, pairing and the mobile.* compat adapter; no UI)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 20ff71f2a5d1c26769d609936b3ec49915b930915a53c27bf426e3b5f6598ad7
+// app-ffi-pin-checksum: 6831d8c0fb2d9fa67d4657b67895eba689c62e3bba74d3fc3decc6198566063a
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -2151,7 +2151,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextTestSupport",
                 "CmuxNextWakeupsTestSupport",
-                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             swiftSettings: uiSwiftSettings
@@ -2726,7 +2725,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),

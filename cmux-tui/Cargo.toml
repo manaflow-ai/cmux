@@ -77,6 +77,8 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
+    "crates/cmux-hub-host",
+    "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -106,6 +108,7 @@ members = [
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
+    "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
@@ -194,6 +197,8 @@ default-members = [
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
+    "crates/cmux-hub-host",
+    "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -222,6 +227,7 @@ default-members = [
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
+    "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
@@ -335,6 +341,7 @@ acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
+cmux-image-linear = { path = "crates/cmux-image-linear" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-device-kind = { path = "crates/cmux-device-kind" }
@@ -346,6 +353,8 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
+cmux-hub-host = { path = "crates/cmux-hub-host" }
+cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }

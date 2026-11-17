@@ -478,6 +478,10 @@ CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
 CRASH_SAFETY_CHECK = "Crash safety"
 APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
+# PKG_SCANNERS: every scanner handed {pkg} reads PKG's Package.swift or Sources, which main's tree does not have, so a
+# push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
+# "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
+# refused the push without a verdict).
 MAIN_REF = "origin/main"
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
@@ -2925,16 +2929,19 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
+        has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
+            if not has_package and any("{pkg}" in c for c in cmd):
+                continue  # a main-based push: no CmuxNext package for a {pkg} scanner to judge (PKG_SCANNERS)
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
             if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
-        if (dropped or deleted) and DEPS_CHECK not in jobs:
+        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is

@@ -85,6 +85,15 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
         env.dedup();
         what.set("shared", json!({"command": shared.command, "args": shared.args, "env": env}));
     }
+    // A server at an HTTP endpoint lists what that endpoint gives it: its path and its header
+    // names are in the key, not the port (the daemon's changes each start) or a header's value
+    // (a token).
+    if let Some(http) = &spec.http {
+        let path = http.url.splitn(4, '/').nth(3).unwrap_or_default();
+        let mut headers: Vec<&str> = http.headers.iter().map(|(k, _)| k.as_str()).collect();
+        headers.sort_unstable();
+        what.set("http", json!({"path": path, "headers": headers}));
+    }
     let digest = Sha256::digest(what.to_string().as_bytes());
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
@@ -218,6 +227,7 @@ mod tests {
             env: vec![("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), token.into())],
             call_timeout: std::time::Duration::from_secs(1),
             shared: None,
+            http: None,
         }
     }
 

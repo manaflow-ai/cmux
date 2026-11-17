@@ -324,10 +324,10 @@ struct SnapshotCreateArgs {
     /// Display name
     #[arg(long)]
     name: Option<String>,
-    /// Seconds the snapshot is kept after its last use (60-31536000)
+    /// Seconds after it is taken when the snapshot is deleted, however recently a VM booted from it (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     ttl: Option<i64>,
-    /// Seconds after creation when the snapshot is deleted (60-31536000)
+    /// Seconds without a VM created from it after which the snapshot is deleted; each create resets the clock (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     auto_delete: Option<i64>,
     /// Reuse this key when retrying, so the snapshot is created only once [default: a new random key]

@@ -74,6 +74,8 @@ cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
 cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log" }
 # The MCP hub (src/mcp_hub): URL, command and OAuth rules, tool screening.
 cmux-mcp-connect = { path = "../../../cmux-tui/crates/cmux-mcp-connect" }
+# Image downscales in linear light (model copies, link preview pictures).
+cmux-image-linear = { path = "../../../cmux-tui/crates/cmux-image-linear" }
 
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this
