@@ -49,22 +49,91 @@ const HANDOFF_ENV: &str = "ACPMUX_TUI_HANDOFF";
 /// (one install, one build), else the first `cmux` on PATH. Never this executable itself.
 #[cfg(not(feature = "tui"))]
 fn handoff_binary() -> Option<std::path::PathBuf> {
+    pick_handoff(
+        std::env::var_os(HANDOFF_ENV).is_some(),
+        std::env::var_os("ACPMUX_TUI"),
+        std::env::current_exe().ok().as_deref(),
+        std::env::var_os("PATH"),
+    )
+}
+
+/// [`handoff_binary`] over its inputs: none inside a handed-off process, else the first existing
+/// file of `named`, `exe`'s sibling `cmux`, then each PATH entry's `cmux` that is not `exe`.
+#[cfg(any(test, not(feature = "tui")))]
+fn pick_handoff(
+    handed_off: bool,
+    named: Option<std::ffi::OsString>,
+    exe: Option<&std::path::Path>,
+    path: Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
     use std::path::{Path, PathBuf};
-    if std::env::var_os(HANDOFF_ENV).is_some() {
+    if handed_off {
         return None;
     }
-    let exe = std::env::current_exe().ok();
-    let me = exe.as_deref().and_then(|e| e.canonicalize().ok());
+    let me = exe.and_then(|e| e.canonicalize().ok());
     let usable =
         |p: &Path| p.is_file() && p.canonicalize().ok().is_some_and(|c| Some(&c) != me.as_ref());
     let name = if cfg!(windows) { "cmux.exe" } else { "cmux" };
-    let named = std::env::var_os("ACPMUX_TUI").map(PathBuf::from);
-    let sibling = exe.as_deref().and_then(Path::parent).map(|d| d.join(name));
-    let on_path = std::env::var_os("PATH")
+    let sibling = exe.and_then(Path::parent).map(|d| d.join(name));
+    let on_path = path
         .into_iter()
         .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
         .map(|d| d.join(name));
-    named.into_iter().chain(sibling).chain(on_path).find(|p| usable(p))
+    named.map(PathBuf::from).into_iter().chain(sibling).chain(on_path).find(|p| usable(p))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_handoff;
+    use std::fs;
+
+    fn file(path: &std::path::Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"").unwrap();
+    }
+
+    #[test]
+    fn a_headless_acpmux_hands_off_to_the_cmux_beside_it_before_one_on_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("bin/acpmux");
+        let sibling = dir.path().join("bin/cmux");
+        let other = dir.path().join("other/cmux");
+        file(&exe);
+        file(&sibling);
+        file(&other);
+        let path = Some(dir.path().join("other").into_os_string());
+        assert_eq!(pick_handoff(false, None, Some(&exe), path.clone()), Some(sibling.clone()));
+        fs::remove_file(&sibling).unwrap();
+        assert_eq!(pick_handoff(false, None, Some(&exe), path.clone()), Some(other.clone()));
+        // ACPMUX_TUI wins; a missing one is skipped.
+        let named = dir.path().join("named-cmux");
+        assert_eq!(
+            pick_handoff(false, Some(named.clone().into_os_string()), Some(&exe), path.clone()),
+            Some(other.clone())
+        );
+        file(&named);
+        assert_eq!(
+            pick_handoff(false, Some(named.clone().into_os_string()), Some(&exe), path.clone()),
+            Some(named)
+        );
+    }
+
+    #[test]
+    fn a_handed_off_process_and_this_executable_itself_never_hand_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("cmux");
+        file(&exe);
+        let path = Some(dir.path().as_os_str().to_owned());
+        // The only `cmux` is this executable (a headless build named cmux): no loop.
+        assert_eq!(pick_handoff(false, None, Some(&exe), path.clone()), None);
+        let other = dir.path().join("b/cmux");
+        file(&other);
+        assert_eq!(
+            pick_handoff(true, None, Some(&exe), Some(other.parent().unwrap().into())),
+            None
+        );
+        assert_eq!(pick_handoff(false, None, None, None), None);
+    }
 }
 
 /// `acpmux attach [S]` through `cmux` (its argv0 `acpmux` runs acpmux, `cmux-tui` main.rs), on
