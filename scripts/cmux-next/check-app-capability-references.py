@@ -107,7 +107,6 @@ PEERS = {
     "serve.owner-pid": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
-    "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
 }
 
 GATE, REFUSAL, LISTED = "gate", "refusal", "listed"
