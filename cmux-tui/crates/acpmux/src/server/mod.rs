@@ -410,6 +410,18 @@ impl Conn {
         self.auth
     }
 
+    /// A browser on the web listener that presented its own device on this connection
+    /// (`web_device.rs`), whether the hub still takes it or revoked it since: its prompts to a
+    /// hub-listed chat go to `mesh_read.rs` `prompt`, which answers `device.revoked` for a
+    /// revoked one.
+    pub(super) fn presented_web_device(&self) -> bool {
+        self.auth == ConnAuth::ListenerToken
+            && !matches!(
+                *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
+                web_device::Slot::Empty
+            )
+    }
+
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
         self.person.load(Ordering::SeqCst) && !self.is_trigger()

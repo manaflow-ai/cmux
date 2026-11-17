@@ -233,20 +233,25 @@ pub(crate) async fn prompt(
         return None;
     }
     let key = params.get("sessionId").and_then(Value::as_str)?;
-    let target = match key.split_once('/') {
-        Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
-        Some(_) => return None,
-        None => format!("{}/{key}", hub.mesh_book_host(key)?),
-    };
-    if !hub.mesh_may_route(&target) {
-        return None;
-    }
+    let target = hub_prompt_target(hub, key)?;
     let (mesh, device) = match read_hub(hub, conn)? {
         Ok(found) => found,
         Err(e) => return Some(Err(e)),
     };
     let sent = super::super::mesh_send::send(hub, conn, &mesh, params, &target).await;
     Some(settle(conn, device.as_deref(), sent))
+}
+
+/// The `HOST/ID` a prompt for `key` goes to through the hub: a chat the hub lists for one of the
+/// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves.
+/// None for anything else, which the usual prompt path takes.
+pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
+    let target = match key.split_once('/') {
+        Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
+        Some(_) => return None,
+        None => format!("{}/{key}", hub.mesh_book_host(key)?),
+    };
+    hub.mesh_may_route(&target).then_some(target)
 }
 
 /// The hub client a read or prompt on `conn` goes through, and the device client when it is
