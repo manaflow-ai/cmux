@@ -172,11 +172,14 @@ impl Driver {
     }
 
     /// Send due path probes while the session carries traffic; an idle
-    /// session probes nothing.
+    /// session probes nothing, and neither does a held one (`WgNet::hold`):
+    /// its peer is suspended on purpose, and a probe would only wake its
+    /// radio, as a keepalive would. The first pass after the release
+    /// probes again.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
         let mut off_path = Vec::new();
-        self.probe_deadline = if self.schedule.is_active(now) {
+        self.probe_deadline = if self.schedule.is_active(now) && self.stack.hold().is_none() {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
             let route = self.probe_route;
             probing::send_due(tunn, &mut self.underlay, scratch, route, now, &mut off_path)
