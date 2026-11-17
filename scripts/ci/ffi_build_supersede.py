@@ -25,7 +25,11 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - each call ends by its deadline (tests/test_ci_no_bare_urlopen.py)
 
 WORKFLOW_FILE = "app-ffi-release.yml"
 BUILD_JOB_NAME = "build xcframework"
@@ -82,8 +86,7 @@ def github_request(token: str, api: str) -> Request:
         req = urllib.request.Request(api.rstrip("/") + path, method=method, headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            body = response.read()
+        _, body, _ = deadline_http.request(req, 30, raise_errors=True)
         return json.loads(body) if body.strip() else {}
     return request
 

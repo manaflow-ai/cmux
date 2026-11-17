@@ -343,8 +343,11 @@ class Comment(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, text, "")
             return run
 
-        for body, comments, want in (("no marker\n", "false\nfalse\n", False), (f"text\n{MARKER}\n", "", True),
-                                     ("", "false\ntrue\n", True), ("", "", False)):
+        def page(*bodies):
+            return json.dumps([{"body": text} for text in bodies])
+
+        for body, comments, want in (("no marker\n", page("lgtm", None), False), (f"text\n{MARKER}\n", page(), True),
+                                     ("", page("lgtm", f"{MARKER}x -->"), True), ("", page(), False)):
             with self.subTest(body=body, comments=comments), \
                     mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
                 self.assertEqual(hr.has_receipt(7), want)
