@@ -41,7 +41,7 @@
           },
           "help": {
             "key": "settings.sidebar.hoverCards.delay.help",
-            "text": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+            "text": "How long the pointer rests before a card opens."
           },
           "kind": "number",
           "range": {
@@ -68,7 +68,7 @@
           },
           "help": {
             "key": "settings.sidebar.hoverCards.layout.help",
-            "text": "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+            "text": "What a workspace's hover card shows."
           },
           "kind": "choice",
           "swift_enum": {
