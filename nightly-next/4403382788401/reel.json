@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "build": "4403382788401",
+  "notes": "notes/4403382788401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45098,
+      "title": "acpmux: peer links open on the hub relay first, upgrade to direct in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44499,
+      "title": "Screen Sharing: the Mac's screen-share plan views a Windows PC from the device hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45054,
+      "title": "RFD reader: a first-party extension for docs/rfd",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44042,
+      "title": "Screen Sharing: cmux-rd windows-host, a Windows PC on the device hub (registers, captures; design note for viewing)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45216,
+      "title": "cloud-vm-dogfood lifecycle leg: marker on the disk (/var/tmp), and no --idle-timeout for the released cmux CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45183,
+      "title": "measure: concurrent GUI jobs per virtual display, with cross-job isolation checks (macos-cu-density)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45146,
+      "title": "tab-switch harness: a round with a foreign window over the app is not measured",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45015,
+      "title": "Sidebar extensions: scale harness (N = 1..200); apps-list reads no file; oversize manifests refused unread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45211,
+      "title": "measure: launch-ready gives the app a control socket short enough for sun_path, so stress3 seeds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45012,
+      "title": "sidebar stress bench: theme switch during scroll and custom sidebar sections, at 1x and scale on a fleet Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44534,
+      "title": "Agent chat: a chat left alone wakes for nothing (idle wakeups, left alone 10 s: 1 to 0)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44534/hv-c8686c5d779a-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 44822,
+      "title": "cmux-next iOS composers: no scroll bar in a long draft",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45186,
+      "title": "static-analysis: report-only ast-grep, dead-code and supply-chain scripts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45204,
+      "title": "ci: one-off production extension registry crawl with a read-only token",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
