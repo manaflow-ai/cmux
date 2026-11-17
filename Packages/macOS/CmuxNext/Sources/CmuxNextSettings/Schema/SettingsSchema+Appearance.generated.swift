@@ -318,11 +318,9 @@ extension ThemeFlourishSetting {
     public nonisolated static let accentGlowLightPath = ["appearance", "accentGlow", "light"]
     /// `appearance.accentGlow.radius`.
     public nonisolated static let accentGlowRadiusPath = ["appearance", "accentGlow", "radius"]
-    public nonisolated static let accentGlowRadiusDefault: Double = 24
     public nonisolated static let accentGlowRadiusRange: ClosedRange<Double> = 0...200
     /// `appearance.accentGlow.opacity`.
     public nonisolated static let accentGlowOpacityPath = ["appearance", "accentGlow", "opacity"]
-    public nonisolated static let accentGlowOpacityDefault: Double = 0.35
     public nonisolated static let accentGlowOpacityRange: ClosedRange<Double> = 0...1
     /// `appearance.tabClose.from`.
     public nonisolated static let tabCloseFromPath = ["appearance", "tabClose", "from"]
@@ -332,7 +330,6 @@ extension ThemeFlourishSetting {
     public nonisolated static let tabCloseToLightPath = ["appearance", "tabClose", "toLight"]
     /// `appearance.tabClose.interpolation`.
     public nonisolated static let tabCloseInterpolationPath = ["appearance", "tabClose", "interpolation"]
-    public nonisolated static let tabCloseInterpolationDefault = "oklab"
     public nonisolated static let tabCloseInterpolationValues = ["oklab", "srgb"]
     /// `appearance.sidebarHeader.dark`.
     public nonisolated static let sidebarHeaderDarkPath = ["appearance", "sidebarHeader", "dark"]

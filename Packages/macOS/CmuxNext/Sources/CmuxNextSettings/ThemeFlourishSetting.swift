@@ -10,17 +10,22 @@ import CoreGraphics
 public nonisolated struct ThemeFlourishSetting: Sendable {
     public init() {}
 
+    /// The glow's spread and strength when a theme sets a glow color but not these. The rows
+    /// default to unset (no default flips), so these live here rather than in the schema.
+    static let glowRadiusUnset: Double = 24
+    static let glowOpacityUnset: Double = 0.35
+
     public static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> ThemeFlourishes {
         var reader = Reader(root: root)
         var flourishes = ThemeFlourishes()
         if let dark = reader.color(accentGlowDarkPath) {
             let light = reader.color(accentGlowLightPath) ?? dark
-            let radius = reader.number(accentGlowRadiusPath, range: accentGlowRadiusRange) ?? accentGlowRadiusDefault
-            let opacity = reader.number(accentGlowOpacityPath, range: accentGlowOpacityRange) ?? accentGlowOpacityDefault
+            let radius = reader.number(accentGlowRadiusPath, range: accentGlowRadiusRange) ?? Self.glowRadiusUnset
+            let opacity = reader.number(accentGlowOpacityPath, range: accentGlowOpacityRange) ?? Self.glowOpacityUnset
             flourishes.accentGlow = .init(dark: dark, light: light, radius: CGFloat(radius), opacity: CGFloat(opacity))
         }
         let toDark = reader.color(tabCloseToDarkPath)
-        let space = reader.choice(tabCloseInterpolationPath, tabCloseInterpolationValues) ?? tabCloseInterpolationDefault
+        let space = reader.choice(tabCloseInterpolationPath, tabCloseInterpolationValues) ?? ThemeColorSpace.oklab.rawValue
         flourishes.tabClose = .init(from: reader.color(tabCloseFromPath), toDark: toDark,
                                     toLight: reader.color(tabCloseToLightPath) ?? toDark,
                                     space: ThemeColorSpace(rawValue: space) ?? .oklab)

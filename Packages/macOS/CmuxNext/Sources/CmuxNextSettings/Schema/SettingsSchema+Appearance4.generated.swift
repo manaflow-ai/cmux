@@ -107,7 +107,7 @@ extension AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.accentGlow.radius", "Accent Glow Radius"),
                 help: SettingsText.keyed("settings.appearance.accentGlow.radius.help", "How far the accent glow spreads from the focused pane."),
                 kind: .number(SettingNumber(ThemeFlourishSetting.accentGlowRadiusRange, step: 1, unit: .points)),
-                default: .number(ThemeFlourishSetting.accentGlowRadiusDefault),
+                default: nil,
                 keywords: ["theme", "flourish", "glow"]
             ),
             SettingDescriptor(
@@ -117,7 +117,7 @@ extension AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.accentGlow.opacity", "Accent Glow Opacity"),
                 help: SettingsText.keyed("settings.appearance.accentGlow.opacity.help", "How strong the accent glow is."),
                 kind: .number(SettingNumber(ThemeFlourishSetting.accentGlowOpacityRange, step: 0.05, unit: .fraction)),
-                default: .number(ThemeFlourishSetting.accentGlowOpacityDefault),
+                default: nil,
                 keywords: ["theme", "flourish", "glow"]
             ),
             SettingDescriptor(
@@ -163,7 +163,7 @@ extension AppearanceSettingsSchema {
                     SettingChoice("oklab", SettingsText.keyed("settings.choice.tabCloseInterpolation.oklab", "Perceptual (OKLab)")),
                     SettingChoice("srgb", SettingsText.keyed("settings.choice.tabCloseInterpolation.srgb", "sRGB")),
                 ]),
-                default: .string(ThemeFlourishSetting.tabCloseInterpolationDefault),
+                default: nil,
                 keywords: ["theme", "flourish", "tab", "close"]
             ),
             SettingDescriptor(

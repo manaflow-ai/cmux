@@ -2635,7 +2635,7 @@
             "step": 1,
             "unit": "points"
           },
-          "default": 24,
+          "default": null,
           "keywords": [
             "theme",
             "flourish",
@@ -2660,7 +2660,7 @@
             "step": 0.05,
             "unit": "fraction"
           },
-          "default": 0.35,
+          "default": null,
           "keywords": [
             "theme",
             "flourish",
@@ -2767,7 +2767,7 @@
               }
             }
           ],
-          "default": "oklab",
+          "default": null,
           "keywords": [
             "theme",
             "flourish",
