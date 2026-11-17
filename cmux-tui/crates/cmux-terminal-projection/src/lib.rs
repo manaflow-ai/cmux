@@ -9,7 +9,10 @@
 //!   phone's columns and written as VT bytes for a terminal of the phone's
 //!   grid. Each feed repaints from the first row that changed, so output and
 //!   echoes reach the phone as a few bytes; the cursor is mapped through the
-//!   wrap. A change in rows the phone's terminal already scrolled away
+//!   wrap. A row the program laid out by the host's width (a right prompt
+//!   or status at the last column, a header box padded to the edge) is laid
+//!   out at the phone's width instead of broken in two: its padding shrinks
+//!   ([`Projection::set_compact`]). A change in rows the phone's terminal already scrolled away
 //!   (`clear` with its scrollback, a host resize) starts the phone's
 //!   terminal over from its scrollback and screen.
 //! - **Alternate screen** (vim, htop): positioned cells cannot be re-wrapped.
@@ -54,6 +57,9 @@ pub struct Projection {
     /// How far up the reader is: phone rows from the end of the phone's
     /// document to the top of what they read (0: at the bottom).
     reader_rows_from_end: usize,
+    /// Right-anchored rows are laid out at the phone's width
+    /// ([`project::View::compact`]).
+    compact: bool,
 }
 
 impl Projection {
@@ -64,6 +70,7 @@ impl Projection {
             term: Terminal::new(host_cols, host_rows, history_limit),
             view: None,
             reader_rows_from_end: 0,
+            compact: true,
         }
     }
 
@@ -104,6 +111,7 @@ impl Projection {
             return Vec::new();
         }
         let mut view = View::new(cols, rows);
+        view.compact = self.compact;
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
@@ -112,7 +120,13 @@ impl Projection {
             let live = old.live_rows();
             if self.reader_rows_from_end > live {
                 let back = self.reader_rows_from_end - live + old.rows;
-                let from = project::rows_back(&self.term, self.term.history.len(), old.cols, back);
+                let from = project::rows_back(
+                    &self.term,
+                    self.term.history.len(),
+                    old.cols,
+                    back,
+                    old.compact,
+                );
                 view.keep_from = Some(self.term.history_dropped + from as u64);
             }
         }
@@ -121,6 +135,21 @@ impl Projection {
             return Vec::new();
         }
         self.paint().into_iter().collect()
+    }
+
+    /// Whether right-anchored rows wider than the phone (a right prompt, a
+    /// header box padded to the host's edge) are laid out at the phone's
+    /// width (on, the default) or re-wrapped like any line (off: the
+    /// phone's lines are the host's exactly). A change repaints.
+    pub fn set_compact(&mut self, compact: bool) -> Vec<Segment> {
+        if self.compact == compact {
+            return Vec::new();
+        }
+        self.compact = compact;
+        let Some((cols, rows)) = self.viewport() else { return Vec::new() };
+        // A fresh view at the same grid: its line cache was written the other way.
+        self.view = None;
+        self.set_viewport(cols, rows)
     }
 
     /// Host scrollback rows the phone's terminal does not hold yet (older

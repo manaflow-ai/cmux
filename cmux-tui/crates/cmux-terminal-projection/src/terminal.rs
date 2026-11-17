@@ -217,6 +217,16 @@ impl Terminal {
         (cursor.x, cursor.y)
     }
 
+    /// The rows of the screen in use (the alternate one while it is up).
+    pub fn screen_rows(&self) -> &[Row] {
+        if self.alt_active { &self.alt } else { &self.primary }
+    }
+
+    /// The cursor (column, row) on the screen in use.
+    pub fn cursor(&self) -> (usize, usize) {
+        (self.cursor.x, self.cursor.y)
+    }
+
     /// The host's grid changed (its PTY was resized). Rows are cut or added
     /// without a reflow: the host's own replay follows a resize.
     pub fn resize(&mut self, cols: usize, rows: usize) {
