@@ -2644,12 +2644,12 @@ async fn dispatch_request_with_identity(
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
             let value = str_param(&params, "path").unwrap_or("");
-            let path = crate::tui::directory::resolve(&base, value, &home, None)
+            let path = crate::directory_input::resolve(&base, value, &home, None)
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             let result = tokio::task::spawn_blocking(move || -> Result<Value, std::io::Error> {
                 let path = std::fs::canonicalize(path)?;
                 if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
-                let children = crate::tui::directory::children(&path);
+                let children = crate::directory_input::children(&path);
                 Ok(json!({"path": path, "parent": path.parent(), "home": home, "directories": children}))
             }).await.map_err(|e| RpcError::internal(e.to_string()))?.map_err(|e| RpcError::invalid_params(e.to_string()))?;
             Ok(result)

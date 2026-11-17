@@ -271,7 +271,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         }
         None => {
             let client = connect(true).await?;
-            crate::tui::run(client, None).await
+            crate::tui_entry::run(client, None).await
         }
         #[cfg(unix)]
         Some(Command::Router(RouterCmd::Serve)) => {
