@@ -185,6 +185,20 @@ import Testing
         #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
     }
 
+    /// What `CloudService` runs when the account or team changes, the person signs out or Cloud is turned off: the held
+    /// link (`carrier serve`) ends at once, not at the next prime or take, and nothing reads as keyed.
+    @Test func aResetEndsTheHeldLinkAndForgetsTheKey() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(readiness.holdsLink("vm_spare"))
+        readiness.reset()
+        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(!readiness.holdsLink("vm_spare"))
+        #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
+    }
+
     /// The App's link is fenced by the account's end, as the session's own carrier is.
     @Test func theSpareLinkFollowsItsAccountsFence() throws {
         let streams = CloudCarrierStreams()
