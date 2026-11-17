@@ -212,7 +212,8 @@ jobs:
 
           cd webviews
           bun install --frozen-lockfile
-          bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+          # --base: a string catalog change ranks the entries whose page tables take a changed key (catalogs.ts).
+          bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --base "$base_sha" --out "$RUNNER_TEMP/touched.json"
           select="$GITHUB_WORKSPACE/scripts/ci/gallery_select.py"
           # The touched entries plus any the PR body's `Gallery:` line names.
           ids=$(python3 "$select" entries --touched "$RUNNER_TEMP/touched.json")
