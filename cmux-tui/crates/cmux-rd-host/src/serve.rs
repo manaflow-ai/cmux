@@ -291,7 +291,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
-    crate::host::set_xauthority(opts)?;
+    crate::host::check_xauthority(opts)?;
     // Capture setup states (a Wayland portal waiting for the person at the screen) reach the app.
     #[cfg(all(feature = "portal", target_os = "linux"))]
     crate::desktop::set_status_sink(Box::new(|state, message| {

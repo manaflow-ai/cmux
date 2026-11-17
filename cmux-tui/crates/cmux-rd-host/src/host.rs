@@ -42,7 +42,7 @@ pub(crate) const DEFAULT_SETTLE_US: u64 = 1000;
 pub(crate) const DEFAULT_SETTLE_US: u64 = 0;
 
 pub fn run(opts: &Opts) -> Res<()> {
-    set_xauthority(opts)?;
+    check_xauthority(opts)?;
     if opts.flag("listen-systemd") {
         return run_systemd(opts);
     }
@@ -171,15 +171,21 @@ fn owner_policy(owner: String) -> HostPolicy {
 }
 
 /// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
-/// Set before any thread or X connection starts.
-pub(crate) fn set_xauthority(opts: &Opts) -> Res<()> {
+/// cmux-rd's `main` sets it before any thread starts ([`crate::prepare_process_env`]); this
+/// safe function only checks that it did, since writing the environment here could race a
+/// thread reading it.
+pub(crate) fn check_xauthority(opts: &Opts) -> Res<()> {
     let Some(path) = opts.get("xauthority") else {
         return Ok(());
     };
     #[cfg(target_os = "linux")]
     {
-        std::fs::File::open(path).map_err(|e| format!("--xauthority {path}: {e}"))?;
-        std::env::set_var("XAUTHORITY", path);
+        if std::env::var_os("XAUTHORITY").as_deref() != Some(std::ffi::OsStr::new(path)) {
+            return Err(format!(
+                "--xauthority {path}: XAUTHORITY was not set at start (only the cmux-rd executable applies --xauthority)"
+            )
+            .into());
+        }
         Ok(())
     }
     #[cfg(not(target_os = "linux"))]
@@ -678,10 +684,12 @@ mod tests {
         std::fs::write(&cookie, b"").expect("cookie file");
         let path = cookie.to_str().expect("utf-8 temp path").to_owned();
         let opts = Opts::parse(&["--xauthority".to_owned(), path.clone()]).expect("parse");
-        let _ = set_xauthority(&opts);
+        let checked = check_xauthority(&opts);
         let now = std::env::var_os("XAUTHORITY");
         std::fs::remove_file(&cookie).ok();
         assert_ne!(now.as_deref(), Some(std::ffi::OsStr::new(&path)), "a safe fn wrote XAUTHORITY");
+        // `main` did not set it in this process, so the host refuses to go on without it.
+        assert!(checked.expect_err("unset").to_string().contains("was not set at start"));
     }
 
     #[test]
