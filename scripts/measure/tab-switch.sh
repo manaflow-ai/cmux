@@ -99,7 +99,7 @@ app_under_test() {
       src="$tmp/src"
       git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || return 3
     fi
-    APP_LABEL="$(git -C "$src" rev-parse HEAD)"
+    APP_LABEL="$(git -C "$src" rev-parse HEAD)" || return 3
     local configuration=(--release)
     [[ "$config" == bench ]] && configuration=(--config bench)
     (cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \

@@ -22,8 +22,8 @@ the design rests on, on one launch of a NIGHTLY or a built app (scripts/measure/
   (c) cost   Per source, ROUNDS runs: the control round trip (ms, p50/p95/max) and the app's main-thread stall during
              it (`debug.hangs`: the longest main-thread turn and the turns over 8.3 ms, cleared before each run), with
              an idle row of the same wait as the baseline. Sources: window.screenshot, debug.window_snapshot raw and
-             with pages (bench builds), browser.page.screenshot of the shown Chromium page (Page.captureScreenshot),
-             and once of the page while hidden behind a terminal tab.
+             with pages (bench builds; pages less raw is the Page.captureScreenshot cost). browser.page.screenshot
+             is tried once shown and once hidden behind a terminal tab: the socket refuses it to scripts by design.
 
 Writes OUT/report.json, OUT/report.md and the pictures (OUT/images/*.png: the screen's window, each composite, the
 page image). Exit 0 once the report is written (an artifact comes back only from a passing step), 3 when it could
@@ -117,6 +117,8 @@ class PromptWatch:
 
     def __init__(self):
         self.stop_flag = threading.Event()
+        self.paused = threading.Event()  # set while the timing rounds run: the polls would load the Mac they time
+        self.ignore = set()
         self.processes = {}  # name -> first seen (s since start)
         self.windows = {}  # owner -> first seen
         self.window_errors = []
@@ -141,6 +143,9 @@ class PromptWatch:
 
     def run(self):
         while not self.stop_flag.is_set():
+            if self.paused.is_set():
+                self.stop_flag.wait(0.25)
+                continue
             self.polls += 1
             now = round(time.monotonic() - self.t0, 2)
             try:
@@ -154,6 +159,8 @@ class PromptWatch:
             owners = self.owners()
             if owners is not None:
                 for owner in owners:
+                    if owner in self.ignore:
+                        continue
                     if owner in PROMPT_PROCESSES or (self.base_owners is not None and owner not in self.base_owners):
                         self.windows.setdefault(owner, now)
             self.stop_flag.wait(0.25)
@@ -275,7 +282,9 @@ def screen_window(rect, out):
     reply = cua("get_desktop_state", {"screenshot_out_file": full})
     if reply.get("error") or not os.path.exists(full):
         return reply.get("error") or "no display image"
-    scale = float(reply.get("screenshot_width") or 0) / float(reply.get("screen_width") or 1) or 2.0
+    scale = float(reply.get("screenshot_width") or 0) / float(reply.get("screen_width") or 1)
+    if not scale:
+        scale = float(cua("get_screen_size", {}).get("scale_factor") or 0) or 2.0
     x, y, w, h = rect
     subprocess.run(["sips", "-c", str(round(h * scale)), str(round(w * scale)), "--cropOffset", str(round(y * scale)),
                     str(round(x * scale)), full, "--out", out], capture_output=True, timeout=60)
@@ -366,7 +375,10 @@ class Sources:
         self.c, self.ids, self.scratch, self.has_debug = control, ids, scratch, has_debug
 
     def names(self):
-        names = ["idle", "window.screenshot", "browser.page.screenshot"]
+        # browser.page.screenshot is tried once, not timed: the socket refuses it unless a person runs it (the app
+        # builds BrowserPageService without allowsUnsafeCapture). On a bench build the page image's cost is
+        # debug.window_snapshot.pages less .raw (the same composite plus each page's Page.captureScreenshot).
+        names = ["idle", "window.screenshot"]
         if self.has_debug:
             names[1:1] = ["debug.window_snapshot.raw", "debug.window_snapshot.pages"]
         return names
@@ -398,8 +410,16 @@ class Sources:
         return {"ms": round(ms, 2), "ok": png is not None or name == "idle", "error": str(error)[:300] if error else None,
                 "png": png, "main_max_turn_ms": hangs.get("max_gap_ms"), "main_turns_over_8_3ms": hangs.get("frames_over_8_3ms"),
                 "main_stalls": hangs.get("count"), "main_stall_max_ms": hangs.get("max_ms"),
-                "watchdog": hangs.get("installed"), "extra": {k: reply.get(k) for k in ("method", "child_windows",
-                "chromium_pages", "chromium_pages_failed", "masked", "width", "height") if isinstance(reply, dict) and k in reply}}
+                "watchdog": hangs.get("installed"), "extra": self.extra(reply)}
+
+    @staticmethod
+    def extra(reply):
+        """The capture's own facts: at the top of a debug reply, under `result` of an action.run reply."""
+        if not isinstance(reply, dict):
+            return {}
+        facts = reply.get("result") if isinstance(reply.get("result"), dict) else reply
+        return {k: facts[k] for k in ("method", "child_windows", "chromium_pages", "chromium_pages_failed", "masked",
+                                      "width", "height", "webviews", "webviews_failed") if k in facts}
 
 
 def summarize(runs):
@@ -450,6 +470,7 @@ def main(argv=None):
         watch = PromptWatch()
         watch.start()
         tcc_log = TccLog(args.out)
+        watch.ignore = {executable, "cmux", "tab-switch-tools", "CuaDriver", "cua-driver"}
         app = frames.App(bundle, root, smoke)
         app.launch()
         control = app.control
@@ -471,7 +492,7 @@ def main(argv=None):
         screen = read_image(screen_png) if not problem else None
         pictures = {"screen": stats(screen) if screen else None}
         sources = Sources(control, ids, root, has_debug)
-        for name in sources.names()[1:]:
+        for name in sources.names()[1:] + ["browser.page.screenshot"]:
             got = sources.measure(name, "picture")
             if got["png"]:
                 kept = os.path.join(images, name.replace(".", "-") + ".png")
@@ -483,6 +504,7 @@ def main(argv=None):
         report["pictures"] = pictures
         # (c) The cost of each source, interleaved round by round.
         runs = {name: [] for name in sources.names()}
+        watch.paused.set()  # the prompt watch covered every capture above; the timing runs alone
         for index in range(args.rounds):
             for name in sources.names():
                 got = sources.measure(name, index)
@@ -491,7 +513,11 @@ def main(argv=None):
                 got.pop("png")
                 runs[name].append(got)
                 time.sleep(0.4)  # test script: the window settles between captures
+        watch.paused.clear()
         report["timing"] = {name: summarize(rows) for name, rows in runs.items()}
+        raw, pages = report["timing"].get("debug.window_snapshot.raw"), report["timing"].get("debug.window_snapshot.pages")
+        if raw and pages and raw["ms_p50"] is not None and pages["ms_p50"] is not None:
+            report["cef_page_image_ms_p50_estimate"] = round(pages["ms_p50"] - raw["ms_p50"], 1)
         report["timing_runs"] = runs
         # The page hidden behind the right pane's terminal: does Page.captureScreenshot still answer, and in how long.
         control.action("tab.focus", target=f"tab:{ids['right_terminal']}")
@@ -505,7 +531,7 @@ def main(argv=None):
         report["hidden_page_screenshot"] = hidden
         control.action("tab.focus", target=f"tab:{ids['chromium']}")
         status = 0
-    except (frames.Unmeasurable, capture.CaptureError, smoke.CannotRun, OSError, subprocess.SubprocessError, KeyError) as error:
+    except Exception as error:  # noqa: BLE001 - any fault still writes the report, with the TCC reads it has
         report["unmeasurable"] = f"{type(error).__name__}: {error}"
         say("cannot measure:", report["unmeasurable"])
     finally:
