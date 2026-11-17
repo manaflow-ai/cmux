@@ -111,14 +111,14 @@ const working = (rows: AcpmuxRow[]) => {
   };
 };
 
-/// Leo's first screenshot: the notice opens the turn, the agent reads each message, loads a tool's
-/// schema and runs a command.
+/// Leo's first screenshot: the notice opens the turn, each message then comes into the running turn
+/// on its own line, and the agent thinks, loads a tool's schema and runs a command.
 export const inboxTurn = (withDivider: boolean): AcpmuxRow[] => [
   ...finished,
   ...(withDivider ? [divider()] : []),
   notice(1),
-  received("gap-coord", minutesAgo(0.95), COORD),
-  received("gap-arch", minutesAgo(0.94), ARCH),
+  { ...received("gap-coord", minutesAgo(0.95), COORD), continues: true },
+  { ...received("gap-arch", minutesAgo(0.94), ARCH), continues: true },
   toolSearch(0.9, "gap-search"),
   running(0.5),
 ];
