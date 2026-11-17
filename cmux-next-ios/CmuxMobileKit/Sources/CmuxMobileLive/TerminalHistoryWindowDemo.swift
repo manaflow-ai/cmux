@@ -78,7 +78,7 @@ final class TerminalHistoryWindowDemo {
     var state: String {
         let window = session.historyWindowStart.map(String.init) ?? "tail"
         return "omitted=\(session.historyRowsOmitted) window=\(window) skipped=\(session.historyRowsSkipped) "
-            + "fetches=\(daemon.attachCount) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows)"
+            + "fetches=\(daemon.attachCount) down=\(daemon.windowStepsDown) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows)"
     }
 }
 
@@ -95,6 +95,12 @@ final class HistoryWindowDaemon: @unchecked Sendable {
 
     var attachCount: Int { lock.withLock { attaches } }
     var maxHeldRows: Int { lock.withLock { held } }
+    /// Window fetches whose first row is nearer the screen than the window
+    /// asked for before: the reader coming down moved the window.
+    var windowStepsDown: Int { lock.withLock { stepsDown } }
+    /// The first row of the last window asked for (`replay_history_start`).
+    private var lastWindowStart: Int?
+    private var stepsDown = 0
 
     init(historyRows: Int) {
         self.historyRows = historyRows
@@ -171,6 +177,10 @@ final class HistoryWindowDaemon: @unchecked Sendable {
             lock.withLock {
                 attaches += 1
                 held = max(held, rows.count)
+                if let start = object["replay_history_start"] as? Int {
+                    if let last = lastWindowStart, start > last { stepsDown += 1 }
+                    lastWindowStart = start
+                }
             }
             NSLog("[history-window-demo] attach %ldx%ld rows=%@ start=%@ held=%ld", cols, screenRows,
                   String(describing: object["replay_history_rows"] ?? "all"),
