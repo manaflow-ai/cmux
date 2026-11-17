@@ -2,7 +2,7 @@
 //! the person's permission (`view`/`full` rows they granted serve at once; `ask` sends a
 //! `session.request` to this host). This host never answers a request by itself: it records
 //! it in the login session's private runtime directory, and only the person's
-//! `cmux-rd linux-host approve|deny` answers it. This desktop's own consent (`consent.json`,
+//! `approve|deny` of the host command answers it. This desktop's own consent (`consent.json`,
 //! set at `enable`) may further refuse control, as the Mac's local consent does.
 
 use crate::Res;
@@ -75,7 +75,8 @@ impl LocalConsent {
         match read_private(&dir.join("consent.json"))? {
             Some(bytes) => Ok(serde_json::from_slice(&bytes)?),
             None => {
-                Err("no consent.json: nothing is shared until `cmux-rd linux-host enable`".into())
+                Err(format!("no consent.json: nothing is shared until `{} enable`", super::COMMAND)
+                    .into())
             }
         }
     }
@@ -85,7 +86,7 @@ impl LocalConsent {
     }
 }
 
-/// The pending requests file (`$XDG_RUNTIME_DIR/cmux-screen-host/requests.json`, 0600).
+/// The pending requests file (`requests.json` in `identity::runtime_dir`, this user's only).
 pub struct Pending<'a> {
     dir: &'a Path,
 }
@@ -231,8 +232,12 @@ mod tests {
         pending.add(request("view"), 1_000).unwrap();
         assert_eq!(pending.list(2_000).unwrap().len(), 1);
         assert!(pending.list(1_000 + REQUEST_TTL_MS).unwrap().is_empty());
-        use std::os::unix::fs::MetadataExt;
-        assert_eq!(std::fs::metadata(dir.join("requests.json")).unwrap().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mode = std::fs::metadata(dir.join("requests.json")).unwrap().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         assert_eq!(pending.remove("s1", 2_000).unwrap().map(|r| r.id), Some("s1".into()));
         assert!(pending.list(2_000).unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();

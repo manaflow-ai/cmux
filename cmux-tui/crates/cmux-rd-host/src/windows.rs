@@ -49,7 +49,7 @@ fn sample(samples: &mut Vec<f64>, start: Instant) {
 
 /// A bounded GDI capture used by the service fallback and the Windows runner.
 /// The bitmap is top-down BGRA, matching `cmux_encode::bgrx_rect_to_i420`.
-struct GdiCapture {
+pub(crate) struct GdiCapture {
     screen: windows_sys::Win32::Graphics::Gdi::HDC,
     memory: windows_sys::Win32::Graphics::Gdi::HDC,
     bitmap: windows_sys::Win32::Graphics::Gdi::HBITMAP,
@@ -60,7 +60,7 @@ struct GdiCapture {
 }
 
 impl GdiCapture {
-    fn new(requested: Option<(u32, u32)>) -> Res<Self> {
+    pub(crate) fn new(requested: Option<(u32, u32)>) -> Res<Self> {
         // SAFETY: these are process-owned GDI handles; every successful handle
         // is released in Drop below.
         let screen = unsafe { GetDC(0 as HWND) };
@@ -108,11 +108,11 @@ impl GdiCapture {
         })
     }
 
-    fn size(&self) -> (u32, u32) {
+    pub(crate) fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    fn capture(&mut self) -> Res<&[u8]> {
+    pub(crate) fn capture(&mut self) -> Res<&[u8]> {
         // SAFETY: all handles and the destination rectangle belong to this value.
         let copied = unsafe {
             BitBlt(
