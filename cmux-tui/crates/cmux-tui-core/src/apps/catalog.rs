@@ -542,7 +542,7 @@ mod tests {
             source: Source::Bundled,
             dir: dir.clone(),
             manifest: json!({ "catalog": "catalog.json" }),
-            fragment: Some(std::sync::Arc::new(catalog.clone())),
+            fragment: Some(std::sync::Arc::new(catalog)),
         };
         let export = package.export_for_op("notes.open");
         let commands = package.palette_commands();
