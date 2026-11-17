@@ -537,6 +537,10 @@ pub struct ReadStats {
     pub bytes: u64,
     pub scanned: u64,
     pub holds_bytes: u64,
+    /// A complete line larger than `CHUNK_BYTES` is allowed by the source contract. These
+    /// counters make that exception visible to the follow gate instead of hiding its allocation.
+    pub oversized_lines: u64,
+    pub oversized_bytes: u64,
 }
 
 /// An append-only file. No open or read walks to its last newline. The only retained
@@ -650,6 +654,10 @@ impl RawSource for FileSource {
             let size = usize::try_from(end - place).map_err(io::Error::other)?;
             bytes.resize(size, 0);
             self.read_exact_at(place, &mut bytes)?;
+            if size > CHUNK_BYTES {
+                self.stats.oversized_lines = self.stats.oversized_lines.saturating_add(1);
+                self.stats.oversized_bytes = self.stats.oversized_bytes.saturating_add(size as u64);
+            }
         } else {
             bytes.truncate(newline + 1);
         }
@@ -714,6 +722,220 @@ impl RawSource for FileSource {
         Ok(Piece { bytes, ends })
     }
 }
+
+/// The identity and fixed-head proof for one followed transcript generation.
+///
+/// `size` is monotonic within a generation. A growth keeps the generation and only advances
+/// `size`; a replacement, shrink, or changed head is a new generation and must be handled by the
+/// actor's rebuild path before it translates another line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FileGeneration {
+    pub dev: u64,
+    pub ino: u64,
+    pub size: u64,
+    /// Number of initial bytes covered by the fixed-head proof. Keeping this fixed across
+    /// appends avoids treating growth of a short file as a rewrite of its head.
+    pub head_len: u64,
+    pub head: u64,
+    pub head_fixed: bool,
+}
+
+impl FileGeneration {
+    fn stamp(self) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        let values =
+            if self.head_fixed { [self.dev, self.ino, self.head] } else { [self.dev, self.ino, 0] };
+        for value in values {
+            for byte in value.to_le_bytes() {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        hash
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenerationChange {
+    Unchanged,
+    Appended { size: u64 },
+    Replaced,
+    Rewritten,
+}
+
+/// An append-following file source. The held descriptor remains the source of bytes; the path is
+/// sampled only for the bounded generation proof. A changed generation returns an error before a
+/// chunk is handed to the actor, so the actor cannot translate bytes from two files as one chat.
+pub struct FollowFileSource {
+    inner: FileSource,
+    generation: FileGeneration,
+}
+
+impl FollowFileSource {
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let mut inner = FileSource::open(path)?;
+        let (path_identity, generation) = inner.generation_proof(None)?;
+        if path_identity != (generation.dev, generation.ino) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "transcript changed during generation read",
+            ));
+        }
+        Ok(Self { inner, generation })
+    }
+
+    pub fn generation(&self) -> FileGeneration {
+        self.generation
+    }
+
+    pub fn stats(&self) -> ReadStats {
+        self.inner.stats()
+    }
+
+    /// Compare the path's bounded generation proof with the last one observed. Appends are
+    /// accepted and advance the monotonic size; every other mutation is returned to the caller.
+    pub fn check_generation(&mut self) -> io::Result<GenerationChange> {
+        let previous = self.generation;
+        let (path_identity, current) = self.inner.generation_proof(Some(previous))?;
+        if path_identity != (previous.dev, previous.ino)
+            || current.dev != previous.dev
+            || current.ino != previous.ino
+        {
+            return Ok(GenerationChange::Replaced);
+        }
+        if current.size < previous.size {
+            return Ok(GenerationChange::Replaced);
+        }
+        if previous.head_fixed && current.head != previous.head {
+            return Ok(GenerationChange::Rewritten);
+        }
+        if current.size > previous.size || current.head_fixed != previous.head_fixed {
+            self.generation = current;
+            return Ok(GenerationChange::Appended { size: current.size });
+        }
+        Ok(GenerationChange::Unchanged)
+    }
+
+    fn ensure_generation(&mut self) -> io::Result<()> {
+        match self.check_generation()? {
+            GenerationChange::Unchanged | GenerationChange::Appended { .. } => Ok(()),
+            GenerationChange::Replaced => Err(invalid("follow transcript generation replaced")),
+            GenerationChange::Rewritten => Err(invalid("follow transcript generation rewritten")),
+        }
+    }
+}
+
+impl RawSource for FollowFileSource {
+    fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
+        let chunk = self.inner.read_chunk(place)?;
+        self.ensure_generation()?;
+        Ok(Chunk::with_stamp(
+            chunk.bytes,
+            chunk.base,
+            chunk.places,
+            chunk.at_end,
+            chunk.hint,
+            self.stamp(),
+        ))
+    }
+
+    fn holds(&mut self, place: u64) -> io::Result<bool> {
+        let held = self.inner.holds(place)?;
+        self.ensure_generation()?;
+        Ok(held)
+    }
+
+    fn hint(&self) -> io::Result<u64> {
+        self.inner.hint()
+    }
+
+    fn sync_through(&mut self, place: u64) -> io::Result<()> {
+        self.inner.sync_through(place)?;
+        self.ensure_generation()
+    }
+
+    fn identity(&self) -> &[u8] {
+        self.inner.identity()
+    }
+
+    fn stamp(&self) -> u64 {
+        self.generation.stamp()
+    }
+
+    fn file_path(&self) -> Option<&Path> {
+        self.inner.file_path()
+    }
+
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> io::Result<Piece> {
+        let piece = self.inner.read_at(place, offset, max)?;
+        self.ensure_generation()?;
+        Ok(piece)
+    }
+}
+
+impl FileSource {
+    /// Take one bounded proof from the path and the held descriptor. The path is only stat'ed;
+    /// all bytes come from the descriptor that the source already owns.
+    fn generation_proof(
+        &mut self,
+        previous: Option<FileGeneration>,
+    ) -> io::Result<((u64, u64), FileGeneration)> {
+        let path = std::fs::metadata(&self.path)?;
+        let held = self.file.metadata()?;
+        let (dev, ino) = file_identity(&held);
+        let size = held.len();
+        let (head_fixed, head_len, head) = if let Some(previous) = previous {
+            if previous.head_fixed && size >= previous.head_len {
+                let head_len = previous.head_len.min(size);
+                let mut bytes = vec![0; usize::try_from(head_len).map_err(io::Error::other)?];
+                self.read_exact_at(0, &mut bytes)?;
+                (true, head_len, fnv1a(&bytes))
+            } else {
+                self.read_head(size)?
+            }
+        } else {
+            self.read_head(size)?
+        };
+        Ok((file_identity(&path), FileGeneration { dev, ino, size, head_len, head, head_fixed }))
+    }
+
+    fn read_head(&mut self, size: u64) -> io::Result<(bool, u64, u64)> {
+        let count = size.min(4096);
+        let mut bytes = vec![0; usize::try_from(count).map_err(io::Error::other)?];
+        if !bytes.is_empty() {
+            self.read_exact_at(0, &mut bytes)?;
+        }
+        let fixed_len = bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|at| at.saturating_add(1))
+            .or_else(|| (count == 4096).then_some(4096));
+        let Some(head_len) = fixed_len else {
+            return Ok((false, 0, 0));
+        };
+        Ok((true, head_len as u64, fnv1a(bytes.get(..head_len).unwrap_or_default())))
+    }
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+#[cfg(unix)]
+fn file_identity(metadata: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (metadata.dev(), metadata.ino())
+}
+
+#[cfg(not(unix))]
+fn file_identity(metadata: &std::fs::Metadata) -> (u64, u64) {
+    (0, metadata.len())
+}
+
+#[cfg(test)]
+#[path = "source_follow_gates.rs"]
+mod follow_gates;
 
 #[cfg(test)]
 mod tests {
@@ -859,6 +1081,65 @@ mod tests {
         let before = source.stats();
         assert!(source.holds(2)?);
         assert_eq!(source.stats().bytes - before.bytes, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn follow_generation_accepts_append_and_counts_oversized_lines() -> io::Result<()> {
+        let mut raw = tempfile::NamedTempFile::new()?;
+        raw.write_all(b"header\n")?;
+        let mut source = FollowFileSource::open(raw.path())?;
+        assert_eq!(source.read_chunk(0)?.bytes(), b"header\n");
+        let before = source.generation();
+        raw.write_all(b"tail\n")?;
+        assert_eq!(source.check_generation()?, GenerationChange::Appended { size: 12 });
+        assert_eq!(source.generation().dev, before.dev);
+        assert_eq!(source.generation().ino, before.ino);
+        assert_eq!(source.read_chunk(7)?.bytes(), b"tail\n");
+
+        let mut large = tempfile::NamedTempFile::new()?;
+        large.write_all(&vec![b'x'; CHUNK_BYTES * 2])?;
+        large.write_all(b"\n")?;
+        let mut large_source = FollowFileSource::open(large.path())?;
+        assert_eq!(large_source.stats().oversized_lines, 0);
+        let mut chunk = large_source.read_chunk(0)?;
+        assert!(chunk.bytes().is_empty());
+        chunk = large_source.read_chunk(0)?;
+        assert!(chunk.bytes().is_empty());
+        chunk = large_source.read_chunk(0)?;
+        assert_eq!(chunk.lines().count(), 1);
+        assert_eq!(large_source.stats().oversized_lines, 1);
+        assert_eq!(large_source.stats().oversized_bytes, (CHUNK_BYTES * 2 + 1) as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn follow_generation_rejects_replace_shrink_and_head_rewrite() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("transcript.jsonl");
+        std::fs::write(&path, b"header\nbody\n")?;
+        let mut source = FollowFileSource::open(&path)?;
+        std::fs::write(&path, b"header\n")?;
+        assert_eq!(source.check_generation()?, GenerationChange::Replaced);
+
+        std::fs::write(&path, b"header\nbody\n")?;
+        let mut source = FollowFileSource::open(&path)?;
+        std::fs::write(&path, b"head")?;
+        assert_eq!(source.check_generation()?, GenerationChange::Replaced);
+
+        std::fs::write(&path, b"header\nbody\n")?;
+        let mut source = FollowFileSource::open(&path)?;
+        let replacement = dir.path().join("replacement.jsonl");
+        std::fs::write(&replacement, b"other\nbody\n")?;
+        std::fs::rename(replacement, &path)?;
+        assert_eq!(source.check_generation()?, GenerationChange::Replaced);
+
+        std::fs::write(&path, b"header\nbody\n")?;
+        let mut source = FollowFileSource::open(&path)?;
+        let mut file = OpenOptions::new().write(true).open(&path)?;
+        file.write_all(b"changed")?;
+        file.sync_all()?;
+        assert_eq!(source.check_generation()?, GenerationChange::Rewritten);
         Ok(())
     }
 

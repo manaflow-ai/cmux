@@ -18,6 +18,28 @@ import Testing
         #expect(view.sheets.allSatisfy { $0.isDark == isDark })
     }
 
+    /// The Toast Playground opens the Keycap Playground from its button: the way in before the palette has
+    /// `debug.keycapPlayground` (the pinned app FFI gains it with the next re-pin). Without the opener it shows none.
+    @Test func theToastPlaygroundOpensTheKeycapPlayground() throws {
+        let defaults = try #require(UserDefaults(suiteName: "KeycapPlaygroundTests.\(UUID().uuidString)"))
+        let center = CmuxToastCenter(clock: ContinuousClock(), styles: CmuxToastStyleStore(defaults: defaults))
+        let themes = CmuxToastPlaygroundThemes(colors: [:])
+        var opened = 0
+        let view = CmuxToastPlaygroundView(center: center, themes: themes, openKeycaps: { opened += 1 }) { _ in }
+        let button = try #require(view.keycapsButton)
+        button.performClick(nil)
+        #expect(opened == 1)
+        #expect(CmuxToastPlaygroundView(center: center, themes: themes) { _ in }.keycapsButton == nil)
+    }
+
+    /// Every dialog draws the shipped style; the playground keeps the others to compare.
+    @Test func everyDialogDrawsTheLinearHint() throws {
+        let button = CmuxDialogButtonView(CmuxDialogButton(id: "quit", title: "Quit", role: .default), hint: .return, keycap: true,
+                                          target: nil, action: NSSelectorFromString("press:"))
+        #expect(button.keycapStyle == .linearKbd)
+        #expect(CmuxDialogKeycapStyle.allCases.count == 8)
+    }
+
     @Test(arguments: CmuxDialogKeycapStyle.allCases)
     func theKeySitsInsideItsButtonClearOfTheTitle(style: CmuxDialogKeycapStyle) throws {
         let sheet = CmuxKeycapPlaygroundSheet(style: style, isDark: false, themes: CmuxToastPlaygroundThemes(colors: [:]))

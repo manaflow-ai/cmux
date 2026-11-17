@@ -10,8 +10,6 @@ pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
-#[cfg(unix)]
-pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod command_new;
@@ -48,6 +46,7 @@ pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
 pub mod ls_table;
+pub mod machine_auth;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;

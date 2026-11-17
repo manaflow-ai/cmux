@@ -201,7 +201,7 @@ pub(crate) struct Listing {
 /// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
 /// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
 /// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
-fn pool_stem(name: &str) -> Option<&str> {
+pub(crate) fn pool_stem(name: &str) -> Option<&str> {
     let (rest, last) = name.rsplit_once('-')?;
     let generated = last.len() >= 6
         && last.chars().all(|c| c.is_ascii_hexdigit())

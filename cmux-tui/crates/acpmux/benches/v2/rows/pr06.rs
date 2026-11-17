@@ -30,6 +30,18 @@ pub const ROWS: &[GateRow] = &[
         ratio_all: None,
         god_max: None,
     },
+    // Measured by the pane host's Swift bench (CmuxNextDaemonTests AcpmuxChatRowsBench) in the
+    // fleet build's package test step (`scripts/ci/package-test-lane.sh suite
+    // Packages/macOS/CmuxNext AcpmuxChatRows`), which the Linux gate script does not run.
+    GateRow {
+        pr: "6b",
+        name: "v2.pr06.host_chat_change",
+        done_when: "p95 from the socket's bytes to the page receiver for one settled row, with the pane host's handle on a chat of 100,000 rows against one of 100: within 1.2x, rounds alternating, the same samples a side.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
     GateRow {
         pr: "6",
         name: "v2.pr06.thin_store_geometry",

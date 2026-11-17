@@ -20,7 +20,7 @@ Reconnecting only made it likely. On the dead stream a person drags the page to 
 
 ## Rig
 
-- **Phone:** the Demo build (`dev.cmux.mobile.urltrunc`) in one headless iPhone 17 Pro simulator, iOS 26.5, named `cmux-urltrunc`, on the laptop. Base is `177632a0c1dc` (origin/feat-cmux-next); the fix is this branch. Both were built on mini-cmux11s with Xcode 26.6. No TapKit was used.
+- **Phone:** the Demo build (`dev.cmux.mobile.urltrunc`) in one headless iPhone 17 Pro simulator, iOS 26.5, named `cmux-urltrunc`, on the laptop. Base is `177632a0c1dc` (origin/feat-cmux-next); the fix is this branch. Both were built on mini-cmux11s with Xcode 26.6.
 - **Mac:** the hidden tagged cmux-next app `urltrunc-mac` (fleet job `e32963dd4897b6e5d1c03070`, feat-cmux-next `090347693d45`) on mini-cmux8s, launched with `open -g -j -n` and an isolated config by `rmac.py`.
 - **Link:** the real link (WireGuard over TURN). No socket or loopback shortcuts.
 - **Pages:** the Mac opened 6 browser tabs, which streamed to the phone:

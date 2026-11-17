@@ -545,10 +545,11 @@ fn concrete(
 }
 
 /// The configuration of each property test of this crate. The seed and the generator are fixed here and a failed
-/// case writes no file. `PROPTEST_CASES` sets the case count (default 256); a value that is 0 or is not a count
-/// panics here, because a run with no case would pass. The `proptest!` macro applies the `PROPTEST_` variables on
-/// top of this configuration: `PROPTEST_RNG_SEED` gives other cases for one run. With no such variable, each run
-/// with one count has the same cases.
+/// case writes no file. `PROPTEST_CASES` sets the case count (default 256). A value of 0 panics here, because a run
+/// with no case would pass. A value that is not a count panics here too: without the panic the run would take the
+/// default count and say nothing. The `proptest!` macro applies the `PROPTEST_` variables on top of this
+/// configuration: `PROPTEST_RNG_SEED` gives other cases for one run. With no such variable, each run with one count
+/// has the same cases.
 pub(crate) fn property_config() -> ProptestConfig {
     let cases = std::env::var_os("PROPTEST_CASES").map(|text| {
         let count =

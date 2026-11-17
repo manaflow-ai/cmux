@@ -34,7 +34,7 @@ struct AgentTabContent {
             return nil
         }
         guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
-            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map(TabContent.notice)
+            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map { TabContent.notice($0) }
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
@@ -60,6 +60,8 @@ struct AgentTabContent {
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
+        // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
+        view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
