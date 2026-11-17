@@ -415,6 +415,9 @@ fn checked_size(spec: &Spec, place: Place, name: &str) -> Result<Size, String> {
 pub(super) struct WidgetState {
     layout: Option<Layout>,
     keys: VecDeque<(String, Value)>,
+    /// The saved layout exists but could not be read (an I/O error, not a missing file): it is
+    /// read again on next use, and no edit is saved over it meanwhile.
+    unreadable: bool,
     /// Names each widget mount's timers (`WidgetMount::epoch`).
     pub next_epoch: u64,
 }
@@ -486,6 +489,19 @@ pub(super) fn mount_context(
         .filter(|(at, item)| *at == place && item.app == app)
         .map(|(_, item)| Value::Object(item.settings.clone()))
         .unwrap_or_else(|| json!({}));
+    // The page's locale and time zone (it has Intl and the system's settings; the sandbox has
+    // neither), so a widget names the local zone and formats for the person. A missing or
+    // malformed one falls back: English, and the zone this daemon runs in.
+    let locale = asked
+        .get("locale")
+        .and_then(Value::as_str)
+        .filter(|tag| is_word(tag, 35, |c| c == '-'))
+        .unwrap_or("en");
+    let time_zone = asked
+        .get("timeZone")
+        .and_then(Value::as_str)
+        .filter(|zone| is_zone_name(zone))
+        .map_or_else(local_zone, str::to_string);
     let mut context = json!({
         "surface": SURFACE,
         "place": place.as_str(),
@@ -493,6 +509,8 @@ pub(super) fn mount_context(
         "instance": instance,
         "settings": settings,
         "refresh": spec.every.map(|every| json!({ "everySeconds": every })),
+        "locale": locale,
+        "timeZone": time_zone,
     });
     if asked.get("preview").and_then(Value::as_bool) == Some(true)
         && let Some(object) = context.as_object_mut()
@@ -515,6 +533,35 @@ pub(super) fn mount_context(
         due_ms: 0,
     };
     Ok((context, widget))
+}
+
+/// `text` is 1 to `max` bytes of ASCII letters, digits and the characters `extra` allows.
+fn is_word(text: &str, max: usize, extra: impl Fn(char) -> bool) -> bool {
+    !text.is_empty()
+        && text.len() <= max
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || extra(c))
+}
+
+/// An IANA zone name's shape (`Europe/Paris`, `America/Argentina/Buenos_Aires`, `Etc/GMT+9`).
+fn is_zone_name(zone: &str) -> bool {
+    is_word(zone, 64, |c| matches!(c, '/' | '_' | '-' | '+'))
+        && !zone.starts_with('/')
+        && !zone.split('/').any(|part| part.is_empty() || part == "..")
+}
+
+/// The IANA name of the zone this daemon runs in: `TZ`, else where `/etc/localtime` points
+/// (`.../zoneinfo/Europe/Paris`), else `UTC`.
+fn local_zone() -> String {
+    let from_env = std::env::var("TZ").ok().map(|tz| tz.trim_start_matches(':').to_string());
+    let from_link = || {
+        let target = std::fs::read_link("/etc/localtime").ok()?;
+        let target = target.to_str()?;
+        Some(target.split_once("zoneinfo/")?.1.to_string())
+    };
+    from_env
+        .filter(|zone| is_zone_name(zone))
+        .or_else(|| from_link().filter(|zone| is_zone_name(zone)))
+        .unwrap_or_else(|| "UTC".to_string())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -580,11 +627,16 @@ impl Supervisor {
     /// The layout, read from the state directory on first use (empty when none was saved or
     /// the file does not read).
     pub(super) fn widget_layout_locked<'a>(&self, inner: &'a mut Inner) -> &'a mut Layout {
-        let dir = self.config.state_dir.clone();
-        inner
-            .widgets
-            .layout
-            .get_or_insert_with(|| dir.map(|dir| read_layout(&dir)).unwrap_or_default())
+        let state = &mut inner.widgets;
+        if state.layout.is_none() || state.unreadable {
+            let read = match &self.config.state_dir {
+                Some(dir) => read_layout(dir),
+                None => Ok(Layout::default()),
+            };
+            state.unreadable = read.is_err();
+            state.layout = Some(read.unwrap_or_default());
+        }
+        state.layout.get_or_insert_with(Layout::default)
     }
 
     /// `apps.widgets.list {place?}`: every widget the person can place (in `place` when named),
@@ -663,6 +715,12 @@ impl Supervisor {
                 .collect();
             let shown = specs.keys().cloned().collect();
             let mut next = self.widget_layout_locked(&mut inner).clone();
+            if inner.widgets.unreadable {
+                return Err(ApiError::new(
+                    "operation.failed",
+                    "the saved widget layout could not be read; nothing was changed",
+                ));
+            }
             apply(&mut next, place, p.edit, |app| specs.get(app).cloned())
                 .map_err(|message| ApiError::new("apps.widgets.edit", message))?;
             // Under the supervisor lock: two pages' edits land one after the other.
@@ -775,7 +833,10 @@ impl Supervisor {
         let Some(every) = widget.every.filter(|_| widget.visible) else { return };
         let now_ms = super::supervisor::now_ms();
         // A boundary not yet ticked for stays the target (one passed while hidden ticks at once).
-        if widget.due_ms <= widget.last_tick_ms {
+        // A clock set back leaves the boundary too far ahead: aim at the next one from now.
+        if widget.due_ms <= widget.last_tick_ms
+            || widget.due_ms > now_ms.saturating_add(every.saturating_mul(1000))
+        {
             widget.due_ms = now_ms.saturating_add(as_ms(next_tick_delay(now_ms, every)));
         }
         let delay = Duration::from_millis(widget.due_ms.saturating_sub(now_ms)).min(MAX_ARM);
@@ -976,20 +1037,32 @@ fn write_durably(dir: &std::path::Path, name: &str, value: &impl Serialize) -> s
     file.write_all(&body)?;
     file.sync_all()?;
     std::fs::rename(&temp, dir.join(name))?;
-    // The rename itself survives a crash only once the directory is synced.
-    std::fs::File::open(dir)?.sync_all()
+    // The rename survives a crash only once the directory is synced. The file is already in
+    // place, so a failed sync is logged, not an error the in-memory copy would disagree with.
+    if let Err(error) = std::fs::File::open(dir).and_then(|d| d.sync_all()) {
+        eprintln!("cmux-tui: sync of {}: {error}", dir.display());
+    }
+    Ok(())
 }
 
 fn as_ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
-/// The saved layout in `dir` (empty when none was saved). A file that does not read as a layout is
-/// renamed to `<name>.bad-<unix ms>` and logged, never overwritten by the next edit.
-fn read_layout(dir: &std::path::Path) -> Layout {
+/// The saved layout in `dir` (empty when none was saved). A file that does not parse as a layout
+/// is renamed to `<name>.bad-<unix ms>` and logged, never overwritten by the next edit; one that
+/// cannot be read (permissions, I/O) is an error, so nothing is saved over it.
+fn read_layout(dir: &std::path::Path) -> Result<Layout, std::io::Error> {
     let path = dir.join(LAYOUT_FILE);
-    let Ok(raw) = std::fs::read(&path) else { return Layout::default() };
-    match serde_json::from_slice::<Layout>(&raw) {
+    let raw = match std::fs::read(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Layout::default()),
+        Err(error) => {
+            eprintln!("cmux-tui: widget layout {} does not read: {error}", path.display());
+            return Err(error);
+        }
+    };
+    Ok(match serde_json::from_slice::<Layout>(&raw) {
         Ok(layout) => layout,
         Err(error) => {
             let aside = dir.join(format!("{LAYOUT_FILE}.bad-{}", super::supervisor::now_ms()));
@@ -1001,7 +1074,7 @@ fn read_layout(dir: &std::path::Path) -> Layout {
             );
             Layout::default()
         }
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1178,12 +1251,13 @@ mod tests {
             settings: json!({ "zone": "UTC" }).as_object().cloned().unwrap(),
         });
         let (context, widget) =
-            mount_context("local/clock", &s, &json!({ "place": "sidebar", "size": "medium", "instance": "w7", "surface": "x", "settings": { "evil": 1 } }), &layout)
+            mount_context("local/clock", &s, &json!({ "place": "sidebar", "size": "medium", "instance": "w7", "surface": "x", "settings": { "evil": 1 }, "locale": "fr-FR", "timeZone": "Europe/Paris" }), &layout)
                 .unwrap();
         assert_eq!(
             context,
             json!({ "surface": "widget", "place": "sidebar", "size": "medium", "instance": "w7",
-                    "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 } })
+                    "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 },
+                    "locale": "fr-FR", "timeZone": "Europe/Paris" })
         );
         assert_eq!(widget.every, Some(60));
         assert!(widget.visible);
@@ -1204,6 +1278,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(other["settings"], json!({}));
+        // A malformed locale or zone falls back rather than reaching the widget.
+        let (fallback, _) = mount_context(
+            "local/clock",
+            &s,
+            &json!({ "place": "sidebar", "instance": "w7", "locale": "fr FR<", "timeZone": "../etc/passwd" }),
+            &layout,
+        )
+        .unwrap();
+        assert_eq!(fallback["locale"], "en");
+        assert_ne!(fallback["timeZone"], "../etc/passwd");
+        assert!(is_zone_name(fallback["timeZone"].as_str().unwrap()));
+        assert!(is_zone_name("America/Argentina/Buenos_Aires") && is_zone_name("Etc/GMT+9"));
+        assert!(!is_zone_name("/etc/x") && !is_zone_name("a//b") && !is_zone_name(""));
     }
 
     #[test]
@@ -1211,7 +1298,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cmux-widgets-bad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(LAYOUT_FILE), b"{ not json").unwrap();
-        assert_eq!(read_layout(&dir), Layout::default());
+        assert_eq!(read_layout(&dir).unwrap(), Layout::default());
         assert!(!dir.join(LAYOUT_FILE).exists());
         let kept: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()

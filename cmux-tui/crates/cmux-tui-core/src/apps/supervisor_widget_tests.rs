@@ -195,7 +195,7 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
         "t1",
         "local/clock",
         "cmux.widget/1",
-        json!({ "place": "sidebar", "size": "small", "instance": "w1" }),
+        json!({ "place": "sidebar", "size": "small", "instance": "w1", "locale": "ja-JP", "timeZone": "Asia/Tokyo" }),
     );
     let context = {
         let inner = f.supervisor.inner.lock().unwrap();
@@ -205,7 +205,8 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
     assert_eq!(
         context,
         json!({ "surface": "widget", "place": "sidebar", "size": "small", "instance": "w1",
-                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 } })
+                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 },
+                "locale": "ja-JP", "timeZone": "Asia/Tokyo" })
     );
 
     // The host's tick reaches the render, which redraws.
