@@ -29,6 +29,15 @@ fn never_floats(root: &Node, columns: &[LayoutColumn], pane: PaneId) -> bool {
             .is_some_and(|column| column.dock.is_some() || !column.rows.is_empty())
 }
 
+/// The first pane of `node` that shows and is not `skip`: a leaf, or the expanded member of a stack.
+fn first_shown_pane(node: &Node, skip: PaneId) -> Option<PaneId> {
+    match node {
+        Node::Leaf(pane) => (*pane != skip).then_some(*pane),
+        Node::Split { a, b, .. } => first_shown_pane(a, skip).or_else(|| first_shown_pane(b, skip)),
+        Node::Stack { expanded, .. } => (*expanded != skip).then_some(*expanded),
+    }
+}
+
 impl Screen {
     /// `list` as a layout of `root` and `columns` keeps it: no entry of a pane that never floats, then the rules
     /// of the list (only panes of the tree, each once, frames in the screen, and at least one tiled pane). The
@@ -256,6 +265,17 @@ impl ScreenLayoutSnapshot {
         let previous = std::mem::replace(&mut self.active_pane, pane);
         self.raise_floating_pane(pane);
         rules::focus_moved(&mut self.floating, &pane, &previous);
+    }
+
+    /// The pane that gets the focus of the snapshot after the pane that had it left the tree: the first pane
+    /// that shows. A hidden quick terminal does not show, so it is the choice only when no other pane is left:
+    /// a focus of it shows it.
+    pub(crate) fn focus_after_leave(&self) -> PaneId {
+        let first = self.root.first_visible_pane();
+        if !self.floating.iter().any(|entry| entry.pane == first && entry.is_hidden()) {
+            return first;
+        }
+        first_shown_pane(&self.root, first).unwrap_or(first)
     }
 
     /// Brings a floating `pane` to the front of the snapshot's list.
