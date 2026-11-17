@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44014921970",
+  "recorded_at": "2026-11-17T04:17:42Z",
+  "reason": "cmux-tui 94f7291340d7 changes the image's cmux-tui (pinned 6e7e6c9d19d9)",
+  "dry_run": false,
+  "cmux_tui": "94f7291340d7fbacca17b8103f896ebe53cf79b9",
+  "fixes": [
+    {
+      "sha": "94f7291340d7fbacca17b8103f896ebe53cf79b9",
+      "mergedAt": "2026-11-16T19:47:17-08:00",
+      "subject": "cmux-tui: a scoped load of the stored topology reads the side table rows of its own screens (#44951)"
+    },
+    {
+      "sha": "6d8d9bb724abe59318f134e4504ac511f774cb07",
+      "mergedAt": "2026-11-16T19:45:01-08:00",
+      "subject": "iOS: draw an agent CLI's terminal from the Mac's cell changes, off by default (agent-cli-hybrid-v1) (#44052)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T04:17:42Z",
+    "snapshot_id": "sh-3f0466109a4648ee80145ca9088e71ee",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44014921970): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a5e855889634d22876eaa1acb7b8755ddd7e8845",
+    "image": "cloud-native-auto-94f72913-44014921970-1",
+    "revision": "ci-44014921970-1",
+    "at": "2026-11-17T04:17:42Z"
+  },
+  "rolled_back": false
+}
