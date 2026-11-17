@@ -351,8 +351,9 @@ test("output that only names an internal tag keeps the text after it", async () 
   await render([
     {
       kind: "tool",
-      text: "Read",
-      tool: { id: "f2", title: "Read tags.ts", kind: "read", status: "completed", output: source },
+      // A search, since a read does not open (2026-11-14 change).
+      text: "Search",
+      tool: { id: "f2", title: "Search tags", kind: "search", status: "completed", output: source },
     },
   ]);
   await click(toggles()[0]!);

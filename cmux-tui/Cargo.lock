@@ -37,6 +37,7 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-hub-host",
+ "cmux-image-linear",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -1728,6 +1729,13 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-image-linear"
+version = "0.1.0"
+dependencies = [
+ "png",
 ]
 
 [[package]]
