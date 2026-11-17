@@ -154,6 +154,20 @@ impl Engine {
             }
         };
         let mut tree = self.desktop.ui_tree(window_id, options)?;
+        // An app builds some accessibility only when a client first asks for
+        // it (WebKit's and Chromium's page content): the first walk of a
+        // window can find a web view empty that the next fills. Walk a window
+        // the engine has never walked once more, when the first walk found
+        // little in it (a large window costs a second walk it does not need),
+        // and keep the fuller tree, so a first look shows the page and the
+        // next look does not report it all as added.
+        if size_outside_menus(&tree.root) < REREAD_BELOW
+            && lock(&self.observe.ids).window(window_id).is_none()
+            && let Ok(again) = self.desktop.ui_tree(window_id, options)
+            && size(&again.root) > size(&tree.root)
+        {
+            tree = again;
+        }
         let pid = self.desktop.window(window_id).ok().flatten().map(|w| w.pid);
         let mut reg = lock(&self.observe.ids);
         reg.assign(window_id, &mut tree, options.menus, pid);
@@ -365,6 +379,8 @@ impl Engine {
         // The evidence in a fixed shape beside the text, for an outcome
         // (confirmed / no_effect / uncertain) to be decided from: what changed
         // in the elements, the windows over the target, and the pixels.
+        // get_ui_tree: no action, no screenshot, no windows to compare.
+        let pure_look = pixels == Pixels::NotRead && windows.is_empty() && menus.is_empty();
         let opened = windows.iter().filter(|l| l.starts_with('+')).count();
         let closed = windows.iter().filter(|l| l.starts_with('-')).count();
         let first_look = (old.is_none() || look.full) && menus.is_empty();
@@ -398,6 +414,17 @@ impl Engine {
                     evidence["renumbered"] = json!(changes.renumbered.len());
                     evidence["focus_moved"] = json!(changes.focus.is_some());
                     match diff::render(&old, &new, &changes, &opts) {
+                        // A look of its own (get_ui_tree) needs no account of
+                        // pixels or effects: one sentence, and no evidence
+                        // (there is no action to judge).
+                        None if pure_look => {
+                            evidence = Value::Null;
+                            parts.push(if truncated {
+                                "No change in what this look read (it stopped at the element limit).".into()
+                            } else {
+                                "No change since your last look.".into()
+                            });
+                        }
                         None => {
                             let elements = if truncated {
                                 format!(
@@ -426,10 +453,12 @@ impl Engine {
                 None => parts.push(full),
             }
         }
-        // Only a look compared with an earlier one has element changes.
+        // Only a look compared with an earlier one has element changes; a
+        // first get_ui_tree has nothing to compare (the evidence is for
+        // judging an action).
         if evidence.get("added").is_some() {
             body.insert("changes".into(), evidence);
-        } else if first_look {
+        } else if first_look && !pure_look {
             evidence["first_look"] = json!(true);
             body.insert("changes".into(), evidence);
         }
@@ -831,4 +860,18 @@ fn open_menus(root: &Element, acted: u32) -> Vec<&Element> {
     ids::find(root, &acted.to_string())
         .map(|e| e.children.iter().filter(|c| c.role == "menu").collect())
         .unwrap_or_default()
+}
+
+/// A window's first walk found fewer elements than this outside its menu
+/// bar: it is read once more ([`Engine::walk_tree_for`]).
+const REREAD_BELOW: usize = 300;
+
+/// How many elements a tree holds.
+fn size(e: &Element) -> usize {
+    1 + e.children.iter().map(size).sum::<usize>()
+}
+
+/// How many elements a tree holds outside the app's menu bar.
+fn size_outside_menus(e: &Element) -> usize {
+    1 + e.children.iter().filter(|c| c.role != ids::MENU_BAR).map(size).sum::<usize>()
 }

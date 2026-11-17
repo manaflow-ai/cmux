@@ -40,7 +40,7 @@ fn format_arg() -> Value {
 
 /// `full`: the whole outline instead of the changes.
 fn full_arg() -> Value {
-    json!({"type": "boolean", "description": "After your first look at a window, a look shows only what changed since your last one; true shows the whole tree."})
+    json!({"type": "boolean", "description": "After your first look at a window, a look shows only what changed since your last one; true shows the whole tree, elements scrolled out of view included."})
 }
 
 /// One tool.
@@ -155,7 +155,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "get_ui_tree",
         access: Access::Observe,
-        description: "The window's elements, one line each: [id] role \"name\" = value, then flags (focused, disabled, checked, a menu item's shortcut, extra actions). Ids stay the same for the same element across looks and actions; use them as element_id (best: works in the background). After your first look, a look shows only the changes since your last one (+ added, ~ changed with what it was, - removed), or says nothing changed. The menu bar lists its menus: click a menu's id to list its items (it stays closed), then click an item's id to run it.",
+        description: "The window's elements, one line each: [id] role \"name\" = value, then flags (focused, disabled, checked, a menu item's shortcut, extra actions). Ids stay the same for the same element across looks and actions; use them as element_id (best: works in the background). After your first look, a look shows only the changes since your last one (+ added, ~ changed with what it was, - removed), or says nothing changed. Elements scrolled out of view are counted on their container (out of view: 12 below): scroll it (scroll with its element_id) to see them. Any element takes perform_action show_menu (its context menu). The menu bar lists its menus: click a menu's id to list its items (it stays closed), then click an item's id to run it.",
         schema: || {
             obj(
                 json!({
