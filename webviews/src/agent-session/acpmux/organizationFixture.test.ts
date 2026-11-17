@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { toolGroups } from "./conversation/toolGroups";
 import { organizationRows } from "./organizationFixture";
 
-test("the organization fixture's run is one group led by its thought, with a thought kept in its place", () => {
+// Since the 2026-11-14 change a one-file shell read (step 3, `sed -n '1,60p' …`) is a read: it stays
+// its own flat row, so it splits the run's commands into two groups.
+test("the organization fixture's run leads with its thought, and its one-file read splits its commands", () => {
   const rows = organizationRows(0);
   expect(rows.map((row) => row.kind)).toEqual([
     "user",
@@ -15,12 +17,15 @@ test("the organization fixture's run is one group led by its thought, with a tho
   ]);
   const run = rows.find((row) => row.kind === "activity")!;
   const groups = toolGroups(run.items ?? []);
-  expect(groups).toHaveLength(1);
-  const [group] = groups;
-  if (group?.type !== "group") throw new Error(`expected one group, got ${group?.type}`);
-  expect(group.kind).toBe("commands");
-  // The leading thought, two steps, the thought between them, then three more steps.
-  expect(group.items.map((item) => item.kind)).toEqual(["thought", "tool", "tool", "thought", "tool", "tool", "tool"]);
+  expect(groups.map((group) => group.type)).toEqual(["group", "item", "item", "group"]);
+  const [first, , read, last] = groups;
+  if (first?.type !== "group" || last?.type !== "group") throw new Error("expected groups around the read");
+  expect(first.kind).toBe("commands");
+  // The leading thought and two steps; the thought between them keeps its place before the read.
+  expect(first.items.map((item) => item.kind)).toEqual(["thought", "tool", "tool"]);
+  expect(read?.type === "item" && read.item.tool?.command).toBe("sed -n '1,60p' src/net/fetchWithRetry.test.ts");
+  expect(last.kind).toBe("commands");
+  expect(last.items.map((item) => item.kind)).toEqual(["tool", "tool"]);
 });
 
 test("a thought after a lone call, before a second call of its kind, joins their group", () => {
