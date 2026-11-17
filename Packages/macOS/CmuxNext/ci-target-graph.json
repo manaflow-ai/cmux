@@ -13,7 +13,6 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
-    "CmuxLiveCode": "Packages/Shared/CmuxLiveCode",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
@@ -1596,10 +1595,19 @@
     "CmuxNextLiveCode": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
-      "targets": [],
-      "packages": [
-        "CmuxLiveCode"
-      ]
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextLiveCodeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLiveCodeTests",
+      "targets": [
+        "CmuxNextLiveCode"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextMacScreen": {
       "kind": "regular",
