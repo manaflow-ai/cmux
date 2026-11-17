@@ -410,6 +410,7 @@ impl Hub {
         cwd: PathBuf,
         spare: Option<Option<String>>,
     ) -> Result<PoolSpec, RpcError> {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
