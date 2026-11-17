@@ -55,8 +55,13 @@ import Testing
         }
     }
 
+    /// The vector's `json.kind` is a kind no build knows ("hologram"); its top-level `kind` is what
+    /// both sides read it as ("unknown", cmux-rd-proto's `a_newer_stream_kind_parses_as_unknown`).
     @Test func aNewerStreamKindParsesAsUnknown() throws {
         let vector = try Self.vector("stream_open_newer_kind")
+        let json = try #require(vector["json"] as? [String: Any])
+        #expect(json["kind"] as? String == "hologram")
+        #expect(vector["kind"] as? String == "unknown")
         guard case let .streamOpen(open) = try Self.parse(vector) else { Issue.record("not a stream_open"); return }
         #expect(open.kind == .unknown)
         #expect(open.kind.rawValue == vector["kind"] as? String)
