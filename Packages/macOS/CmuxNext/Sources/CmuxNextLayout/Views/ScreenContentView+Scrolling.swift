@@ -56,6 +56,8 @@ extension ScreenContentView {
     /// job: a workspace that hides keeps its camera springs (Lucas 2026-10-19). A camera a gesture holds is the
     /// person's and stays.
     func settleCameras() {
+        // The screen a switch hides takes its zoom dim with it: the plane shows the next screen.
+        endZoomDim()
         settleCanvasCamera()
         var landed = false
         if !isUserScrolling, scroll.value != scroll.target || scroll.velocity != 0 {

@@ -221,8 +221,9 @@ import Testing
     // MARK: Tests
 
     /// The frame of the change's own turn and each display frame after it show one layout: the one before the change,
-    /// then, from the first display frame on, the one after it. Every pane's content is at the rect its pane gives it in
-    /// each of them, and no content takes more than one new size.
+    /// then, from the display frame that shows the change on, the one after it. That frame is the first one after the
+    /// change; a zoom's is the one at which the dim that comes over the other panes is at its end (`PaneZoomDimTests`).
+    /// Every pane's content is at the rect its pane gives it in each of them, and no content takes more than one new size.
     @Test(arguments: changes)
     func aLayoutChangeShowsInOneFrame(_ change: Change) throws {
         let (before, after) = Self.layouts(of: change)
@@ -240,6 +241,10 @@ import Testing
         let old = Rest(harness.model.screens, in: screen, style: style)
         #expect(old.isShown(by: Self.shown(screen)), "the screen does not rest at the layout before the change: \(Self.shown(screen).panes)")
         let sizesBefore = harness.provider.contents.mapValues(\.sizes.count)
+        // The display frame that shows the change: the first one. A zoom shows when the dim over the other panes has had
+        // its fade in frame time (`ScreenContentView.zoomDimFade`, read before the zoom; 0: no dim, the first frame).
+        let first = change.name == "zoom" ? max(1, Int((screen.zoomDimFade / PaneMotionBench.frameBudget).rounded(.up))) : 1
+        try #require(first <= Self.frames, "the zoom's dim takes \(first) display frames; this test steps \(Self.frames)")
 
         harness.model.apply(screens: after)
         let new = Rest(harness.model.screens, in: screen, style: style)
@@ -262,7 +267,10 @@ import Testing
             }
             #expect(frame.misfits.isEmpty, "frame \(index): a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         }
-        #expect(new.isShown(by: shown[1]), "the first display frame after the change does not show its layout: \(shown[1].panes)")
+        #expect(new.isShown(by: shown[first]), "display frame \(first) after the change, the one that shows it, does not show its layout: \(shown[first].panes)")
+        if first > 1 {
+            #expect(old.isShown(by: shown[first - 1]), "the zoom showed before its dim was at its end: display frame \(first - 1) shows \(shown[first - 1].panes)")
+        }
         #expect(reached, "the layout after the change never showed")
         for (pane, content) in harness.provider.contents {
             let took = content.sizes.count - (sizesBefore[pane] ?? 0)

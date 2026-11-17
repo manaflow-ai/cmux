@@ -10,7 +10,10 @@ import QuartzCore
 /// (CMUX_PANE_BENCH=1; panes-perf). A grid of `columns` x `rows` panes in a 1600 x 1000 window;
 /// each action is one daemon layout (`LayoutModel.apply`), then display frames until nothing
 /// moves. A split, a close, a zoom and an unzoom are one commit: one frame shows the whole
-/// change, so each round of such an action is one frame. New Column moves the strip's camera to
+/// change. Each round of a split or a close is that one frame. A zoom shows in the frame at which
+/// the dim over the other panes is at its end, so its round has the dim's frames before it; an
+/// unzoom shows in its first frame, and its round runs on until its dim went. No pane moves in
+/// a frame of the dim. New Column moves the strip's camera to
 /// the new column on its spring. Each frame runs what one display frame runs: the model's
 /// observation turn, `advanceFrame`, layout and display. Per frame it records wall time; the
 /// budget is the frame at 120 Hz (8.33 ms). Stub content isolates our layout work from
@@ -142,22 +145,33 @@ struct PaneMotionBench {
         default: (Self.grid(c, r, zoomed: true), Self.grid(c, r))
         }
         var times: [Double] = []
+        // The most frames the 3 rounds of a zoom or an unzoom take: the dim's fade in frames (`ScreenContentView.zoomDimFade`,
+        // read before the change), which end with the frame that shows a zoom and follow the frame that shows an unzoom.
+        var dimFrames = 0
         for _ in 0..<3 {
             // Column close starts focused on the column it closes: the camera rests at the strip's end, and the close
             // takes that end away (the camera is at the new end in the frame that shows the close).
             let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
             defer { harness.window.closeAfterTest() }
             _ = await harness.frame()
+            let dim = Int(((harness.root.screenViews.values.first?.zoomDimFade ?? 0) / Self.frameBudget).rounded(.up))
+            // `Swift.max`: this function names a constant `max` below.
+            dimFrames += bench.name == "zoom" ? Swift.max(dim, 1) : 1 + dim
             times += await harness.run(after, focus: bench.name == "column" ? PaneID("p\(c)-0") : nil)
         }
         let p50 = Self.percentile(times, 0.5), p95 = Self.percentile(times, 0.95), max = times.max() ?? 0
         let over = times.filter { $0 > Self.frameBudget }.count
         let ms = { (value: Double) in String(format: "%.3f", value * 1000) }
         print("PANE-BENCH action=\(bench.name) panes=\(c * r) frames=\(times.count) p50_ms=\(ms(p50)) p95_ms=\(ms(p95)) max_ms=\(ms(max)) over_8ms=\(over)")
-        // New Column moves the strip's camera on its spring. Every other action here is one commit: the one frame of each
-        // of the 3 rounds shows the whole change.
+        // New Column moves the strip's camera on its spring. Every other action here is one commit: one frame of each of
+        // the 3 rounds shows the whole change. A split's and a close's round is that frame alone. A zoom's and an unzoom's
+        // round also has the frames of its dim, and no more: fewer when the window's own clock ran a frame between two
+        // of the bench's (this harness is not the layout's only clock).
         if bench.name == "column" {
             #expect(times.count > 3, "\(bench) moved: \(times.count) frames")
+        } else if bench.name == "zoom" || bench.name == "unzoom" {
+            #expect(times.count >= 3 && times.count <= dimFrames,
+                    "\(bench) is the frame that shows it and its dim's frames for each of the 3 rounds, \(dimFrames) at the most: \(times.count) frames")
         } else {
             #expect(times.count == 3, "\(bench) is one frame for each of the 3 rounds: \(times.count) frames")
         }

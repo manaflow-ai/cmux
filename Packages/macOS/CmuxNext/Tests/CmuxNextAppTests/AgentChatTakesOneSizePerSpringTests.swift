@@ -130,20 +130,28 @@ struct AgentChatTakesOneSizePerSpringTests {
 
         /// Runs `turn` (a key's turn) and the frames after it, to rest and to what the frame that showed the change
         /// leaves for after its commit. From the turn to there, the pane's view (what the layout sizes) and the chat in
-        /// it each take ONE new size, in the first frame tick, and that size is the size at rest. The sizes are read in
-        /// each frame too, so a size that a frame had and no notice told is seen.
-        func takesOneSize(_ name: String, _ turn: () throws -> Void) throws {
+        /// it each take ONE new size, in the frame tick that shows the change, and that size is the size at rest. That
+        /// tick is `showsAt`: the first one, or for a zoom the one at which the dim over the other panes is at its end;
+        /// in the ticks before it both keep the size they had. The sizes are read in each frame too, so a size that a
+        /// frame had and no notice told is seen.
+        func takesOneSize(_ name: String, showsAt: Int = 1, _ turn: () throws -> Void) throws {
             let start = paneRect()
             let paneSizes = Kinds.Sizes(of: pane.view), chatSizes = Kinds.Sizes(of: view)
+            let sizesBefore = (pane: pane.view.frame.size, chat: view.frame.size)
             try turn()
             var frames = 0, moving = true
-            var afterTheFirstFrame: (pane: CGSize, chat: CGSize)?
+            var changedEarly: [Int] = []
+            var afterItShowed: (pane: CGSize, chat: CGSize)?
             var inFrames: (pane: [CGSize], chat: [CGSize]) = ([], [])
             while frames < 600, moving {
                 moving = root.advanceFrame(Self.dt)
                 content.contentView.layoutSubtreeIfNeeded()
                 frames += 1
-                if afterTheFirstFrame == nil { afterTheFirstFrame = (pane.view.frame.size, view.frame.size) }
+                if frames < showsAt {
+                    if pane.view.frame.size != sizesBefore.pane || view.frame.size != sizesBefore.chat { changedEarly.append(frames) }
+                    continue
+                }
+                if afterItShowed == nil { afterItShowed = (pane.view.frame.size, view.frame.size) }
                 if inFrames.pane.last != pane.view.frame.size { inFrames.pane.append(pane.view.frame.size) }
                 if inFrames.chat.last != view.frame.size { inFrames.chat.append(view.frame.size) }
             }
@@ -158,9 +166,11 @@ struct AgentChatTakesOneSizePerSpringTests {
             content.contentView.layoutSubtreeIfNeeded()
             let landed = paneRect()
             #expect(Kinds.rect(pane.view) == landed, "\(name): at rest the pane's view is at \(Kinds.rect(pane.view)), its pane at \(landed)")
-            let first = try #require(afterTheFirstFrame)
+            let first = try #require(afterItShowed, "\(name): the layout came to rest after \(frames) frame ticks, before tick \(showsAt)")
+            #expect(changedEarly.isEmpty,
+                    "\(name): the pane's view or the chat changed size in frame ticks \(changedEarly), before the tick that shows the change (\(showsAt))")
             #expect(first.pane == pane.view.frame.size && first.chat == view.frame.size,
-                    "\(name): in the first frame tick the pane's view was \(first.pane) and the chat \(first.chat); at rest they are \(pane.view.frame.size) and \(view.frame.size)")
+                    "\(name): in frame tick \(showsAt), which shows the change, the pane's view was \(first.pane) and the chat \(first.chat); at rest they are \(pane.view.frame.size) and \(view.frame.size)")
             #expect(paneSizes.taken.count == 1,
                     "\(name): the pane's view took \(paneSizes.taken.count) sizes in \(frames) frames, not one: \(paneSizes.taken.prefix(6))")
             #expect(chatSizes.taken.count == 1,
@@ -189,7 +199,12 @@ struct AgentChatTakesOneSizePerSpringTests {
             }
         case .zoomAndUnzoom:
             // Toggle Pane Zoom's key turn (`DaemonService` zoom effect -> `DaemonStore.intend`), then the same key again.
-            try takesOneSize("the zoom") {
+            // The zoom shows when the dim over the pane beside it has had its fade in frame time
+            // (`ScreenContentView.zoomDimFade`, read before the key; 0: no dim, the first tick). The unzoom shows at its
+            // first tick, and the ticks after it only count its dim's fade.
+            let screen = try #require(host.superview as? ScreenContentView, "fixture: the pane's host is in no screen")
+            let dimTicks = Int((screen.zoomDimFade / Self.dt).rounded(.up))
+            try takesOneSize("the zoom", showsAt: max(dimTicks, 1)) {
                 store.intend(.zoomPane(pane: Self.chatPane, zoomed: true), transaction: ClientTransactionID.generate())
                 content.applyCurrent()
             }

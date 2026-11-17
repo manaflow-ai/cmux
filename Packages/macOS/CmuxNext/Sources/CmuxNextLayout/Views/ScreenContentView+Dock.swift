@@ -121,8 +121,9 @@ extension ScreenContentView {
     func reconcileDock() {
         let overlays = geometry.dock.filter { $0.dock.mode == .overlay }
         let live = Set(overlays.map(\.column))
+        // A backdrop whose dock the layout no longer has goes with the frame that shows that change (`hideSnapDeparted`).
         for (column, view) in backdrops where !live.contains(column) {
-            view.removeFromSuperview()
+            frameInput.snapDepartedBackdrops.append(view)
             backdrops[column] = nil
         }
         for entry in overlays {

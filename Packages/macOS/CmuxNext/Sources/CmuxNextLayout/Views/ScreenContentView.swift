@@ -36,6 +36,13 @@ final class ScreenContentView: NSView {
     /// The layout change that `update` just applied is structural, and its scroll sync has not run yet (`syncScroll`
     /// follows every update): that sync puts each camera at its place with the change, in the same frame.
     var scrollSyncIsStructural = false
+    /// The dim over the other panes around a zoom (`ScreenContentView+ZoomDim`).
+    var zoomDim = PaneZoomDim()
+    /// The screen's zoom is a page that takes the whole window (``LayoutScreen/presented``), set before each update: it
+    /// comes and goes with no dim.
+    var zoomPresentsPage = false
+    /// The zoom this screen shows came with no dim (a page's, or on a canvas): its unzoom brings none either.
+    private var zoomCameUndimmed = false
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -174,6 +181,8 @@ final class ScreenContentView: NSView {
         defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         presentHeldSnap()
+        // Out of sight, or with no motion from now on: a dim that still goes leaves too.
+        endZoomDim()
         guard hasMotion else { return }
         reconcileAndScroll()
     }
@@ -182,6 +191,8 @@ final class ScreenContentView: NSView {
     /// its target move together, `AnimatedFrame.rebase`, so the panes follow the resize in this frame and only what
     /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        // The screen's size changed: a zoom's dim was placed for the old one, and a zoom that waited behind it shows now.
+        endZoomDim()
         reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
         if !(syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion) && hasMotion) { holdsContentForKeyResize = false } // a snap
     }
@@ -203,6 +214,9 @@ final class ScreenContentView: NSView {
     /// content drawn at its new size (`ScreenContentView+SnapFrame`).
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
+        // A zoom on a canvas, or of a page that takes the whole window, comes with no dim: the canvas's camera changes
+        // in the zoom's own turn, and a page's zoom is the page's act.
+        let dimsOthers = !zoomPresentsPage && canvasState.canvas == nil && canvas == nil
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
         let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
@@ -220,6 +234,15 @@ final class ScreenContentView: NSView {
                 host.endKeyResizeHold()
             }
         }
+        // A newer change, or a second zoom key, ends a dim that still shows. An unzoom of a zoom that showed brings its
+        // own, with the frame that shows it (`ScreenContentView+ZoomDim`).
+        if structural || zooming || unzooming {
+            let returning = unzooming && dimsOthers && !zoomCameUndimmed && !frameInput.snapWaitsForContent && self.layout.panes.count == 1
+                ? self.layout.panes.first : nil
+            // A zoom while an unzoom's dim still goes takes that dim over from the strength it shows (`beginZoomDim`).
+            if zooming, zoomDim.phase == .going { (zoomDim.phase, zoomDim.remaining) = (.none, 0) } else { endZoomDim() }
+            zoomDim.returning = returning
+        }
         self.layout = layout
         self.zoomed = zoomed
         scrollSyncIsStructural = structural
@@ -227,6 +250,11 @@ final class ScreenContentView: NSView {
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, zooming: zooming, presents: false,
                                snapWaitsForFrame: snapWaitsForFrame)
+        // A zoom that waits for its frame shows after its dim came over the other panes.
+        if zooming {
+            zoomCameUndimmed = !dimsOthers
+            if structural, dimsOthers, layout.panes.count == 1, let pane = layout.panes.first { beginZoomDim(around: pane) } else { endZoomDim() }
+        }
         // A structural change took the screen over from a key resize's spring: its pane views post again.
         if structural { releasePaneFrameNoticesIfSettled() }
         #if DEBUG
@@ -437,6 +465,7 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
+        endZoomDim()
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()

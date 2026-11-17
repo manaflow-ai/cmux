@@ -456,6 +456,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
             view.hiddenDividers = screen.hiddenDividers
+            view.zoomPresentsPage = screen.presented
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
@@ -573,6 +574,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let input = LayoutFrameInput(root: self)
         input.apply()
         for view in screenViews.values {
+            // No motion from here on: a zoom's dim leaves, and a zoom that waited behind one shows in this pass.
+            view.endZoomDim()
             if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             view.settleCanvasCamera()
         }
@@ -611,8 +614,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
+            _ = view.stepZoomDim(dt)
         }
         let snapWaits = input.presentWaiting()
+        // A zoom's dim that goes keeps the frames coming until it left. It is no motion of the layout: no pane moves.
+        let dimming = screenViews.values.contains { $0.zoomDim.phase == .going }
         if highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
@@ -624,7 +630,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits
+        return moving || panning || dragging || snapWaits || dimming
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

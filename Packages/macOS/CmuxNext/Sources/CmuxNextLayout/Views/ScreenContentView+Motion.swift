@@ -243,6 +243,8 @@ extension ScreenContentView {
         }
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
+        // An unzoom shows: its dim is over the other panes in this frame, and goes.
+        if zoomDim.returning != nil { beginUnzoomDim() }
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
         let above = panesAbove()
