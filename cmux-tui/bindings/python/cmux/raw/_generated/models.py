@@ -3828,6 +3828,18 @@ class FeedLocalReadRequest:
 
 
 @dataclass(frozen=True)
+class FloatPaneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/float-pane/request'
+    pane: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -7026,6 +7038,7 @@ __all__ = [
     'FeedLocalHandoffDoneRequest',
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
+    'FloatPaneRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
