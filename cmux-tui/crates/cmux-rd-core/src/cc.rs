@@ -630,13 +630,9 @@ impl CongestionController {
     /// and show no overuse), by time elapsed, never more than
     /// [`MAX_STEP_US`] of growth at once.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
-        let feedback_gap_us =
-            self.last_feedback_us.map(|last| now_us.saturating_sub(last)).unwrap_or(0);
-        // The radio-outage detector is part of Ultra's held-rate policy. Standard
-        // keeps its existing loss response even when a loss-only report is quiet
-        // for longer than the outage threshold.
-        let feedback_gap =
-            self.profile == EncodeProfile::Ultra && feedback_gap_us > self.outage_threshold_us();
+        let feedback_gap = self
+            .last_feedback_us
+            .is_some_and(|last| now_us.saturating_sub(last) > self.outage_threshold_us());
         self.last_feedback_us = Some(now_us);
         if feedback_gap {
             self.outage_active = true;
@@ -662,34 +658,6 @@ impl CongestionController {
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
-
-        // A radio hold releases a receiver-shaped burst: feedback was quiet for
-        // at least one short hold, several packets cover a materially wider send
-        // span, and their arrival dispersion collapses into one burst. Treat that
-        // burst as an outage edge, discard its delay samples, and resume at the
-        // held rate. A normal 50 ms feedback interval has comparable send and
-        // arrival spans and does not satisfy this shape.
-        let receiver_burst = self.profile == EncodeProfile::Ultra
-            && feedback_gap_us >= 50_000
-            && samples.len() >= 2
-            && samples.last().is_some_and(|last| {
-                let first = samples[0];
-                let send_span = last.0.saturating_sub(first.0);
-                let min_arrival = samples.iter().map(|sample| sample.1).min().unwrap_or(first.1);
-                let max_arrival = samples.iter().map(|sample| sample.1).max().unwrap_or(first.1);
-                send_span >= 30_000 && max_arrival.saturating_sub(min_arrival) <= 20_000
-            });
-
-        if receiver_burst {
-            self.outage_active = false;
-            self.outage_resume = true;
-            self.groups = InterArrival::default();
-            self.trend = Trendline::default();
-            self.usage = Usage::Normal;
-            self.ultra.resume_after_outage();
-            self.clamp();
-            return;
-        }
 
         if recovering_from_outage {
             if !arrivals.is_empty() {

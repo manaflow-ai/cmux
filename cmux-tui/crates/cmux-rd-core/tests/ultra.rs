@@ -113,27 +113,6 @@ fn ultra_underfilled_encoder_never_grows_without_a_probe_measurement() {
 }
 
 #[test]
-fn ultra_receiver_shaped_short_hold_freezes_the_held_rate() {
-    let mut cc = ultra();
-    let held = cc.wire_budget_bps();
-    cc.on_sent_bytes(0, 0, 1200);
-    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 20_000 }], 0.0, 20_000);
-    cc.on_sent_bytes(1, 50_000, 1200);
-    cc.on_sent_bytes(2, 100_000, 1200);
-    cc.on_feedback(
-        &[
-            Arrival { transport_seq: 1, arrival_us: 120_000 },
-            Arrival { transport_seq: 2, arrival_us: 121_000 },
-        ],
-        0.02,
-        120_000,
-    );
-    assert_eq!(cc.wire_budget_bps(), held, "receiver-shaped burst must not cut ultra");
-    assert!(cc.take_outage_resume(), "the burst exposes one resume edge");
-    assert!(!cc.take_outage_resume(), "the resume edge is one-shot");
-}
-
-#[test]
 fn ultra_rejects_old_path_probe_and_honors_configured_queue_limits() {
     let mut cc = ultra();
     let old_generation = cc.probe_generation();
