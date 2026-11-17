@@ -168,6 +168,25 @@ struct BrowserPageScrollHoldTests {
         #expect(page.pendingFrames == 0)
     }
 
+    /// A key-up that never comes (it went to another app) does not leave the page scrolling:
+    /// with no key-down or repeat of its key for 2.5 s, the scroll stops; repeats keep it going.
+    @Test func aLostKeyUpStopsAfterTheRepeatsStop() {
+        let page = Page()
+        page.key("keydown", "j")
+        page.run(BrowserPageScroll.down.script)
+        let held = page.frames(until: 2400)
+        #expect(held.allSatisfy { $0.delta > 0 }, "still held at 2.4 s")
+        _ = page.frames(until: 2700)
+        #expect(page.pendingFrames == 0, "stopped 2.5 s after its last key event")
+        let repeating = Page()
+        repeating.key("keydown", "j")
+        repeating.run(BrowserPageScroll.down.script)
+        let frames = repeating.frames(until: 4000) { at in
+            if Int(at) % 500 < 17 { repeating.key("keydown", "j", repeat: true) }
+        }
+        #expect(frames.allSatisfy { $0.delta > 0 } && repeating.pendingFrames == 1, "repeats keep it running")
+    }
+
     /// The host ends a held scroll whose key-up the page never saw (it went up before the start
     /// script ran, or in another window); a release for another key leaves it running.
     @Test func theHostsReleaseEndsOnlyItsOwnKeysScroll() {

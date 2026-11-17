@@ -37,6 +37,10 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
     static let holdCruise = 0.2
     static let holdRamp = 0.3
     static let holdBrake = 0.025
+    /// A held key repeats (key-downs with `repeat`) at most this far apart (macOS's slowest
+    /// initial key-repeat delay is 1.8 s): with none for longer, its key-up was lost (it went to
+    /// another app, the page missed it) and the scroll ends instead of running on.
+    static let holdQuiet = 2.5
 
     /// The page's global for the scroll that runs, in the isolated world (``release(_:)``).
     static let state = "__cmuxPageScroll"
@@ -123,10 +127,10 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
             const key = \(Self.jsString(letter ?? ""));
             const running = globalThis.\(Self.state);
             // A key repeat of the key that runs it changes nothing: the frame clock drives it.
-            if (running && running.dir === dir && running.key === key && !running.released) return true;
+            if (running && running.dir === dir && running.key === key && !running.released) { running.alive(); return true; }
             if (running) running.cancel();
             const V0 = \(Self.holdSpeed), V1 = \(top), CRUISE = \(Self.holdCruise), RAMP = \(Self.holdRamp);
-            const BRAKE = \(Self.holdBrake), STEP = \(Self.step);
+            const BRAKE = \(Self.holdBrake), STEP = \(Self.step), QUIET = \(Self.holdQuiet * 1000);
             // Speed and distance after t seconds held: V0, then a smoothstep to V1 over RAMP.
             const speed = (t) => {
               if (t <= CRUISE) return V0;
@@ -148,6 +152,8 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
               return from + v * s - v * s * s / (2 * brake);
             };
             const self = { dir, key, released: false };
+            let heard = t0;
+            self.alive = () => { heard = performance.now(); };
             const ends = { keyup: null, blur: null, visibilitychange: null, pagehide: null, wheel: null, mousedown: null, keydown: null };
             const off = () => {
               for (const type in ends) if (ends[type]) {
@@ -169,6 +175,7 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
               brake = 2 * rest / v;
             };
             const tick = (now) => {
+              if (!self.released && now - heard > QUIET) self.release(key);
               const target = Math.round(dir * at(now));
               const delta = target - applied;
               applied = target;
@@ -186,7 +193,7 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
             // The person takes over: the wheel, a click or another key stops it where it is.
             ends.wheel = () => self.cancel();
             ends.mousedown = () => self.cancel();
-            ends.keydown = (event) => { if (!mine(event)) self.cancel(); };
+            ends.keydown = (event) => { if (mine(event)) self.alive(); else self.cancel(); };
             for (const type in ends) {
               (type === 'visibilitychange' ? document : window).addEventListener(type, ends[type], { capture: true, passive: true });
             }
