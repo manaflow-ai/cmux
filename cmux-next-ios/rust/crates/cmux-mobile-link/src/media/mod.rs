@@ -228,6 +228,8 @@ pub struct VideoClaim {
     inner: Arc<OutInner>,
     owner: watch::Receiver<u64>,
     pub keyframes: tokio::sync::broadcast::Receiver<()>,
+    /// Where the bytes of frames handed to a route are counted, if anywhere.
+    meter: Option<Arc<crate::link::ByteMeter>>,
 }
 
 /// A route added with [`VideoOut::add_route`]; dropping it removes the
@@ -341,6 +343,7 @@ impl VideoOut {
             inner: Arc::clone(&self.inner),
             owner: self.inner.owner.subscribe(),
             keyframes: self.inner.keyframes.subscribe(),
+            meter: None,
         }
     }
 
@@ -418,6 +421,13 @@ impl VideoClaim {
         *self.owner.borrow() == self.id
     }
 
+    /// Counts the access-unit bytes of every frame this claim hands to a
+    /// route from now on into `meter` (as sent). A dropped frame (a preempted
+    /// claim, a route waiting for a keyframe) counts nothing.
+    pub fn count_into(&mut self, meter: Arc<crate::link::ByteMeter>) {
+        self.meter = Some(meter);
+    }
+
     /// Resolves when a newer claim takes the lane.
     pub async fn preempted(&mut self) {
         let id = self.id;
@@ -449,10 +459,13 @@ impl VideoClaim {
         }
         match decision {
             routes::Decision::Send { frames, .. } => {
+                let size = frame.access_unit.len();
                 // A route whose sender just ended loses this frame; the next
                 // one goes on another route.
                 if frames.send((self.id, frame)).await.is_err() {
                     self.inner.bump();
+                } else if let Some(meter) = &self.meter {
+                    meter.add_sent(size);
                 }
                 Ok(())
             }
@@ -989,5 +1002,54 @@ mod tests {
                 assert!(back.abs_diff(capture) <= 12, "capture {capture} lag {lag} back {back}");
             }
         }
+    }
+
+    /// A carrier that takes every packet and never answers.
+    struct Sink;
+
+    impl MediaCarrier for Sink {
+        fn kind(&self) -> CarrierKind {
+            CarrierKind::WireGuardUdp
+        }
+        fn twcc_ext_id(&self) -> u8 {
+            1
+        }
+        fn send_rtp<'a>(&'a self, _: &'a rtp::packet::Packet) -> BoxFuture<'a, Result<(), MediaError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn send_rtcp(&self, _: RtcpPackets) -> BoxFuture<'_, Result<(), MediaError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn recv_rtp(&self) -> BoxFuture<'_, Option<rtp::packet::Packet>> {
+            Box::pin(std::future::pending())
+        }
+        fn recv_rtcp(&self) -> BoxFuture<'_, Option<RtcpPackets>> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    /// `cmux device traffic` (cmux-mobile-host traffic.rs): a claim's meter
+    /// counts a frame only once the lane hands it to a route. A frame the
+    /// lane refuses (here: a preempted claim's) counts nothing.
+    #[tokio::test]
+    async fn a_claims_meter_counts_frames_handed_to_a_route_only() {
+        let out = VideoOut::start(Arc::new(Sink), SenderConfig::default(), None);
+        let meter = Arc::new(crate::link::ByteMeter::default());
+        let mut first = out.claim();
+        first.count_into(Arc::clone(&meter));
+        let keyframe = h264::tests::access_unit(true, 3000, 7);
+        let size = keyframe.len() as u64;
+        first.send(OutgoingFrame { access_unit: keyframe, capture_us: 1 }).await.unwrap();
+        assert_eq!(meter.sent(), size);
+        let delta = h264::tests::access_unit(false, 500, 9);
+        let delta_size = delta.len() as u64;
+        first.send(OutgoingFrame { access_unit: delta, capture_us: 2 }).await.unwrap();
+        assert_eq!(meter.sent(), size + delta_size);
+        // A newer claim takes the lane: the old one's frames are refused, uncounted.
+        let _second = out.claim();
+        let refused = h264::tests::access_unit(false, 800, 5);
+        assert!(first.send(OutgoingFrame { access_unit: refused, capture_us: 3 }).await.is_err());
+        assert_eq!(meter.sent(), size + delta_size);
+        assert_eq!(meter.received(), 0);
     }
 }

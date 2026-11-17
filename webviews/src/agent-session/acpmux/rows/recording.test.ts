@@ -1,9 +1,10 @@
 // The page's row store fed the one recording of a daemon's chat stream (decision 242, row 6b):
-// each step's change strings as the client core gave them, through the host client, with the
-// page's calls in between as the recording made them. Nothing here is recorded again.
+// each step's change strings as the client core gave them, through the document's receiver, with
+// the page's calls in between as the recording made them. Nothing here is recorded again.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { ChatRowsHost } from "./host";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
@@ -36,18 +37,14 @@ function recorded(sids: string[]) {
   let blobs = 0;
   const names = [...sids];
   const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      posts.push({ method, params });
-      if (method === "chat.rows.open") return { sid: params.sid };
-      if (method === "chat.rows.blob") return { id: params.id };
-      return {};
-    },
-    store,
-    () => names.shift() ?? `blob.${++blobs}`,
-  );
-  let batch = 0;
-  const feed = (changes: string[]) => host.receive({ batch: ++batch, changes });
+  const post: ChatRowsPost = async (method, params) => {
+    posts.push({ method, params });
+    if (method === "chat.rows.open") return { sid: params.sid };
+    if (method === "chat.rows.blob") return { id: params.id };
+    return {};
+  };
+  const host = new ChatRowsHost(post, store, () => names.shift() ?? `blob.${++blobs}`);
+  const feed = chatRowsFeed(host, post);
   return { host, store, posts, falls, feed };
 }
 

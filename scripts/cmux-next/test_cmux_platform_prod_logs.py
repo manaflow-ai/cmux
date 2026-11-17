@@ -23,6 +23,8 @@ VM = "vm_0000aaaa1111bbbb2222"
 TEAM = "team_0000aaaa1111bbbb2222"
 PROD = "cmux-platform-production"
 STAGING = "cmux-platform-staging"
+VM_PROD = "cmux-vm-production"
+VM_STAGING = "cmux-vm-staging"
 LISTED = "cloud platform edge"
 
 
@@ -85,13 +87,13 @@ class WorkflowTests(unittest.TestCase):
                                     r"github\.ref == 'refs/heads/feat-cmux-next'$")
         self.assertEqual(len(re.findall(r"(?m)^  [a-z][a-z0-9_-]*:$", self.block("jobs"))), 1)
 
-    def test_the_service_is_a_choice_of_the_two_platform_workers(self):
+    def test_the_service_is_a_choice_of_the_platform_and_cmux_vm_workers(self):
         on = self.block("on")
         self.assertRegex(on, r"(?m)^      service:\n(?:        .*\n)*?        type: choice\n")
         options = re.search(r"(?m)^        options: \[([^\]]*)\]$", on)
         self.assertIsNotNone(options)
-        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING})
-        self.assertEqual(set(logs.SERVICES), {PROD, STAGING})
+        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, VM_PROD, VM_STAGING})
+        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, VM_PROD, VM_STAGING})
 
     def test_id_and_needles_are_required_and_never_in_step_env(self):
         on = self.block("on")
@@ -144,8 +146,8 @@ class GuardTests(unittest.TestCase):
         self.assertRegex(str(code), "needles: each")
         query.assert_not_called()
 
-    def test_only_the_two_platform_workers_are_read(self):
-        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-staging", PROD + " ", "cmux-platform-*"):
+    def test_only_the_listed_workers_are_read(self):
+        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
             with self.subTest(service=service):
                 code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
                                               "--needles", LISTED])
@@ -185,6 +187,45 @@ class GuardTests(unittest.TestCase):
         text = json.dumps(rows) + out
         for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM), "hunter2", "token=abc"):
             self.assertNotIn(leak, text)
+
+    def test_cmux_vm_window_counts_provider_failures_by_operation_and_status(self):
+        # cmux-platform#1442: Effect text lines of cmux-vm (src/upstream/live.ts logUpstreamFailure).
+        def vm_line(operation, status, extra=""):
+            return event(f'timestamp=2026-11-16T13:55:01.000Z level=WARN fiber=#12 message="cmux-vm upstream call failed" '
+                         f'operation={operation} status={status}{extra}',
+                         url="https://vm.example/v1/vms/" + VM + "/pause", status=503)
+        pause = vm_line("pauseVm", "503", ' cause="hunter2 ' + VM + '"')
+        timeout = vm_line("startVm", "none")
+        other = event('timestamp=x level=INFO fiber=#1 message="free text hunter2"', status=200)
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "12:"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-16T13:30:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [pause, pause, timeout, other]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        self.assertEqual(query.call_args.args[1], VM_PROD)
+        _, header, rows = upload.call_args.args
+        self.assertEqual((header["service"], header["id"], header["logs_dropped_unlisted"]), (VM_PROD, "window", 1))
+        by_op = {r["log"]["operation"]: r for r in rows if "log" in r}
+        self.assertEqual(by_op["pauseVm"]["log"], {"msg": "cmux-vm upstream call failed", "level": "warn",
+                                                   "operation": "pauseVm", "status": 503})
+        self.assertEqual(by_op["pauseVm"]["n"], 2)
+        self.assertEqual(by_op["pauseVm"]["path"], "/v1/vms/*/pause")
+        self.assertEqual(by_op["startVm"]["log"]["status"], "none")
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2"):
+            self.assertNotIn(leak, text)
+
+    def test_cmux_vm_refuses_an_id_scoped_read(self):
+        path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
+        try:
+            code, _, query, upload = run_main(["--from", "2026-11-16T13:30:00Z", "--from-event", path])
+        finally:
+            os.unlink(path)
+        self.assertNotEqual(code, 0)
+        query.assert_not_called()
+        upload.assert_not_called()
 
     def test_inputs_come_from_the_event_file_and_stdout_is_count_and_pointer(self):
         own = event({"msg": LISTED, "machine": VM, "outcome": "refused"})
