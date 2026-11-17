@@ -27,6 +27,10 @@ export type HarnessUpdateRow = {
 
 export type HarnessUpdates = {
   rows: HarnessUpdateRow[];
+  /// The person closed the footer (its ×) for these versions: the menus draw no update footer,
+  /// not even the single-offer one, until an agent has a version the closing did not cover.
+  dismissed: boolean;
+  dismiss(): void;
   /// Starts every row's update that is not already running, in one host call: the host spends the
   /// person's click on its first `harness.update`, so one call per row would run only the first.
   updateAll(): void;
@@ -54,6 +58,26 @@ export function outdatedHarnesses(
     out.push(health);
   }
   return out;
+}
+
+/// The versions the person closed the update footer for, by harness id (this browser profile).
+export const DISMISSED = "cmux.acpmux.dismissedUpdates";
+
+function dismissedVersions(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(DISMISSED) ?? "{}");
+    return value && typeof value === "object" ? (value as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/// Whether a closing covers every row: each agent's newest version is the one it was closed for.
+export function coveredByDismissal(
+  rows: readonly Pick<HarnessUpdateRow, "harness" | "latest">[],
+  dismissed: Record<string, string>,
+): boolean {
+  return rows.length > 0 && rows.every((row) => dismissed[row.harness] === row.latest);
 }
 
 type Progress = Record<string, { latest: string; phase: "updating" | "failed" | "done" }>;
@@ -91,6 +115,8 @@ export function useHarnessUpdateList({
   onUpdated(): void;
 }): HarnessUpdates | undefined {
   const [progress, setProgress] = useState<Progress>({});
+  // Read once per mount from the profile; dismiss() writes both, so every menu of this pane agrees.
+  const [dismissedNow, setDismissedNow] = useState<Record<string, string>>(dismissedVersions);
   const start = useCallback(
     (id: string, latest: string, reply?: Promise<unknown>) => {
       setProgress((now) => ({ ...now, [id]: { latest, phase: "updating" } }));
@@ -154,6 +180,20 @@ export function useHarnessUpdateList({
       }
       for (const row of alone) row.update();
     };
-    return { rows: list, updateAll };
-  }, [list, native]);
+    const dismiss = () => {
+      // Added to what other panes closed: each pane lists its own agents (its own agent's offer,
+      // the others from health), so one pane's closing must not reopen another's.
+      const next = {
+        ...dismissedVersions(),
+        ...Object.fromEntries(list.map((row) => [row.harness, row.latest])),
+      };
+      setDismissedNow(next);
+      try {
+        globalThis.localStorage?.setItem(DISMISSED, JSON.stringify(next));
+      } catch {
+        // No storage (a private window): closed for this pane only.
+      }
+    };
+    return { rows: list, updateAll, dismissed: coveredByDismissal(list, dismissedNow), dismiss };
+  }, [list, native, dismissedNow]);
 }
