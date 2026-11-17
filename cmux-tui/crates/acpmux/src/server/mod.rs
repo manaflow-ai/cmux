@@ -2378,6 +2378,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 pub use pairing::serve_connection_device;
+mod admission_redirect;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;

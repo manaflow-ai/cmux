@@ -1585,6 +1585,13 @@ async fn dispatch_request_with_identity(
             })
         }
         method::SESSION_NEW => {
+            // On a full host, a create that may go starts on the least-loaded connected host
+            // instead (`admission_redirect.rs`, Leo 2026-11-08); else it starts here.
+            if let Some(reply) =
+                super::admission_redirect::elsewhere(hub, conn, &params, fixed_id.is_some()).await
+            {
+                return Ok(reply);
+            }
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)

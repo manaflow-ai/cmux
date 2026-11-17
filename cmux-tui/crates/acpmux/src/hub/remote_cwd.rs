@@ -73,13 +73,13 @@ pub(super) fn check(cwd: &Path, tmp: &Path) -> Result<(), RpcError> {
 
 /// Whether `dir` or a folder above it holds `.git` (a folder, or the file a
 /// linked worktree or submodule has).
-fn in_work_tree(dir: &Path) -> bool {
+pub(super) fn in_work_tree(dir: &Path) -> bool {
     dir.ancestors().any(|d| d.join(".git").symlink_metadata().is_ok())
 }
 
 /// Whether `dir` sits strictly below the temporary folder and outside every
 /// remote chain's own `acpmux-remote-*` folder (as `refused_folder` has it).
-fn scratch(dir: &Path, tmp: &Path) -> bool {
+pub(super) fn scratch(dir: &Path, tmp: &Path) -> bool {
     let Ok(rest) = dir.strip_prefix(tmp) else { return false };
     match rest.components().next() {
         None => false,
