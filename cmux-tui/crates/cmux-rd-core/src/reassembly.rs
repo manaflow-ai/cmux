@@ -267,8 +267,10 @@ impl Reassembler {
         self.hold_us.saturating_add(current)
     }
 
-    /// Records a datagram's arrival: a silence that just ended joins the hold time.
-    fn note_arrival(&mut self, now_us: u64) {
+    /// Records that a datagram of any kind arrived on the link at `now_us`
+    /// (video goes through [`Self::push`], which records it too): a silence
+    /// that just ended joins the hold time.
+    pub fn note_datagram(&mut self, now_us: u64) {
         self.hold_us = self.hold_us_at(now_us);
         self.last_arrival_us = Some(self.last_arrival_us.map_or(now_us, |at| at.max(now_us)));
     }
@@ -333,7 +335,7 @@ impl Reassembler {
         payload: &[u8],
         now_us: u64,
     ) -> Vec<CompleteFrame> {
-        self.note_arrival(now_us);
+        self.note_datagram(now_us);
         self.expire(now_us);
         let too_far = self.finished_through != 0
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);

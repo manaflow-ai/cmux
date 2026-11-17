@@ -314,11 +314,19 @@ fn loss_produces_nacks_then_recovery() {
     for d in sent[1].1.iter().skip(1) {
         push(&r, d, 1_000);
     }
+    // The link stays live (frame 1's datagrams again, dropped as duplicates):
+    // the missing shard is loss, not a hold.
+    for t in (6_000..50_000).step_by(5_000) {
+        push(&r, &sent[0].1[0], t);
+    }
     // NACK after nack_after_us (5 ms) at the next due feedback (50 ms interval).
     let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
     assert_eq!(fb.nacks.len(), 1);
     assert_eq!(fb.nacks[0].frame, 2);
     assert_eq!(fb.nacks[0].indexes, vec![0]);
+    for t in (50_000..=201_001).step_by(5_000) {
+        push(&r, &sent[0].1[0], t);
+    }
     // The deadline (200 ms) names the next wakeup, then the frame is lost.
     // SAFETY: live receiver.
     let deadline = unsafe { cmux_rd_receiver_next_deadline_us(r.0) };

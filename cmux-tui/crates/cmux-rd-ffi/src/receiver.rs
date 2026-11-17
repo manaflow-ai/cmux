@@ -421,8 +421,17 @@ impl Receiver {
                 self.count_losses();
                 Ok(())
             }
-            _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),
+            _ => {
+                self.note_link_datagram(now_us);
+                self.queue_message(STREAM_DATAGRAM, datagram.to_vec())
+            }
         }
+    }
+
+    /// A datagram of any kind (another stream's, a clock pong) arrived on
+    /// this stream's link at `now_us`: the link is not on hold.
+    pub fn note_link_datagram(&mut self, now_us: u64) {
+        self.reassembler.note_datagram(now_us);
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {

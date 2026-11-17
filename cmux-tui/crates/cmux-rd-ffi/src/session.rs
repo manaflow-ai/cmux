@@ -275,6 +275,8 @@ impl Session {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), SessionError> {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+        // Every stream shares the link: any datagram shows it is not on hold.
+        self.streams.values_mut().for_each(|r| r.note_link_datagram(now_us));
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
                 let r = self.receiver(header.stream)?;

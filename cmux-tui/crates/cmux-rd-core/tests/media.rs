@@ -9,6 +9,17 @@ use cmux_rd_proto::{
 };
 use proptest::prelude::*;
 
+/// Other traffic on the link (clock pongs, other streams) every 5 ms from
+/// `from` through `to`, recorded up front: the link is live, so a missing
+/// shard is loss, not a hold.
+fn keep_alive(r: &mut Reassembler, from: u64, to: u64) {
+    let mut t = from;
+    while t <= to {
+        r.note_datagram(t);
+        t += 5_000;
+    }
+}
+
 fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
         t_capture_us: u64::from(frame) * 16_667,
@@ -133,6 +144,7 @@ fn a_frame_that_references_a_lost_frame_is_never_released() {
     assert!(deliver(&mut r, &mut p, 2, false, &[0], 1_000).is_empty());
     // Frame 3 is complete but references frame 2.
     assert!(deliver(&mut r, &mut p, 3, false, &[], 2_000).is_empty());
+    keep_alive(&mut r, 2_000, 100_000);
     assert!(r.tick(100_000).is_empty());
     let losses = r.take_losses();
     assert!(losses.contains(&FrameLoss::Incomplete { frame: 2 }));
@@ -480,6 +492,7 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     );
     let two = shards(&mut p, 2, 0, &p_frame(2, 1), 0);
     assert!(push_all(&mut r, &two[1..], 1_000).is_empty());
+    keep_alive(&mut r, 1_000, 1_000 + deadline);
     assert_eq!(r.next_expiry_us(), Some(1_000 + deadline + 1));
     assert!(r.tick(1_000 + deadline).is_empty());
     assert!(r.take_losses().is_empty(), "held through the deadline");

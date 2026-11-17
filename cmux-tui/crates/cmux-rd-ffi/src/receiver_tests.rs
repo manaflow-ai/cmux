@@ -26,6 +26,17 @@ fn deliver(r: &mut Receiver, datagrams: &[Vec<u8>], now: u64) {
     }
 }
 
+/// Other traffic on the link (clock pongs, other streams) every 5 ms from
+/// `from` through `to`, recorded up front: the link is live, so a missing
+/// shard is loss, not a hold.
+fn keep_alive(r: &mut Receiver, from: u64, to: u64) {
+    let mut t = from;
+    while t <= to {
+        r.note_link_datagram(t);
+        t += 5_000;
+    }
+}
+
 fn receiver() -> Receiver {
     Receiver::new(Carrier::Datagram, 200_000, 5_000)
 }
@@ -148,6 +159,7 @@ fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once
     }
     let frame = packets(&mut p, 14, 0, 13, 3000);
     deliver(&mut r, &frame[1..], 1_300_000);
+    keep_alive(&mut r, 1_300_000, 1_500_000);
     assert!(!decode_feedback(&r.feedback(1_305_000).expect("NACK")).nacks.is_empty());
     assert_eq!(r.next_deadline_us(), 1_355_000, "the retry, 50 ms after the NACK");
     let retry = decode_feedback(&r.feedback(1_355_000).expect("retry"));
@@ -184,6 +196,7 @@ fn a_frame_is_retried_and_given_up_two_rtt_plus_ten_ms_windows_after_its_nack() 
     assert!(r.feedback(0).is_some());
     let second = packets(&mut p, 2, 0, 1, 3000);
     deliver(&mut r, &second[1..], 1_000);
+    keep_alive(&mut r, 1_000, 200_000);
     let fb = decode_feedback(&r.feedback(6_000).expect("the NACK after the reorder grace"));
     assert_eq!(fb.nacks.len(), 1);
     assert_eq!(fb.nacks[0].indexes, vec![0]);
