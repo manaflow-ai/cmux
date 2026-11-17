@@ -552,6 +552,8 @@ fn only_the_tab_next_to_the_closed_tab_takes_the_active_tab_of_two_that_launched
         assert_eq!(strip_now(&mux, pane), (vec![a, third], 1), "{kind:?}");
         mux.close_surface(third).unwrap();
         connection.release(0);
+        assert_eq!(tabs(&mux, pane).len(), 2, "{kind:?}: the first terminal's tab is there");
+        assert_eq!(active_tab(&mux, pane), 0, "{kind:?}: the first terminal's tab is not active");
         connection.release(1);
         let [first, second] = connection.finish([1, 2]);
         assert_eq!(tabs(&mux, pane), [a, first, second], "{kind:?}");
@@ -625,6 +627,62 @@ fn a_tab_of_a_request_after_the_closed_tab_keeps_its_turn_for_the_active_tab() {
         assert_eq!(strip_now(&mux, pane), (vec![third, a, first], 0), "{kind:?}");
         mux.shutdown();
     }
+}
+
+/// A terminal tab after `b` still launches when a later request makes a page
+/// after it, which is then the active tab and the last tab. The page closes:
+/// one by one, the close gives the active tab to the terminal's tab. Then a
+/// person selects `a`, and the terminal's tab comes after that. One by one,
+/// the select is the last change of the active tab: `a` stays the active
+/// tab (decision of 2026-11-17: a tab that launched late takes the active
+/// tab from no tab that a person selected after the close).
+#[test]
+fn a_tab_that_launched_late_leaves_the_active_tab_to_a_tab_selected_after_the_close() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-then-selected-{kind:?}"));
+        mux.close_surface(c).unwrap();
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": b})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, second], 2), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a, b], 1), "{kind:?}");
+        mux.select_tab(Some(pane), Some(0), None);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b], 0), "{kind:?}: `a` is selected");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, first], 0), "{kind:?}: `a` stays active");
+        mux.shutdown();
+    }
+}
+
+/// A close of the pane is planned while a terminal tab after `a` still
+/// launches, and it is refused: the pane is a permanent column. The plan
+/// closed each tab of the pane on a copy of the session state, and `b` was
+/// the active tab. The pane keeps its tabs, and the terminal's tab lands
+/// after `a`, as with no close plan.
+#[test]
+fn a_refused_close_of_a_pane_keeps_the_slot_of_a_tab_that_still_launches() {
+    let (mux, pane, [a, b, c]) = strip("chain-refused-pane-close");
+    // A second column: a close of the permanent column would remove it.
+    mux.new_pane_right(pane, 0.5, None).unwrap();
+    let dock = json!({
+        "cmd": "set-column-dock", "pane": pane, "dock": true, "edge": "left",
+        "mode": "docked", "permanent": true,
+    });
+    run_as(&mux, 0, dock).unwrap();
+    mux.select_tab(Some(pane), Some(1), None);
+    assert_eq!(strip_now(&mux, pane), (vec![a, b, c], 1), "`b` is the active tab");
+    let connection = HeldConnection::new(&mux, 1);
+    connection.send(1, terminal(pane, "t1", json!({"after": a})));
+    connection.launching(0);
+    assert!(mux.close_pane(pane).is_err(), "the close of a permanent column was not refused");
+    assert_eq!(strip_now(&mux, pane), (vec![a, b, c], 1), "the pane keeps its tabs");
+    connection.release(0);
+    let [first] = connection.finish([1]);
+    assert_eq!(tabs(&mux, pane), [a, first, b, c]);
+    mux.shutdown();
 }
 
 /// The tab that a new terminal tab names closes while the terminal

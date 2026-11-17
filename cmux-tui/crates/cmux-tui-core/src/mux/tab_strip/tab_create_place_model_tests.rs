@@ -502,6 +502,67 @@ fn a_tab_that_only_a_close_made_active_leaves_the_turn_of_an_earlier_tab_that_as
     assert_eq!(real, [101, 2, 3, 100]);
 }
 
+/// A close of a pane with the tabs `1, 2, 3`, where `2` is the active tab,
+/// is planned on a copy of the session state while a terminal tab after `1`
+/// still launches. The list gets the call of each close of the plan; the
+/// second call has the strip of the copy, which has no `1`. The plan is
+/// refused and the pane keeps its tabs: the terminal's tab lands after `1`,
+/// as with no close plan.
+#[test]
+fn a_refused_close_of_more_than_one_tab_keeps_the_slot_of_a_tab_that_still_launches() {
+    let late = terminal(100, Some("t1"), Anchor::After(1));
+    let mut places = PlaceLists::default();
+    let mut real = FIRST.to_vec();
+    let first = admit(&mut places, &real, &late);
+    // The plan closes its tabs in strip order. The close of the last tab of
+    // a pane gives the list no call.
+    places.tab_closes(PANE, &[1, 2, 3], 1, false);
+    places.tab_closes(PANE, &[2, 3], 2, true);
+    assert!(commit(&mut places, &mut real, first, &late), "the only request");
+    assert_eq!(real, [1, 100, 2, 3]);
+}
+
+/// The page was the last tab, and its close gave the active tab of the pane
+/// to `3`. Then `3` closes too, before the terminal's tab comes. One by one,
+/// the terminal's tab was the active tab from the first close, so the close
+/// of `3` is not a close of the active tab: the terminal's tab takes the
+/// active tab when it comes.
+#[test]
+fn a_tab_that_launched_late_takes_the_active_tab_after_two_closes() {
+    let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(true);
+    places.tab_closes(PANE, &real, 3, true);
+    real.retain(|tab| *tab != 3);
+    assert!(commit(&mut places, &mut real, first, &late), "the terminal's tab is the active tab");
+    assert_eq!(real, [1, 2, 100]);
+}
+
+/// The limit of the record, kept here so that a change of it shows. Two
+/// terminal tabs still launch, the second after the first, when a page
+/// after the second is the active tab and closes: the close picks the slot
+/// of the second terminal's tab. Then the launch of the second terminal
+/// fails. One by one, a request that makes no tab leaves no entry, so the
+/// close gives the active tab to the first terminal's tab. The record does
+/// not pick again when a launch fails: the first terminal's tab does not
+/// take the active tab when it comes, and the tab that the pane made active
+/// at the close stays the active tab.
+#[test]
+fn limit_a_failed_launch_that_a_close_picked_gives_no_active_tab_to_the_tab_before_it() {
+    let first_late = terminal(100, Some("t1"), Anchor::After(3));
+    let second_late = terminal(101, Some("t2"), Anchor::AfterCreation("t1".to_string()));
+    let later = page(102, None, Anchor::AfterCreation("t2".to_string()));
+    let mut places = PlaceLists::default();
+    let mut real = FIRST.to_vec();
+    let first = admit(&mut places, &real, &first_late);
+    let second = admit(&mut places, &real, &second_late);
+    let third = admit(&mut places, &real, &later);
+    assert!(commit(&mut places, &mut real, third, &later), "the page: the last request");
+    places.tab_closes(PANE, &real, 102, true);
+    real.retain(|tab| *tab != 102);
+    places.end(second, None);
+    assert!(!commit(&mut places, &mut real, first, &first_late), "this is the limit");
+    assert_eq!(real, [1, 2, 3, 100]);
+}
+
 /// One step of a generated case: a request that names its tab or its
 /// creation by a place among those that the strip has at that step.
 #[derive(Clone, Debug)]
