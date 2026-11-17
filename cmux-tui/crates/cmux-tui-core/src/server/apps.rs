@@ -553,6 +553,7 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),

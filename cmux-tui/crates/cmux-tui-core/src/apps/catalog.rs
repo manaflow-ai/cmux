@@ -22,6 +22,12 @@ pub struct Package {
     pub source: Source,
     pub dir: PathBuf,
     pub manifest: Value,
+    /// The catalog fragment (`catalog: "<file>"`) as the validator read it
+    /// when the package loaded. `apps-list` asks every package for its
+    /// palette commands under the supervisor lock: read from disk there,
+    /// each list read and parsed every app's fragment while every other apps
+    /// request waited.
+    pub fragment: Option<std::sync::Arc<Value>>,
 }
 
 impl Package {
@@ -67,10 +73,10 @@ impl Package {
             .collect()
     }
 
-    /// The app's catalog fragment (`catalog: "<file>"`).
-    fn catalog_fragment(&self) -> Option<Value> {
-        let file = self.manifest.get("catalog").and_then(Value::as_str)?;
-        self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+    /// The app's catalog fragment (`catalog: "<file>"`), as loaded.
+    fn catalog_fragment(&self) -> Option<&Value> {
+        self.manifest.get("catalog").and_then(Value::as_str)?;
+        self.fragment.as_deref()
     }
 
     /// The fragment's `family` and the entry of `op`.
@@ -196,6 +202,8 @@ impl Package {
     /// A file of the package, refused when it (or a symlink on the way)
     /// leaves the package directory.
     pub(super) fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        work::count(|w| w.package_file_reads += 1);
         let root = self.dir.canonicalize().ok()?;
         let path = self.dir.join(relative).canonicalize().ok()?;
         if !path.starts_with(&root) {
@@ -204,12 +212,14 @@ impl Package {
         std::fs::read(path).ok()
     }
 
-    /// `strings/<locale>.json` falling back to English.
+    /// `strings/<locale>.json` for the full tag (`de-CH`), then its
+    /// language (`de`), falling back to English.
     pub fn strings(&self, locale: &str) -> Value {
         let Some(dir) = self.manifest.get("strings").and_then(Value::as_str) else {
             return Value::Null;
         };
-        for candidate in [locale, "en"] {
+        let language = locale.split('-').next().unwrap_or(locale);
+        for candidate in [locale, language, "en"] {
             if let Some(raw) = self.read(&format!("{dir}/{candidate}.json"))
                 && let Ok(value) = serde_json::from_slice::<Value>(&raw)
             {
@@ -376,7 +386,19 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                     }
                     catalog.packages.insert(package.id.clone(), package);
                 }
-                Ok(_) => {}
+                // A second folder with a loaded id is refused with the folder
+                // that has it, so a person whose saves there change nothing
+                // can see why (base: it was dropped without a word).
+                Ok(package) => {
+                    let first = catalog
+                        .packages
+                        .get(&package.id)
+                        .map(|p| p.dir.display().to_string())
+                        .unwrap_or_default();
+                    catalog
+                        .rejected
+                        .push((dir, format!("{}: already loaded from {first}", package.id)));
+                }
                 Err(issue) => catalog.rejected.push((dir, issue)),
             }
         }
@@ -424,7 +446,45 @@ pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
     }
 }
 
+/// Work counters for the constant-cost tests (`supervisor_scale_tests.rs`):
+/// the packages a reload pass validated and the package files an
+/// `apps-list` read, on the calling thread.
+#[cfg(test)]
+pub(super) mod work {
+    use std::cell::Cell;
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct Work {
+        /// Packages read and validated (`catalog::package`).
+        pub packages_validated: usize,
+        /// Files read through `Package::read` (fragments, scripts, strings).
+        pub package_file_reads: usize,
+    }
+
+    thread_local! {
+        static WORK: Cell<Work> = Cell::new(Work::default());
+    }
+
+    pub fn count(f: impl FnOnce(&mut Work)) {
+        WORK.with(|cell| {
+            let mut work = cell.get();
+            f(&mut work);
+            cell.set(work);
+        });
+    }
+
+    /// The work `f` did on this thread.
+    pub fn of<T>(f: impl FnOnce() -> T) -> (T, Work) {
+        let before = WORK.with(Cell::take);
+        let out = f();
+        let done = WORK.with(|cell| cell.replace(before));
+        (out, done)
+    }
+}
+
 fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+    #[cfg(test)]
+    work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
         dir,
         manifest_file(dir, kind == DirKind::FirstParty),
@@ -435,6 +495,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
             .map(|i| format!("{} {}: {}", i.path, i.code, i.message))
             .unwrap_or_default());
     }
+    let fragment = report.catalog.map(std::sync::Arc::new);
     let manifest = report.manifest.ok_or("no manifest")?;
     let id = manifest["id"].as_str().unwrap_or_default().to_string();
     let publisher = id.split('/').next().unwrap_or_default();
@@ -469,6 +530,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         source,
         dir: dir.to_path_buf(),
         manifest,
+        fragment,
     };
     // A fragment may not define an op the backend catalog owns: such an op
     // is served only through serves.ops, with the backend's policy (fail
@@ -505,6 +567,7 @@ mod tests {
             source: Source::Bundled,
             dir: dir.clone(),
             manifest: json!({ "catalog": "catalog.json" }),
+            fragment: Some(std::sync::Arc::new(catalog)),
         };
         let export = package.export_for_op("notes.open");
         let commands = package.palette_commands();
