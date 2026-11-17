@@ -1153,6 +1153,9 @@ const WARM_VIEWPORTS = 1;
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
 
+/// The history key a transcript's first render defers from (`historyShown`): no chat's.
+const NO_HISTORY = "\u0000no history";
+
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
 
@@ -4296,14 +4299,22 @@ function TranscriptView({
     warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
     height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
   );
-  // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
-  // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
+  // A followed view (a chat as it opens, at its latest row) mounts that history around the view it
+  // draws, not around the deferred anchor: the deferred anchor of a chat's first commit is the top of
   // its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
-  const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
-    : undefined;
+  // The chat's first rows paint the view alone: its history mounts in the deferred render React runs
+  // right after that commit (`historyShown`), before a reader can scroll, so the open's first frame
+  // builds and measures one viewport of rows, not five (CMUX-571: a cold open spent most of the time
+  // from its attach to the newest message building rows above the view).
+  // A transcript that mounts with its rows defers them as well (`NO_HISTORY` is its first value).
+  const historyKey = rows.length > 0 ? (sessionId ?? "") : undefined;
+  const historyShown = useDeferredValue(historyKey, NO_HISTORY) === historyKey;
+  const history =
+    renderFollowing && historyShown
+      ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+      : undefined;
   const scrolledRanges = mergeRowRanges([
     ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
     ...(history ? [history] : []),
