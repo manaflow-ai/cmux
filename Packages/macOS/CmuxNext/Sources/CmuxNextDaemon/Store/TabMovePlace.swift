@@ -16,29 +16,42 @@
 /// That is the daemon's order when a held close is rolled back, and when the daemon refuses a sent close of a tab
 /// right of the place.
 ///
+/// Second decision of 2026-11-17: a move has no place while the tab on its left has a waiting move of its own. The
+/// store does not know where that tab is on the daemon's list then: the daemon can refuse its move, and it can
+/// leave the tab where it was with no error (a pinned column keeps its first tab at the first place). A place
+/// directly after that tab showed the later moved tab one slot off the daemon's order in each of the two cases. So
+/// the later move goes by its own index, as it did before this type, and the place is read at its first apply
+/// where the tab on its left has no waiting move. Each read of a place reads the log's intents one time (each
+/// intent that waits for an answer); a move with a place is not read again.
+///
 /// The command to the daemon does not have this type's rule: it keeps the index, not the neighbours. In two cases
 /// the store's order and the daemon's are not the same until the move's answer settles (the move's event alone does
 /// not heal it: `IntentOverlay.restore` applies the waiting move again), and then the daemon's order shows:
 /// - the daemon refuses a sent close of a tab left of the place. The command did not count that tab, so the daemon's
 ///   move puts the moved tab one slot left of its place (`AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`, the row of
 ///   the refusal);
-/// - the move of the left neighbour is refused: by the daemon, or by the store at a request that passed its
-///   deadline or lost its connection (`TabMovePlaceTests`, the limit row, with who reaches it).
+/// - a hidden close starts or ends while the move of the left neighbour waits. The later move has no place then,
+///   and its index names another slot on the changed list (`TabMovePlaceTests`, the limit row, with who reaches it).
 struct TabMovePlace: Equatable {
     /// The tab that the moved tab stands directly before in the daemon's order; nil: it is the pane's last tab.
     let before: SurfaceID?
     /// The tab that it stands directly after in the daemon's order; nil: it is the pane's first tab.
     let after: SurfaceID?
 
-    /// The place that a tab move's apply gives its tab, read before the apply. Nil for each other intent, and when
-    /// the apply finds no target pane or no tab.
+    /// The place that a tab move's apply gives its tab, read before the apply. Nil for each other intent, when the
+    /// apply finds no target pane or no tab, and while the tab on its left has a waiting move of its own.
     @MainActor init?(of intent: Intent, in store: DaemonStore) {
         guard case .moveTab(let surface, let toPane, let index) = intent, let target = store.panesByHandle[toPane],
               store.pane(containing: surface) != nil else { return nil }
         let order = store.daemonOrder(of: target).filter { $0 != surface }
         let slot = store.daemonMoveIndex(max(index, 0), moving: surface, in: target).final
+        let left = slot > 0 ? order[checked: slot - 1] : nil
+        let leftWaits = store.intentLog.entries.contains { entry in
+            if case .moveTab(let moved, _, _) = entry.kind { moved == left } else { false }
+        }
+        guard !leftWaits else { return nil }
         before = order[checked: slot]
-        after = slot > 0 ? order[checked: slot - 1] : nil
+        after = left
     }
 
     /// The tab move `intent` with the index that puts its tab at this place among the target pane's tabs now:
