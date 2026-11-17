@@ -54,9 +54,6 @@ struct Pending {
     /// The link's time away when this frame's first shard arrived: the time
     /// away since then is what this frame's give-up clock skips.
     away_base_us: u64,
-    /// Silences this frame's give-up time fell inside that ended with an
-    /// arrival before they became outages: the clock stood still for them too.
-    silence_credit_us: u64,
     first_seen_us: u64,
     last_seen_us: u64,
     highest_index: u16,
@@ -247,24 +244,8 @@ impl Reassembler {
     /// Records that a datagram of any kind arrived on the link at `now_us`
     /// (video goes through [`Self::push`], which records it too): an outage
     /// in progress ends.
-    ///
-    /// A frame whose give-up time fell inside the silence this arrival ends
-    /// gets the silence back: a hold shorter than the outage threshold
-    /// delivers its late shards in a burst, and giving the frame up at the
-    /// burst's first datagram would drop it as its repair lands.
     pub fn note_datagram(&mut self, now_us: u64) {
         let rtt = self.rtt_us();
-        if let Some(last) = self.link.last_arrival_us().filter(|&last| now_us > last) {
-            let t = self.timing_at(now_us);
-            let silence = now_us - last;
-            for p in self.pending.values_mut() {
-                let at = Self::give_up_at(p, &t);
-                if !Self::decodable(p) && at > last && at < now_us {
-                    p.silence_credit_us =
-                        p.silence_credit_us.saturating_add(silence).min(OUTAGE_FREEZE_MAX_US);
-                }
-            }
-        }
         self.link.on_arrival(now_us, rtt);
     }
 
@@ -362,7 +343,6 @@ impl Reassembler {
         let away_base_us = self.link.away_total_us();
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
             away_base_us,
-            silence_credit_us: 0,
             first_seen_us: now_us,
             last_seen_us: now_us,
             highest_index: header.index,
@@ -582,11 +562,7 @@ impl Reassembler {
     /// wait is the most a frame waits. Both stand still while the link is
     /// away (an outage, design D12), for at most [`OUTAGE_FREEZE_MAX_US`].
     fn give_up_at(p: &Pending, t: &Timing) -> u64 {
-        let paused = t
-            .away_us
-            .saturating_sub(p.away_base_us)
-            .saturating_add(p.silence_credit_us)
-            .min(OUTAGE_FREEZE_MAX_US);
+        let paused = t.away_us.saturating_sub(p.away_base_us).min(OUTAGE_FREEZE_MAX_US);
         Self::give_up_unpaused_at(p, t).saturating_add(paused)
     }
 
