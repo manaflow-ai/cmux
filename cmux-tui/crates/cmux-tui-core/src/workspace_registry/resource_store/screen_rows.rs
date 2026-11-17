@@ -507,7 +507,14 @@ fn with_column_docks(
     mut screens: Vec<RegistryScreen>,
     side_rows: SideRows,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
-    let rows = side_records(side_rows, &screens, " WHERE screen_id = ?1", |filter, params| {
+    // The full load reads `resource_column_docks` with no ORDER BY, and the
+    // engine then gives the rows in rowid order: that is the engine's
+    // behaviour, not a promise of SQL. A read keyed by the screen alone
+    // would walk the primary key and give the column id order, and of 2
+    // stored docks of one edge the first row wins. So the keyed read names
+    // the order the full load sees.
+    let in_rowid_order = " WHERE screen_id = ?1 ORDER BY rowid";
+    let rows = side_records(side_rows, &screens, in_rowid_order, |filter, params| {
         stored_docks(connection, filter, params)
     })?;
     for (screen_id, column_id, edge, mode) in rows {
