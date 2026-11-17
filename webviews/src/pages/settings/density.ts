@@ -53,11 +53,11 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabMaxWidth: 201,
   rowCornerRadius: 9,
   tabCornerRadius: 9,
-  omnibarCornerRadius: 8,
+  omnibarCornerRadius: 8 / 0.9,
   omnibarPopupCornerRadius: 12,
   omnibarPopupRowCornerRadius: 8,
   toolbarGlyphSize: 14 / 0.9 / 0.617,
-  omnibarHeight: 29,
+  omnibarHeight: 28 / 0.9,
   omnibarFontSize: (10 - 0.31) / 0.70459 / 0.9,
   omnibarLineBoxBaseline: 1,
   omnibarButtonSpacing: 3,
@@ -74,6 +74,8 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarPopupRowGap: 2,
   omnibarPopupBottomPadding: 4,
 };
+
+const CHROME_OMNIBAR_HEIGHT = 34;
 
 /** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
 const omnibarTokens = (tokens: Record<string, number>) =>
@@ -94,8 +96,13 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
-  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`).
-  if (id === "cozy") Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
+  // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
+  if (id === "cozy") {
+    Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+    tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
+    tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
+  }
   return {
     id,
     name,

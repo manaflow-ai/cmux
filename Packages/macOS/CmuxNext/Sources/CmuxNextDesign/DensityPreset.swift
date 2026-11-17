@@ -59,6 +59,10 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         // Default's omnibar is Compact's (``omnibarScaleFactor``).
         if self == .cozy {
             for (key, value) in Self.compact.tokens.tokens where Self.isOmnibarToken(key) { sizes[key] = value }
+            // Default's bar is Chrome's location bar (Lucas 2026-11-17: "for chrome the omnibar should be 34px tall
+            // (chrome = default, but still same font size)"), rounded at Helium's 8 on 28. Its text and icons stay Compact's.
+            sizes["omnibarHeight"] = Self.chromeOmnibarHeight
+            sizes["omnibarCornerRadius"] = Double(DensityTokens.half(Self.chromeOmnibarHeight * 8 / 28))
         }
         return DensityTokens(id: rawValue, name: name, level: (Self.referenceTokens.level + 3) * t - 3,
                              spacing: Self.referenceTokens.spacing * t,
@@ -67,11 +71,15 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
 
     /// The factor the browser toolbar row (the omnibar and its toolbar glyphs) scales Default's reference by: Compact's
     /// at Default (Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them
-    /// exactly"), each density's own elsewhere. The toolbar buttons follow the omnibar's height.
+    /// exactly"), each density's own elsewhere. The toolbar buttons follow the omnibar's height. Default's bar alone is
+    /// Chrome's (``chromeOmnibarHeight``).
     public var omnibarScaleFactor: Double { self == .cozy ? Self.compact.scaleFactor : scaleFactor }
 
     /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
     static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
+
+    /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants), with Compact's text.
+    static let chromeOmnibarHeight: Double = 34
 
     // The unscaled reference also resolves sizes that use the legacy compact/comfortable pairs.
     static let referenceTokens = DensityTokens(id: cozy.rawValue, name: "Default", level: 0.5, fontSize: 14,
@@ -85,14 +93,15 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         "sidebarIconColumn": 16.5, "sidebarIconGap": 7,
         "tabIconSize": 16.5, "tabIconTitleGap": 7, "tabGap": 3, "tabMaxWidth": 201,
         "rowCornerRadius": 9, "tabCornerRadius": 9,
-        "omnibarCornerRadius": 8, "omnibarPopupCornerRadius": 12, "omnibarPopupRowCornerRadius": 8,
-        // Helium's toolbar at Compact (its reference, Lucas 2026-11-16): the reload glyph draws 14 px tall, the omnibar's
+        "omnibarCornerRadius": 8 / 0.9, "omnibarPopupCornerRadius": 12, "omnibarPopupRowCornerRadius": 8,
+        // Helium's toolbar at Compact (its reference, Lucas 2026-11-16): the location bar is 28 pt tall with 8 pt corners
+        // (Lucas 2026-11-17: ours was 26), the reload glyph draws 14 px tall, the omnibar's
         // search glyph 12 px and its text's capitals 10 px; Default is those over Compact's 0.9. The glyphs' ink fills
         // about 0.617 (toolbar) and 0.697 (search) of their boxes, measured in HeliumToolbarSizeTests. macOS font smoothing
         // grows the capitals about 0.31 pt, so the font's own are that much under 10: the H then fills exactly 20 rows at 2x,
         // with no lit row above it (Lucas 2026-11-17: at 0.14 a 21st row lit 39% and the H read taller than 10).
         "toolbarGlyphSize": 14 / 0.9 / 0.617,
-        "omnibarHeight": 29, "omnibarFontSize": (10 - 0.31) / 0.70459 / 0.9, "omnibarLineBoxBaseline": 1,
+        "omnibarHeight": 28 / 0.9, "omnibarFontSize": (10 - 0.31) / 0.70459 / 0.9, "omnibarLineBoxBaseline": 1,
         "omnibarButtonSpacing": 3, "omnibarEdgeInset": 2, "omnibarFieldTrailingGap": 5,
         "omnibarTrailingPadding": 8,
         "omnibarTrailingIconSize": 18, "omnibarIconViewSize": 25, "omnibarIconSize": 12 / 0.9 / 0.697,
