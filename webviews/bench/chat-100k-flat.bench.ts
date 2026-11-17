@@ -960,7 +960,20 @@ try {
             if (value === null || typeof value !== "object" || seen.has(value) || depth > 2) return;
             seen.add(value);
             const size = value instanceof Map || value instanceof Set ? value.size : -1;
-            if (size >= 1000) out.push(`${where}=${value.constructor.name}(${size})`);
+            if (size >= 1000) {
+              // A sample of what it holds: its first and last entries, so its owner reads from its keys.
+              const entries = [...(value as Map<unknown, unknown> | Set<unknown>).entries()];
+              const show = (entry: [unknown, unknown] | undefined) => {
+                if (!entry) return "";
+                const [k, v] = entry;
+                const kind = (x: unknown) =>
+                  x === null || typeof x !== "object"
+                    ? JSON.stringify(x)?.slice(0, 50)
+                    : (x.constructor?.name ?? "Object");
+                return value instanceof Set ? kind(k) : `${kind(k)} -> ${kind(v)}`;
+              };
+              out.push(`${where}=${value.constructor.name}(${size})[${show(entries[0])} .. ${show(entries.at(-1))}]`);
+            }
             if (size >= 0 || Array.isArray(value) || value instanceof Node) return;
             for (const [key, field] of Object.entries(value)) look(`${where}.${key}`, field, depth + 1);
           };
