@@ -53,8 +53,10 @@ LOG = "\n".join([
     f"    {SWIFTC} -module-name cmux -Onone -DX -Osize @/tmp/dd/cmux.SwiftFileList",
     f"    builtin-SwiftDriver -- {SWIFTC} -module-name Fast -Ounchecked @/tmp/dd/Fast.SwiftFileList",
     f"    builtin-SwiftDriver -- {SWIFTC} -module-name Plain @/tmp/dd/Plain.SwiftFileList",
-    # Lines that are no Swift compile command: an environment line with the compiler's path, a C compile, a link.
+    # Lines that are no Swift compile command: an environment line with the compiler's path, a tool that is no
+    # compiler with a module name and a level word, a C compile, a link.
     f"    export SWIFT_EXEC\\={SWIFTC}",
+    "    /usr/bin/swift-symbolgraph-extract -module-name NotACompile -O",
     "    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -Os -c a.c -o a.o",
     "    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -O -o cmux a.o",
     "** BUILD SUCCEEDED **",
@@ -112,6 +114,21 @@ class BuildFlags(unittest.TestCase):
         self.assertEqual(record["swift"]["lines"], {"-Onone": 0, "-O": 0, "-Osize": 0, "other": 0, "none": 0})
         self.assertEqual(record["settings"]["CMUX_SWIFT_OPT"], {"-O": ["CmuxNextDaemon", "CmuxNextTabs"]})
 
+    def test_a_word_of_another_tool_is_no_level_of_the_swift_compiler(self):
+        """`-Os` after `-Xcc` is a word for the C compiler and `-ObjC` is a word for the linker: the Swift compiler
+        has the levels -Onone, -O, -Osize, -Ounchecked and -Oplayground only."""
+        log = "\n".join([
+            f"    builtin-SwiftDriver -- {SWIFTC} -module-name WithACWord -O -Xcc -Os @/tmp/dd/a.SwiftFileList",
+            f"    builtin-SwiftDriver -- {SWIFTC} -module-name WithALinkWord -Osize -ObjC @/tmp/dd/b.SwiftFileList",
+            f"    builtin-SwiftDriver -- {SWIFTC} -module-name OnlyOtherWords -Xcc -Oz -Objc @/tmp/dd/c.SwiftFileList",
+            f"    builtin-SwiftDriver -- {SWIFTC} -module-name Playground -O -Oplayground @/tmp/dd/d.SwiftFileList",
+        ]) + "\n"
+        record = M.read(self.reload_output(log)[0])
+        self.assertEqual(record["swift"]["modules"], {
+            "-Onone": [], "-O": ["WithACWord"], "-Osize": ["WithALinkWord"], "other": ["Playground"],
+            "none": ["OnlyOtherWords"]})
+        self.assertEqual(record["swift"]["lines"], {"-Onone": 0, "-O": 1, "-Osize": 1, "other": 1, "none": 1})
+
     def test_the_last_reload_line_names_the_log(self):
         printed, at = self.reload_output()
         with open(printed) as f:
@@ -151,6 +168,21 @@ class BuildFlags(unittest.TestCase):
             if log is not None:
                 os.remove(self.path("reload-own.log"))
 
+    def test_main_prints_the_line_with_exit_0_when_the_out_file_cannot_be_written(self):
+        printed, _ = self.reload_output()
+        out, said, errors = self.path("no-folder/build-flags.json"), io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(said), contextlib.redirect_stderr(errors), \
+                mock.patch.object(sys, "argv", ["build-flags.py", printed, "--out", out]):
+            try:
+                code = M.main()
+            except OSError as error:
+                code = f"main raised {error!r}"
+        self.assertEqual(code, 0)
+        lines = said.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(json.loads(lines[0][len("BUILD-FLAGS "):])["log_read"])
+        self.assertIn("no-folder", errors.getvalue())
+
 
 class TheToolsUse(unittest.TestCase):
     """Each of the 2 tools puts the file into its report, and says so when it has none."""
@@ -180,6 +212,26 @@ class TheToolsUse(unittest.TestCase):
             self.assertIn("no --build file", tool.build_facts(None)["not_read"], name)
             self.assertIn("broken.json", tool.build_facts(broken)["not_read"], name)
             self.assertIn("none.json", tool.build_facts(os.path.join(self.dir.name, "none.json"))["not_read"], name)
+
+    def test_a_tool_with_a_file_whose_json_is_no_object_says_not_read(self):
+        path = os.path.join(self.dir.name, "no-object.json")
+        for text in ("[]", "3", "null", '"words"'):
+            with open(path, "w") as f:
+                f.write(text)
+            for name, tool in self.tools.items():
+                with self.subTest(tool=name, json=text):
+                    got = tool.build_facts(path)
+                    self.assertIsInstance(got, dict)
+                    self.assertIn("no-object.json: not a JSON object", got.get("not_read", ""))
+
+    def test_each_tool_puts_the_record_into_its_report_and_the_held_key_tool_gives_the_file_to_its_artifact(self):
+        """Text only: the `main` of a tool needs an app, so no row calls it."""
+        for file in ("held-new-tab.py", "pane-motion-films.py"):
+            with open(os.path.join(HERE, "..", file)) as f:
+                text = f.read()
+            self.assertIn('"build": build_facts(opts.build)', text, file)
+            if file == "held-new-tab.py":
+                self.assertIn("pack(opts.out, opts.film, opts.artifact, opts.build)", text, file)
 
     def test_the_held_key_tools_artifact_has_the_file(self):
         out, build = os.path.join(self.dir.name, "measure"), os.path.join(self.dir.name, "build-flags.json")
