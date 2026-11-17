@@ -103,9 +103,7 @@ test("a card that comes back during the exit stays", async () => {
   await render(container, next);
   await act(async () => exit.end());
   expect(card(container)?.hasAttribute("data-leaving")).toBe(false);
-  expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
-    "Calculator, live",
-  );
+  expect(container.querySelector("button")?.getAttribute("aria-label")).toBe("Calculator, live");
 });
 
 test("a new frame shows only once it has decoded, and the one before stays until then", async () => {

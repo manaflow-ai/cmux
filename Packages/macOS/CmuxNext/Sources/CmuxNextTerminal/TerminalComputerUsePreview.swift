@@ -48,6 +48,10 @@ public final class TerminalComputerUsePreview: NSView {
         }
     }
 
+    /// The close button's fill: a dark translucent circle readable over a light or a dark window,
+    /// as the agent chat's card draws it (`--cu-preview-close-fill`).
+    static let closeFill = NSColor.black.withAlphaComponent(0.52)
+
     /// The small card's width; the enlarged one takes up to ``expandedFraction`` of the pane.
     public static let width: CGFloat = 180
     public static let expandedWidth: CGFloat = 560
@@ -69,7 +73,6 @@ public final class TerminalComputerUsePreview: NSView {
     private let closeButton = NSButton()
     private var aspect: CGFloat = 0.625
     private var decoding: String?
-    private static let decoder = DispatchQueue(label: "terminal-cu-preview-decode", qos: .userInitiated)
 
     public init() {
         super.init(frame: .zero)
@@ -108,6 +111,7 @@ public final class TerminalComputerUsePreview: NSView {
         frameLayer.addSublayer(badge)
         layer?.addSublayer(frameLayer)
         closeButton.image = NSImage.icon(.actionClose, size: 10)
+        closeButton.contentTintColor = .white
         closeButton.bezelStyle = .circular
         closeButton.isBordered = false
         closeButton.wantsLayer = true
@@ -147,25 +151,27 @@ public final class TerminalComputerUsePreview: NSView {
 
     private func decode(_ url: String) {
         decoding = url
-        Self.decoder.async { [weak self] in
-            let image = Self.image(fromDataURL: url)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self, self.decoding == url, let image else { return }
-                    self.decoding = nil
-                    let aspect = image.width > 0 ? CGFloat(image.height) / CGFloat(image.width) : self.aspect
-                    let resized = abs(aspect - self.aspect) > 0.001
-                    self.aspect = aspect
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.frameLayer.contents = image
-                    CATransaction.commit()
-                    if self.card != nil { self.isHidden = false }
-                    if resized { self.invalidateIntrinsicContentSize() }
-                    self.superview?.needsLayout = true
-                }
-            }
+        // task-owner: one frame's decode; a newer frame or a hide supersedes it (`decoding`).
+        Task { [weak self] in
+            let image = await Self.decoded(url)
+            guard let self, self.decoding == url, let image else { return }
+            self.decoding = nil
+            let aspect = image.width > 0 ? CGFloat(image.height) / CGFloat(image.width) : self.aspect
+            let resized = abs(aspect - self.aspect) > 0.001
+            self.aspect = aspect
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.frameLayer.contents = image
+            CATransaction.commit()
+            if self.card != nil { self.isHidden = false }
+            if resized { self.invalidateIntrinsicContentSize() }
+            self.superview?.needsLayout = true
         }
+    }
+
+    /// The JPEG of a frame's data URL, decoded off the main thread.
+    @concurrent nonisolated static func decoded(_ url: String) async -> CGImage? {
+        image(fromDataURL: url)
     }
 
     nonisolated static func image(fromDataURL url: String) -> CGImage? {
@@ -207,7 +213,7 @@ public final class TerminalComputerUsePreview: NSView {
         closeButton.frame = CGRect(x: 6, y: bounds.height - 24, width: 18, height: 18)
         performWithTheme {
             frameLayer.borderColor = Palette.separator.cgColor
-            closeButton.layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            closeButton.layer?.backgroundColor = Self.closeFill.cgColor
         }
     }
 

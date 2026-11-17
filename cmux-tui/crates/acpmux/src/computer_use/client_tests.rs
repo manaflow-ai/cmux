@@ -512,9 +512,9 @@ async fn a_primary_server_gives_codex_the_normal_instructions() {
 fn a_session_attaches_once_and_a_relayed_one_never() {
     let dir = tmp();
     let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
-    let caller = caller(FakeDaemon::new(vec![Ok(worker.ready())]));
+    let local = caller(FakeDaemon::new(vec![Ok(worker.ready())]));
     for id in ["c1", "c2", "c3"] {
-        assert!(matches!(caller.call("list_windows", &json!({}), id), Outcome::Output(_)));
+        assert!(matches!(local.call("list_windows", &json!({}), id), Outcome::Output(_)));
     }
     let attaches = worker.attaches.lock().unwrap().clone();
     assert_eq!(attaches.len(), 1, "{attaches:?}");

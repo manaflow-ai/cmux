@@ -124,9 +124,11 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
 }
 
 /// A click on the card: it enlarges.
-const expand = (name: string): Play => async (ctx) => {
-  await ctx.click({ role: "button", name });
-};
+const expand =
+  (name: string): Play =>
+  async (ctx) => {
+    await ctx.click({ role: "button", name });
+  };
 
 /// The close button hovered: a little brighter and a little larger.
 const closeHover: Play = async (ctx) => {

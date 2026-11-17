@@ -1,7 +1,7 @@
-import AppKit
-import CmuxNextAgentPane
-import CmuxNextDaemon
-import CmuxNextTerminal
+public import AppKit
+public import CmuxNextAgentPane
+public import CmuxNextDaemon
+public import CmuxNextTerminal
 
 /// Computer Use's live preview in the cmux surface its agent runs in: each `computer-use-preview`
 /// event of the local daemon (the worker's preview hub, cmux-computer-use preview.rs, relayed by
@@ -12,20 +12,26 @@ import CmuxNextTerminal
 /// (`computerUse.livePreview`) is the worker's; this only finds the view, and keeps the sessions the
 /// person hid so a page that loads again does not bring their card back.
 @MainActor
-final class ComputerUsePreviewRouter {
-    private unowned let services: AppServices
-    /// Sessions whose card the person hid (until a new session; a few per launch).
+public final class ComputerUsePreviewRouter {
+    /// The agent chat view showing acpmux session `chat`, if any.
+    private let chat: @MainActor (_ chat: String) -> AgentPaneView?
+    /// The terminal view of the tab whose terminal is `terminal` (`CMUX_TUI_TERMINAL_ID`), with the
+    /// tab's id, if it has a surface.
+    private let terminal: @MainActor (_ terminal: String) -> (tab: String, host: TerminalHostView)?
+    /// Sessions whose card the person hid (a few per launch).
     private var hidden: Set<String> = []
     /// The terminal cards made, by tab id.
     private var terminalCards: [String: TerminalComputerUsePreview] = [:]
     private var subscription: UInt64?
 
-    init(services: AppServices) {
-        self.services = services
+    public init(chat: @escaping @MainActor (String) -> AgentPaneView?,
+                terminal: @escaping @MainActor (String) -> (tab: String, host: TerminalHostView)?) {
+        self.chat = chat
+        self.terminal = terminal
     }
 
     /// Follows `store`'s `computer-use-preview` events (pushed, never polled).
-    func follow(_ store: DaemonStore) {
+    public func follow(_ store: DaemonStore) {
         guard subscription == nil else { return }
         subscription = store.sideEvents.subscribe { [weak self] event in
             guard case .unknown(name: "computer-use-preview", let payload) = event else { return }
@@ -34,36 +40,28 @@ final class ComputerUsePreviewRouter {
     }
 
     func take(_ payload: JSONValue) {
-        guard case .object(let line) = payload, case .string(let session)? = line["session"], case .object(let surface)? = line["surface"] else { return }
-        let card: [String: JSONValue]? = if case .object(let card)? = line["card"] { card } else { nil }
-        let shown = hidden.contains(session) ? nil : card
-        if case .string(let chat)? = surface["chat"] {
-            showInChat(chat, Self.chatCard(shown))
-        } else if case .string(let terminal)? = surface["terminal"] {
-            showInTerminal(terminal, Self.terminalCard(shown))
+        guard case .object(let line) = payload, case .string(let session)? = line["session"],
+              case .object(let surface)? = line["surface"] else { return }
+        let card: [String: JSONValue]? = if case .object(let card)? = line["card"], !hidden.contains(session) { card } else { nil }
+        if case .string(let id)? = surface["chat"] {
+            guard let view = chat(id) else { return }
+            AgentPaneComputerUsePreview.show(Self.chatCard(card), on: view) { [weak self] session, action in
+                if action == .close { self?.hide(session) }
+            }
+        } else if case .string(let id)? = surface["terminal"], let (tab, host) = terminal(id) {
+            show(Self.terminalCard(card), tab: tab, host: host)
         }
     }
 
-    private func showInChat(_ chat: String, _ preview: AgentPaneComputerUsePreview?) {
-        let tabs = services.agentTabs
-        guard let view = tabs.views.entries.first(where: { tabs.session(of: $0.key.key, machine: $0.key.machine) == chat })?.value else { return }
-        AgentPaneComputerUsePreview.show(preview, on: view) { [weak self] session, action in
-            if action == .close { self?.hide(session) }
-        }
-    }
-
-    private func showInTerminal(_ terminal: String, _ card: TerminalComputerUsePreview.Card?) {
-        let store = services.daemon.store
-        guard let tab = store.tab(terminalResource: ResourceID(rawValue: terminal)) ?? store.tab(terminal: TerminalID(rawValue: terminal)),
-              let host = services.cache.existingTerminal(tab.id)?.session.view else { return }
+    private func show(_ card: TerminalComputerUsePreview.Card?, tab: String, host: TerminalHostView) {
         let view: TerminalComputerUsePreview
-        if let made = terminalCards[tab.id], host.computerUsePreview === made {
+        if let made = terminalCards[tab], host.computerUsePreview === made {
             view = made
         } else {
             guard card != nil else { return }
             view = TerminalComputerUsePreview()
             view.onClose = { [weak self] session in self?.hide(session) }
-            terminalCards[tab.id] = view
+            terminalCards[tab] = view
             host.computerUsePreview = view
         }
         view.show(card)
@@ -78,14 +76,13 @@ final class ComputerUsePreviewRouter {
     static func chatCard(_ card: [String: JSONValue]?) -> AgentPaneComputerUsePreview? {
         guard let card, case .string(let session)? = card["session"], case .string(let frame)? = card["frame"] else { return nil }
         let app: String = if case .string(let app)? = card["app"] { app } else { "" }
-        let done = card["done"] == .bool(true)
         var pointer: AgentPaneComputerUsePreview.Pointer?
         if case .object(let p)? = card["pointer"], case .number(let x)? = p["x"], case .number(let y)? = p["y"] {
             let click: Double = if case .number(let c)? = p["click"] { c } else { 0 }
             let width: Double? = if case .number(let w)? = p["windowWidth"] { w } else { nil }
             pointer = .init(x: x, y: y, click: UInt64(max(0, click)), windowWidth: width)
         }
-        return AgentPaneComputerUsePreview(session: session, app: app, done: done, frame: frame, pointer: pointer)
+        return AgentPaneComputerUsePreview(session: session, app: app, done: card["done"] == .bool(true), frame: frame, pointer: pointer)
     }
 
     /// The terminal pane's card of a preview line's `card`.
