@@ -78,60 +78,55 @@ pub fn light_field(
     if count == 0 || count > LIGHT_MAX_PIXELS || bytes_per_row < width.checked_mul(4)? {
         return None;
     }
-    let needed = bytes_per_row.checked_mul(height - 1)?.checked_add(width * 4)?;
+    let needed =
+        bytes_per_row.checked_mul(height.checked_sub(1)?)?.checked_add(width.checked_mul(4)?)?;
     if pixels.len() < needed {
         return None;
     }
 
-    // Linear RGB per pixel, alpha as a weight (transparent pixels count for nothing).
-    let mut rgb = vec![[0.0f64; 3]; count];
-    let mut weight = vec![0.0f64; count];
-    let mut luma = vec![0.0f64; count];
-    for y in 0..height {
-        for x in 0..width {
-            let at = y * bytes_per_row + x * 4;
-            let alpha = f64::from(pixels[at + 3]) / 255.0;
-            let i = y * width + x;
-            if alpha <= 0.0 {
-                continue;
+    // Linear RGB per pixel, alpha as a weight (transparent pixels count for nothing), rows top first.
+    let samples: Vec<Sample> = pixels
+        .chunks(bytes_per_row)
+        .take(height)
+        .flat_map(|row| row.chunks_exact(4).take(width))
+        .map(|px| match *px {
+            [r, g, b, a] if a > 0 => {
+                let alpha = f64::from(a) / 255.0;
+                let straight = |v: u8| linear((f64::from(v) / 255.0 / alpha).clamp(0.0, 1.0));
+                let rgb = [straight(r), straight(g), straight(b)];
+                Sample { rgb, weight: alpha, luma: luminance(rgb) }
             }
-            let straight = |v: u8| (f64::from(v) / 255.0 / alpha).clamp(0.0, 1.0);
-            let c = [
-                linear(straight(pixels[at])),
-                linear(straight(pixels[at + 1])),
-                linear(straight(pixels[at + 2])),
-            ];
-            rgb[i] = c;
-            weight[i] = alpha;
-            luma[i] = luminance(c);
-        }
-    }
-    let total: f64 = weight.iter().sum();
+            _ => Sample { rgb: [0.0; 3], weight: 0.0, luma: 0.0 },
+        })
+        .collect();
+    let total: f64 = samples.iter().map(|s| s.weight).sum();
     if total <= 0.0 {
         return None;
     }
 
     let mut mean = [0.0; 3];
-    for (c, w) in rgb.iter().zip(&weight) {
-        for k in 0..3 {
-            mean[k] += c[k] * w;
+    for s in &samples {
+        for (m, v) in mean.iter_mut().zip(s.rgb) {
+            *m += v * s.weight;
         }
     }
     let mean = mean.map(|v| v / total);
     let ambient_luminance = luminance(mean);
 
-    let key = key_light(&rgb, &weight, &luma, width, height);
-    let (dominant, dominant_weight, dominant_count) = dominant_colors(&rgb, &weight);
+    let key = key_light(&samples, width, height);
+    let (dominant, dominant_weight, dominant_count) = dominant_colors(&samples);
 
     // The bloom: chroma times the square root of coverage, so a small vivid
     // accent beats a wide grey, and a speck never wins.
-    let bloom_source = (0..dominant_count)
-        .filter(|&i| dominant_weight[i] >= 0.03)
-        .max_by(|&a, &b| {
-            let score = |i: usize| chroma(dominant[i]) * dominant_weight[i].sqrt();
-            score(a).total_cmp(&score(b))
-        })
-        .map_or(mean, |i| dominant[i]);
+    let score = |(color, share): &([f64; 3], f64)| chroma(*color) * share.sqrt();
+    let bloom_source = dominant
+        .iter()
+        .copied()
+        .zip(dominant_weight)
+        .take(dominant_count)
+        .filter(|(_, share)| *share >= 0.03)
+        .max_by(|a, b| score(a).total_cmp(&score(b)))
+        .map_or(mean, |(color, _)| color);
 
     let encode = |c: [f64; 3]| c.map(|v| gamma(v.clamp(0.0, 1.0)).clamp(0.0, 1.0));
     Some(LightField {
@@ -204,9 +199,11 @@ pub fn light_rim(
     height: f64,
     diagonal: f64,
 ) -> Option<LightRim> {
-    if !(width > 0.0 && height > 0.0 && diagonal > 0.0)
-        || ![light_x, light_y, x, y].iter().all(|v| v.is_finite())
-    {
+    let valid = width > 0.0
+        && height > 0.0
+        && diagonal > 0.0
+        && [light_x, light_y, x, y].iter().all(|v| v.is_finite());
+    if !valid {
         return None;
     }
     // A narrow light reaches half the container; a sky reaches all of it.
@@ -309,101 +306,109 @@ struct KeyLight {
     spread: f64,
 }
 
+/// One pixel, decoded: linear RGB, its alpha as a weight, and its luminance.
+#[derive(Clone, Copy)]
+struct Sample {
+    rgb: [f64; 3],
+    weight: f64,
+    luma: f64,
+}
+
 /// The brightest region: the peak of the luminance blurred over a ninth of
 /// the picture, then the luminance-weighted center and color of the bright
 /// pixels around that peak (pixels past the top [`KEY_QUANTILE`] within the
 /// blur's reach twice over), so two separate highlights never average into
 /// the dark between them.
-fn key_light(
-    rgb: &[[f64; 3]],
-    weight: &[f64],
-    luma: &[f64],
-    width: usize,
-    height: usize,
-) -> KeyLight {
+fn key_light(samples: &[Sample], width: usize, height: usize) -> KeyLight {
     let radius = (width.max(height) / 9).max(1);
-    let blurred = box_blur(luma, weight, width, height, radius);
+    let blurred = box_blur(samples, width, height, radius);
     let (peak, peak_value) = blurred
         .iter()
         .enumerate()
         .fold((0, f64::MIN), |best, (i, &v)| if v > best.1 { (i, v) } else { best });
     let (peak_x, peak_y) = (peak % width, peak / width);
 
-    let mut sorted: Vec<f64> =
-        luma.iter().zip(weight).filter(|(_, w)| **w > 0.0).map(|(l, _)| *l).collect();
+    let mut sorted: Vec<f64> = samples.iter().filter(|s| s.weight > 0.0).map(|s| s.luma).collect();
     sorted.sort_by(f64::total_cmp);
-    let threshold = sorted[((sorted.len() - 1) as f64 * KEY_QUANTILE) as usize];
-    let median = sorted[(sorted.len() - 1) / 2];
+    let last = sorted.len().saturating_sub(1);
+    let quantile = |q: f64| sorted.get((last as f64 * q) as usize).copied().unwrap_or(0.0);
+    let threshold = quantile(KEY_QUANTILE);
+    let median = quantile(0.5);
 
-    let reach = (radius * 2) as isize;
+    let reach = radius.saturating_mul(2);
     let mut sum = (0.0, 0.0, 0.0, [0.0; 3]);
     let mut bright = 0usize;
-    for y in 0..height {
-        for x in 0..width {
-            let i = y * width + x;
-            if weight[i] <= 0.0 || luma[i] < threshold {
-                continue;
-            }
-            bright += 1;
-            if (x as isize - peak_x as isize).abs() > reach
-                || (y as isize - peak_y as isize).abs() > reach
-            {
-                continue;
-            }
-            let w = (luma[i] - threshold + 1e-4) * weight[i];
-            sum.0 += w;
-            sum.1 += w * (x as f64 + 0.5);
-            sum.2 += w * (y as f64 + 0.5);
-            for k in 0..3 {
-                sum.3[k] += w * rgb[i][k];
-            }
+    for (i, s) in samples.iter().enumerate() {
+        if s.weight <= 0.0 || s.luma < threshold {
+            continue;
+        }
+        bright += 1;
+        let (x, y) = (i % width, i / width);
+        if x.abs_diff(peak_x) > reach || y.abs_diff(peak_y) > reach {
+            continue;
+        }
+        let w = (s.luma - threshold + 1e-4) * s.weight;
+        sum.0 += w;
+        sum.1 += w * (x as f64 + 0.5);
+        sum.2 += w * (y as f64 + 0.5);
+        for (acc, v) in sum.3.iter_mut().zip(s.rgb) {
+            *acc += w * v;
         }
     }
     let (cx, cy, color) = if sum.0 > 0.0 {
         (sum.1 / sum.0 / width as f64, sum.2 / sum.0 / height as f64, sum.3.map(|v| v / sum.0))
     } else {
-        ((peak_x as f64 + 0.5) / width as f64, (peak_y as f64 + 0.5) / height as f64, rgb[peak])
+        let peak_color = samples.get(peak).map_or([0.0; 3], |s| s.rgb);
+        ((peak_x as f64 + 0.5) / width as f64, (peak_y as f64 + 0.5) / height as f64, peak_color)
     };
     // Contrast of the blurred peak over the median, as a Weber fraction squashed to 0..=1.
     let contrast = (peak_value - median).max(0.0) / (median + 0.05);
     let strength = (contrast / (contrast + 0.75)).clamp(0.0, 1.0);
-    let spread = (bright as f64 / (width * height) as f64 / (1.0 - KEY_QUANTILE)).clamp(0.0, 1.0)
+    let spread = (bright as f64 / samples.len() as f64 / (1.0 - KEY_QUANTILE)).clamp(0.0, 1.0)
         * (1.0 - strength * 0.5);
     KeyLight { color, x: cx, y: cy, strength, spread }
 }
 
-/// The alpha-weighted mean of `values` over a square of `radius` around each
-/// pixel, through a summed-area table.
-fn box_blur(
-    values: &[f64],
-    weight: &[f64],
-    width: usize,
-    height: usize,
-    radius: usize,
-) -> Vec<f64> {
+/// The alpha-weighted mean luminance over a square of `radius` around each
+/// pixel, through summed-area tables (one row and one column of zeros first).
+fn box_blur(samples: &[Sample], width: usize, height: usize, radius: usize) -> Vec<f64> {
     let stride = width + 1;
-    let mut sum_v = vec![0.0; stride * (height + 1)];
-    let mut sum_w = vec![0.0; stride * (height + 1)];
-    for y in 0..height {
-        for x in 0..width {
-            let i = y * width + x;
-            let at = (y + 1) * stride + x + 1;
-            sum_v[at] =
-                values[i] * weight[i] + sum_v[at - 1] + sum_v[at - stride] - sum_v[at - stride - 1];
-            sum_w[at] = weight[i] + sum_w[at - 1] + sum_w[at - stride] - sum_w[at - stride - 1];
+    let cells = stride * (height + 1);
+    let mut sum_v: Vec<f64> = Vec::with_capacity(cells);
+    let mut sum_w: Vec<f64> = Vec::with_capacity(cells);
+    sum_v.resize(stride, 0.0);
+    sum_w.resize(stride, 0.0);
+    // `table[at]` (0 off the table) for a table being filled: its left, upper and upper-left neighbors.
+    let get =
+        |table: &[f64], at: Option<usize>| at.and_then(|at| table.get(at)).copied().unwrap_or(0.0);
+    let next = |table: &[f64], value: f64| {
+        let at = table.len();
+        value + get(table, at.checked_sub(1)) + get(table, at.checked_sub(stride))
+            - get(table, at.checked_sub(stride + 1))
+    };
+    for row in samples.chunks(width).take(height) {
+        sum_v.push(0.0);
+        sum_w.push(0.0);
+        for s in row {
+            let v = next(&sum_v, s.luma * s.weight);
+            let w = next(&sum_w, s.weight);
+            sum_v.push(v);
+            sum_w.push(w);
         }
     }
     let area = |table: &[f64], x0: usize, y0: usize, x1: usize, y1: usize| {
-        table[y1 * stride + x1] - table[y0 * stride + x1] - table[y1 * stride + x0]
-            + table[y0 * stride + x0]
+        get(table, Some(y1 * stride + x1))
+            - get(table, Some(y0 * stride + x1))
+            - get(table, Some(y1 * stride + x0))
+            + get(table, Some(y0 * stride + x0))
     };
-    let mut out = vec![0.0; width * height];
+    let mut out = Vec::with_capacity(width * height);
     for y in 0..height {
         for x in 0..width {
             let (x0, y0) = (x.saturating_sub(radius), y.saturating_sub(radius));
             let (x1, y1) = ((x + radius + 1).min(width), (y + radius + 1).min(height));
             let w = area(&sum_w, x0, y0, x1, y1);
-            out[y * width + x] = if w > 0.0 { area(&sum_v, x0, y0, x1, y1) / w } else { 0.0 };
+            out.push(if w > 0.0 { area(&sum_v, x0, y0, x1, y1) / w } else { 0.0 });
         }
     }
     out
@@ -426,25 +431,41 @@ fn distance2(a: [f64; 3], b: [f64; 3]) -> f64 {
 
 type Dominant = ([[f64; 3]; LIGHT_DOMINANT_COUNT], [f64; LIGHT_DOMINANT_COUNT], usize);
 
+/// A pixel that counts (alpha above zero), with its OKLab color for the
+/// assignment and the center it is assigned to.
+struct Member {
+    rgb: [f64; 3],
+    lab: [f64; 3],
+    weight: f64,
+    center: usize,
+}
+
 /// K-means over the pixels: assigned by OKLab distance (perceptual), each
 /// center the alpha-weighted mean of its pixels in linear light. Seeded
 /// deterministically: the pixel farthest from the mean, then each next
 /// farthest from every seed so far, so one picture always gives one answer.
 /// Clusters that end empty or nearly identical are dropped; sorted by weight.
-fn dominant_colors(rgb: &[[f64; 3]], weight: &[f64]) -> Dominant {
-    let lab: Vec<[f64; 3]> = rgb.iter().map(|c| oklab(*c)).collect();
-    let live: Vec<usize> = (0..rgb.len()).filter(|&i| weight[i] > 0.0).collect();
-    let mut centers: Vec<[f64; 3]> = Vec::with_capacity(LIGHT_DOMINANT_COUNT);
+fn dominant_colors(samples: &[Sample]) -> Dominant {
+    let mut members: Vec<Member> = samples
+        .iter()
+        .filter(|s| s.weight > 0.0)
+        .map(|s| Member { rgb: s.rgb, lab: oklab(s.rgb), weight: s.weight, center: 0 })
+        .collect();
     let mut lab_mean = [0.0; 3];
-    for &i in &live {
-        for k in 0..3 {
-            lab_mean[k] += lab[i][k];
+    for m in &members {
+        for (acc, v) in lab_mean.iter_mut().zip(m.lab) {
+            *acc += v;
         }
     }
-    let lab_mean = lab_mean.map(|v| v / live.len() as f64);
-    let mut nearest: Vec<f64> = live.iter().map(|&i| distance2(lab[i], lab_mean)).collect();
+    let lab_mean = lab_mean.map(|v| v / members.len().max(1) as f64);
+    let mut centers: Vec<[f64; 3]> = Vec::with_capacity(LIGHT_DOMINANT_COUNT);
+    let mut nearest: Vec<f64> = members.iter().map(|m| distance2(m.lab, lab_mean)).collect();
     while centers.len() < LIGHT_DOMINANT_COUNT {
-        let Some((pick, &far)) = nearest.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))
+        let Some((seed, far)) = members
+            .iter()
+            .zip(&nearest)
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(m, &far)| (m.lab, far))
         else {
             break;
         };
@@ -452,42 +473,40 @@ fn dominant_colors(rgb: &[[f64; 3]], weight: &[f64]) -> Dominant {
         if !centers.is_empty() && far < 1e-5 {
             break;
         }
-        let seed = lab[live[pick]];
         centers.push(seed);
-        for (n, &i) in nearest.iter_mut().zip(&live) {
-            *n = n.min(distance2(lab[i], seed));
+        for (n, m) in nearest.iter_mut().zip(&members) {
+            *n = n.min(distance2(m.lab, seed));
         }
     }
 
-    let mut linear_centers = vec![[0.0; 3]; centers.len()];
-    let mut weights = vec![0.0; centers.len()];
-    let mut assignment = vec![0usize; rgb.len()];
+    // Each center's linear mean and weight after the last round.
+    let mut clusters: Vec<([f64; 3], f64)> = vec![([0.0; 3], 0.0); centers.len()];
     for _ in 0..CLUSTER_ROUNDS {
         let mut changed = false;
-        for &i in &live {
-            let best = (0..centers.len())
-                .min_by(|&a, &b| {
-                    distance2(lab[i], centers[a]).total_cmp(&distance2(lab[i], centers[b]))
-                })
-                .unwrap_or(0);
-            changed |= assignment[i] != best;
-            assignment[i] = best;
+        for m in &mut members {
+            let best = centers
+                .iter()
+                .enumerate()
+                .min_by(|a, b| distance2(m.lab, *a.1).total_cmp(&distance2(m.lab, *b.1)))
+                .map_or(0, |(i, _)| i);
+            changed |= m.center != best;
+            m.center = best;
         }
-        linear_centers.iter_mut().for_each(|c| *c = [0.0; 3]);
-        weights.iter_mut().for_each(|w| *w = 0.0);
-        for &i in &live {
-            let a = assignment[i];
-            weights[a] += weight[i];
-            for k in 0..3 {
-                linear_centers[a][k] += rgb[i][k] * weight[i];
+        clusters.iter_mut().for_each(|c| *c = ([0.0; 3], 0.0));
+        for m in &members {
+            if let Some((sum, weight)) = clusters.get_mut(m.center) {
+                *weight += m.weight;
+                for (acc, v) in sum.iter_mut().zip(m.rgb) {
+                    *acc += v * m.weight;
+                }
             }
         }
-        for (c, w) in linear_centers.iter_mut().zip(&weights) {
-            if *w > 0.0 {
-                *c = c.map(|v| v / w);
+        for (sum, weight) in &mut clusters {
+            if *weight > 0.0 {
+                *sum = sum.map(|v| v / *weight);
             }
         }
-        for (center, linear) in centers.iter_mut().zip(&linear_centers) {
+        for (center, (linear, _)) in centers.iter_mut().zip(&clusters) {
             *center = oklab(*linear);
         }
         if !changed {
@@ -495,16 +514,18 @@ fn dominant_colors(rgb: &[[f64; 3]], weight: &[f64]) -> Dominant {
         }
     }
 
-    let total: f64 = weights.iter().sum();
-    let mut order: Vec<usize> = (0..centers.len()).filter(|&i| weights[i] > 0.0).collect();
-    order.sort_by(|&a, &b| weights[b].total_cmp(&weights[a]));
+    let total: f64 = clusters.iter().map(|(_, w)| w).sum();
+    clusters.retain(|(_, w)| *w > 0.0);
+    clusters.sort_by(|a, b| b.1.total_cmp(&a.1));
     let mut colors = [[0.0; 3]; LIGHT_DOMINANT_COUNT];
     let mut shares = [0.0; LIGHT_DOMINANT_COUNT];
-    for (slot, &i) in order.iter().enumerate() {
-        colors[slot] = linear_centers[i];
-        shares[slot] = if total > 0.0 { weights[i] / total } else { 0.0 };
+    for ((color, share), (linear, weight)) in
+        colors.iter_mut().zip(shares.iter_mut()).zip(&clusters)
+    {
+        *color = *linear;
+        *share = if total > 0.0 { weight / total } else { 0.0 };
     }
-    (colors, shares, order.len())
+    (colors, shares, clusters.len().min(LIGHT_DOMINANT_COUNT))
 }
 
 #[cfg(test)]
