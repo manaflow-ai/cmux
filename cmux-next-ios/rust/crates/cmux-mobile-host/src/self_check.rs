@@ -919,12 +919,20 @@ mod tests {
     #[tokio::test]
     async fn a_silent_phone_times_out_and_a_closed_one_is_closed() {
         let registry = Registry::default();
-        let (registration, commands) = registry.register("silent", json!({}));
-        fake_phone(commands, Vec::new(), None);
+        let (registration, mut commands) = registry.register("silent", json!({}));
+        // It takes the run and keeps it, saying nothing.
+        let silent = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Some(command) = commands.recv().await {
+                held.push(command);
+            }
+            held
+        });
         let mut out = Vec::new();
         run(&registry, &json!({}), QUICK, &mut out).await.unwrap();
         assert_eq!(answer_lines(&out)[0]["error"], "timeout");
         drop(registration);
+        silent.abort();
         assert!(registry.phones().is_empty());
 
         // The channel goes away during the run.
