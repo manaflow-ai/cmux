@@ -657,6 +657,35 @@ fn a_tab_that_launched_late_leaves_the_active_tab_to_a_tab_selected_after_the_cl
     }
 }
 
+/// As the test before this one, but the person selects `a` and then `b`
+/// again, the tab that the close made active. The pane shows the same active
+/// tab as directly after the close, but a person selected it: one by one, a
+/// select is the last change of the active tab. `b` stays the active tab
+/// (decision of 2026-11-17: each select of a person after the close ends the
+/// wait of the tab that launched late, also a select of the same tab).
+#[test]
+fn a_tab_that_launched_late_leaves_the_active_tab_to_the_same_tab_selected_again() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-then-selected-again-{kind:?}"));
+        mux.close_surface(c).unwrap();
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": b})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, second], 2), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a, b], 1), "{kind:?}");
+        mux.select_tab(Some(pane), Some(0), None);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b], 0), "{kind:?}: `a` is selected");
+        mux.select_tab(Some(pane), Some(1), None);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b], 1), "{kind:?}: `b` is selected again");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, first], 1), "{kind:?}: `b` stays active");
+        mux.shutdown();
+    }
+}
+
 /// A close of the pane is planned while a terminal tab after `a` still
 /// launches, and it is refused: the pane is a permanent column. The plan
 /// closed each tab of the pane on a copy of the session state, and `b` was
