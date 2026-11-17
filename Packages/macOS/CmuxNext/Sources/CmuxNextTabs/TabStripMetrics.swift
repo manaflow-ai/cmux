@@ -46,6 +46,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
+    public var busyUnreadMark: TabBusyUnreadMark?
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat

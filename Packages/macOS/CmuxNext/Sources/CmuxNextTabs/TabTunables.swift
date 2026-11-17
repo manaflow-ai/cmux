@@ -24,6 +24,30 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a busy tab with unread output draws its two states (`TabTunables.busyUnreadMark`; the tab bar playground's
+/// Busy + Unread page compares them). Leo 2026-10-22 (ask-a8b97f1201): "the tab unread + simultaneous ongoing thing
+/// feels weird idk if there is a way to combine + the spacing is off". Every look but `pair` draws one mark in the
+/// status slot (the x's), so the unread dot takes the spinner's place when the work ends and nothing moves.
+public nonisolated enum TabBusyUnreadMark: String, Sendable, CaseIterable, TunableChoice {
+    /// The spinner alone in the status slot while the work runs; the unread dot takes its place when it ends.
+    case spinner
+    /// The spinner in the status slot, drawn in the unread dot's blue while the tab has unread output.
+    case tintedSpinner
+    /// The spinner in the status slot ringing a small unread dot at its center.
+    case dotInRing
+    /// Before: the unread dot in the status slot and the spinner beside it.
+    case pair
+
+    public var tunableTitle: String {
+        switch self {
+        case .spinner: "Spinner, then the dot in its place"
+        case .tintedSpinner: "Spinner in the unread blue"
+        case .dotInRing: "Spinner ringing the unread dot"
+        case .pair: "Before: dot and spinner side by side"
+        }
+    }
+}
+
 /// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
 /// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
 /// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
@@ -200,12 +224,18 @@ public nonisolated enum TabTunables {
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
         default: .split, code: "TabTunables.trailingButtons")
+    // @intent Leo 2026-10-22 (ask-a8b97f1201): one mark for a busy tab with unread output, not the dot and the
+    // spinner side by side; the tab bar playground's Busy + Unread page compares the looks.
+    public static let busyUnreadMark = Tunable<TabBusyUnreadMark>.choice(
+        "tabs.busyUnreadMark", .tabs, "Busy and unread tab mark",
+        help: "How a busy tab with unread output draws: one mark in the status slot, or the old dot and spinner side by side.",
+        default: .pair, code: "TabTunables.busyUnreadMark")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }
