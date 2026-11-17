@@ -2771,9 +2771,11 @@ export function judgeStubCredentials(rows: { cred_sha256?: string; tools?: strin
  * names its env sets (names only, never a value).
  */
 export const CREDENTIAL_PROCESSES_PROGRAM =
-  `for p in $(pgrep -u "$(id -u)" -f '(^|/)claude( |$)|claude-(agent|code)' | head -8); do ` +
-  `echo "pid $p: $(tr '\\0\\n' '  ' < /proc/$p/cmdline 2>/dev/null | cut -c1-100) :: ` +
-  `$(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN)=' | tr -d = | tr '\\n' ' ')"; done`;
+  `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
+  `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-100); ` +
+  `printf '%s\\n' "$c" | grep -qE '(^|/)claude( |$)|claude-(agent|code)' || continue; ` +
+  `echo "pid \${d#/proc/}: $c :: $(tr '\\0' '\\n' < "$d/environ" 2>/dev/null | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN)=' | tr -d = | tr '\\n' ' ')"; ` +
+  `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
 
 /**
  * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
