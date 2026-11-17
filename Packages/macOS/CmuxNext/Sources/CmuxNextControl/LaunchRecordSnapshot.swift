@@ -1,3 +1,4 @@
+public import CoreGraphics
 public import Foundation
 
 public nonisolated struct LaunchRecordWindowSnapshot: Sendable {
